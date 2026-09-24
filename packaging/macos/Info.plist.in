@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  MeshClient.app's own Info.plist, filled in by scripts/package-macos.sh.
+
+  The bare binary carries a smaller one of its own, linked into __TEXT (src/app/Info.plist.in),
+  for a run from a shell. This one is the bundle's, and it adds what a double-click needs.
+
+  LSEnvironment is how a launch from Finder or the Dock gets the two settings a shell passes by
+  hand. Without MESHCLIENT_UI_BACKEND the client falls back to the framebuffer backend, which a
+  Mac does not have. Without MESHCLIENT_RUN_MODE it polls once and exits before the window has
+  been drawn.
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>meshclient</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.mcereal.meshclient</string>
+    <key>CFBundleName</key>
+    <string>MeshClient</string>
+    <key>CFBundleDisplayName</key>
+    <string>MeshClient</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>@MIN_MACOS@</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>MeshClient talks to a Meshtastic radio over Bluetooth.</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>MIT License. Copyright (c) 2025 Michael Curtis.</string>
+    <key>LSEnvironment</key>
+    <dict>
+        <key>MESHCLIENT_UI_BACKEND</key>
+        <string>sdl</string>
+        <key>MESHCLIENT_RUN_MODE</key>
+        <string>foreground</string>
+    </dict>
+</dict>
+</plist>

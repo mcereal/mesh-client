@@ -2,9 +2,35 @@
 
 The Windows target is under active development. The first supported slice is an x64 UCRT
 executable with the SDL UI, the Bluetooth, USB serial and TCP transports, MQTT and HTTPS, with
-TLS through Mbed TLS, and radio firmware installation for ESP32 boards over Bluetooth. Bluetooth
-bonding, firmware installation over USB, self-update and the UI control socket are follow-up
-platform backends rather than promises of the first build.
+TLS through Mbed TLS, radio firmware installation for ESP32 boards over Bluetooth, and
+self-update from the installer's own release asset. Bluetooth bonding, firmware installation over
+USB and the UI control socket are follow-up platform backends rather than promises of the first
+build.
+
+## The installer
+
+Releases carry `MeshClient-windows-x86_64-setup.exe`, built by
+[`scripts/package-windows.ps1`](../scripts/package-windows.ps1) from
+[`packaging/windows/MeshClient.iss`](../packaging/windows/MeshClient.iss) with Inno Setup 6. It
+installs per user into `%LOCALAPPDATA%\Programs\MeshClient` and never asks for elevation, which
+is what lets the client replace its own `meshclient.exe` from Settings > About, as the Brick does.
+A Program Files install would need an administrator for that.
+
+- The Start menu shortcut passes `--foreground` and starts the client in
+  `%LOCALAPPDATA%\MeshClient`, which is where its settings and history land, since Windows has no
+  `HOME`. An uninstall leaves that directory alone.
+- A `--foreground` run releases a console that no other process shares, so a launch from the
+  Start menu shows only the window. Run from a terminal, the console is kept.
+- An update renames the running `meshclient.exe` to `meshclient.exe.old`, moves the download into
+  its place and deletes the `.old` on the next launch: Windows refuses to overwrite a running
+  executable but allows one to be renamed. Only the executable is updated; `SDL2.dll` and the
+  other bundled DLLs stay as the installer left them, so a change to those needs the installer.
+- Neither the installer nor the executable is code-signed, so SmartScreen shows "Windows
+  protected your PC" on first run until the download has a reputation. **More info > Run
+  anyway** installs it.
+
+`scripts/package-windows.ps1 [-Version x.y.z]` builds the same thing locally, and needs Inno
+Setup (`winget install JRSoftware.InnoSetup`).
 
 ## See the UI
 
@@ -88,8 +114,9 @@ under three minutes. The image stages in `%TEMP%` unless `--staging`
 or `MESHCLIENT_FIRMWARE_STAGING` names another directory. An nRF52 or RP2040 installs by writing
 its UF2 to the bootloader's drive, and there is no Windows backend for that yet.
 
-Inkcell input and the client updater compile on Windows; the updater offers no install action
-because releases contain Linux binaries only.
+Inkcell input and the client updater build on Windows. An installed release updates from
+`meshclient-windows-x86_64.exe`; a local build checks but does not install, as on every other
+platform.
 
 For a display-free smoke run after building, use PowerShell with the UCRT64 DLL directory on
 `PATH`:

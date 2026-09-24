@@ -68,6 +68,10 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-24.04
+    # The version this run published, or empty when there was nothing to release. Written by
+    # release.config.mjs's successCmd; the desktop jobs below build from it.
+    outputs:
+      version: ${{ steps.semantic-release.outputs.version }}
     # One name for the three triggers: the dispatch input, the branch a push arrived on, and
     # `stable` for the cron, which has no inputs. Everything below reads this rather than
     # re-deriving it, including release.config.mjs, which decides from it whether the release
@@ -202,6 +206,7 @@ jobs:
       # then runs scripts/release-build.sh, so the assets it publishes are built from the
       # version being released rather than the one before it.
       - name: Run semantic-release
+        id: semantic-release
         env:
           # Which of release.config.mjs's branches this run is. semantic-release takes the
           # branch from one place and one place only - env-ci reads GITHUB_REF and nothing else
@@ -241,3 +246,99 @@ jobs:
           GIT_COMMITTER_NAME: semantic-release-bot
           GIT_COMMITTER_EMAIL: semantic-release-bot@users.noreply.github.com
         run: GITHUB_REF="${RELEASE_REF}" npx semantic-release
+
+  # The macOS and Windows downloads, which need a Mac and a Windows machine to build, so they
+  # cannot be made inside semantic-release's prepare step with the rest. They are built from the
+  # tag the job above just pushed, stamped with the same version, and attached to its release.
+  #
+  # So a release is briefly published without them. A desktop client that checks in that window
+  # reads "No usable release asset" and finds the update on its next check; the handheld is
+  # never affected, because its assets were published with the release itself.
+  #
+  # Re-running one of these jobs is safe: --clobber replaces an asset that is already there.
+  macos:
+    name: macOS download
+    needs: release
+    if: needs.release.outputs.version != ''
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - name: Checkout the release tag
+        uses: actions/checkout@v7
+        with:
+          ref: v${{ needs.release.outputs.version }}
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: ./scripts/setup-macos.sh
+
+      - name: Build the bundle and the disk image
+        run: ./scripts/package-macos.sh "${VERSION}"
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "v${VERSION}" --repo "${GITHUB_REPOSITORY}" --clobber \
+            dist/MeshClient-macos.dmg dist/MeshClient-macos.dmg.sha256 \
+            dist/meshclient-macos-universal dist/meshclient-macos-universal.sha256
+
+  windows:
+    name: Windows download
+    needs: release
+    if: needs.release.outputs.version != ''
+    runs-on: windows-2025
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - name: Preserve Unix line endings and enable long Git paths
+        run: |
+          git config --global core.autocrlf input
+          git config --global core.longpaths true
+
+      - name: Checkout the release tag
+        uses: actions/checkout@v7
+        with:
+          ref: v${{ needs.release.outputs.version }}
+          submodules: false
+          persist-credentials: false
+
+      - name: Install UCRT64 toolchain
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          release: false
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-SDL2
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-protobuf
+            mingw-w64-ucrt-x86_64-python-grpcio-tools
+            mingw-w64-ucrt-x86_64-python-jinja
+            mingw-w64-ucrt-x86_64-python-jsonschema
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build the installer
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          ./scripts/setup-windows.ps1
+          ./scripts/package-windows.ps1 -Version $env:VERSION
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "v$env:VERSION" --repo $env:GITHUB_REPOSITORY --clobber `
+            dist/MeshClient-windows-x86_64-setup.exe dist/MeshClient-windows-x86_64-setup.exe.sha256 `
+            dist/meshclient-windows-x86_64.exe dist/meshclient-windows-x86_64.exe.sha256
+          if ($LASTEXITCODE -ne 0) { throw 'gh release upload failed.' }

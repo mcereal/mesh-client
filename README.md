@@ -40,6 +40,27 @@ The app then appears under **Tools** in the NextUI Launcher. Logs go to
 `/.userdata/tg5040/logs/MeshClient.txt`. Once it is installed, Settings → About updates it in
 place.
 
+## Install on a Mac or a Windows PC
+
+The same client runs in a window on a desktop and talks to a radio over Bluetooth, USB or the
+network. Each [release](https://github.com/mcereal/mesh-client/releases/latest) carries an
+installer for both:
+
+- **macOS** (Apple silicon and Intel, macOS 11 or later): download `MeshClient-macos.dmg`, open
+  it, and drag **MeshClient** to **Applications**. The app is not notarised yet, so the first
+  launch is blocked. Open **System Settings → Privacy & Security**, scroll to the message about
+  MeshClient and choose **Open Anyway**. It asks for Bluetooth the first time it looks for a
+  radio.
+- **Windows** (x64, Windows 10 or later): download and run
+  `MeshClient-windows-x86_64-setup.exe`. It installs for your user only and needs no
+  administrator. The installer is not code-signed yet, so SmartScreen may say "Windows protected
+  your PC". Choose **More info → Run anyway**.
+
+Either one then updates itself from **Settings → About**, exactly as the Brick does: check,
+install, and relaunch. On a Mac this works once the app is in Applications. Run straight from
+the disk image or from Downloads, macOS runs the app from a read-only copy that cannot be
+updated.
+
 ## Using it
 
 Five tabs — Messages, Nodes, Waypoints, Radio, Settings — driven by the d-pad and face buttons.
@@ -98,8 +119,9 @@ ctest --preset debug
 Either route writes `build/debug/compile_commands.json`, which is what `.clangd` points at, so
 clangd indexes the tree after the build you were going to run anyway.
 
-The native Windows SDL target is being brought up with MSYS2's UCRT64 toolchain. Its current
-scope and setup commands are in [`docs/windows.md`](docs/windows.md).
+The native Windows SDL target builds with MSYS2's UCRT64 toolchain. Its scope, setup commands
+and installer are in [`docs/windows.md`](docs/windows.md). `scripts/package-macos.sh` builds the
+Mac's `.app` and `.dmg` on a Mac; see [`docs/releasing.md`](docs/releasing.md#the-desktop-downloads).
 
 On macOS, or any host with Docker, use the container targets — they bind-mount the repo and build
 into `build/linux/`:

@@ -42,11 +42,16 @@ since the last tag, not anything about your working tree.
    reads it.)
 2. **`pak.json`** — `version` (which the Pak Store requires to match the tag) and this version's
    `changelog` entry. Both skipped for prereleases.
-3. **`CHANGELOG.md`**, the git tag, and a GitHub release carrying six assets:
-   `MeshClient.pak.zip` (+ `.sha256`) for a fresh install, `meshclient-tg5040-aarch64`
-   (+ `.sha256`), the bare static binary the in-app updater downloads, and
-   `meshclient-linux-x86_64` (+ `.sha256`), the same client built static against musl for a
-   desktop or a server.
+3. **`CHANGELOG.md`**, the git tag, and a GitHub release carrying these assets, each with a
+   `.sha256`:
+   - `MeshClient.pak.zip` for a fresh install on the handheld, and `meshclient-tg5040-aarch64`,
+     the bare static binary its in-app updater downloads;
+   - `meshclient-linux-x86_64`, the same client built static against musl for a desktop or a
+     server;
+   - `MeshClient-macos.dmg` for a fresh install on a Mac, and `meshclient-macos-universal`, the
+     binary inside the bundle, which the Mac's updater downloads;
+   - `MeshClient-windows-x86_64-setup.exe` for a fresh install on Windows, and
+     `meshclient-windows-x86_64.exe`, which the Windows updater downloads.
 
 The three builds are three toolchains, not one binary renamed: the pak and the device binary are
 the aarch64 cross build, and the Linux one is [`scripts/linux-cli-build.sh`](../scripts/linux-cli-build.sh)
@@ -54,12 +59,42 @@ on the runner's own architecture — x86-64, so a release publishes no general-p
 a Pi builds its own. That last asset is a convenience and is built non-fatally: a runner without
 `musl-tools` costs the release its desktop download and nothing else.
 
+### The desktop downloads
+
+The macOS and Windows builds need a Mac and a Windows machine, so they cannot be built inside
+semantic-release's prepare step the way the others are. `release.config.mjs`'s `successCmd`
+hands the published version to two jobs that run after the release: they check out the tag,
+build with [`scripts/package-macos.sh`](../scripts/package-macos.sh) and
+[`scripts/package-windows.ps1`](../scripts/package-windows.ps1), and attach the results with
+`gh release upload --clobber`. A release is therefore published a few minutes before its desktop
+assets are attached. A desktop client that checks in that window reads "No usable release asset"
+and finds the update on its next check. Re-running either job is safe.
+
+Each package is one fresh-install file around one updatable binary, the same shape as the pak:
+
+| | Fresh install | What the updater replaces | What it leaves alone |
+|---|---|---|---|
+| Handheld | `MeshClient.pak.zip` | `bin/shared/meshclient` | `launch.sh` |
+| macOS | `MeshClient-macos.dmg` | `MeshClient.app/Contents/MacOS/meshclient` | the bundled SDL2, `Info.plist` |
+| Windows | `MeshClient-windows-x86_64-setup.exe` | `meshclient.exe` | `SDL2.dll` and the other DLLs |
+
+Signing is ad hoc on macOS and absent on Windows, so Gatekeeper and SmartScreen both warn on a
+first install (README.md says how to get past each). `MACOS_SIGN_IDENTITY` switches the macOS
+build to a Developer ID and the hardened runtime; notarising, and signing on Windows, need
+certificates this repository does not have yet. Until the Mac build has a stable identity,
+macOS may ask for Bluetooth permission again after an update: it keys that permission to an ad
+hoc binary's hash.
+
+Both scripts run on every pull request (the `macos-package` and `windows-package` CI jobs) as
+unstamped development builds, so a packaging break shows in review, not at release time.
+
 **Each build self-updates from its own asset**, and that is a `-D` rather than a default.
 `src/core/update/updater.c` defaults `MESHCLIENT_UPDATE_ASSET` to the handheld's binary, which
 is only right for the build published under that name; `linux-cli-build.sh` passes
 `-DMESHCLIENT_UPDATE_ASSET=meshclient-linux-<arch>` and asserts the name survived into the
-binary. Leave it out of a *new* published build and that build installs the handheld's aarch64
-binary over itself the first time somebody updates it.
+binary. `package-macos.sh` and `package-windows.ps1` pass their own names the same way. Leave it
+out of a *new* published build and that build installs the handheld's aarch64 binary over itself
+the first time somebody updates it.
 
 The updater verifies against the `digest` GitHub reports for the asset, not the `.sha256` file.
 **Renaming or dropping the binary asset breaks self-update for every installed client** — keep

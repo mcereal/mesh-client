@@ -366,6 +366,11 @@ make ship                                 # a release off main: tag, assets, CHA
 make ship-beta                            # a prerelease of the same commit; commits nothing
 ```
 
+A release also builds the macOS `.dmg` and the Windows installer, in two jobs that run after it on
+their own runners and attach them to the release (`scripts/package-macos.sh`,
+`scripts/package-windows.ps1`). Each wraps one bare binary the in-app updater replaces, as the pak
+does.
+
 Both dispatch on `main`; `beta` and `rc` are plumbing the workflow points at `main`, not branches
 to work on (they keep their push trigger for a prerelease-per-merge flow). A prerelease publishes
 a tag and the assets and **writes no file back** - `release.config.mjs` drops the changelog and

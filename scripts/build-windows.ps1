@@ -3,7 +3,10 @@
 param(
     [ValidateSet('Debug', 'Release', 'RelWithDebInfo')]
     [string]$Configuration = 'Debug',
-    [switch]$ConfigureOnly
+    [switch]$ConfigureOnly,
+    # Extra -D options for the configure, after the defaults below. scripts/package-windows.ps1
+    # passes the release stamp and the update asset's name through here.
+    [string[]]$CMakeArgs = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,7 +34,8 @@ $buildDir = Join-Path $repoRoot "build\windows-$($Configuration.ToLowerInvariant
     "-DPython3_EXECUTABLE=$($python.Replace('\', '/'))" `
     -DINKWELL_WITH_TLS=ON `
     -DBUILD_TESTING=OFF `
-    -DMESHCLIENT_BUILD_DEVTOOLS=OFF
+    -DMESHCLIENT_BUILD_DEVTOOLS=OFF `
+    @CMakeArgs
 if ($LASTEXITCODE -ne 0) {
     throw 'Windows configure failed.'
 }

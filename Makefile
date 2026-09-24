@@ -10,7 +10,7 @@ export BUILD_ROOT
 DOCKER := ./scripts/docker.sh
 
 .PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run format fuzz \
-        ui-capture ui-drive screenshots demo-pack linux-cli windows-debug \
+        ui-capture ui-drive screenshots demo-pack linux-cli windows-debug macos-app windows-installer \
         ship ship-beta ship-rc \
         docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak \
         docker-clean docker-ui-capture docker-screenshots docker-fuzz \
@@ -27,6 +27,8 @@ help:
 	@echo "  make package        - Produce dist/MeshClient.pak.zip from a Release build"
 	@echo "  make linux-cli      - Static Linux CLI binary into dist/ (desktops, servers, a Pi)"
 	@echo "  make windows-debug  - Native Windows SDL bring-up build (MSYS2 UCRT64)"
+	@echo "  make macos-app      - MeshClient.app + dist/MeshClient-macos.dmg (on a Mac)"
+	@echo "  make windows-installer - dist/MeshClient-windows-x86_64-setup.exe (MSYS2 + Inno Setup)"
 	@echo "  make proto          - Regenerate nanopb sources from proto/meshtastic"
 	@echo "  make format         - clang-format all tracked .c/.h files"
 	@echo "  make ui-capture     - Render a UI scene to a GIF without a device (ARGS=\"scene -o out.gif\")"
@@ -79,6 +81,14 @@ endif
 
 windows-debug:
 	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1
+
+# The two desktop downloads, as a development build. A release passes the version; see
+# docs/releasing.md#the-desktop-downloads.
+macos-app:
+	./scripts/package-macos.sh
+
+windows-installer:
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1
 
 build: debug
 
