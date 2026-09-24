@@ -1,9 +1,9 @@
 # Native Windows port
 
 The Windows target is under active development. The first supported slice is an x64 UCRT
-executable with the SDL UI, the Bluetooth, USB serial and TCP transports and plaintext MQTT.
-Bluetooth bonding, firmware installation, self-update, TLS and the UI control socket are
-follow-up platform backends rather than promises of the first build.
+executable with the SDL UI, the Bluetooth, USB serial and TCP transports, MQTT and HTTPS, with
+TLS through Mbed TLS. Bluetooth bonding, firmware installation, self-update and the UI control
+socket are follow-up platform backends rather than promises of the first build.
 
 ## See the UI
 
@@ -39,10 +39,11 @@ with Linux, macOS or container builds.
 MSYS2 is the build and package environment only. The UCRT64 compiler produces an ordinary
 Windows executable and does not link `msys-2.0.dll`.
 
-TLS is unavailable on Windows until Inkwell has a native Winsock TLS backend. The build script
-disables it, and Inkwell refuses TLS even if Mbed TLS is present. The Windows setup script also
-avoids recursive Mbed TLS initialization, whose deeply nested post-quantum submodules can exceed
-Git for Windows' path limit in a worktree.
+Mbed TLS builds with the UCRT64 compiler like the rest of the tree, and needs the `jinja2` and
+`jsonschema` Python packages the setup script installs. The setup script initialises it under
+inkwell with Git's long paths turned on, because its nested post-quantum sources run past
+`MAX_PATH` in a worktree; it does not recurse into inkcell's or inkstand's own inkwell pins,
+which this build never reads.
 
 ## Porting boundary
 
@@ -55,9 +56,11 @@ native IPC backend is added.
 The Windows event loop, TCP connector and stream handoff carry native pointer-sized Winsock
 sockets without passing them through `int` descriptors. Hostnames use overlapped
 `GetAddrInfoExW`, whose completion event is watched by the same loop, so both names and numeric
-addresses can use that path without blocking the UI. The MQTT client is on the same native
-sockets, so a plaintext broker (port 1883) works; one with TLS turned on is refused by name
-until TLS is ported. HTTPS fetch still uses an explicit unavailable backend.
+addresses can use that path without blocking the UI. The MQTT client and HTTPS fetch are on the
+same native sockets, and a TLS session runs over them as it does over a POSIX descriptor - so a
+broker with TLS turned on connects, and `--fetch-firmware` downloads a radio image. Certificates
+are checked against the roots compiled into the client, exactly as on the Brick, and
+`SSL_CERT_FILE` still names a bundle to use instead.
 
 USB serial is inkwell's SetupAPI scan and overlapped COM I/O: a port is found by its USB vendor
 and product, named by the product string the device reports, and opened as `COM4` or
@@ -101,10 +104,9 @@ the checkout. The Windows CI job runs this build and smoke check on every PR.
 
 The remaining work is primarily in platform backends:
 
-1. Port TLS and HTTPS fetch to native Windows sockets.
-2. Replace the explicit unavailable device backends with native implementations.
-3. Bond with a PIN-protected node over Bluetooth, once Windows and the firmware agree on it.
-4. Give the UI-control protocol a native IPC backend and settle Windows user-data paths.
+1. Replace the explicit unavailable device backends with native implementations.
+2. Bond with a PIN-protected node over Bluetooth, once Windows and the firmware agree on it.
+3. Give the UI-control protocol a native IPC backend and settle Windows user-data paths.
 
 The build and CI smoke check are the regression driver for this first slice. A successful link
 does not yet imply every transport or service is available.
