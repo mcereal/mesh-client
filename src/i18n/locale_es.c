@@ -1000,6 +1000,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_SETTINGS_NOT_IN_FIRMWARE] = "no incluido",
     [MESH_STR_SETTINGS_NOT_CONNECTED] = "sin conexión",
     [MESH_STR_SETTINGS_EMPTY_DISCONNECT] = "Conecta a una radio para ver sus ajustes",
+    [MESH_STR_SETTINGS_PICK] = "Abre una sección para cambiarla aquí.",
     [MESH_STR_SETTINGS_EMPTY_SECTION] = "Aún sin datos de radio; X para recargar",
     [MESH_STR_SETTINGS_EMPTY_EXCLUDED] = "El firmware de esta radio se compiló sin esto",
     [MESH_STR_SETTINGS_TITLE] = "Ajustes",

@@ -118,6 +118,11 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
                       struct inkcell_fb_layout *layout);
 void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                         struct inkcell_fb_layout *layout);
+/* The section list alone, whatever is open: a split frame's leading pane, beside the section
+   fb_render_settings() draws in the other one. */
+void fb_render_settings_list(struct inkcell_draw_state *state,
+                             const struct mesh_ui_snapshot *snapshot,
+                             struct inkcell_fb_layout *layout);
 
 /* What to call a device: the advertised name when it has one, otherwise whatever we addressed
    it by. The Devices tab's rows and the line under the keycaps name a radio the same way, which

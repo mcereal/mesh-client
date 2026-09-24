@@ -2029,6 +2029,7 @@ MESH_STR_ENTRY(SETTINGS_NOT_CONNECTED,    "not connected")
    from "not loaded" because the answer to one is to wait and the answer to the other is not. */
 MESH_STR_ENTRY(SETTINGS_NOT_IN_FIRMWARE,  "not in firmware")
 MESH_STR_ENTRY(SETTINGS_EMPTY_DISCONNECT, "Connect to a radio to read its settings")
+MESH_STR_ENTRY(SETTINGS_PICK,             "Open a section to change it here.")
 MESH_STR_ENTRY(SETTINGS_EMPTY_SECTION,    "Not sent by the radio yet; X to refresh")
 MESH_STR_ENTRY(SETTINGS_EMPTY_EXCLUDED,   "This radio's firmware was built without it")
 /* Titles down the Settings tree. Each is one level's *name* and nothing else: the breadcrumb

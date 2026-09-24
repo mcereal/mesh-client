@@ -654,10 +654,11 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
     const struct inkcell_fb_list_style look = fb_list_look(state, FB_LIST_ROLE_FEED);
     struct inkcell_fb_list list =
         inkcell_fb_list_begin_styled(state, layout, rows, cursor, node_heights, NULL, &look);
-    inkcell_fb_list_glide(state, &list, FB_LIST_NODES);
-    /* The rows are the click targets only while they are what the reader is on: a detail open
-       beside them registers its own rows in the same block. */
+    /* The rows glide and are click targets only while they are what the reader is on. A detail
+       open beside them glides its own window - there is one glide slot, and two lists taking it
+       in turn every frame would leave neither gliding - and registers its own rows. */
     if (!nav->node_detail_open) {
+        inkcell_fb_list_glide(state, &list, FB_LIST_NODES);
         inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     }
     /*
