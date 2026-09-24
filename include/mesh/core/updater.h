@@ -16,10 +16,17 @@
  * serves) is therefore fine, and a truncated or substituted download fails closed.
  *
  * The install is a rename() within one directory, so it is atomic: either the old binary or
- * the new one is at the path, never a partial file. Linux keeps the running image alive off
- * its inode, so the swap happens under a running client without disturbing it - which is why
- * the last state is READY ("relaunch to run it") rather than a restart the app performs
- * itself.
+ * the new one is at the path, never a partial file. Linux and macOS keep the running image
+ * alive off its inode, so the swap happens under a running client without disturbing it - which
+ * is why the last state is READY ("relaunch to run it") rather than a restart the app performs
+ * itself. Windows refuses to replace a running executable but allows renaming one, so there
+ * the running binary steps aside to "<name>.old" first and the next launch deletes it.
+ *
+ * Each platform's release asset is named by MESHCLIENT_UPDATE_ASSET at build time. The handheld
+ * and Windows replace one bare executable, and the files installed around it (the pak's
+ * launch.sh, the installer's DLLs) stay as they were, so a change to one of those needs a fresh
+ * install. A Mac replaces the whole MeshClient.app from a zip of it, because the executable's
+ * signature seals the rest of the bundle and cannot be swapped alone.
  */
 
 #include "inkwell/net/fetch.h"
@@ -134,7 +141,8 @@ struct mesh_updater {
      * smoothness belongs.
      */
     uint64_t downloaded;
-    /* The binary being replaced (/proc/self/exe) and the temporary name next to it. */
+    /* What an install replaces - the running executable, symlinks resolved, or on macOS the
+       .app around it - and the name the download is staged under next to it. */
     char install_path[MESH_UPDATE_PATH_MAX];
     /* Room for install_path plus the ".update" suffix, so staging can never truncate. */
     char staged_path[MESH_UPDATE_PATH_MAX + 16U];

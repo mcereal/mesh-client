@@ -338,7 +338,7 @@ The few that bite soonest:
   hand; the release workflow rewrites that line.
 - **`launch.sh` does not ship through self-update.** Only the bare binary does, so treat it as a
   compatibility boundary - which is why the CA roots are compiled in rather than shipped beside it.
-- **`scripts/gen-{locale,ca-roots}.py` are not part of the build.** Run by hand, commit the
+- **`scripts/gen-{locale,ca-roots,icons}.py` are not part of the build.** Run by hand, commit the
   result. The glyph generators went with the glyphs: emoji, icons and the `ui` face are
   inkcell's, and so are the scripts that rasterise them.
 - **`devtools/` is not `Tools/`** - macOS filesystems are case-insensitive.
@@ -365,6 +365,11 @@ merged pull request became a release.
 make ship                                 # a release off main: tag, assets, CHANGELOG, pak.json
 make ship-beta                            # a prerelease of the same commit; commits nothing
 ```
+
+A release also builds the macOS `.dmg` and the Windows installer, in two jobs that run after it on
+their own runners and attach them to the release (`scripts/package-macos.sh`,
+`scripts/package-windows.ps1`). Each wraps one bare binary the in-app updater replaces, as the pak
+does.
 
 Both dispatch on `main`; `beta` and `rc` are plumbing the workflow points at `main`, not branches
 to work on (they keep their push trigger for a prerelease-per-merge flow). A prerelease publishes

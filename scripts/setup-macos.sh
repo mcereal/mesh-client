@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Provision a Mac for building and running mesh-client natively, as a development host.
+# Provision a Mac for building and running mesh-client natively.
 #
-# macOS is not a target - nothing ships for it - but the core builds and the whole suite passes
-# there, and MESHCLIENT_UI_BACKEND=sdl puts the UI in a window, so a screen can be worked on
-# without a Brick. inkwell's loop is kqueue on this host; the fb backend, evdev, BlueZ and the
+# A Mac is a development host and, since releases carry MeshClient.app, a download too
+# (scripts/package-macos.sh). The core builds and the whole suite passes there, and
+# MESHCLIENT_UI_BACKEND=sdl puts the UI in a window, so a screen can be worked on without a
+# Brick. inkwell's loop is kqueue on this host; the fb backend, evdev, BlueZ and the
 # USB mass-storage installer compile to refusals. See docs/ui.md for what that leaves.
 #
 #   - cmake, ninja, pkg-config   the build, as on Linux

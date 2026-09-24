@@ -109,6 +109,12 @@ export default {
       {
         verifyReleaseCmd: "echo ${nextRelease.version}",
         prepareCmd: "./scripts/release-build.sh ${nextRelease.version}",
+        // The version, for the jobs after this one: the macOS and Windows downloads are built on
+        // runners of their own and attached to the release this run has just published. Only a
+        // run that released anything reaches `success`, so an empty output means "nothing to
+        // build". Guarded so a run outside Actions does not fail after it has published.
+        successCmd:
+          'if [ -n "$GITHUB_OUTPUT" ]; then echo "version=${nextRelease.version}" >> "$GITHUB_OUTPUT"; fi',
       },
     ],
     ...(prerelease ? [] : writeBackPlugins),

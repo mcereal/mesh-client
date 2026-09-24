@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  meshclient.exe's application manifest, linked in as a resource by src/app/meshclient.rc.in.
+
+  activeCodePage is the reason it exists. Everything under this client that touches a path on
+  Windows - the CRT's fopen() and _open(), inkwell's MoveFileExA(), the updater's
+  GetModuleFileNameA() - takes a char string in the process's ANSI code page, so a profile
+  directory with a character outside that page (C:\Users\Łukasz on a Western European system)
+  arrives mangled and names a file that is not there. UTF-8 as the code page makes every one of
+  those calls take the UTF-8 this client already uses everywhere else. Windows 10 1903 and later
+  honour it; an older system ignores the element.
+
+  The rest is what MinGW's default manifest would have said, which a manifest of our own
+  replaces: run as the invoking user, and on Windows 10 and 11 as themselves.
+-->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity type="win32" name="mcereal.MeshClient" version="1.0.0.0"/>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+    </windowsSettings>
+  </application>
+</assembly>

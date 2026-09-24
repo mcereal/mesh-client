@@ -20,9 +20,20 @@
 #include <string.h>
 #include <sys/stat.h>
 #if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
 #include <io.h>
+#include <windows.h>
 #else
 #include <unistd.h>
+#endif
+#if defined(__APPLE__)
+#include <ftw.h>
+#include <limits.h>
+#include <mach-o/dyld.h>
+#include <spawn.h>
+#include <sys/wait.h>
+
+extern char **environ;
 #endif
 
 #ifndef MESHCLIENT_UPDATE_REPO
@@ -488,6 +499,265 @@ static void updater_fetch_failed(struct mesh_updater *updater,
     updater_set(updater, MESH_UPDATE_FAILED, message);
 }
 
+/* ---- what we are installed as --------------------------------------------------------- */
+
+/*
+ * What a macOS install replaces, and the name it has inside the release's zip.
+ *
+ * Only the handheld and Windows replace one executable. A Mac replaces the whole bundle,
+ * because the executable is signed *in the bundle's context*: its signature seals the bundle's
+ * Info.plist and the hashes of everything else in it (_CodeSignature/CodeResources). Drop a
+ * newer executable into an older bundle and the seal is broken - `codesign --verify` fails,
+ * and macOS is entitled to refuse the app as damaged - so the unit an update swaps is the one
+ * the signature covers.
+ */
+#define MESH_UPDATE_BUNDLE_NAME "MeshClient.app"
+
+/*
+ * Where the running executable lives.
+ *
+ * Each system says so its own way. Linux's /proc link is already the resolved path. macOS
+ * returns whatever path the process was started through - a symlink from a shell, or the one
+ * inside MeshClient.app/Contents/MacOS when Finder opened the bundle - so it is resolved here.
+ * Windows names the module directly; the manifest (src/app/meshclient.manifest) makes the
+ * process's code page UTF-8, so the char form of that name is not a lossy one.
+ */
+static bool updater_find_binary(char *out, size_t out_len) {
+#if defined(__linux__)
+    const ssize_t len = readlink("/proc/self/exe", out, out_len - 1U);
+    if (len <= 0) {
+        return false;
+    }
+    out[len] = '\0';
+    return true;
+#elif defined(__APPLE__)
+    char launched[PATH_MAX];
+    uint32_t size = (uint32_t)sizeof launched;
+    if (_NSGetExecutablePath(launched, &size) != 0) {
+        return false;
+    }
+    char resolved[PATH_MAX];
+    if (realpath(launched, resolved) == NULL) {
+        return false;
+    }
+    return (size_t)snprintf(out, out_len, "%s", resolved) < out_len;
+#elif defined(_WIN32)
+    const DWORD len = GetModuleFileNameA(NULL, out, (DWORD)out_len);
+    /* A result that fills the buffer is a truncated path, not a short one. */
+    return len > 0U && (size_t)len < out_len;
+#else
+    (void)out;
+    (void)out_len;
+    return false;
+#endif
+}
+
+#if defined(__APPLE__)
+/* The .app a binary sits in, <bundle>.app/Contents/MacOS/<binary>. False outside a bundle. */
+static bool updater_bundle_of(const char *binary, char *out, size_t out_len) {
+    char path[PATH_MAX];
+    if ((size_t)snprintf(path, sizeof path, "%s", binary) >= sizeof path) {
+        return false;
+    }
+    /* Walked from the end: the binary's own name, then the two directories it must be in. */
+    static const char *const expected[] = {NULL, "MacOS", "Contents"};
+    for (size_t level = 0U; level < sizeof expected / sizeof expected[0]; ++level) {
+        char *slash = strrchr(path, '/');
+        if (slash == NULL || slash == path) {
+            return false;
+        }
+        if (expected[level] != NULL && strcmp(slash + 1, expected[level]) != 0) {
+            return false;
+        }
+        *slash = '\0';
+    }
+    const size_t len = strlen(path);
+    if (len < 4U || strcmp(path + len - 4U, ".app") != 0) {
+        return false;
+    }
+    return (size_t)snprintf(out, out_len, "%s", path) < out_len;
+}
+#endif
+
+/*
+ * The thing an install replaces: the running executable, or on macOS the bundle around it.
+ *
+ * False leaves the updater with nothing to install over, and the About screen then shows the
+ * version without an update row rather than a row that cannot work. That is what a Mac build
+ * run from a shell gets - there is no bundle to swap, and the release has no bare binary to
+ * offer it.
+ */
+static bool updater_find_install_target(char *out, size_t out_len) {
+#if defined(__APPLE__)
+    char binary[MESH_UPDATE_PATH_MAX];
+    if (!updater_find_binary(binary, sizeof binary) || !updater_bundle_of(binary, out, out_len)) {
+        return false;
+    }
+    /* The swap is two renames in the directory that holds the bundle, so that directory has to
+       be writable. It is not when the app runs from the mounted disk image, from the read-only
+       copy Gatekeeper translocates a quarantined download to, or from /Applications for an
+       account that is not an administrator - and an update offered there would fail after the
+       download rather than never be offered. */
+    char parent[MESH_UPDATE_PATH_MAX];
+    snprintf(parent, sizeof parent, "%s", out);
+    char *slash = strrchr(parent, '/');
+    if (slash == NULL) {
+        return false;
+    }
+    *(slash == parent ? slash + 1 : slash) = '\0';
+    if (access(parent, W_OK) != 0) {
+        inkwell_log_info("update", "%s is not writable; updates are not offered", parent);
+        return false;
+    }
+    return true;
+#else
+    return updater_find_binary(out, out_len);
+#endif
+}
+
+/* A name beside the install target: where it is parked, or where a new one is unpacked. */
+static void updater_sibling(const struct mesh_updater *updater, const char *suffix, char *out,
+                            size_t out_len) {
+    snprintf(out, out_len, "%s%s", updater->install_path, suffix);
+}
+
+#if defined(_WIN32)
+static int updater_windows_errno(DWORD error) {
+    switch (error) {
+    case ERROR_ACCESS_DENIED:
+        return EACCES;
+    case ERROR_SHARING_VIOLATION:
+    case ERROR_LOCK_VIOLATION:
+        return EBUSY;
+    case ERROR_FILE_NOT_FOUND:
+    case ERROR_PATH_NOT_FOUND:
+        return ENOENT;
+    default:
+        return EIO;
+    }
+}
+#endif
+
+#if defined(__APPLE__)
+static int updater_remove_entry(const char *path, const struct stat *info, int type,
+                                struct FTW *walk) {
+    (void)info;
+    (void)type;
+    (void)walk;
+    (void)remove(path);
+    return 0; /* best effort: carry on with the rest of the tree */
+}
+
+/* Deletes a directory tree that may or may not be there. Leftovers only, so best effort. */
+static void updater_remove_tree(const char *path) {
+    (void)nftw(path, updater_remove_entry, 16, FTW_DEPTH | FTW_PHYS);
+}
+
+/*
+ * Unpacks the verified zip beside the bundle and swaps the two bundles. Returns 0, or -errno.
+ *
+ * The zip is made by `ditto -c -k --keepParent`, and `ditto -x -k` is what takes it apart:
+ * the system's own tool for an .app, which keeps the executable bits and the signature exactly
+ * as they were sealed. It is the one child process this module starts, and it is waited for on
+ * the loop - a few megabytes unpack in a fraction of a second, which is the same order as the
+ * hash just taken over the same bytes, and both happen under VERIFYING, a state the About
+ * screen already shows as busy.
+ *
+ * Then two renames in one directory, with the running bundle parked as "<bundle>.old" in
+ * between. The process running from it is unaffected - every file it has mapped lives on
+ * through its inode - and if the second rename fails the first is undone, so there is always a
+ * bundle at the path Finder and the Dock know.
+ */
+static int updater_install_bundle(const struct mesh_updater *updater) {
+    char unpacked[sizeof updater->staged_path + 16U];
+    char retired[sizeof unpacked];
+    char fresh[sizeof unpacked + sizeof MESH_UPDATE_BUNDLE_NAME + 1U];
+    char probe[sizeof fresh + 32U];
+    updater_sibling(updater, ".unpacked", unpacked, sizeof unpacked);
+    updater_sibling(updater, ".old", retired, sizeof retired);
+    snprintf(fresh, sizeof fresh, "%s/%s", unpacked, MESH_UPDATE_BUNDLE_NAME);
+    snprintf(probe, sizeof probe, "%s/Contents/MacOS/meshclient", fresh);
+    updater_remove_tree(unpacked);
+    updater_remove_tree(retired);
+
+    char *const argv[] = {(char *)"ditto", (char *)"-x", (char *)"-k", (char *)updater->staged_path,
+                          unpacked,        NULL};
+    pid_t child = 0;
+    const int spawned = posix_spawn(&child, "/usr/bin/ditto", NULL, NULL, argv, environ);
+    if (spawned != 0) {
+        return -spawned;
+    }
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno != EINTR) {
+            const int error = errno;
+            updater_remove_tree(unpacked);
+            return -error;
+        }
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || access(probe, X_OK) != 0) {
+        inkwell_log_warn("update", "%s did not unpack into a %s", updater->staged_path,
+                         MESH_UPDATE_BUNDLE_NAME);
+        updater_remove_tree(unpacked);
+        return -EINVAL;
+    }
+
+    if (rename(updater->install_path, retired) != 0) {
+        const int error = errno;
+        updater_remove_tree(unpacked);
+        return -error;
+    }
+    if (rename(fresh, updater->install_path) != 0) {
+        const int error = errno;
+        if (rename(retired, updater->install_path) != 0) {
+            inkwell_log_error("update", "Could not put %s back after a failed install",
+                              updater->install_path);
+        }
+        updater_remove_tree(unpacked);
+        return -error;
+    }
+    updater_remove_tree(retired);
+    updater_remove_tree(unpacked);
+    (void)unlink(updater->staged_path);
+    return 0;
+}
+#endif
+
+/*
+ * Put the verified download where the running copy is. Returns 0, or -errno.
+ *
+ * On Linux this is one rename(): atomic within the directory, and the running image lives on
+ * through its inode. A Mac swaps the whole bundle; see updater_install_bundle(). Windows will
+ * not let anything replace or delete an executable that is running, but it will let it be
+ * *renamed* - the loader holds the file open with delete sharing, and a rename is a delete from
+ * the old name. So the running binary steps aside to "<name>.old", the download takes its name,
+ * and the next launch removes the old one. If the second step fails the first is undone, so
+ * there is always a binary at the path the Start menu points at.
+ */
+static int updater_replace_binary(const struct mesh_updater *updater) {
+#if defined(_WIN32)
+    char retired[sizeof updater->staged_path];
+    updater_sibling(updater, ".old", retired, sizeof retired);
+    (void)DeleteFileA(retired);
+    if (MoveFileExA(updater->install_path, retired, MOVEFILE_REPLACE_EXISTING) == 0) {
+        return -updater_windows_errno(GetLastError());
+    }
+    if (MoveFileExA(updater->staged_path, updater->install_path, MOVEFILE_REPLACE_EXISTING) == 0) {
+        const int error = updater_windows_errno(GetLastError());
+        if (MoveFileExA(retired, updater->install_path, MOVEFILE_REPLACE_EXISTING) == 0) {
+            inkwell_log_error("update", "Could not put %s back after a failed install",
+                              updater->install_path);
+        }
+        return -error;
+    }
+    return 0;
+#elif defined(__APPLE__)
+    return updater_install_bundle(updater);
+#else
+    return rename(updater->staged_path, updater->install_path) == 0 ? 0 : -errno;
+#endif
+}
+
 /* ---- steps ------------------------------------------------------------------------------ */
 
 int mesh_updater_init(struct mesh_updater *updater, struct inkwell_loop *loop) {
@@ -501,21 +771,24 @@ int mesh_updater_init(struct mesh_updater *updater, struct inkwell_loop *loop) {
         return ready;
     }
 
-    /* The binary to replace. Without this there is nothing to install over, so the About
-       screen offers only the version rather than a broken update row.
-
-       /proc is Linux's. On macOS and Windows this is deliberately unavailable.
-       Releases contain Linux binaries, which could not run on either host. */
-#if defined(__linux__)
-    const ssize_t len =
-        readlink("/proc/self/exe", updater->install_path, sizeof updater->install_path - 1U);
-#else
-    const ssize_t len = -1;
-#endif
-    if (len > 0) {
-        updater->install_path[len] = '\0';
+    /* What to replace. Without this there is nothing to install over, so the About screen
+       offers only the version rather than a broken update row. */
+    if (updater_find_install_target(updater->install_path, sizeof updater->install_path)) {
         snprintf(updater->staged_path, sizeof updater->staged_path, "%s.update",
                  updater->install_path);
+        /* What the last install stepped aside from, now that nothing is running it. */
+        char retired[sizeof updater->staged_path];
+        updater_sibling(updater, ".old", retired, sizeof retired);
+#if defined(_WIN32)
+        (void)DeleteFileA(retired);
+#elif defined(__APPLE__)
+        updater_remove_tree(retired);
+        char unpacked[sizeof updater->staged_path + 16U];
+        updater_sibling(updater, ".unpacked", unpacked, sizeof unpacked);
+        updater_remove_tree(unpacked);
+#else
+        (void)retired;
+#endif
     } else {
         updater->install_path[0] = '\0';
     }
@@ -877,17 +1150,18 @@ static void updater_on_download_done(void *userdata, const struct inkwell_fetch_
         return;
     }
 
+#if !defined(_WIN32)
     if (chmod(updater->staged_path, 0755) != 0) {
         updater_set(updater, MESH_UPDATE_FAILED, inkcell_str(MESH_STR_UPDATE_CHMOD_FAILED));
         (void)unlink(updater->staged_path);
         return;
     }
-    /* Atomic within the directory: readers see the old binary or the new one. The running
-       image lives on through its inode, so this is safe under ourselves. */
-    if (rename(updater->staged_path, updater->install_path) != 0) {
+#endif
+    const int replaced = updater_replace_binary(updater);
+    if (replaced != 0) {
         char message[MESH_UPDATE_MESSAGE_MAX];
         inkcell_str_format(message, sizeof message, MESH_STR_UPDATE_INSTALL_FAILED,
-                           strerror(errno));
+                           strerror(-replaced));
         updater_set(updater, MESH_UPDATE_FAILED, message);
         (void)unlink(updater->staged_path);
         return;

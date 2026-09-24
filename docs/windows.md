@@ -2,9 +2,43 @@
 
 The Windows target is under active development. The first supported slice is an x64 UCRT
 executable with the SDL UI, the Bluetooth, USB serial and TCP transports, MQTT and HTTPS, with
-TLS through Mbed TLS, and radio firmware installation for ESP32 boards over Bluetooth. Bluetooth
-bonding, firmware installation over USB, self-update and the UI control socket are follow-up
-platform backends rather than promises of the first build.
+TLS through Mbed TLS, radio firmware installation for ESP32 boards over Bluetooth, and
+self-update from the installer's own release asset. Bluetooth bonding, firmware installation over
+USB and the UI control socket are follow-up platform backends rather than promises of the first
+build.
+
+## The installer
+
+Releases carry `MeshClient-windows-x86_64-setup.exe`, built by
+[`scripts/package-windows.ps1`](../scripts/package-windows.ps1) from
+[`packaging/windows/MeshClient.iss`](../packaging/windows/MeshClient.iss) with Inno Setup 6. It
+installs per user into `%LOCALAPPDATA%\Programs\MeshClient` and never asks for elevation, which
+is what lets the client replace its own `meshclient.exe` from Settings > About, as the Brick does.
+A Program Files install would need an administrator for that.
+
+- The Start menu shortcut passes `--foreground` and starts the client in
+  `%LOCALAPPDATA%\MeshClient`, which is where its settings and history land, since Windows has no
+  `HOME`. An uninstall leaves that directory alone.
+- Setup closes a running client through the Restart Manager before it replaces the files. The
+  uninstaller has no Restart Manager, so it finds any copy running from the install directory,
+  says it will close it, and asks it to close as its close button would, rather than killing it.
+  A copy that has not exited within about ten seconds stops the uninstall with nothing removed.
+- A `--foreground` run releases a console that no other process shares, so a launch from the
+  Start menu shows only the window. Run from a terminal, the console is kept.
+- An update renames the running `meshclient.exe` to `meshclient.exe.old`, moves the download into
+  its place and deletes the `.old` on the next launch: Windows refuses to overwrite a running
+  executable but allows one to be renamed. Only the executable is updated; `SDL2.dll` and the
+  other bundled DLLs stay as the installer left them, so a change to those needs the installer.
+- `meshclient.exe` carries a manifest (`src/app/meshclient.manifest`) that makes the process's
+  code page UTF-8. Every path this client and inkwell hand Windows is a `char` string in that
+  code page, so without it a profile folder named outside the system's legacy code page would
+  reach the updater, and every file call, mangled. Windows 10 1903 and later honour it.
+- Neither the installer nor the executable is code-signed, so SmartScreen shows "Windows
+  protected your PC" on first run until the download has a reputation. **More info > Run
+  anyway** installs it.
+
+`scripts/package-windows.ps1 [-Version x.y.z]` builds the same thing locally, and needs Inno
+Setup (`winget install JRSoftware.InnoSetup`).
 
 ## See the UI
 
@@ -18,7 +52,8 @@ $env:Path = "C:\msys64\ucrt64\bin;$env:Path"
 Set `MSYS2_ROOT` and substitute its `ucrt64\bin` directory if MSYS2 is installed elsewhere.
 Windows now selects SDL by default; `--foreground` keeps the event loop and window open until
 you close it or press Escape. Without `--foreground`, the default single poll exits almost
-immediately. The SDL2 DLLs must remain on `PATH` until they are bundled with a release. A
+immediately. A build tree's executable finds SDL2's DLLs on `PATH`; the installer carries its
+own. A
 device is not required to see the window. A radio in Bluetooth range or plugged in over USB is
 found and connected to on its own. Set `$env:MESHCLIENT_UI_BACKEND = 'cli'` when a terminal-only
 run is intended.
@@ -88,8 +123,9 @@ under three minutes. The image stages in `%TEMP%` unless `--staging`
 or `MESHCLIENT_FIRMWARE_STAGING` names another directory. An nRF52 or RP2040 installs by writing
 its UF2 to the bootloader's drive, and there is no Windows backend for that yet.
 
-Inkcell input and the client updater compile on Windows; the updater offers no install action
-because releases contain Linux binaries only.
+Inkcell input and the client updater build on Windows. An installed release updates from
+`meshclient-windows-x86_64.exe`; a local build checks but does not install, as on every other
+platform.
 
 For a display-free smoke run after building, use PowerShell with the UCRT64 DLL directory on
 `PATH`:

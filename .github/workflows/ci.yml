@@ -177,6 +177,94 @@ jobs:
             Pop-Location
           }
 
+  # The two desktop downloads, built on every pull request by the scripts the release runs, so a
+  # packaging break is red in review rather than after a release has already been tagged. These
+  # are development builds - unstamped, so the updater inside them will not install anything -
+  # and they are uploaded so a reviewer can install exactly what the change produces.
+  macos-package:
+    name: Package (macOS .app and .dmg)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: ./scripts/setup-macos.sh
+
+      # The universal SDL2 the bundle carries, built from its pinned source release. Keyed on
+      # the script, which holds the version, the digest and the deployment target.
+      - name: Cache SDL2
+        uses: actions/cache@v6
+        with:
+          path: build/macos-sdl2-*
+          key: macos-sdl2-${{ hashFiles('scripts/package-macos.sh') }}
+
+      - name: Build the bundle and the disk image
+        run: ./scripts/package-macos.sh
+
+      - name: Upload the disk image
+        uses: actions/upload-artifact@v7
+        with:
+          name: MeshClient-macos
+          path: |
+            dist/MeshClient-macos.dmg
+            dist/MeshClient-macos-app.zip
+          if-no-files-found: error
+
+  windows-package:
+    name: Package (Windows installer)
+    runs-on: windows-2025
+    steps:
+      - name: Preserve Unix line endings and enable long Git paths
+        run: |
+          git config --global core.autocrlf input
+          git config --global core.longpaths true
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Install UCRT64 toolchain
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          release: false
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-SDL2
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-protobuf
+            mingw-w64-ucrt-x86_64-python-grpcio-tools
+            mingw-w64-ucrt-x86_64-python-jinja
+            mingw-w64-ucrt-x86_64-python-jsonschema
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build the installer
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          ./scripts/setup-windows.ps1
+          ./scripts/package-windows.ps1
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: MeshClient-windows
+          path: |
+            dist/MeshClient-windows-x86_64-setup.exe
+            dist/meshclient-windows-x86_64.exe
+          if-no-files-found: error
+
   # The device build, on every pull request. It used to run only in semantic-release.yml, which
   # fires on a push to main - so a change that compiles on glibc/x86-64 and not on musl/aarch64
   # was green in review, red at release time, and red on a protected branch. This job is the

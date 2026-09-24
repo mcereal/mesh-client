@@ -32,6 +32,10 @@
 #include <string.h>
 #include <strings.h>
 #include <time.h>
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 /*
  * The radio --status and --send-text are talking to, and the link they are talking over. Both
@@ -1245,6 +1249,22 @@ int main(int argc, char **argv) {
     if (map_pack_path != NULL) {
         return describe_map_pack(map_pack_path) < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
     }
+
+#if defined(_WIN32)
+    /*
+     * meshclient.exe is a console program, because the CLI half of it is one, so Windows gives a
+     * launch from the Start menu a console window of its own beside the SDL one - and closing
+     * that window kills the client. A console with no other process attached was made for this
+     * launch alone, and nobody is reading it; one shared with a shell is somebody's terminal and
+     * is kept. The installer's shortcut is what passes --foreground.
+     */
+    if (config.run_mode == MESH_APP_RUN_FOREGROUND) {
+        DWORD attached[2];
+        if (GetConsoleProcessList(attached, 2U) == 1U) {
+            (void)FreeConsole();
+        }
+    }
+#endif
 
     /* Before the client does anything, and after --log-level has been read: the log on the card
        is an append that no previous run ever cut back, so the run that inherits an oversized one
