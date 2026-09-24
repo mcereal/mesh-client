@@ -287,7 +287,7 @@ static const struct help_feature k_help_features[] = {
                  MESH_STR_HELP_SUBJECT_NODE_ACTIONS, k_help_node_actions),
     /* And the chart one of that detail's readings opens. Keyed on the route like every other
        entry here, which is what got it the right help without the press that opens it having to
-       say anything: MESH_UI_ROUTE_TREND under the Nodes tab is this, and under the Status tab is
+       say anything: MESH_UI_ROUTE_TREND under the Nodes tab is this, and under the Radio tab is
        the airtime one two rows down. */
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_TREND, MESH_STR_HELP_SUBJECT_NODE_CHART,
                  k_help_node_chart),
@@ -297,9 +297,12 @@ static const struct help_feature k_help_features[] = {
        and the four things worth knowing about a waypoint do not change with the depth. */
     HELP_FEATURE(MESH_UI_SCREEN_WAYPOINTS, MESH_UI_ROUTE_WAYPOINT, MESH_STR_HELP_SUBJECT_WAYPOINT,
                  k_help_waypoints),
-    HELP_FEATURE(MESH_UI_SCREEN_DEVICES, MESH_UI_ROUTE_LIST, MESH_STR_TAB_DEVICES, k_help_devices),
-    HELP_FEATURE(MESH_UI_SCREEN_STATUS, MESH_UI_ROUTE_LIST, MESH_STR_TAB_STATUS, k_help_status),
-    HELP_FEATURE(MESH_UI_SCREEN_STATUS, MESH_UI_ROUTE_TREND, MESH_STR_HELP_SUBJECT_TREND,
+    /* The Radio tab's three places: the cards it opens on, and the two levels those open. Each
+       keeps the subject it had while it was a tab of its own, because each is still answering
+       the question it was then. */
+    HELP_FEATURE(MESH_UI_SCREEN_RADIO, MESH_UI_ROUTE_LIST, MESH_STR_TAB_STATUS, k_help_status),
+    HELP_FEATURE(MESH_UI_SCREEN_RADIO, MESH_UI_ROUTE_DEVICES, MESH_STR_TAB_DEVICES, k_help_devices),
+    HELP_FEATURE(MESH_UI_SCREEN_RADIO, MESH_UI_ROUTE_TREND, MESH_STR_HELP_SUBJECT_TREND,
                  k_help_trend),
     /* The Settings tab's two features. Every other screen under that tab is a settings section,
        whose paragraphs are the fields' own; these two have no fields and are not lists. */

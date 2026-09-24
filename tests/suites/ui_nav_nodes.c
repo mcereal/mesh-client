@@ -1244,7 +1244,8 @@ MESH_TEST_CASE(ui_nav_devices_disconnect_forget, unit) {
     };
     mesh_ui_store_set_discovery(&store, devices, sizeof devices / sizeof devices[0]);
     mesh_ui_store_consume_updates(&store, NULL);
-    store.nav.screen = MESH_UI_SCREEN_DEVICES;
+    store.nav.screen = MESH_UI_SCREEN_RADIO;
+    store.nav.devices_open = true;
 
     struct mesh_ui_action action;
     mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);

@@ -69,7 +69,7 @@ enum mesh_ui_status_card {
  *
  * The first two are presses that already exist elsewhere, which was deliberate: the step that
  * gave a card somewhere to put a verb would have been arguing two things at once if it had also
- * invented one. Disconnect is X on the Devices tab and Refresh is X on Settings.
+ * invented one. Disconnect is X on the device list and Refresh is X on Settings.
  *
  * Trend is the first that exists nowhere else, and it is a verb rather than a row because the
  * Status screen has no rows to press: the cursor here walks card buttons, so "open the airtime
@@ -81,10 +81,17 @@ enum mesh_ui_status_card {
  * table in status.c is written in, which is the order the cards draw.
  */
 enum mesh_ui_status_verb {
-    MESH_UI_STATUS_VERB_DISCONNECT = 0, /* drop the link that is up */
-    MESH_UI_STATUS_VERB_REFRESH,        /* re-read the radio's configuration */
-    MESH_UI_STATUS_VERB_TREND,          /* open the airtime history as a chart */
-    MESH_UI_STATUS_VERB_COUNT,          /* and "no verb", which is what an empty screen holds */
+    /*
+     * Open the device list, one level in. First in the enum so that a fresh nav's cursor - which
+     * holds 0 - stands on it: the one verb that is offered with nothing attached, and the one
+     * press on this screen that asks nothing of anybody. The cards being where the Radio tab
+     * opens is what made it necessary; see MESH_UI_SCREEN_RADIO in include/mesh/ui/nav.h.
+     */
+    MESH_UI_STATUS_VERB_DEVICES = 0,
+    MESH_UI_STATUS_VERB_DISCONNECT, /* drop the link that is up */
+    MESH_UI_STATUS_VERB_REFRESH,    /* re-read the radio's configuration */
+    MESH_UI_STATUS_VERB_TREND,      /* open the airtime history as a chart */
+    MESH_UI_STATUS_VERB_COUNT,      /* and "no verb", which is what an empty screen holds */
 };
 
 struct mesh_ui_status_action {
@@ -96,7 +103,7 @@ struct mesh_ui_status_action {
 
 /* Above what the table can produce, so reaching it means the screen has grown a verb rather
    than that the list ran out. */
-#define MESH_UI_STATUS_ACTIONS_MAX 4U
+#define MESH_UI_STATUS_ACTIONS_MAX 5U
 
 struct mesh_ui_status_actions {
     struct mesh_ui_status_action items[MESH_UI_STATUS_ACTIONS_MAX];

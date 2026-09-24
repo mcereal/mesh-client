@@ -215,7 +215,7 @@ MESH_TEST_CASE(ui_capture_draws_the_status_cards, unit) {
        change, and a test that set nav.screen by hand would keep passing while the key that gets
        a user there stopped working. */
     struct mesh_ui_action action;
-    while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+    while (store.nav.screen != MESH_UI_SCREEN_RADIO) {
         const enum mesh_ui_screen before = store.nav.screen;
         memset(&action, 0, sizeof action);
         (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
@@ -373,7 +373,7 @@ MESH_TEST_CASE(ui_capture_status_keeps_the_last_card_when_the_one_above_overflow
     mesh_test_nav_populate(&store);
 
     struct mesh_ui_action action;
-    while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+    while (store.nav.screen != MESH_UI_SCREEN_RADIO) {
         const enum mesh_ui_screen before = store.nav.screen;
         memset(&action, 0, sizeof action);
         (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
@@ -452,7 +452,7 @@ MESH_TEST_CASE(ui_capture_draws_the_card_variants, unit) {
     mesh_test_nav_populate(&store);
 
     struct mesh_ui_action action;
-    while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+    while (store.nav.screen != MESH_UI_SCREEN_RADIO) {
         const enum mesh_ui_screen before = store.nav.screen;
         memset(&action, 0, sizeof action);
         (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
@@ -516,7 +516,9 @@ MESH_TEST_CASE(ui_capture_draws_the_card_variants, unit) {
         }
     }
 
+    /* Two presses: the Link card carries two verbs, and the second is on the same card. */
     memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     memset(&snapshot, 0, sizeof snapshot);
     mesh_ui_store_request_refresh(&store);
@@ -2715,7 +2717,8 @@ MESH_TEST_CASE(fb_transition_under_layer_matches_full_composition, unit) {
         goto cleanup;
     }
     inkcell_capture_set_reference(reference, true);
-    snapshot->nav.screen = MESH_UI_SCREEN_DEVICES;
+    snapshot->nav.screen = MESH_UI_SCREEN_RADIO;
+    snapshot->nav.devices_open = true;
     snprintf(snapshot->nav.toast, sizeof snapshot->nav.toast, "Pairing");
     snapshot->nav.toast_until_ms = 60000U;
     bool clip_seen = false;
@@ -3662,7 +3665,9 @@ MESH_TEST_CASE(ui_capture_chart_keeps_its_ink_off_the_chrome, unit) {
         return;
     }
 
-    snapshot->nav.screen = MESH_UI_SCREEN_STATUS;
+    snapshot->nav.screen = MESH_UI_SCREEN_RADIO;
+
+    snapshot->nav.devices_open = false;
     snapshot->nav.trend_open = true;
     snapshot->handshake_valid = true;
 

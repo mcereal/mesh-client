@@ -17,7 +17,7 @@ scene demo
 delay 260
 config
 
-tab status
+tab radio
 stats
 hold 700
 
@@ -38,8 +38,12 @@ key down
 hold 1400
 key down
 hold 1400
+key down
+hold 1400
 
 # And back up to the top of it.
+key up
+hold 900
 key up
 hold 900
 key up

@@ -69,6 +69,9 @@ bool mesh_ui_nav_picker_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
  * IPv4 literal is typed without changing layer once.
  */
 void mesh_ui_nav_open_network_keyboard(struct mesh_ui_nav *nav, const char *host);
+/* Puts the Radio tab on its device list, which is where every keyboard raised from that list
+   lands again - the address it typed, the PIN a pairing asked for. */
+void mesh_ui_nav_land_on_devices(struct mesh_ui_nav *nav);
 /*
  * Done on that keyboard.
  *

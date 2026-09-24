@@ -72,12 +72,12 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         }
         return depth;
     }
-    case MESH_UI_SCREEN_STATUS:
-        /* One level, and the only tab whose second level is a picture rather than a list of
-           something. It still counts, because what a depth buys is the slide, the back arrow and
-           the B keycap - none of which care what is being drawn at the bottom of it. */
-        return nav->trend_open ? 1U : 0U;
-    case MESH_UI_SCREEN_DEVICES:
+    case MESH_UI_SCREEN_RADIO:
+        /* One level, either of two: the device list, or the airtime chart - a picture rather
+           than a list of something. The chart still counts, because what a depth buys is the
+           slide, the back arrow and the B keycap - none of which care what is being drawn at the
+           bottom of it. */
+        return (nav->devices_open || nav->trend_open) ? 1U : 0U;
     default:
         return 0U;
     }
@@ -171,7 +171,11 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
         out->level = MESH_UI_ROUTE_SECTION;
         out->slot = nav->settings_section;
         return;
-    case MESH_UI_SCREEN_STATUS:
+    case MESH_UI_SCREEN_RADIO:
+        if (nav->devices_open) {
+            out->level = MESH_UI_ROUTE_DEVICES;
+            return;
+        }
         if (nav->trend_open) {
             out->level = MESH_UI_ROUTE_TREND;
         }
@@ -180,7 +184,6 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
            `subject` and the reading in `slot` - which is what keeps them distinct from this one
            and from each other. */
         return;
-    case MESH_UI_SCREEN_DEVICES:
     default:
         return;
     }
@@ -381,8 +384,8 @@ enum inkcell_transition mesh_ui_route_move(const struct mesh_ui_route *from,
 
 static const char *const k_screen_names[MESH_UI_SCREEN_COUNT] = {
     [MESH_UI_SCREEN_MESSAGES] = "messages",   [MESH_UI_SCREEN_NODES] = "nodes",
-    [MESH_UI_SCREEN_WAYPOINTS] = "waypoints", [MESH_UI_SCREEN_DEVICES] = "devices",
-    [MESH_UI_SCREEN_STATUS] = "status",       [MESH_UI_SCREEN_SETTINGS] = "settings",
+    [MESH_UI_SCREEN_WAYPOINTS] = "waypoints", [MESH_UI_SCREEN_RADIO] = "radio",
+    [MESH_UI_SCREEN_SETTINGS] = "settings",
 };
 
 static const char *const k_level_names[MESH_UI_ROUTE_COUNT] = {
@@ -404,6 +407,7 @@ static const char *const k_level_names[MESH_UI_ROUTE_COUNT] = {
     [MESH_UI_ROUTE_VERIFY] = "verify",
     [MESH_UI_ROUTE_SHARE] = "share",
     [MESH_UI_ROUTE_CONTACT] = "contact",
+    [MESH_UI_ROUTE_DEVICES] = "devices",
 };
 
 const char *mesh_ui_screen_id(enum mesh_ui_screen screen) {

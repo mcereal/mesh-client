@@ -13,7 +13,7 @@ scene demo
 delay 300
 config
 
-tab status
+tab radio
 stats
 hold 900
 

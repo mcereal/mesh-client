@@ -12,9 +12,11 @@ stats
 hold 500
 tab nodes
 hold 500
-tab devices
+tab radio
 hold 500
-tab status
+key a
+hold 500
+key b
 hold 500
 tab settings
 hold 900

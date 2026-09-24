@@ -72,7 +72,7 @@ static struct mesh_ui_device *actions_add_device(struct mesh_ui_snapshot *snapsh
     device->kind = (uint8_t)kind;
     device->in_range = true;
     device->paired = true;
-    snapshot->nav.cursor[MESH_UI_SCREEN_DEVICES] = (uint32_t)snapshot->device_count;
+    snapshot->nav.cursor[MESH_UI_SCREEN_RADIO] = (uint32_t)snapshot->device_count;
     snapshot->device_count += 1U;
     return device;
 }
@@ -152,27 +152,29 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
                       "the shoulders move between tabs on every screen that is not an overlay");
 
     /* Both of these are properties of the row, so the tab needs one to offer either. */
-    snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
+    snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
+    snapshot.nav.devices_open = true;
     actions_add_device(&snapshot, "F4:12:FA:00:0A:22", MESH_UI_DEVICE_BLE);
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_CONNECT,
-                      "A should connect on the Devices tab");
+                      "A should connect on the device list");
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_Y) != MESH_STR_ACTION_FORGET,
-                      "Y should forget a radio on the Devices tab");
+                      "Y should forget a radio on the device list");
 
     /*
      * Status offers the way out - but only while a radio is attached, because the line under
      * the bar already ends in the quit hint when there is none, and the same instruction twice
      * reads as a rendering fault.
      */
-    snapshot.nav.screen = MESH_UI_SCREEN_STATUS;
+    snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
+    snapshot.nav.devices_open = false;
     snapshot.handshake_valid = false;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != INKCELL_STR_NONE,
                       "Status should not repeat the quit hint while nothing is connected");
-    /* And nothing else: with no radio its cards carry no verbs, so A means nothing here. */
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != INKCELL_STR_NONE,
-                      "Status with no radio should not offer a press it cannot answer");
+    /* And A is the one verb the cards carry with no radio: the way to the device list. */
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_DEVICES,
+                      "Status with no radio should offer the device list and nothing else");
 
     snapshot.device_count = 1U;
     snapshot.devices[0].connected = true;
@@ -182,19 +184,28 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
     /*
      * A names the verb the cursor is on rather than one word for the screen, which is the
      * compose sheet's rule and not the settings section's: the cards offer different verbs.
-     * With one verb on offer there is nothing to choose between, so no direction keycap.
+     * The Link card carries two now, so the bar offers a way to choose between them.
      */
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_DEVICES,
+                      "a fresh cursor stands on the Link card's device list");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_UP_DOWN) != MESH_STR_ACTION_CHOOSE,
+                      "two verbs want a way to choose between them");
+    snapshot.nav.status_verb = (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT;
+    mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_DISCONNECT,
-                      "A on the Link card's verb should say disconnect");
+                      "A on the Link card's other verb should say disconnect");
+
+    /* With no radio there is only the one verb, and nothing to choose between. */
+    snapshot.devices[0].connected = false;
+    mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_UP_DOWN) != INKCELL_STR_NONE,
                       "one verb needs no gesture for choosing between verbs");
+    snapshot.devices[0].connected = true;
 
     /* A radio that has answered the handshake adds the Radio card's refresh, and the bar
        renames A as the cursor moves onto it. */
     snapshot.handshake_valid = true;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_UP_DOWN) != MESH_STR_ACTION_CHOOSE,
-                      "two verbs want a way to choose between them");
     snapshot.nav.status_verb = (uint8_t)MESH_UI_STATUS_VERB_REFRESH;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_REFRESH,
@@ -362,7 +373,8 @@ MESH_TEST_CASE(actions_arm_before_they_destroy, unit) {
                       "an armed bar should say one thing, not four");
 
     actions_snapshot(&snapshot);
-    snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
+    snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
+    snapshot.nav.devices_open = true;
     actions_add_device(&snapshot, "F4:12:FA:00:0A:22", MESH_UI_DEVICE_BLE);
     snapshot.nav.devices_forget_armed = true;
     mesh_ui_actions_for(&snapshot, &bar);
@@ -620,7 +632,8 @@ MESH_TEST_CASE(actions_no_snapshot_is_an_empty_bar, unit) {
 MESH_TEST_CASE(actions_the_chart_offers_only_the_way_out, unit) {
     struct mesh_ui_snapshot snapshot;
     memset(&snapshot, 0, sizeof snapshot);
-    snapshot.nav.screen = MESH_UI_SCREEN_STATUS;
+    snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
+    snapshot.nav.devices_open = false;
     snapshot.nav.trend_open = true;
     snapshot.handshake_valid = true;
 
@@ -748,7 +761,8 @@ MESH_TEST_CASE(actions_devices_ask_the_row_under_the_cursor, unit) {
      * the live link is not about the cursor.
      */
     actions_snapshot(&snapshot);
-    snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
+    snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
+    snapshot.nav.devices_open = true;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_ADDRESS,
                       "an empty device list still offers the network address");
@@ -767,7 +781,8 @@ MESH_TEST_CASE(actions_devices_ask_the_row_under_the_cursor, unit) {
 
     /* A USB node in its bootloader: no session to open, and no bond to forget either. */
     actions_snapshot(&snapshot);
-    snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
+    snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
+    snapshot.nav.devices_open = true;
     struct mesh_ui_device *boot =
         actions_add_device(&snapshot, "/dev/ttyUSB0", MESH_UI_DEVICE_SERIAL);
     boot->bootloader = true;
@@ -787,7 +802,8 @@ MESH_TEST_CASE(actions_devices_ask_the_row_under_the_cursor, unit) {
 
     /* The row we are already on: Y can still drop the bond, A has nothing left to do. */
     actions_snapshot(&snapshot);
-    snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
+    snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
+    snapshot.nav.devices_open = true;
     struct mesh_ui_device *live =
         actions_add_device(&snapshot, "F4:12:FA:00:0A:11", MESH_UI_DEVICE_BLE);
     live->connected = true;

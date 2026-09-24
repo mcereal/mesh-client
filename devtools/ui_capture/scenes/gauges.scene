@@ -39,7 +39,7 @@ key b
 
 # And the airtime bar the band came from, climbing past both of its marks. `stats` first, so the
 # counter rows the airtime report raises carry the radio's traffic rather than a row of zeroes.
-tab status
+tab radio
 stats
 airtime 8 2
 hold 700

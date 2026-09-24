@@ -11,7 +11,8 @@
 # whether it is the one we are on is not.
 
 scene demo
-tab devices
+tab radio
+key a
 hold 1200
 
 # The first row is the USB port, which is where the client puts it, and this one is a node in

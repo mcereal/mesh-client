@@ -662,7 +662,7 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
      * Quit is the one offered command with no logical key: the input host normally consumes its
      * physical binding, so semantic dispatch stops the controller's loop directly.
      */
-    controller.snapshot.nav.screen = MESH_UI_SCREEN_STATUS;
+    controller.snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
     controller.snapshot.device_count = 1U;
     controller.snapshot.devices[0].connected = true;
     store.pending_flags = MESH_UI_UPDATE_NONE;
@@ -710,7 +710,7 @@ MESH_TEST_CASE(ui_controller_context_menu_dispatches_semantic_commands, unit) {
     mesh_ui_controller_set_action_handler(&controller, test_capture_action, &actions);
 
     mesh_test_nav_populate(&store);
-    if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_DEVICES)) {
+    if (!mesh_test_open_devices(&store)) {
         failure = "the test needs the Devices tab";
         goto cleanup;
     }
@@ -794,7 +794,7 @@ MESH_TEST_CASE(ui_controller_heading_verbs_dispatch_semantic_commands, unit) {
     mesh_ui_controller_set_action_handler(&controller, test_capture_action, &actions);
 
     mesh_test_nav_populate(&store);
-    if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_DEVICES)) {
+    if (!mesh_test_open_devices(&store)) {
         failure = "the test needs the Devices tab";
         goto cleanup;
     }

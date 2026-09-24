@@ -397,7 +397,7 @@ MESH_TEST_CASE(ui_route_a_node_chart_names_its_reading, unit) {
        stops a node's chart and the airtime one comparing equal if that ever changed. */
     struct mesh_ui_nav status;
     memset(&status, 0, sizeof status);
-    status.screen = MESH_UI_SCREEN_STATUS;
+    status.screen = MESH_UI_SCREEN_RADIO;
     status.trend_open = true;
     struct mesh_ui_route airtime;
     mesh_ui_route_of(&status, &airtime);
@@ -411,7 +411,7 @@ MESH_TEST_CASE(ui_route_a_node_chart_names_its_reading, unit) {
 MESH_TEST_CASE(ui_route_the_chart_is_a_level_of_the_status_tab, unit) {
     struct mesh_ui_nav nav;
     memset(&nav, 0, sizeof nav);
-    nav.screen = MESH_UI_SCREEN_STATUS;
+    nav.screen = MESH_UI_SCREEN_RADIO;
 
     struct mesh_ui_route cards;
     mesh_ui_route_of(&nav, &cards);
@@ -434,7 +434,7 @@ MESH_TEST_CASE(ui_route_the_chart_is_a_level_of_the_status_tab, unit) {
      * would restart the slide under the reader's thumb on every press of Down.
      */
     nav.trend_open = false;
-    nav.cursor[MESH_UI_SCREEN_STATUS] = 2U;
+    nav.cursor[MESH_UI_SCREEN_RADIO] = 2U;
     struct mesh_ui_route moved;
     mesh_ui_route_of(&nav, &moved);
     MESH_TEST_FAIL_IF(!mesh_ui_route_same(&cards, &moved),

@@ -361,7 +361,7 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
     }
     /* Left on the section list still switches tabs. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
-    if (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+    if (store.nav.screen != MESH_UI_SCREEN_RADIO) {
         failure = "Left on the section list should switch tabs";
         goto cleanup;
     }

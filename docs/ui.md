@@ -1116,7 +1116,7 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `alert NAME TEXT`, `detection NAME TEXT` | `ALERT_APP` / `DETECTION_SENSOR_APP` |
 | `toast TEXT` | raise the snackbar; it times out on the scene's own clock |
 | `status TEXT`, `notice info\|warn\|error TEXT` | the transport line; what the radio last said |
-| `queue FREE MAXLEN [refused]`, `reboots N` | Status tab rows |
+| `queue FREE MAXLEN [refused]`, `reboots N` | Status card rows |
 | `airtime BUSY [TX]`, `airtime history MINUTES` | the airtime row and meter; a chart's worth of it |
 | `update check\|download [PCT]\|available\|ready` | the self-updater's state |
 | `firmware ... `, `firmware-channel stable\|alpha` | what the client knows about the *radio's* firmware |

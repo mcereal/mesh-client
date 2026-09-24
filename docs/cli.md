@@ -54,7 +54,7 @@ the loop—in a child on POSIX or by overlapped Windows lookup—so DNS never fr
 `--serial` outranks `--tcp-host`. `--disable-ble` / `--disable-serial` / `--disable-tcp` turn a
 transport off entirely.
 
-On the device the address is typed instead: the last row of the Devices tab, saved as
+On the device the address is typed instead: the last row of the device list, saved as
 `network_host` in `~/.meshclient/ui_prefs`. That saved address seeds `--tcp-host` only when
 neither the flag nor `MESHCLIENT_TCP_HOST` named one.
 
@@ -194,7 +194,7 @@ accumulation across runs. `MESHCLIENT_LOG_FILE` names the file when it is somewh
 
 ## On-device controls
 
-Five tabs: **Messages, Nodes, Devices, Status, Settings.**
+Five tabs: **Messages, Nodes, Waypoints, Radio, Settings.**
 
 | Key | Action |
 |---|---|
@@ -204,7 +204,7 @@ Five tabs: **Messages, Nodes, Devices, Status, Settings.**
 | A | act on the row |
 | B | back out |
 | Y | write a message (Messages/Nodes), save a section (Settings) |
-| X | delete a conversation (Messages), refresh (Settings), pin a node (Nodes), disconnect (Devices) |
+| X | delete a conversation (Messages), refresh (Settings), pin a node (Nodes), disconnect (Radio's device list) |
 | SELECT | help for what is on screen ([`help.md`](help.md)) |
 | MENU | quit |
 
@@ -226,8 +226,9 @@ the grid is showing: `abc`, `ABC`, symbols, then three pages of forty emoji. The
 of the grid steps the same ring, so everything is reachable without the shoulders.
 
 **Nodes** is the contact list; A opens a node's detail, where rows appear only for what the node
-has actually reported. **Devices** lists USB ports first (no pairing, so they sort to the top),
-then BLE advertisers; A connects and bonds, X disconnects and holds auto-connect off, Y twice
-forgets a bond. **Settings** reads the radio's configuration over the admin protocol and edits it
+has actually reported. **Radio** opens on the link, mesh and radio cards; the Link card's
+*devices* button opens the device list, which shows USB ports first (no pairing, so they sort to
+the top), then BLE advertisers; A connects and bonds, X disconnects and holds auto-connect off, Y
+twice forgets a bond, B goes back to the cards. **Settings** reads the radio's configuration over the admin protocol and edits it
 in place; the radio usually reboots to apply a change and the client reconnects on its own.
 **About** is the one section that works with nothing connected.

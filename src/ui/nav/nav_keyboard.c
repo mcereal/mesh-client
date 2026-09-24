@@ -192,8 +192,8 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
             } else if (nav->keyboard_network) {
                 /* Survives the prompt untouched, exactly as `keyboard_waypoint` does - and it
                    is the one flavour a passkey prompt can plausibly land on, since both are
-                   raised from the Devices tab. */
-                nav->screen = MESH_UI_SCREEN_DEVICES;
+                   raised from the device list. */
+                mesh_ui_nav_land_on_devices(nav);
             } else {
                 nav->screen = MESH_UI_SCREEN_MESSAGES;
             }
@@ -211,7 +211,7 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         nav->keyboard_network = false;
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
         nav->draft_saved[0] = '\0';
-        nav->screen = MESH_UI_SCREEN_DEVICES;
+        mesh_ui_nav_land_on_devices(nav);
         return;
     }
     if (nav->keyboard_channel_url) {
@@ -262,7 +262,7 @@ void mesh_ui_nav_open_network_keyboard(struct mesh_ui_nav *nav, const char *host
     nav->keyboard_open = true;
     nav->compose_open = false;
     inkcell_keyboard_reset(&nav->kb);
-    nav->screen = MESH_UI_SCREEN_DEVICES;
+    mesh_ui_nav_land_on_devices(nav);
 }
 
 bool mesh_ui_nav_commit_network_host(struct mesh_ui_nav *nav, struct mesh_ui_action *action) {
@@ -288,7 +288,7 @@ bool mesh_ui_nav_commit_network_host(struct mesh_ui_nav *nav, struct mesh_ui_act
     nav->draft[0] = '\0';
     mesh_ui_nav_keyboard_close(nav);
     /* Land on the list the address is about to appear on. */
-    nav->screen = MESH_UI_SCREEN_DEVICES;
+    mesh_ui_nav_land_on_devices(nav);
     return true;
 }
 

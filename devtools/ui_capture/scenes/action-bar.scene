@@ -7,7 +7,8 @@ config
 hold 600
 tab nodes
 hold 600
-tab devices
+tab radio
+key a
 hold 600
 tab settings
 hold 600

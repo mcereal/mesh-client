@@ -17,14 +17,17 @@ scene demo
 delay 260
 config
 
-tab status
+tab radio
 hold 1100
 
-# Down to the Radio card's verb. The ring follows, the button fills, and "A disconnect" in the
-# bar becomes "A refresh" - one table read twice, which is what stops the two disagreeing.
+# Down the Link card's two verbs to the Radio card's. The ring follows, the button fills, and
+# "A devices" in the bar becomes "A disconnect" and then "A refresh" - one table read twice,
+# which is what stops the two disagreeing.
+key down
+hold 900
 key down
 hold 1400
-key up
+key up 2
 hold 900
 
 # The radio comes under pressure. Every row on that card exists only while something is wrong,
