@@ -349,11 +349,19 @@ static void updater_serve(void *userdata, const struct https_fixture_request *re
         https_fixture_reply(conn, 404, NULL, NULL, 0U);
         return;
     }
-    char payload[256];
+    /* Room for the Mac's payload, which is a zip of a bundle rather than a bare script. A
+       payload that does not fit, or a first piece past its end, is a broken fixture - answered
+       with a 500 rather than a truncated body the client would then be tested against. */
+    char payload[4096];
     FILE *file = fopen(github->payload, "rb");
     const size_t len = file != NULL ? fread(payload, 1U, sizeof payload, file) : 0U;
+    const bool whole = file != NULL && feof(file);
     if (file != NULL) {
         fclose(file);
+    }
+    if (!whole || github->half > len) {
+        https_fixture_reply(conn, 500, NULL, NULL, 0U);
+        return;
     }
     https_fixture_printf(conn, "HTTP/1.1 200 OK\r\nContent-Length: %zu\r\n\r\n", len);
     https_fixture_send(conn, payload, github->half);
