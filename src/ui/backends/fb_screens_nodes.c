@@ -632,8 +632,9 @@ void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snap
     for (uint32_t r = 0; r < rows && r < (uint32_t)(sizeof node_heights); ++r) {
         node_heights[r] = (r == MESH_UI_NODES_FILTER_ROW || r == MESH_UI_NODES_SORT_ROW) ? 1U : 2U;
     }
-    struct inkcell_fb_list list = inkcell_fb_list_begin_heights(
-        layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights);
+    const struct inkcell_fb_list_style look = fb_list_look(state, FB_LIST_ROLE_FEED);
+    struct inkcell_fb_list list = inkcell_fb_list_begin_styled(
+        state, layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights, NULL, &look);
     inkcell_fb_list_glide(state, &list, FB_LIST_NODES);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     /*

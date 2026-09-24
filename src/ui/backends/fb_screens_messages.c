@@ -60,8 +60,11 @@ void fb_render_conversations(struct inkcell_draw_state *state,
      * the last thing said with the unread count as a pill. The cell owns every pixel of that -
      * this loop only says which strings go in it and what each one means.
      */
+    /* All traffic, the channels, a peer per direct thread and New message. */
+    uint8_t steps[2U + MESH_UI_MAX_CHANNELS + MESH_UI_MAX_MESSAGES];
     struct inkcell_fb_list list =
-        inkcell_fb_list_begin_rows(layout, count, nav->cursor[MESH_UI_SCREEN_MESSAGES], 2U);
+        fb_list_begin_steps(state, layout, count, nav->cursor[MESH_UI_SCREEN_MESSAGES], 2U, steps,
+                            sizeof steps, FB_LIST_ROLE_FEED);
     inkcell_fb_list_glide(state, &list, FB_LIST_CONVERSATIONS);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     char age[8];

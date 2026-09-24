@@ -250,6 +250,32 @@ struct inkcell_fb_layout fb_layout_in(const struct inkcell_fb_layout *layout,
     return out;
 }
 
+struct inkcell_fb_list_style fb_list_look(const struct inkcell_draw_state *state,
+                                          enum fb_list_role role) {
+    const bool roomy = role != FB_LIST_ROLE_FEED ||
+                       (state != NULL && inkcell_fb_width_class(state) != INKCELL_WIDTH_COMPACT);
+    return (struct inkcell_fb_list_style){
+        .appearance =
+            role == FB_LIST_ROLE_FEED ? INKCELL_FB_LIST_PLAIN : INKCELL_FB_LIST_INSET_GROUPED,
+        .density = roomy ? INKCELL_FB_LIST_COMFORTABLE : INKCELL_FB_LIST_COMPACT,
+        .focus = INKCELL_FB_LIST_FOCUS_ACCENT,
+        .type = INKCELL_FB_LIST_TYPE_TIERED,
+        .separators = roomy,
+    };
+}
+
+struct inkcell_fb_list fb_list_begin_steps(const struct inkcell_draw_state *state,
+                                           const struct inkcell_fb_layout *layout, uint32_t count,
+                                           uint32_t cursor, uint8_t per_item, uint8_t *steps,
+                                           size_t capacity, enum fb_list_role role) {
+    if (steps == NULL || count > capacity) {
+        return inkcell_fb_list_begin_rows(layout, count, cursor, per_item);
+    }
+    memset(steps, per_item, count);
+    const struct inkcell_fb_list_style look = fb_list_look(state, role);
+    return inkcell_fb_list_begin_styled(state, layout, count, cursor, steps, NULL, &look);
+}
+
 /*
  * A right-click menu: the row's own verbs, at the pointer.
  *

@@ -1592,6 +1592,27 @@ MESH_TEST_CASE(ui_capture_dialog_actions_stay_inside_the_panel, unit) {
             const struct inkcell_rgb outline_rgb =
                 inkcell_theme_color(theme, INKCELL_COLOR_OUTLINE);
             const uint32_t outline = rgb_key(outline_rgb);
+            /*
+             * And the screen under the question, drawn alone: the same snapshot with the dialog
+             * put down, on the same first frame. The list behind stands in an inset section
+             * whose surface and cursor capsule can reach further left than the panel at this
+             * scale, and that is the screen being asked about - not a control escaping. What
+             * the test is for is anything *else* out there, so a pixel that matches this frame
+             * is not an escape whatever its colour.
+             */
+            struct mesh_ui_snapshot beneath = snapshot;
+            beneath.nav.confirm_open = false;
+            struct inkcell_capture *under = NULL;
+            if (mesh_ui_capture_open(&under, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT,
+                                     INKCELL_SCALE_MAX) != 0) {
+                failure = "capture open failed";
+                inkcell_capture_close(capture);
+                capture = NULL;
+                break;
+            }
+            inkcell_capture_render(under, &beneath);
+            const uint8_t *behind = inkcell_capture_pixels(under, NULL, NULL, NULL);
+            const struct inkcell_rgb shadow_rgb = inkcell_theme_color(theme, INKCELL_COLOR_SHADOW);
             size_t escaped = 0U;
             for (uint32_t y = top; y <= bottom && left > 0U; ++y) {
                 const uint8_t *row = pixels + (size_t)y * stride;
@@ -1600,11 +1621,19 @@ MESH_TEST_CASE(ui_capture_dialog_actions_stay_inside_the_panel, unit) {
                     const uint32_t key = pixel_key(px);
                     /* The edge as it turns through a corner is a blend of itself and the ground
                        it is over - see pixel_between(). It is still the panel's own edge. */
-                    if (key != bg && key != outline && !pixel_between(px, bg_rgb, outline_rgb)) {
+                    const size_t at = (size_t)y * stride + (size_t)x * 4U;
+                    /* The panel's shadow falls out here too, and all a shadow can do is take
+                       what was behind part of the way towards the theme's shadow colour. */
+                    const struct inkcell_rgb behind_rgb = {
+                        .r = behind[at + 2U], .g = behind[at + 1U], .b = behind[at]};
+                    if (key != bg && key != outline && pixel_key(behind + at) != key &&
+                        !pixel_between(px, bg_rgb, outline_rgb) &&
+                        !pixel_between(px, behind_rgb, shadow_rgb)) {
                         ++escaped;
                     }
                 }
             }
+            inkcell_capture_close(under);
             inkcell_capture_close(capture);
             capture = NULL;
 
@@ -4858,7 +4887,7 @@ MESH_TEST_CASE(ui_capture_an_ungrouped_section_draws_no_card, unit) {
  * before this and lose the grouping everywhere - Radio actions is five groups and is what the
  * cards were added for.
  */
-MESH_TEST_CASE(ui_capture_a_grouped_section_draws_cards, unit) {
+MESH_TEST_CASE(ui_capture_a_grouped_section_draws_its_groups, unit) {
     struct mesh_ui_store store;
     struct inkcell_capture *capture = NULL;
     const char *failure = render_section(MESH_UI_SETTINGS_ACTIONS, &store, &capture);
@@ -4867,8 +4896,25 @@ MESH_TEST_CASE(ui_capture_a_grouped_section_draws_cards, unit) {
         uint32_t height = 0U;
         size_t stride = 0U;
         const uint8_t *pixels = inkcell_capture_pixels(capture, &width, &height, &stride);
-        if (widest_row_run(capture, pixels, width, height, stride, INKCELL_COLOR_OUTLINE) < 80U) {
-            failure = "Radio actions draws no card edge across a section that is five groups";
+        /* Its groups are sections now - edgeless surfaces with the page between them - so
+           what says "five groups" is the number of times the middle of the column comes up
+           off the ground, not an outline. */
+        const struct inkcell_rgb ground =
+            inkcell_theme_color(inkcell_capture_theme(capture), INKCELL_COLOR_BG);
+        const uint32_t mid = width / 2U;
+        uint32_t sections = 0U;
+        bool on_ground = true;
+        for (uint32_t y = 0U; y < height; ++y) {
+            const uint8_t *p = pixels + (size_t)y * stride + (size_t)mid * 4U;
+            const bool ground_here = p[0] == ground.b && p[1] == ground.g && p[2] == ground.r;
+            if (on_ground && !ground_here) {
+                ++sections;
+            }
+            on_ground = ground_here;
+        }
+        /* The tab strip and the footer are the other two surfaces the column crosses. */
+        if (sections < 2U + 3U) {
+            failure = "Radio actions draws fewer than three sections for a section of five groups";
         }
     }
     if (capture != NULL) {
@@ -5344,7 +5390,7 @@ MESH_TEST_CASE(ui_capture_every_section_starts_in_the_same_column, unit) {
  * the cursor there covers it. That is the body's edge, deliberate, and it would read here as an
  * edge the cursor removed.
  */
-MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_cards_edges, unit) {
+MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_sections_edges, unit) {
     const char *failure = NULL;
     static char detail[256];
 
@@ -5412,23 +5458,45 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_cards_edges, unit) {
                     failure = "capture failed";
                     break;
                 }
-                /* Half the column, not half the panel - see content_column_width(). */
-                const uint32_t column = content_column_width(theme, width, scale);
-                uint32_t edges = 0U;
-                for (uint32_t y = 0U; y < height && failure == NULL; ++y) {
-                    const uint8_t *line = frame + (size_t)y * stride;
-                    uint32_t run = 0U;
-                    uint32_t longest = 0U;
-                    for (uint32_t x = 0U; x < width; ++x) {
-                        const uint8_t *p = line + (size_t)x * 4U;
-                        run = (p[0] == edge.b && p[1] == edge.g && p[2] == edge.r) ? run + 1U : 0U;
-                        if (run > longest) {
-                            longest = run;
+                /*
+                 * A group's edge is where its section meets the page: the scanline on which the
+                 * middle of the column turns from the ground to the section's surface or back.
+                 * Sections are edgeless - no hairline is drawn round one - so the boundary is the
+                 * edge, and it is what a disc's crown must stay clear of and what a row's lift
+                 * must not paint out. Taken at the middle of the column because a section's
+                 * rounded corners and the cursor's capsule are both at its sides.
+                 */
+                const uint32_t mid = content_column_width(theme, width, scale) / 2U +
+                                     (width - content_column_width(theme, width, scale)) / 2U;
+                /* A run off the ground is a section when it is taller than a hairline and
+                   stands clear of both ends of the frame - which leaves out the rule under the
+                   tab strip and the footer, the column's other two crossings. */
+                uint32_t bounds[64];
+                uint32_t bound_count = 0U;
+                uint32_t run_top = 0U;
+                bool in_run = false;
+                for (uint32_t y = 0U; y <= height; ++y) {
+                    bool ground_here = true;
+                    if (y < height) {
+                        const uint8_t *here = frame + (size_t)y * stride + (size_t)mid * 4U;
+                        ground_here =
+                            here[0] == ground.b && here[1] == ground.g && here[2] == ground.r;
+                    }
+                    if (!ground_here && !in_run) {
+                        in_run = true;
+                        run_top = y;
+                    } else if (ground_here && in_run) {
+                        in_run = false;
+                        const bool section = y - run_top > 4U && run_top > 0U && y < height;
+                        if (section && bound_count + 2U <= sizeof bounds / sizeof bounds[0]) {
+                            bounds[bound_count++] = run_top;
+                            bounds[bound_count++] = y - 1U;
                         }
                     }
-                    if (longest < column / 2U) {
-                        continue;
-                    }
+                }
+                uint32_t edges = 0U;
+                for (uint32_t b = 0U; b < bound_count && failure == NULL; ++b) {
+                    const uint32_t y = bounds[b];
                     edges++;
                     const uint32_t from = y > 0U ? y - 1U : y;
                     const uint32_t to = y + 1U < height ? y + 1U : y;
@@ -5506,8 +5574,8 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_cards_edges, unit) {
 
             if (failure == NULL && (frames < 2U || seen[0] < 2U)) {
                 snprintf(detail, sizeof detail,
-                         "About radio gave %u frames and %u card edges at glyph scale %d - there "
-                         "is nothing here to stand on",
+                         "About radio gave %u frames and %u section edges at glyph scale %d - "
+                         "there is nothing here to stand on",
                          frames, frames > 0U ? seen[0] : 0U, scale);
                 failure = detail;
             }
@@ -5523,7 +5591,7 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_cards_edges, unit) {
                     continue;
                 }
                 snprintf(detail, sizeof detail,
-                         "moving the cursor down %u took a card edge off the frame: %u edges "
+                         "moving the cursor down %u took a section edge off the frame: %u edges "
                          "against %u where the walk started - theme %s, glyph scale %d",
                          f, seen[f], seen[0], theme->name, scale);
                 failure = detail;
@@ -5683,14 +5751,12 @@ MESH_TEST_CASE(ui_capture_a_dialog_ignores_the_rows_behind_it, unit) {
 }
 
 /*
- * The focus ring is drawn by the frame, on the box the list drew as focused, and it travels.
- *
- * The screens never name the ring's target - the list marks its cursor row while drawing it -
- * so what this holds is the seam between the two: after a render, the ring is exactly on the
- * cursor row's registered box; after a press, it is on its way to the next one rather than
- * already there, and it lands.
+ * A list set with the accent cursor says where the cursor is on the row itself - a light lift and
+ * a capsule down the leading edge - so the frame's travelling ring stays off it: one cursor, one
+ * mark. The row is still registered, so a press and a pointer reach it, and it is the row the
+ * cursor moved to that is registered after a press.
  */
-MESH_TEST_CASE(ui_capture_focus_ring_follows_the_list_cursor, unit) {
+MESH_TEST_CASE(ui_capture_an_accent_list_keeps_the_ring_off_its_rows, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
@@ -5714,36 +5780,95 @@ MESH_TEST_CASE(ui_capture_focus_ring_follows_the_list_cursor, unit) {
 
     const uint32_t first = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
     struct inkcell_focus_rect row = {0, 0, 0, 0};
-    struct inkcell_focus_rect ring = {0, 0, 0, 0};
-    const bool placed =
-        inkcell_focus_rect_of(state->focus, (uint32_t)MESH_UI_FOCUS_ROWS + first, &row) &&
-        inkcell_fb_focus_ring_rect(state, &ring, NULL);
-    MESH_TEST_FAIL_IF_CLEANUP(!placed, inkcell_capture_close(capture);
-                              mesh_ui_store_shutdown(&store),
-                              "the cursor row should be registered and ringed");
-    MESH_TEST_FAIL_IF_CLEANUP(memcmp(&row, &ring, sizeof row) != 0, inkcell_capture_close(capture);
-                              mesh_ui_store_shutdown(&store),
-                              "the ring should sit on the cursor row's own box");
-    MESH_TEST_FAIL_IF_CLEANUP(inkcell_focus_marked(state->focus) !=
-                                  (uint32_t)MESH_UI_FOCUS_ROWS + first,
-                              inkcell_capture_close(capture);
-                              mesh_ui_store_shutdown(&store),
-                              "the selected tab must not take the ring from the focused row");
+    const bool registered =
+        inkcell_focus_rect_of(state->focus, (uint32_t)MESH_UI_FOCUS_ROWS + first, &row);
+    const bool ringed = inkcell_fb_focus_ring_rect(state, NULL, NULL);
+    const uint32_t marked = inkcell_focus_marked(state->focus);
 
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    render_until_still(capture, &snapshot);
+    const uint32_t next = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+    const bool moved =
+        next != first &&
+        inkcell_focus_rect_of(state->focus, (uint32_t)MESH_UI_FOCUS_ROWS + next, &row);
+    const bool ringed_after = inkcell_fb_focus_ring_rect(state, NULL, NULL);
+
+    inkcell_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(!registered, "the cursor row should still be a target");
+    MESH_TEST_FAIL_IF(marked != INKCELL_FOCUS_NONE,
+                      "an accent row should not hand the frame's ring its box");
+    MESH_TEST_FAIL_IF(ringed || ringed_after, "no ring should circle an accent list's cursor");
+    MESH_TEST_FAIL_IF(!moved, "the row the cursor moved to should be the registered one");
+    record_success(test_name);
+}
+
+/*
+ * The focus ring is drawn by the frame, on the box that drew itself focused, and it travels.
+ *
+ * The screens never name the ring's target - the control marks itself while drawing - so what
+ * this holds is the seam between the two: after a render, the ring is exactly on the focused
+ * answer's registered box; after a press, it is on its way to the other one rather than already
+ * there, and it lands. A dialog's two answers are the fixture because a list here carries its
+ * own cursor (see the case above) and a question's answers are where the ring still goes.
+ */
+MESH_TEST_CASE(ui_capture_focus_ring_follows_the_dialog_cursor, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    store.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    store.nav.confirm_open = true;
+    store.nav.confirm_cursor = 0U;
+    store.nav.confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_REBOOT;
+
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
+    struct inkcell_draw_state *const state = inkcell_capture_state(capture);
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    render_until_still(capture, &snapshot);
+
+    const uint32_t first = (uint32_t)MESH_UI_FOCUS_DIALOG + store.nav.confirm_cursor;
+    struct inkcell_focus_rect box = {0, 0, 0, 0};
+    struct inkcell_focus_rect ring = {0, 0, 0, 0};
+    const bool placed = inkcell_focus_rect_of(state->focus, first, &box) &&
+                        inkcell_fb_focus_ring_rect(state, &ring, NULL);
+    MESH_TEST_FAIL_IF_CLEANUP(!placed, inkcell_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the focused answer should be registered and ringed");
+    MESH_TEST_FAIL_IF_CLEANUP(memcmp(&box, &ring, sizeof box) != 0, inkcell_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the ring should sit on the focused answer's own box");
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_focus_marked(state->focus) != first,
+                              inkcell_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the rows dimmed behind the question must not take the ring");
+
+    const uint8_t before = store.nav.confirm_cursor;
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    if (store.nav.confirm_cursor == before) {
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    }
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
     inkcell_capture_render(capture, &snapshot);
     const bool travelling = inkcell_capture_animating(capture);
     render_until_still(capture, &snapshot);
 
-    const uint32_t next = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
-    const bool landed =
-        next != first &&
-        inkcell_focus_rect_of(state->focus, (uint32_t)MESH_UI_FOCUS_ROWS + next, &row) &&
-        inkcell_fb_focus_ring_rect(state, &ring, NULL) && memcmp(&row, &ring, sizeof row) == 0;
+    const uint32_t next = (uint32_t)MESH_UI_FOCUS_DIALOG + store.nav.confirm_cursor;
+    const bool landed = next != first && inkcell_focus_rect_of(state->focus, next, &box) &&
+                        inkcell_fb_focus_ring_rect(state, &ring, NULL) &&
+                        memcmp(&box, &ring, sizeof box) == 0;
     inkcell_capture_close(capture);
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(!travelling, "a press should set the ring travelling, not jump it");
-    MESH_TEST_FAIL_IF(!landed, "the ring should land on the row the cursor moved to");
+    MESH_TEST_FAIL_IF(!landed, "the ring should land on the answer the cursor moved to");
     record_success(test_name);
 }
