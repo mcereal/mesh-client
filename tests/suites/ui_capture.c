@@ -2366,7 +2366,7 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
                         acks[a] == MESH_MESSAGE_ACK_FAILED ? INKCELL_FAMILY_ERROR
                                                            : INKCELL_FAMILY_SECONDARY,
                         INKCELL_SLOT_CONTAINER,
-                        selected ? INKCELL_STATE_SELECTED : INKCELL_STATE_REST);
+                        selected ? INKCELL_STATE_FOCUSED : INKCELL_STATE_REST);
                     const uint32_t fill = rgb_key(paint.fill);
                     const struct inkcell_rgb bg_rgb = inkcell_theme_color(theme, INKCELL_COLOR_BG);
                     const uint32_t bg = rgb_key(bg_rgb);
@@ -3709,9 +3709,12 @@ MESH_TEST_CASE(ui_capture_nav_bar_badges_unread_messages, unit) {
      * two pixels a smoother edge then spent. A stroke at this scale is four.
      */
     const unsigned capsule = 12U;
-    /* The tab strip and nothing below it. It is the first thing the frame draws and it is one
-       chrome line tall, so an eighth of the panel is generous and still well clear of the body. */
-    const uint32_t strip = height / 8U;
+    /* The tab strip and nothing below it, measured rather than estimated: the focus ring on the
+       body's first row sits a hairline under the strip's rule and is drawn in the same primary a
+       badge is, so an eighth of the panel - which this was - reached far enough to count it. */
+    const struct inkcell_draw_state *const drawn = inkcell_capture_state(capture);
+    const uint32_t strip = (uint32_t)inkcell_fb_nav_bar_height(
+        drawn, inkcell_theme_type_scale(drawn->theme, INKCELL_TYPE_LABEL, drawn->scale));
 
     struct mesh_ui_snapshot snapshot;
     memset(&snapshot, 0, sizeof snapshot);
@@ -5629,5 +5632,71 @@ MESH_TEST_CASE(ui_capture_a_dialog_ignores_the_rows_behind_it, unit) {
 
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(!moved, "a modal should resolve focus without the dimmed rows behind it");
+    record_success(test_name);
+}
+
+/*
+ * The focus ring is drawn by the frame, on the box the list drew as focused, and it travels.
+ *
+ * The screens never name the ring's target - the list marks its cursor row while drawing it -
+ * so what this holds is the seam between the two: after a render, the ring is exactly on the
+ * cursor row's registered box; after a press, it is on its way to the next one rather than
+ * already there, and it lands.
+ */
+MESH_TEST_CASE(ui_capture_focus_ring_follows_the_list_cursor, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    while (store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
+    }
+
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                   INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
+    struct inkcell_draw_state *const state = inkcell_capture_state(capture);
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    render_until_still(capture, &snapshot);
+
+    const uint32_t first = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+    struct inkcell_focus_rect row = {0, 0, 0, 0};
+    struct inkcell_focus_rect ring = {0, 0, 0, 0};
+    const bool placed =
+        inkcell_focus_rect_of(state->focus, (uint32_t)MESH_UI_FOCUS_ROWS + first, &row) &&
+        inkcell_fb_focus_ring_rect(state, &ring, NULL);
+    MESH_TEST_FAIL_IF_CLEANUP(!placed, inkcell_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the cursor row should be registered and ringed");
+    MESH_TEST_FAIL_IF_CLEANUP(memcmp(&row, &ring, sizeof row) != 0, inkcell_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the ring should sit on the cursor row's own box");
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_focus_marked(state->focus) !=
+                                  (uint32_t)MESH_UI_FOCUS_ROWS + first,
+                              inkcell_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the selected tab must not take the ring from the focused row");
+
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    inkcell_capture_render(capture, &snapshot);
+    const bool travelling = inkcell_capture_animating(capture);
+    render_until_still(capture, &snapshot);
+
+    const uint32_t next = store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+    const bool landed =
+        next != first &&
+        inkcell_focus_rect_of(state->focus, (uint32_t)MESH_UI_FOCUS_ROWS + next, &row) &&
+        inkcell_fb_focus_ring_rect(state, &ring, NULL) && memcmp(&row, &ring, sizeof row) == 0;
+    inkcell_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(!travelling, "a press should set the ring travelling, not jump it");
+    MESH_TEST_FAIL_IF(!landed, "the ring should land on the row the cursor moved to");
     record_success(test_name);
 }

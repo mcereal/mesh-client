@@ -371,7 +371,14 @@ static void fb_render_begin(struct inkcell_draw_state *state,
          * the panel. The frame after the last one is the same case with the body one small
          * step out of place, which is why the memo is kept.
          */
-        const bool moving = inkcell_fb_transition_offset(state) != 0;
+        /*
+         * The focus ring travelling is a move too, and for the same reason: its path runs over
+         * rows the snapshot says have not changed, so a band cut to what the last frame declared
+         * would leave the ring painted where it was a frame ago. A journey is a motion token
+         * long, so this costs a handful of whole frames per press.
+         */
+        const bool moving = inkcell_fb_transition_offset(state) != 0 ||
+                            inkcell_anim_active(&state->focus_ring.travel, state->now_ms);
         const bool moved = cache->moved;
         cache->moved = moving;
         cache->snapshot.update_flags = snapshot->update_flags;
@@ -601,6 +608,29 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
     fb_render_reactions(state, snapshot, &layout);
     fb_render_confirm(state, snapshot, &layout);
     fb_render_verify(state, snapshot, &layout);
+
+    /*
+     * The focus ring, over whichever of the above drew the cursor.
+     *
+     * The screens do not say where it goes: the row, answer or key that drew itself focused
+     * marked its own box in the map (inkcell_focus_mark()), and the last one marked is the one
+     * on top - a sheet's row over the list under it, a dialog's answer over both. A frame that
+     * marked nothing (the map, a help page) has no ring, and the next one to mark adopts rather
+     * than flying in from wherever the ring was last seen.
+     *
+     * The ring is what finds the cursor now, which is what lets a focused row be a quiet lift
+     * rather than a solid bar - see inkcell_fb_focus_fill().
+     *
+     * Not while a screen is sliding in. The rows are moving because the *place* changed, not
+     * because the cursor did, and a ring that chased them across the panel would be reporting a
+     * press that never happened. It is cleared for the move and adopts the row where the screen
+     * lands.
+     */
+    if (cache != NULL) {
+        inkcell_fb_draw_focus_ring(state, &cache->focus,
+                                   slide != 0 ? INKCELL_FOCUS_NONE
+                                              : inkcell_focus_marked(&cache->focus));
+    }
 
     struct inkcell_line summary;
     enum inkcell_tone summary_tone = INKCELL_TONE_DIM;

@@ -929,9 +929,23 @@ measured against. Adding a family means every theme answers for all four slots, 
 
 ### State is a layer, not a second colour
 
-`enum inkcell_state` — `REST`, `SELECTED`, `ACTIVE` — is a *modifier*: the resting fill with its
-own ink mixed in (12% and 20%). Mixing the **ink** in rather than white or black is what makes
-one rule work on both a dark ground and a light one.
+`enum inkcell_state` — `REST`, `HOVERED`, `FOCUSED`, `PRESSED` — is a *modifier*: the resting
+fill with its own ink mixed in (8%, 12%, 20%). Mixing the **ink** in rather than white or black is
+what makes one rule work on both a dark ground and a light one.
+
+Only the *transient* states are layers. **Focused** is where the d-pad will act; **selected** is
+the application's own state — the current tab, a checked choice — and is a resting paint (a tonal
+pill, a marker, a check), never a layer, because it has to survive the cursor leaving. Disabled
+takes no layer and fades its ink instead. `struct inkcell_interaction` holds all five as separate
+facts; a widget field that means "the cursor is on it" is spelled `focused`.
+
+A focused list row is a **lift**, not a bar: the row's ground with the focused layer over it, in
+its own inks, and the frame draws inkcell's focus ring around it. The ring's target is not named
+by any screen — the list, dialog or key that drew itself focused marks its box in the focus map,
+the last mark wins, and `fb_render_snapshot()` hands that to `inkcell_fb_draw_focus_ring()`. It
+travels between rows on a press, is cleared while a screen slides in, and while it travels the
+frame is drawn whole rather than under the partial-redraw band. The high-contrast theme sets
+`focus_fill` and keeps its inverse-video bar, with the ring around it.
 
 It applies to a **container and never to a base**, which is a definition rather than a special
 case: a container is the colour held back so text can sit on it, and that room is the room a

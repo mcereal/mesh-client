@@ -1162,8 +1162,8 @@ MESH_TEST_CASE(ui_theme_state_layer_moves_towards_the_ink, unit) {
     MESH_TEST_FAIL_IF(rest.r != fill.r || rest.g != fill.g || rest.b != fill.b,
                       "resting is not the fill untouched");
 
-    const struct inkcell_rgb sel = inkcell_theme_state_layer(fill, ink, INKCELL_STATE_SELECTED);
-    const struct inkcell_rgb act = inkcell_theme_state_layer(fill, ink, INKCELL_STATE_ACTIVE);
+    const struct inkcell_rgb sel = inkcell_theme_state_layer(fill, ink, INKCELL_STATE_FOCUSED);
+    const struct inkcell_rgb act = inkcell_theme_state_layer(fill, ink, INKCELL_STATE_PRESSED);
     MESH_TEST_FAIL_IF(sel.r <= fill.r || sel.g <= fill.g || sel.b <= fill.b,
                       "the selected layer did not move towards the ink");
     MESH_TEST_FAIL_IF(act.r <= sel.r || act.g <= sel.g || act.b <= sel.b,
@@ -1176,7 +1176,7 @@ MESH_TEST_CASE(ui_theme_state_layer_moves_towards_the_ink, unit) {
     const struct inkcell_rgb pale = {245, 245, 245};
     const struct inkcell_rgb dark_ink = {20, 20, 20};
     const struct inkcell_rgb pale_sel =
-        inkcell_theme_state_layer(pale, dark_ink, INKCELL_STATE_SELECTED);
+        inkcell_theme_state_layer(pale, dark_ink, INKCELL_STATE_FOCUSED);
     MESH_TEST_FAIL_IF(pale_sel.r >= pale.r, "the layer lightened a light fill");
 
     /* Two colours a hair apart still have to separate: truncating the mix towards zero is how a
@@ -1184,7 +1184,7 @@ MESH_TEST_CASE(ui_theme_state_layer_moves_towards_the_ink, unit) {
     const struct inkcell_rgb near_a = {100, 100, 100};
     const struct inkcell_rgb near_b = {104, 104, 104};
     const struct inkcell_rgb nudged =
-        inkcell_theme_state_layer(near_a, near_b, INKCELL_STATE_SELECTED);
+        inkcell_theme_state_layer(near_a, near_b, INKCELL_STATE_FOCUSED);
     MESH_TEST_FAIL_IF(nudged.r == near_a.r, "a near-flat pair produced no state layer at all");
     record_success(test_name);
 }
@@ -1197,8 +1197,8 @@ MESH_TEST_CASE(ui_theme_state_layer_moves_towards_the_ink, unit) {
  */
 MESH_TEST_CASE(ui_theme_paint_returns_a_validated_pair, unit) {
     static const enum inkcell_slot k_slots[] = {INKCELL_SLOT_BASE, INKCELL_SLOT_CONTAINER};
-    static const enum inkcell_state k_states[] = {INKCELL_STATE_REST, INKCELL_STATE_SELECTED,
-                                                  INKCELL_STATE_ACTIVE};
+    static const enum inkcell_state k_states[] = {INKCELL_STATE_REST, INKCELL_STATE_FOCUSED,
+                                                  INKCELL_STATE_PRESSED};
     for (size_t i = 0; i < inkcell_theme_count(); ++i) {
         const struct inkcell_theme *theme = inkcell_theme_at(i);
         for (int f = 0; f < INKCELL_FAMILY_COUNT; ++f) {
