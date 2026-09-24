@@ -364,6 +364,28 @@ static void updater_serve(void *userdata, const struct https_fixture_request *re
     https_fixture_send(conn, payload + github->half, len - github->half);
 }
 
+#if defined(__APPLE__)
+/*
+ * Turns the payload into what a Mac release serves - `ditto`'s zip of a MeshClient.app whose
+ * executable is the payload - and puts an older bundle at `install_path` for it to replace.
+ * A Mac installs the whole bundle rather than the executable (see updater_install_bundle()), so
+ * this is what exercises that path for real, `ditto` and all.
+ */
+static bool updater_make_bundle_zip(const char *dir, const char *payload_path,
+                                    const char *install_path) {
+    char command[1536];
+    const int written =
+        snprintf(command, sizeof command,
+                 "set -e; mkdir -p '%s/new/MeshClient.app/Contents/MacOS' '%s/Contents/MacOS'; "
+                 "cp '%s' '%s/new/MeshClient.app/Contents/MacOS/meshclient'; "
+                 "chmod 755 '%s/new/MeshClient.app/Contents/MacOS/meshclient'; "
+                 "printf old > '%s/Contents/MacOS/meshclient'; "
+                 "ditto -c -k --keepParent '%s/new/MeshClient.app' '%s'",
+                 dir, install_path, payload_path, dir, dir, install_path, dir, payload_path);
+    return written > 0 && (size_t)written < sizeof command && system(command) == 0;
+}
+#endif
+
 /*
  * The whole update path against a real HTTPS server: the check, the redirect to the asset's
  * host, the download streamed to disk, the checksum and the rename into place.
@@ -397,6 +419,16 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
     snprintf(shared_dir, sizeof shared_dir, "%s/bin/shared", dir);
     snprintf(install_path, sizeof install_path, "%s/bin/shared/meshclient", dir);
     snprintf(pak_json_path, sizeof pak_json_path, "%s/pak.json", dir);
+    /* The executable the install leaves behind: the target itself, or on a Mac the one inside
+       the bundle that is the target. */
+    char installed_binary[320];
+#if defined(__APPLE__)
+    snprintf(install_path, sizeof install_path, "%s/MeshClient.app", dir);
+    snprintf(installed_binary, sizeof installed_binary, "%s/Contents/MacOS/meshclient",
+             install_path);
+#else
+    snprintf(installed_binary, sizeof installed_binary, "%s", install_path);
+#endif
     /* The gate the server waits on before finishing its download - see updater_serve(). */
     char gate_path[256];
     snprintf(gate_path, sizeof gate_path, "%s/finish-download", dir);
@@ -410,9 +442,6 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
 
     /* The "new binary", and the digest the release will claim for it. */
     static const char k_payload[] = "#!/bin/sh\nexit 0\n";
-    /* What the fetcher writes before it stops, so the fraction the meter reads is an exact
-       number rather than however far the scheduler got. */
-    const size_t k_payload_half = (sizeof k_payload - 1U) / 2U;
     FILE *payload = fopen(payload_path, "wb");
     if (payload == NULL ||
         fwrite(k_payload, 1U, sizeof k_payload - 1U, payload) != sizeof k_payload - 1U) {
@@ -424,13 +453,31 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
     }
     fclose(payload);
 
+    /* What the installed executable must hash to, and then what the release serves - the same
+       file, except on a Mac, where the release serves a zip of a bundle around it. */
+    uint8_t binary_digest[INKWELL_SHA256_DIGEST_LEN];
+    if (inkwell_sha256_file(payload_path, binary_digest) != 0) {
+        failure = "could not hash the payload";
+        goto cleanup;
+    }
+#if defined(__APPLE__)
+    if (!updater_make_bundle_zip(dir, payload_path, install_path)) {
+        failure = "could not zip a bundle with ditto";
+        goto cleanup;
+    }
+#endif
     uint8_t digest[INKWELL_SHA256_DIGEST_LEN];
     char digest_hex[INKWELL_SHA256_HEX_LEN];
-    if (inkwell_sha256_file(payload_path, digest) != 0) {
+    struct stat served;
+    if (inkwell_sha256_file(payload_path, digest) != 0 || stat(payload_path, &served) != 0) {
         failure = "could not hash the payload";
         goto cleanup;
     }
     inkwell_sha256_hex(digest, digest_hex, sizeof digest_hex);
+    const size_t payload_size = (size_t)served.st_size;
+    /* What the fetcher writes before it stops, so the fraction the meter reads is an exact
+       number rather than however far the scheduler got. */
+    const size_t k_payload_half = payload_size / 2U;
 
     FILE *json = fopen(json_path, "wb");
     if (json == NULL) {
@@ -441,7 +488,7 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
             "{\"tag_name\":\"v999.0.0\",\"assets\":[{\"name\":\"meshclient-tg5040-aarch64\","
             "\"size\":%zu,\"browser_download_url\":\"https://github.com/mcereal/mesh-client/"
             "releases/download/v999.0.0/meshclient-tg5040-aarch64\",\"digest\":\"sha256:%s\"}]}",
-            sizeof k_payload - 1U, digest_hex);
+            payload_size, digest_hex);
     fclose(json);
 
     static struct updater_github github;
@@ -486,7 +533,7 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
         goto cleanup;
     }
     if (strcmp(updater.latest, "999.0.0") != 0 || strcmp(updater.asset_sha256, digest_hex) != 0 ||
-        updater.asset_size != sizeof k_payload - 1U) {
+        updater.asset_size != payload_size) {
         failure = "the release metadata should have been drained and parsed in full";
         goto cleanup;
     }
@@ -524,7 +571,7 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
         failure = "a half-written download should be read off the staged file";
         goto cleanup;
     }
-    const uint32_t expect = (uint32_t)(k_payload_half * 1000U / (sizeof k_payload - 1U));
+    const uint32_t expect = (uint32_t)(k_payload_half * 1000U / payload_size);
     if (!mesh_updater_progress(&updater, &permille) || permille != expect) {
         failure = "a half-written download should report its own fraction";
         goto cleanup;
@@ -556,14 +603,14 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
 
     /* The binary is in place, executable, and byte-for-byte what was served. */
     struct stat info;
-    if (stat(install_path, &info) != 0 || (info.st_mode & 0111) == 0 ||
+    if (stat(installed_binary, &info) != 0 || (info.st_mode & 0111) == 0 ||
         (size_t)info.st_size != sizeof k_payload - 1U) {
         failure = "the installed binary should be in place and executable";
         goto cleanup;
     }
     uint8_t installed[INKWELL_SHA256_DIGEST_LEN];
-    if (inkwell_sha256_file(install_path, installed) != 0 ||
-        memcmp(installed, digest, sizeof digest) != 0) {
+    if (inkwell_sha256_file(installed_binary, installed) != 0 ||
+        memcmp(installed, binary_digest, sizeof binary_digest) != 0) {
         failure = "the installed binary should hash to what the release claimed";
         goto cleanup;
     }
@@ -606,7 +653,7 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
             "{\"tag_name\":\"v999.0.1\",\"assets\":[{\"name\":\"meshclient-tg5040-aarch64\","
             "\"size\":%zu,\"browser_download_url\":\"https://github.com/mcereal/mesh-client/"
             "releases/download/v999.0.1/meshclient-tg5040-aarch64\",\"digest\":\"sha256:%064d\"}]}",
-            sizeof k_payload - 1U, 0);
+            payload_size, 0);
     fclose(json);
 
     updater.state = MESH_UPDATE_IDLE;
@@ -631,8 +678,8 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
         goto cleanup;
     }
     /* The previously installed binary is untouched: a bad update never damages a good one. */
-    if (inkwell_sha256_file(install_path, installed) != 0 ||
-        memcmp(installed, digest, sizeof digest) != 0) {
+    if (inkwell_sha256_file(installed_binary, installed) != 0 ||
+        memcmp(installed, binary_digest, sizeof binary_digest) != 0) {
         failure = "a rejected download must leave the installed binary alone";
         goto cleanup;
     }
@@ -661,6 +708,15 @@ cleanup:
     unlink(gate_path);
     unlink(install_path);
     unlink(pak_json_path);
+#if defined(__APPLE__)
+    {
+        char tidy[640];
+        if ((size_t)snprintf(tidy, sizeof tidy, "rm -rf '%s' '%s/new'", install_path, dir) <
+            sizeof tidy) {
+            (void)system(tidy);
+        }
+    }
+#endif
     rmdir(shared_dir);
     rmdir(bin_dir);
     rmdir(dir);
