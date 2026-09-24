@@ -205,6 +205,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_NODES_ROW_HOP] = "1 salto",
     [MESH_STR_NODES_ROW_HOPS] = "%u saltos",
     [MESH_STR_NODES_ROW_MQTT] = "por MQTT",
+    [MESH_STR_NODES_ROW_DISTANCE_APPROX] = "~%s",
     [MESH_STR_NODES_ROW_SNR] = "%.1f dB",
     [MESH_STR_NODES_ROW_BATTERY] = "%u%% batería",
     [MESH_STR_NODES_ROW_PLUGGED_IN] = "enchufado",

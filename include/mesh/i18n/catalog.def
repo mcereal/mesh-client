@@ -493,6 +493,8 @@ MESH_STR_ENTRY(NODES_ROW_OFF_RADIO,       "off radio")
 MESH_STR_ENTRY(NODES_ROW_HOP,             "1 hop")
 MESH_STR_ENTRY(NODES_ROW_HOPS,            "%u hops")
 MESH_STR_ENTRY(NODES_ROW_MQTT,            "via MQTT")
+/* A distance to or from a rounded fix: the "~" the precision presets are labelled with. */
+MESH_STR_ENTRY(NODES_ROW_DISTANCE_APPROX, "~%s")
 MESH_STR_ENTRY(NODES_ROW_SNR,             "%.1f dB")
 MESH_STR_ENTRY(NODES_ROW_BATTERY,         "%u%% battery")
 MESH_STR_ENTRY(NODES_ROW_PLUGGED_IN,      "plugged in")

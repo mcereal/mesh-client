@@ -281,7 +281,8 @@ bool mesh_ui_node_sort_available(const struct mesh_ui_handshake_state *handshake
  *
  * The short name is left off when it is the first line - a node with no long name - and so is
  * everything about the route on our own row, which has none. The distance needs a fix at both
- * ends. Empty is a valid answer; `out` is always terminated.
+ * ends, carries a "~" when either end was rounded, and is left out when the rounding is as large
+ * as the distance itself. Empty is a valid answer; `out` is always terminated.
  */
 void mesh_ui_node_row_facts(const struct mesh_ui_handshake_state *handshake,
                             const struct mesh_ui_node_summary *node, bool imperial, char *out,

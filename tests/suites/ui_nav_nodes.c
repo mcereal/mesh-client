@@ -2304,6 +2304,25 @@ MESH_TEST_CASE(ui_nav_nodes_row_facts_say_what_the_name_and_age_do_not, unit) {
     MESH_TEST_FAIL_IF(strcmp(facts, "ALFA \xc2\xb7 11.1 km \xc2\xb7 87% battery") != 0,
                       "a fix at both ends is a distance");
 
+    /* A rounded fix is a centre, not a place. Rounded to ~2.9 km, eleven kilometres is still a
+       distance worth giving, marked as approximate; rounded to ~23 km it is a figure about the
+       rounding rather than the node, and it goes. */
+    near->position.precision_bits = 13U;
+    mesh_ui_node_row_facts(&handshake, near, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "ALFA \xc2\xb7 ~11.1 km \xc2\xb7 87% battery") != 0,
+                      "a distance to a rounded fix says it is approximate");
+    near->position.precision_bits = 10U;
+    mesh_ui_node_row_facts(&handshake, near, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "ALFA \xc2\xb7 87% battery") != 0,
+                      "a distance the rounding swallows is not given at all");
+    /* And our own end blurs it the same way: rounding is rounding whichever end it is at. */
+    near->position.precision_bits = 32U;
+    me->position.precision_bits = 10U;
+    mesh_ui_node_row_facts(&handshake, near, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "ALFA \xc2\xb7 87% battery") != 0,
+                      "our own rounded fix blurs the distance as much as theirs");
+    me->position.precision_bits = 0U;
+
     /* Hops, singular and plural, and MQTT - each the whole route. */
     struct mesh_ui_node_summary *far = &handshake.nodes[2];
     snprintf(far->short_name, sizeof far->short_name, "%s", "ECHO");

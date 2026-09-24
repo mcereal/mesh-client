@@ -7,6 +7,7 @@
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/settings.h"
 #include "mesh/ui/store_handshake.h"
 #include "mesh/ui/store_node.h"
 #include "mesh/ui/units.h"
@@ -354,6 +355,14 @@ inkcell_str_id mesh_ui_node_sort_label(enum mesh_ui_node_sort sort) {
     return k_sort_labels[sort];
 }
 
+/* How far our own fix may be from where it says: the same footprint a peer's carries, because
+   a radio sharing a rounded position of itself is rounded at both ends of every distance. */
+static uint32_t node_self_precision_metres(const struct mesh_ui_handshake_state *handshake) {
+    const struct mesh_ui_node_summary *self =
+        mesh_ui_node_detail_find(handshake, handshake->my_info.node_num);
+    return self != NULL ? mesh_ui_settings_precision_metres(self->position.precision_bits) : 0U;
+}
+
 /* One fact onto the line, with the separator in front of every fact but the first. */
 static void node_fact_append(char *out, size_t out_len, const char *fact) {
     if (fact[0] == '\0') {
@@ -414,8 +423,26 @@ void mesh_ui_node_row_facts(const struct mesh_ui_handshake_state *handshake,
             mesh_ui_node_our_fix(handshake, &self_lat, &self_lon) &&
             mesh_geo_vector_between(self_lat, self_lon, node->position.latitude_i,
                                     node->position.longitude_i, &vector)) {
-            mesh_ui_format_distance(vector.distance_m, imperial, fact, sizeof fact);
-            node_fact_append(out, out_len, fact);
+            /*
+             * A rounded fix - either end's - is a centre, not a place, and the distance between
+             * two centres is only as good as the footprints around them. So a rounded distance
+             * says so with a "~", the way the precision presets are labelled, and one the
+             * footprints swallow is left out: "863 m" to a node that could be anywhere within
+             * 23 km is a figure that describes the rounding rather than the node. The map's
+             * "within" note answers the same field; see mesh_ui_settings_precision_metres().
+             */
+            const double blur =
+                (double)mesh_ui_settings_precision_metres(node->position.precision_bits) +
+                (double)node_self_precision_metres(handshake);
+            if (blur <= 0.0) {
+                mesh_ui_format_distance(vector.distance_m, imperial, fact, sizeof fact);
+                node_fact_append(out, out_len, fact);
+            } else if (vector.distance_m > blur) {
+                char distance[32];
+                mesh_ui_format_distance(vector.distance_m, imperial, distance, sizeof distance);
+                inkcell_str_format(fact, sizeof fact, MESH_STR_NODES_ROW_DISTANCE_APPROX, distance);
+                node_fact_append(out, out_len, fact);
+            }
         }
     }
 
