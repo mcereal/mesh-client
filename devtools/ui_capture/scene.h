@@ -110,11 +110,12 @@ struct uicap_scene_sink {
 /*
  * The numbers are the application's: how fine its panel shows motion, how long a frame somebody
  * is meant to read stays up, how many frames a widget that never settles is filmed for. Zero
- * takes the default beside each.
+ * takes the default beside each - except `delay_ms`, where zero is a delay somebody may mean,
+ * and is kept.
  */
 struct uicap_scene_config {
     unsigned frame_ms;      /* 33: the interval a still-moving frame carries */
-    unsigned delay_ms;      /* 140 */
+    unsigned delay_ms;      /* no default: 0 is a zero delay */
     unsigned settle_frames; /* 40 */
     uint64_t start_ms;      /* 1000: the scene clock at the first frame */
     int scale;              /* 0: the theme's own */
@@ -140,8 +141,9 @@ struct uicap_scene {
     char error[UICAP_SCENE_ERROR_MAX];
 };
 
-/* Returns 0, or -EINVAL for a host missing something required or a verb table naming one verb
-   twice - a second row with a name already taken is one no script can ever reach. */
+/* Returns 0, or -EINVAL for a host missing something required, or a verb table naming one verb
+   twice or naming one of the runner's own - a row whose name is already taken is one no script
+   can ever reach. */
 int uicap_scene_init(struct uicap_scene *scene, const struct uicap_scene_host *host,
                      const struct uicap_scene_sink *sink, const struct uicap_scene_config *config);
 

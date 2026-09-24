@@ -14,7 +14,6 @@
 #include <time.h>
 
 #define UICAP_SCENE_DEFAULT_FRAME_MS 33U
-#define UICAP_SCENE_DEFAULT_DELAY_MS 140U
 #define UICAP_SCENE_DEFAULT_SETTLE_FRAMES 40U
 #define UICAP_SCENE_DEFAULT_START_MS 1000U
 
@@ -33,6 +32,11 @@ int uicap_scene_fail(struct uicap_scene *scene, const char *format, ...) {
     return -EINVAL;
 }
 
+/* The verbs the runner answers itself, before it looks in the application's table. */
+static const char *const scene_generic_verbs[] = {
+    "scene", "scale", "delay", "clock", "theme", "pointer", "key", "frame", "hold",
+};
+
 int uicap_scene_init(struct uicap_scene *scene, const struct uicap_scene_host *host,
                      const struct uicap_scene_sink *sink, const struct uicap_scene_config *config) {
     memset(scene, 0, sizeof *scene);
@@ -43,6 +47,12 @@ int uicap_scene_init(struct uicap_scene *scene, const struct uicap_scene_host *h
     for (size_t i = 0; i < host->verb_count; ++i) {
         if (host->verbs[i].name == NULL || host->verbs[i].run == NULL) {
             return uicap_scene_fail(scene, "verb %zu has no name or no run", i);
+        }
+        for (size_t j = 0; j < sizeof scene_generic_verbs / sizeof scene_generic_verbs[0]; ++j) {
+            if (strcmp(host->verbs[i].name, scene_generic_verbs[j]) == 0) {
+                return uicap_scene_fail(scene, "'%s' is the runner's own verb",
+                                        host->verbs[i].name);
+            }
         }
         for (size_t j = 0; j < i; ++j) {
             if (strcmp(host->verbs[i].name, host->verbs[j].name) == 0) {
@@ -59,9 +69,6 @@ int uicap_scene_init(struct uicap_scene *scene, const struct uicap_scene_host *h
     }
     if (scene->config.frame_ms == 0U) {
         scene->config.frame_ms = UICAP_SCENE_DEFAULT_FRAME_MS;
-    }
-    if (scene->config.delay_ms == 0U) {
-        scene->config.delay_ms = UICAP_SCENE_DEFAULT_DELAY_MS;
     }
     if (scene->config.settle_frames == 0U) {
         scene->config.settle_frames = UICAP_SCENE_DEFAULT_SETTLE_FRAMES;
