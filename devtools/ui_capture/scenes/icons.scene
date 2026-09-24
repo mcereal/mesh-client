@@ -37,7 +37,7 @@ tab settings
 hold 900
 
 # Settings > Display: three editable rows, then one of them changed.
-key down 4
+key down 3
 key a
 hold 600
 key down 3

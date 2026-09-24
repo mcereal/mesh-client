@@ -3,7 +3,9 @@
 # The Settings tab looks exactly the same whichever radio it is describing - that is what makes
 # the feature work, and it is why the client has to say which one somewhere else. This scene is
 # that saying: the banner on every screen, the two sections that state it in rows, and the
-# confirm sheet, which is the one place a banner cannot reach.
+# confirm sheet, which is the one place a banner cannot reach. About radio and Radio actions are
+# on the Settings tab only while it is pointed somewhere else; for the radio on the link both
+# live on the Radio tab.
 #
 # `remote <name>` stands in for the press that gets here, which is a row on a node's own card.
 # What is worth looking at is not that press; it is every screen afterwards.
@@ -28,6 +30,17 @@ tab messages
 hold 1200
 tab radio
 hold 1200
+
+# The Radio card's details, which are about the radio in your hand whatever Settings is pointed
+# at. So rather than that radio's facts or a Reboot that would reach across the mesh, the page
+# says whose radio the tab is on and offers the way back. The remote node's own facts and verbs
+# are on the Settings tab, below, for as long as it is the target.
+key down 9
+key up
+key a
+hold 2000
+key b
+hold 600
 
 # Into the Settings tab, where every section now describes that radio. The banner is still up:
 # nothing in the section list says which radio it is a list for.

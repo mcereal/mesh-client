@@ -18,7 +18,7 @@ config
 tab settings
 hold 400
 # Down to Modules, into it, and down to Mesh beacon.
-key down 13
+key down 12
 hold 500
 key a
 hold 700

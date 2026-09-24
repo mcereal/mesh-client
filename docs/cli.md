@@ -204,7 +204,7 @@ Four tabs: **Messages, Nodes, Radio, Settings.**
 | A | act on the row |
 | B | back out |
 | Y | write a message (Messages/Nodes), save a section (Settings) |
-| X | delete a conversation (Messages), refresh (Settings), pin a node (Nodes), disconnect (Radio's device list) |
+| X | delete a conversation (Messages), refresh (Settings, Radio's pages), pin a node (Nodes), disconnect (Radio's device list) |
 | SELECT | help for what is on screen ([`help.md`](help.md)) |
 | MENU | quit |
 
@@ -230,6 +230,11 @@ has actually reported. Above the nodes are the filter, the sort, the *Map* and t
 row, which opens the shared places (and the row that marks a new one here); B goes back. **Radio** opens on the link, mesh and radio cards; the Link card's
 *devices* button opens the device list, which shows USB ports first (no pairing, so they sort to
 the top), then BLE advertisers; A connects and bonds, X disconnects and holds auto-connect off, Y
-twice forgets a bond, B goes back to the cards. **Settings** reads the radio's configuration over the admin protocol and edits it
+twice forgets a bond, B goes back to the cards. The Mesh card's *nodes* button opens the node
+lists - reset the radio's NodeDB, or forget what this client has cached - and the Radio card's
+*details* button opens what the radio says about itself, its firmware check and install, and the
+verbs done to it: reboot, shutdown, backup and restore, the factory resets. **Settings** reads the radio's configuration over the admin protocol and edits it
 in place; the radio usually reboots to apply a change and the client reconnects on its own.
-**About** is the one section that works with nothing connected.
+**About** is the one section that works with nothing connected. While Settings is pointed at
+another node over the mesh, **About radio** and **Radio actions** appear in its list for that
+node; the Radio tab's pages stay about the radio in your hand and offer the way back.

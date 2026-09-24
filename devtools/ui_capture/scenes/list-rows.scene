@@ -47,7 +47,7 @@ hold 2200
 # node screen's.
 key b
 tab settings
-key down 12
+key down 11
 key a
 hold 900
 key down 3

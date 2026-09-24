@@ -596,6 +596,28 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
 }
 
 /*
+ * A Radio tab page: a settings section with nothing to step, as About radio and Radio actions
+ * were on the Settings tab, and the bar they had - A when a row is a verb, B back to the cards,
+ * X to re-read what the radio says. No edit keys and no save: a page has no fields, and the
+ * edits the Settings tab may be holding are not this screen's to offer.
+ */
+static void actions_radio_page(const struct mesh_ui_nav *nav,
+                               const struct mesh_ui_snapshot *snapshot,
+                               struct mesh_ui_command_set *bar) {
+    if (snapshot != NULL &&
+        mesh_ui_settings_section_has_verbs(
+            &snapshot->settings, snapshot->handshake_valid ? &snapshot->handshake : NULL,
+            (enum mesh_ui_settings_section)mesh_ui_nav_radio_page_section(nav->radio_page),
+            MESH_UI_SETTINGS_NO_CHANNEL)) {
+        command_add(bar, MESH_UI_COMMAND_RUN, MESH_STR_ACTION_RUN, INKCELL_BUTTON_A);
+    }
+    command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
+    command_add(bar, MESH_UI_COMMAND_REFRESH, MESH_STR_ACTION_REFRESH, INKCELL_BUTTON_X);
+    commands_add_help(snapshot, bar);
+    commands_add_tabs(bar);
+}
+
+/*
  * The chart, which has one thing on it to choose and no cursor to choose it with.
  *
  * Four keycaps, and the d-pad entry is the change: Left and Right walk the span picker over the
@@ -882,12 +904,14 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
         break;
     case MESH_UI_SCREEN_RADIO:
     default:
-        /* The two levels over the cards, on the same terms the map is drawn over the node list:
+        /* The three levels over the cards, on the same terms the map is drawn over the node list:
            the screen is checked as well as the flag, because the flag outlives a change of tab. */
         if (nav->devices_open) {
             actions_devices(nav, snapshot, out);
         } else if (nav->trend_open) {
             actions_trend(snapshot, out);
+        } else if (nav->radio_page != MESH_UI_RADIO_PAGE_NONE) {
+            actions_radio_page(nav, snapshot, out);
         } else {
             actions_status(snapshot, out);
         }

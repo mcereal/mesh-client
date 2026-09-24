@@ -6,8 +6,8 @@
 #   - Modules is fourteen rows and no headings, so it has no groups and draws none. It used to
 #     come out inside a single surface, which is a box drawn round the page - it says nothing
 #     about any row, because there is nothing for those rows to be grouped apart from.
-#   - Radio actions is five groups, so it keeps every card it had. The gate is about sections
-#     with nothing to say, not about cards.
+#   - The Radio card's details are six groups, so they keep every card they have. The gate is
+#     about sections with nothing to say, not about cards.
 #   - And About is the case the cards were hiding rather than fixing. Four ungrouped rows, two of
 #     them verbs: the verbs indented past a disc and the fields began at the panel's padding, so
 #     the text started in two columns with a card edge between them. Every row now starts in the
@@ -32,20 +32,23 @@ key b
 hold 500
 
 # Modules: no groups, so no card. Fourteen rows on the panel, with room around their symbols.
-key down 13
+key down 12
 key a
 hold 2000
 key b
 hold 500
 
-# Radio actions: five groups, five cards, and the weight now lives in the discs rather than in
-# the words. Nine of these eleven rows carry a warning or an error tone; none of them shouts.
-key down 1
+# The Radio card's details, on the Radio tab: About radio's readings and the verbs done to the
+# radio, a card a group, and the weight lives in the discs rather than in the words. The cards'
+# verbs end on the Radio card's refresh, and details is the one above it.
+tab radio
+key down 9
+key up
 key a
 hold 2200
 
 # R2 down the cards, one press per group, landing on each group's first row rather than on its
-# title. Eleven rows crossed in four presses.
+# title - the same pair on this tab as on Settings, because the page is a section.
 key r2
 hold 900
 key r2

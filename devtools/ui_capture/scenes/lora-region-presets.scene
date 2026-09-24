@@ -23,7 +23,7 @@ config
 tab settings
 
 # Down to LoRa and open it. The region is the first row, the preset the third.
-key down 8
+key down 7
 key a
 hold 1200
 

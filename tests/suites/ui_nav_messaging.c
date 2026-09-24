@@ -321,12 +321,13 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     /*
      * The Radio tab opens on the Status cards, which have no list: their rows are the verbs the
      * cards offer, walked flat. The fixture has a radio attached and a completed handshake, so
-     * all three are on offer - Devices and Disconnect on the Link card and Refresh on the Radio
-     * card - and a fresh cursor stands on the first.
+     * all five are on offer - Devices and Disconnect on the Link card, the node lists on the
+     * Mesh card, and the details and Refresh on the Radio card - and a fresh cursor stands on
+     * the first.
      */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     if (store.nav.screen != MESH_UI_SCREEN_RADIO ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 3U ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 5U ||
         store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DEVICES) {
         failure = "RIGHT from Nodes should reach the Radio tab's cards, on Devices";
         goto cleanup;
@@ -364,6 +365,27 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         strcmp(action.identifier, "AA:BB:CC:DD:EE:01") != 0) {
         failure = "A on the Link card's Disconnect should drop the link it names";
         goto cleanup;
+    }
+    /* The Mesh card's node lists and the Radio card's details: each a page one level in, opened
+       without asking the radio for anything, and B lands back on the verb that opened it. */
+    const uint8_t pages[] = {(uint8_t)MESH_UI_STATUS_VERB_NODE_LISTS,
+                             (uint8_t)MESH_UI_STATUS_VERB_DETAILS};
+    const uint8_t sections[] = {(uint8_t)MESH_UI_SETTINGS_NODE_LISTS,
+                                (uint8_t)MESH_UI_SETTINGS_RADIO_DETAILS};
+    for (size_t i = 0; i < sizeof pages; ++i) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+        memset(&action, 0, sizeof action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+        if (store.nav.status_verb != pages[i] || action.type != MESH_UI_ACTION_NONE ||
+            mesh_ui_nav_open_section(&store.nav) != sections[i]) {
+            failure = "A on a card's page verb should open that page and ask nothing";
+            goto cleanup;
+        }
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+        if (!mesh_ui_nav_status_showing(&store.nav) || store.nav.status_verb != pages[i]) {
+            failure = "B on a page should land back on the cards, on the verb that opened it";
+            goto cleanup;
+        }
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);

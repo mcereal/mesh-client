@@ -23,7 +23,7 @@ hold 500
 # Display. Screen-on is ten minutes on a scale that runs from fifteen seconds to an hour; the
 # carousel is off, which is the bottom of its own scale rather than off it - so it keeps its
 # handle, hard left.
-key down 4
+key down 3
 hold 700
 key a
 hold 900

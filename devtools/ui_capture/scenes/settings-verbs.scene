@@ -1,6 +1,7 @@
 # A settings row that is a verb, and what a section looks like once its groups are cards.
 #
-# Radio actions is the screen this was written for, and the one worth watching: eleven rows that
+# Radio actions was the screen this was written for - now the Radio tab's two pages, the Radio
+# card's details and the Mesh card's node lists - and the one worth watching: eleven rows that
 # all said "press A" in their value column, under group labels that were dim text wedged between
 # them. The instruction was noise - the action bar three rows below names A for the whole screen,
 # and a column of identical words is a column the eye has to skip to reach the labels, which are
@@ -25,29 +26,39 @@ scale 4
 delay 220
 config
 
-tab settings
+tab radio
 hold 900
 
-# Into Radio actions. Five cards, a gradient of weights down them, and not one "press A".
-key down 14
+# Into the Radio card's details, and down past About radio's readings to the verbs done to the
+# radio: power, the backup and the two factory resets. A gradient of weights down them, and not
+# one "press A". The cards' verbs end on the Radio card's refresh, and details is the one above.
+key down 9
+key up
 key a
+hold 1200
+key down 40
 hold 2400
 
 # Down through the groups. The cursor walks rows, not cards, and the disc under it brightens to
 # the family's full strength rather than dissolving into the cursor fill.
-key down 3
+key up 3
 hold 1200
-key down 4
+key up 4
 hold 1600
 
-# The two rows that say how much they would take. A verb with something to state puts it where a
+# The Mesh card's node lists: the radio's database and this client's roster. The two forget rows
+# say how much they would take. A verb with something to state puts it where a
 # trailing age goes rather than in a capsule: "21 nodes" is a figure to weigh, not a count that
 # shouts.
+key b
+key up
+key a
+hold 900
 offradio all
 hold 2000
 
-# And the same section with the link gone. Same rows, same order, same symbols - every offer
-# withdrawn, each saying why, and the two forget rows still live because they send nothing. This
+# And the same page with the link gone. Same rows, same order, same symbols - the reset
+# withdrawn, saying why, and the two forget rows still live because they send nothing. This
 # is the shape MESH_UI_SETTING_ACTION_OFF exists for: a section whose length changed when the
 # radio dropped would move the cursor out from under whoever was reading it.
 link down
@@ -61,9 +72,9 @@ hold 1200
 # card - a group is one card whatever is in it. The leading slot is reserved for every row of
 # every open section, so the switch's disc lands in the gutter its neighbours were already
 # holding open and the labels line up down the card.
-key b
+tab settings
 hold 800
-key down 6
+key down 7
 key a
 hold 900
 key down 40

@@ -64,21 +64,23 @@ void mesh_test_nav_populate(struct mesh_ui_store *store) {
 
 bool mesh_test_settings_cursor_to(struct mesh_ui_store *store, uint32_t row) {
     struct mesh_ui_action action;
-    while (store->nav.cursor[MESH_UI_SCREEN_SETTINGS] > row) {
-        const uint32_t before = store->nav.cursor[MESH_UI_SCREEN_SETTINGS];
+    /* The tab's own cursor, so a Radio tab page is walked the way a Settings section is. */
+    const enum mesh_ui_screen screen = store->nav.screen;
+    while (store->nav.cursor[screen] > row) {
+        const uint32_t before = store->nav.cursor[screen];
         mesh_ui_store_handle_key(store, INKCELL_KEY_UP, &action);
-        if (store->nav.cursor[MESH_UI_SCREEN_SETTINGS] == before) {
+        if (store->nav.cursor[screen] == before) {
             return false; /* nothing above it the cursor may stand on */
         }
     }
-    while (store->nav.cursor[MESH_UI_SCREEN_SETTINGS] < row) {
-        const uint32_t before = store->nav.cursor[MESH_UI_SCREEN_SETTINGS];
+    while (store->nav.cursor[screen] < row) {
+        const uint32_t before = store->nav.cursor[screen];
         mesh_ui_store_handle_key(store, INKCELL_KEY_DOWN, &action);
-        if (store->nav.cursor[MESH_UI_SCREEN_SETTINGS] == before) {
+        if (store->nav.cursor[screen] == before) {
             return false; /* the list is shorter than the row asked for */
         }
     }
-    return store->nav.cursor[MESH_UI_SCREEN_SETTINGS] == row;
+    return store->nav.cursor[screen] == row;
 }
 
 /* Walks to `row` and presses A. The cursor is left wherever the press put it, which for a list
@@ -161,6 +163,29 @@ bool mesh_test_open_devices(struct mesh_ui_store *store) {
     return mesh_ui_nav_devices_showing(&store->nav);
 }
 
+/*
+ * One of the Radio tab's pages, reached the way a reader reaches it: the Radio tab, then A on
+ * the card verb that opens it - the Radio card's "details" or the Mesh card's "nodes". Asked for
+ * by name, as the device list is above.
+ */
+bool mesh_test_open_radio_page(struct mesh_ui_store *store, enum mesh_ui_settings_section section) {
+    if (!mesh_test_open_tab(store, MESH_UI_SCREEN_RADIO)) {
+        return false;
+    }
+    if (mesh_ui_nav_open_section(&store->nav) == (uint8_t)section) {
+        return true;
+    }
+    struct mesh_ui_action action;
+    store->nav.trend_open = false;
+    store->nav.devices_open = false;
+    store->nav.radio_page = MESH_UI_RADIO_PAGE_NONE;
+    store->nav.status_verb =
+        (uint8_t)(section == MESH_UI_SETTINGS_NODE_LISTS ? MESH_UI_STATUS_VERB_NODE_LISTS
+                                                         : MESH_UI_STATUS_VERB_DETAILS);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    return mesh_ui_nav_open_section(&store->nav) == (uint8_t)section;
+}
+
 bool mesh_test_settings_open(struct mesh_ui_store *store, enum mesh_ui_settings_section section) {
     if (store->nav.screen != MESH_UI_SCREEN_SETTINGS ||
         store->nav.settings_section != MESH_UI_SETTINGS_NO_SECTION) {
@@ -178,8 +203,8 @@ bool mesh_test_settings_open(struct mesh_ui_store *store, enum mesh_ui_settings_
         }
         return false;
     }
-    for (uint32_t i = 0; i < mesh_ui_settings_root_count(); ++i) {
-        if (mesh_ui_settings_root_at(i) != section) {
+    for (uint32_t i = 0; i < mesh_ui_settings_root_count(&store->settings); ++i) {
+        if (mesh_ui_settings_root_at(&store->settings, i) != section) {
             continue;
         }
         return settings_step_to(store, i) && store->nav.settings_section == (uint8_t)section;

@@ -242,7 +242,7 @@ void fb_render_confirm(struct inkcell_draw_state *state, const struct mesh_ui_sn
         return;
     }
     const enum mesh_ui_settings_section section =
-        (enum mesh_ui_settings_section)nav->settings_section;
+        (enum mesh_ui_settings_section)mesh_ui_nav_open_section(nav);
     const enum mesh_ui_settings_action confirmed =
         (enum mesh_ui_settings_action)nav->confirm_action;
     char title[96];
@@ -263,7 +263,7 @@ void fb_render_confirm(struct inkcell_draw_state *state, const struct mesh_ui_sn
                                             sizeof text)) {
         /* likewise, out of the contact link rather than the channel one */
     } else {
-        mesh_ui_settings_confirm_title(section, nav->settings_channel, confirmed, title,
+        mesh_ui_settings_confirm_title(section, mesh_ui_nav_open_channel(nav), confirmed, title,
                                        sizeof title);
         mesh_ui_settings_confirm_text(section, confirmed, text, sizeof text);
         /* And which radio, when it is not this one. The banner that has been saying so on every

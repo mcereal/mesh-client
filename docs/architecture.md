@@ -419,8 +419,14 @@ has not been told to trust us answers nothing, which looks exactly like a node o
 Both end at the give-up count.
 
 The banner (`mesh/ui/chrome.h`) outranks every other entry while a target is set, and stands
-down only inside Settings > About radio, which names the node in a row and carries the press
-that comes back.
+down only inside Settings > About radio and the Radio tab's details page, which name the node in
+a row and carry the press that comes back.
+
+**The Radio tab never acts on a target.** Its cards describe the radio on the link, so its two
+pages do too: while a target is set the details page shows only the target and the way back, and
+the node lists drop the NodeDB reset. The remote node's facts and its reboot, backup and resets
+are Settings' About radio and Radio actions, which `mesh_ui_settings_root_at()` lists only while
+there is a target - a Reboot on the Radio tab that reached across the mesh would be a trap.
 
 ## `src/core/session/store_forward.c`
 

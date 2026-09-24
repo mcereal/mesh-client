@@ -86,6 +86,13 @@ enum mesh_ui_screen {
 #define MESH_UI_NAV_TARGET_NAME_MAX 40U
 /* nav.settings_section when the Settings tab shows the section list rather than a section. */
 #define MESH_UI_SETTINGS_NO_SECTION 0xFFU
+
+/* nav.radio_page: which page, if any, the Radio tab has open over its cards. */
+enum mesh_ui_radio_page {
+    MESH_UI_RADIO_PAGE_NONE = 0,
+    MESH_UI_RADIO_PAGE_DETAILS,    /* the Radio card's: MESH_UI_SETTINGS_RADIO_DETAILS */
+    MESH_UI_RADIO_PAGE_NODE_LISTS, /* the Mesh card's: MESH_UI_SETTINGS_NODE_LISTS */
+};
 /* nav.settings_channel when the Channels section shows its list rather than one channel. */
 #define MESH_UI_SETTINGS_NO_CHANNEL 0xFFU
 #define MESH_UI_NAV_TOAST_MAX 64U
@@ -474,6 +481,26 @@ struct mesh_ui_nav {
      * than reading it: that is the flag and the screen together.
      */
     bool devices_open;
+    /*
+     * Radio tab: a page of rows open over the Status cards - the Radio card's details or the
+     * Mesh card's node lists - as an enum mesh_ui_radio_page, NONE on the cards.
+     *
+     * Each page is built from a settings section (mesh_ui_nav_radio_page_section()) because that
+     * is what the pages are: facts and verbs under headings, with the confirm sheet in front of
+     * the costly ones, which is the settings row model exactly. So everything that answers for
+     * "the open section" - the rows, the A press, the sheet, the bar, help - asks
+     * mesh_ui_nav_open_section() and serves both tabs. The field is a page rather than the
+     * section itself so that a zeroed nav stands on the cards, as it does for every other flag
+     * here: section 0 is About, and a nav nobody had initialised would otherwise open it.
+     *
+     * The third of the tab's levels, and like the other two opened from the cards and left back
+     * to them, never up with either. Its rows use `cursor[MESH_UI_SCREEN_RADIO]`, which the
+     * device list does too; the two never show at once, so a page parks the list's row below
+     * and puts it back on the way out.
+     */
+    uint8_t radio_page;
+    /* The device list's row, parked while a page has `cursor[MESH_UI_SCREEN_RADIO]`. */
+    uint32_t radio_devices_cursor;
     /*
      * How far back both charts look: `enum inkcell_trend_span`, stepped by Left and Right.
      *
@@ -1270,6 +1297,21 @@ bool mesh_ui_nav_devices_showing(const struct mesh_ui_nav *nav);
    the map - rather than the roster, the map or a node. What the Waypoints tab was. */
 bool mesh_ui_nav_waypoints_showing(const struct mesh_ui_nav *nav);
 bool mesh_ui_nav_status_showing(const struct mesh_ui_nav *nav);
+
+/*
+ * The settings section the panel is showing, on whichever tab shows it: the Settings tab's open
+ * section, the Radio tab's open page, or MESH_UI_SETTINGS_NO_SECTION on every other screen.
+ *
+ * The question every reader of a section's rows means. Before the Radio tab opened pages built
+ * from sections, `screen == SETTINGS && settings_section != NO_SECTION` was the only way a
+ * section could be on the panel; spelling that at each site now would be a dozen places that
+ * could each forget the Radio tab. A channel and a module's parent are the Settings tab's alone,
+ * so on the Radio tab mesh_ui_nav_open_channel() answers MESH_UI_SETTINGS_NO_CHANNEL.
+ */
+uint8_t mesh_ui_nav_open_section(const struct mesh_ui_nav *nav);
+/* The section a Radio tab page is built from, or MESH_UI_SETTINGS_NO_SECTION for NONE. */
+uint8_t mesh_ui_nav_radio_page_section(uint8_t page);
+uint8_t mesh_ui_nav_open_channel(const struct mesh_ui_nav *nav);
 
 /* Canned replies shown on the Compose tab. Defaults are built in; a file with one message per
    line (blank lines and '#' comments skipped) replaces them. */

@@ -181,13 +181,14 @@ MESH_TEST_CASE(ui_click_a_heading_is_nothing_and_a_dialog_is_answered, unit) {
     mesh_ui_store_set_settings(&store, &settings);
     struct mesh_ui_action action;
 
-    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
-    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS) ||
-                                  !mesh_test_settings_cursor_to(&store, 2U),
-                              click_close(&store, capture), "the test needs Radio actions open");
+    /* The Mesh card's node lists, on the Radio tab: a page drawn by the settings pane, clicked
+       like a Settings section is. Row 3 is the first forget row. */
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_NODE_LISTS) ||
+                                  !mesh_test_settings_cursor_to(&store, 3U),
+                              click_close(&store, capture), "the test needs the node lists open");
 
-    /* Row 0 is the Power heading. The frame draws it as a title and registers no box for it,
-       and the nav would refuse one anyway: the cursor does not park on a heading. */
+    /* Row 0 is the "Nodes on the radio" heading. The frame draws it as a title and registers no
+       box for it, and the nav would refuse one anyway: the cursor does not park on a heading. */
     struct inkcell_focus_rect heading;
     MESH_TEST_FAIL_IF_CLEANUP(inkcell_focus_rect_of(click_render(&store, capture),
                                                     (uint32_t)MESH_UI_FOCUS_ROWS + 0U, &heading),
@@ -195,16 +196,16 @@ MESH_TEST_CASE(ui_click_a_heading_is_nothing_and_a_dialog_is_answered, unit) {
                               "a heading should not be something a click can land on");
     (void)mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_ROWS + 0U, &action);
     MESH_TEST_FAIL_IF_CLEANUP(
-        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 2U || store.nav.confirm_open,
+        store.nav.cursor[MESH_UI_SCREEN_RADIO] != 3U || store.nav.confirm_open,
         click_close(&store, capture), "a click on a heading should do nothing");
 
-    /* Reboot asks first, on Cancel - and the question's two answers are clicked like anything
-       else. Cancel first, then the verb. */
+    /* The reset asks first, on Cancel - and the question's two answers are clicked like
+       anything else. Cancel first, then the verb. */
     MESH_TEST_FAIL_IF_CLEANUP(
         !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, &action) ||
             !store.nav.confirm_open ||
-            store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_REBOOT,
-        click_close(&store, capture), "a click on Reboot should ask");
+            store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
+        click_close(&store, capture), "a click on the reset should ask");
     MESH_TEST_FAIL_IF_CLEANUP(
         !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_DIALOG + 1U, &action) ||
             store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE,
@@ -215,8 +216,8 @@ MESH_TEST_CASE(ui_click_a_heading_is_nothing_and_a_dialog_is_answered, unit) {
         click_close(&store, capture), "the question should come back and be answerable");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.confirm_open ||
                                   action.type != MESH_UI_ACTION_RADIO_ACTION ||
-                                  action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_REBOOT,
-                              click_close(&store, capture), "a click on Reboot should reboot");
+                                  action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
+                              click_close(&store, capture), "a click on the reset should reset");
     click_close(&store, capture);
 }
 
@@ -569,7 +570,7 @@ MESH_TEST_CASE(ui_click_a_wide_window_opens_a_section_beside_the_sections, unit)
     click_settle(&store);
 
     uint32_t modules = 0U;
-    while (mesh_ui_settings_root_at(modules) != MESH_UI_SETTINGS_MODULES) {
+    while (mesh_ui_settings_root_at(&store.settings, modules) != MESH_UI_SETTINGS_MODULES) {
         ++modules;
     }
     const uint32_t row_id = (uint32_t)MESH_UI_FOCUS_ROWS + modules;

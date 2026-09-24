@@ -125,8 +125,10 @@ static uint32_t *mesh_ui_nav_click_cursor(struct mesh_ui_nav *nav, uint32_t bloc
         return NULL;
     }
     /* Status walks verbs rather than rows, and the node detail walks cards: neither has an index
-       a click could name, so neither registers rows. */
-    if ((nav->screen == MESH_UI_SCREEN_RADIO && !nav->devices_open) ||
+       a click could name, so neither registers rows. A page over the cards is rows, as the
+       device list is. */
+    if (mesh_ui_nav_status_showing(nav) ||
+        (nav->screen == MESH_UI_SCREEN_RADIO && nav->trend_open) ||
         (nav->screen == MESH_UI_SCREEN_NODES && nav->node_detail_open)) {
         return NULL;
     }
