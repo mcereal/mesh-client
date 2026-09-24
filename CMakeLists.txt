@@ -140,6 +140,7 @@ add_library(meshclient_core
     src/ui/store/store_trends.c
     src/ui/store/history.c
     src/ui/nav/controller.c
+    src/ui/nav/frame_scheduler.c
     src/ui/views/map.c
     src/ui/nav/nav.c
     src/ui/nav/nav_canned.c

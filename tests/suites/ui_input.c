@@ -1157,7 +1157,7 @@ MESH_TEST_CASE(ui_controller_repeated_frame_requests_do_not_postpone_the_frame, 
 
     /* Asked every 5 ms for ten intervals: the first deadline has to land inside that. */
     const char *failure = "a frame asked for every 5 ms never came due";
-    struct pollfd poll_fd = {.fd = controller.frame_timer_fd, .events = POLLIN};
+    struct pollfd poll_fd = {.fd = controller.frames.timer_fd, .events = POLLIN};
     for (unsigned step = 0U; step < MESH_UI_FRAME_INTERVAL_MS * 10U / 5U; ++step) {
         mesh_ui_controller_request_frame(&controller);
         if (poll(&poll_fd, 1, 5) == 1) {
@@ -1199,11 +1199,11 @@ MESH_TEST_CASE(ui_controller_animation_reuses_snapshot_and_consumes_changes, uni
     mesh_ui_store_set_transport_status(&store, "initial");
     inkwell_loop_run(&loop, 0);
     for (unsigned pass = 0U; pass < 2U; ++pass) {
-        if (inkwell_timer_arm_once(controller.frame_timer_fd, 1U) < 0) {
+        if (inkwell_timer_arm_once(controller.frames.timer_fd, 1U) < 0) {
             failure = "frame timer could not be armed";
             break;
         }
-        struct pollfd poll_fd = {.fd = controller.frame_timer_fd, .events = POLLIN};
+        struct pollfd poll_fd = {.fd = controller.frames.timer_fd, .events = POLLIN};
         if (poll(&poll_fd, 1, 1000) != 1) {
             failure = "frame timer did not become ready";
             break;
