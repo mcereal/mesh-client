@@ -19,7 +19,7 @@ offradio all
 hold 1800
 
 # Both counts on one screen: the radio's database, and what this Brick still holds.
-tab status
+tab radio
 hold 1800
 
 # Settings > Radio actions. The row that clears them says how many there are, and sits under

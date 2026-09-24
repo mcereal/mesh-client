@@ -325,13 +325,15 @@ static bool open_airtime_chart(struct mesh_ui_store *store) {
     mesh_ui_store_tick(store, 2000U);
     mesh_ui_store_set_settings(store, &settings);
 
-    while (store->nav.screen != MESH_UI_SCREEN_STATUS) {
+    while (store->nav.screen != MESH_UI_SCREEN_RADIO) {
         const enum mesh_ui_screen before = store->nav.screen;
         (void)mesh_ui_store_handle_key(store, INKCELL_KEY_R1, &action);
         if (store->nav.screen == before) {
             return false;
         }
     }
+    /* Past the Link card's two verbs to the Mesh card's. */
+    (void)mesh_ui_store_handle_key(store, INKCELL_KEY_DOWN, &action);
     (void)mesh_ui_store_handle_key(store, INKCELL_KEY_DOWN, &action);
     memset(&action, 0, sizeof action);
     (void)mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
@@ -356,7 +358,7 @@ MESH_TEST_CASE(trend_left_and_right_walk_the_span_not_the_tabs, unit) {
 
     const uint8_t before = store.nav.trend_span;
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
-    if (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+    if (store.nav.screen != MESH_UI_SCREEN_RADIO) {
         failure = "Left on a chart changed tab instead of walking the span";
         goto cleanup;
     }
@@ -375,7 +377,7 @@ MESH_TEST_CASE(trend_left_and_right_walk_the_span_not_the_tabs, unit) {
     }
     /* And the shoulders, which are what pay for the d-pad being spent here. */
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
-    if (store.nav.screen == MESH_UI_SCREEN_STATUS) {
+    if (store.nav.screen == MESH_UI_SCREEN_RADIO) {
         failure = "the shoulders should still walk the tab strip from a chart";
         goto cleanup;
     }
@@ -404,7 +406,8 @@ MESH_TEST_CASE(trend_action_bar_names_the_span_press, unit) {
         snapshot->nav.settings_section = MESH_UI_SETTINGS_NO_SECTION;
         snapshot->nav.settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
         if (pass == 0) {
-            snapshot->nav.screen = MESH_UI_SCREEN_STATUS;
+            snapshot->nav.screen = MESH_UI_SCREEN_RADIO;
+            snapshot->nav.devices_open = false;
             snapshot->nav.trend_open = true;
         } else {
             snapshot->nav.screen = MESH_UI_SCREEN_NODES;

@@ -22,7 +22,7 @@ config
 # and `airtime history` is those minutes already taken - the harness clock runs for seconds, so
 # this is the only way a capture shows the chart a device draws after an afternoon. One live
 # report after it, so the card's figures are the newest column's.
-tab status
+tab radio
 stats
 airtime history 190
 hold 400
@@ -30,11 +30,11 @@ airtime 4 1
 hold 900
 
 # The verb only appears once there are two readings to lay a column across, and it appears on
-# the Mesh card, one step down - which is where the *card* is. It used to be appended after the
+# the Mesh card, below the Link card's two - which is where the *card* is. It used to be appended after the
 # Radio card's refresh whatever the column looked like, because the cursor was an index into the
 # verbs and a verb arriving anywhere but the end changed what the next A press did. The cursor
 # names a verb now, so the list is written in the order the cards draw.
-key down
+key down 2
 hold 900
 key a
 hold 2400

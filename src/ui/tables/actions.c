@@ -400,7 +400,7 @@ static void actions_devices(const struct mesh_ui_nav *nav, const struct mesh_ui_
      */
     struct mesh_ui_devices_row row;
     if (!mesh_ui_devices_row(snapshot->devices, snapshot->device_count, snapshot->network_host,
-                             nav->cursor[MESH_UI_SCREEN_DEVICES], &row)) {
+                             nav->cursor[MESH_UI_SCREEN_RADIO], &row)) {
         row = (struct mesh_ui_devices_row){
             .type = (uint8_t)MESH_UI_DEVICES_ROW_DEVICE, .device = NULL, .host = ""};
     }
@@ -423,6 +423,7 @@ static void actions_devices(const struct mesh_ui_nav *nav, const struct mesh_ui_
             command_add(bar, MESH_UI_COMMAND_DISCONNECT, MESH_STR_ACTION_DISCONNECT,
                         INKCELL_BUTTON_X);
         }
+        command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
         commands_add_help(snapshot, bar);
         commands_add_tabs(bar);
         return;
@@ -434,6 +435,8 @@ static void actions_devices(const struct mesh_ui_nav *nav, const struct mesh_ui_
     if (mesh_ui_device_forgettable(row.device)) {
         command_add(bar, MESH_UI_COMMAND_FORGET, MESH_STR_ACTION_FORGET, INKCELL_BUTTON_Y);
     }
+    /* B is the way back to the Status cards this list was opened from. */
+    command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
     commands_add_help(snapshot, bar);
     commands_add_tabs(bar);
 }
@@ -869,17 +872,16 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
     case MESH_UI_SCREEN_WAYPOINTS:
         actions_waypoints(nav, snapshot, out);
         break;
-    case MESH_UI_SCREEN_DEVICES:
-        actions_devices(nav, snapshot, out);
-        break;
     case MESH_UI_SCREEN_SETTINGS:
         actions_settings(nav, snapshot, out);
         break;
-    case MESH_UI_SCREEN_STATUS:
+    case MESH_UI_SCREEN_RADIO:
     default:
-        /* The chart over the cards, on the same terms the map is drawn over the node list: the
-           screen is checked as well as the flag, because the flag outlives a change of tab. */
-        if (nav->trend_open) {
+        /* The two levels over the cards, on the same terms the map is drawn over the node list:
+           the screen is checked as well as the flag, because the flag outlives a change of tab. */
+        if (nav->devices_open) {
+            actions_devices(nav, snapshot, out);
+        } else if (nav->trend_open) {
             actions_trend(snapshot, out);
         } else {
             actions_status(snapshot, out);

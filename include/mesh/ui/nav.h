@@ -30,8 +30,18 @@ enum mesh_ui_screen {
     /* The places, next to the nodes: a waypoint is a point on the mesh that does not move, and
        it belongs beside the list of points that do rather than buried inside one of them. */
     MESH_UI_SCREEN_WAYPOINTS,
-    MESH_UI_SCREEN_DEVICES,
-    MESH_UI_SCREEN_STATUS,
+    /*
+     * The radio we are attached to, and the radios we could be.
+     *
+     * This was two tabs - Devices and Status - and they were one subject split by a question of
+     * layout: Status said how the link was doing and Devices said which link it was, and the
+     * reader walked between them for every change of radio. What the tab opens on is the
+     * Status cards, because a client is connected for almost all of its life and how that
+     * connection is doing is the thing worth a glance. The device list is one level in, behind
+     * the Link card's "devices" button (`devices_open`), which is the one verb that card
+     * offers whether or not anything is attached - see include/mesh/ui/status.h.
+     */
+    MESH_UI_SCREEN_RADIO,
     MESH_UI_SCREEN_SETTINGS,
     MESH_UI_SCREEN_COUNT,
 };
@@ -412,16 +422,16 @@ struct mesh_ui_nav {
     bool map_open;
     struct mesh_map_viewport map_viewport;
     /*
-     * Status tab: which verb the cursor is on.
+     * Radio tab, the Status cards: which verb the cursor is on.
      *
-     * **This is the Status cursor, and cursor[MESH_UI_SCREEN_STATUS] is not.** Status is the one
-     * screen with no rows: its cards offer verbs, Up and Down walk those, and what the cursor
-     * holds is `enum mesh_ui_status_verb` rather than a position in the list of them. The
-     * difference is what a verb appearing or disappearing does. As an index it moved the
-     * cursor's meaning without moving the cursor, so the list had to be append-only and every
-     * verb had to restate the conditions of the verbs before it; as a verb the list is free to
-     * be written in the order the cards draw, and a link that drops and comes back leaves the
-     * reader on the button they were standing on.
+     * **This is the Status cursor, and cursor[MESH_UI_SCREEN_RADIO] is not** - that one is the
+     * device list's, one level in (`devices_open`). The cards are the one screen with no rows: its
+     * cards offer verbs, Up and Down walk those, and what the cursor holds is `enum
+     * mesh_ui_status_verb` rather than a position in the list of them. The difference is what a
+     * verb appearing or disappearing does. As an index it moved the cursor's meaning without moving
+     * the cursor, so the list had to be append-only and every verb had to restate the conditions of
+     * the verbs before it; as a verb the list is free to be written in the order the cards draw,
+     * and a link that drops and comes back leaves the reader on the button they were standing on.
      *
      * MESH_UI_STATUS_VERB_COUNT is "no verb", which is what a screen offering none holds. The
      * value is otherwise only ever one mesh_ui_status_verb_resolve() answered with, so nothing
@@ -430,7 +440,7 @@ struct mesh_ui_nav {
      */
     uint8_t status_verb;
     /*
-     * Status tab: the airtime chart is open over the cards.
+     * Radio tab: the airtime chart is open over the Status cards.
      *
      * The one level this tab has, and it carries no cursor of its own - a chart is a picture and
      * there is nothing on it to choose between, so `status_verb` stays where it was and is still
@@ -439,11 +449,24 @@ struct mesh_ui_nav {
      * walks, and a picture is not a verb.
      *
      * It outlives a change of tab, as map_open does and for the same reason - every tab keeps
-     * its own place - which means it says *where the Status tab is standing* rather than *what
+     * its own place - which means it says *where the Radio tab is standing* rather than *what
      * is on the panel*. Anything reading it has to check `screen` as well, or a press meant for
      * the Nodes list closes a chart nobody can see.
      */
     bool trend_open;
+    /*
+     * Radio tab: the device list is open over the Status cards.
+     *
+     * The tab's other level, opened by the Link card's "devices" verb and closed by B, and never
+     * up at the same time as `trend_open` - both are opened from the cards and each is left
+     * back to them. It carries its cursor in `cursor[MESH_UI_SCREEN_RADIO]`, which the cards
+     * never use (theirs is `status_verb`), so the list keeps the reader's row across a visit to
+     * the cards and back, as every other list does.
+     *
+     * Like `trend_open` it outlives a change of tab, so ask mesh_ui_nav_devices_showing() rather
+     * than reading it: that is the flag and the screen together.
+     */
+    bool devices_open;
     /*
      * How far back both charts look: `enum inkcell_trend_span`, stepped by Left and Right.
      *
@@ -678,7 +701,7 @@ struct mesh_ui_nav {
        Its own buffer beside the channel one, for that buffer's reason: the keyboard closes
        before the sheet opens, and closing it is what puts the parked Compose draft back. */
     char contact_url[MESH_UI_DRAFT_MAX];
-    /* Devices tab: Y is armed by one press and forgets the node on the second, because a
+    /* Device list: Y is armed by one press and forgets the node on the second, because a
        bond dropped by accident costs the user a re-pair with the PIN. */
     bool devices_forget_armed;
     uint32_t devices_forget_row;
@@ -1217,6 +1240,17 @@ void mesh_ui_nav_date_toast(struct mesh_ui_nav *nav, uint64_t now_ms);
 bool mesh_ui_nav_tick(struct mesh_ui_nav *nav, uint64_t now_ms);
 
 const char *mesh_ui_screen_name(enum mesh_ui_screen screen);
+
+/*
+ * Which of the Radio tab's three places is on the panel.
+ *
+ * The flags that say where the tab is standing outlive a change of tab, so each of these is the
+ * flag *and* the screen - the question every reader actually means. Asked here rather than
+ * spelled out at each site because the Radio tab used to be two tabs, and forty places that
+ * said `screen == DEVICES` are forty places that could each have forgotten half of it.
+ */
+bool mesh_ui_nav_devices_showing(const struct mesh_ui_nav *nav);
+bool mesh_ui_nav_status_showing(const struct mesh_ui_nav *nav);
 
 /* Canned replies shown on the Compose tab. Defaults are built in; a file with one message per
    line (blank lines and '#' comments skipped) replaces them. */

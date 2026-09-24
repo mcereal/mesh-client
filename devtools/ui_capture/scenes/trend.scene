@@ -75,7 +75,7 @@ hold 300
 # every question the line answered and four it could not, for a verb that costs no row at all.
 # See chart.scene for the press. What is left of the sparkline in this client is the six cells
 # above, in a row's trailing slot - a row carries a glance, a screen carries a study.
-tab status
+tab radio
 stats
 hold 500
 airtime 14 3

@@ -10,7 +10,7 @@ Brick is the whole point: the radio has LoRa and Bluetooth and no WiFi worth the
 handheld it is paired with has WiFi.
 
 **This is finished.** A radio that asks for it gets a broker connection, the right subscriptions,
-and both directions relayed; the Status tab grows a Broker card that says whether it worked; and
+and both directions relayed; the Radio tab grows a Broker card that says whether it worked; and
 Settings → Modules → MQTT → **Proxy via client** is the press that asks for it in the first
 place. Nothing about it needs a phone any more.
 
@@ -195,7 +195,7 @@ the broker.
 The radio cannot see this connection. It hands over a `MqttClientProxyMessage` and is told
 nothing about what happened to it — `publishQueuedMessages()` runs every 200 ms whether or not a
 broker is reachable — so a proxy that is failing looks, from the radio and from every other
-screen here, exactly like one that is working. That is what the **Broker card** on the Status tab
+screen here, exactly like one that is working. That is what the **Broker card** on the Radio tab
 is for.
 
 It is drawn only when the radio has asked to be proxied for. Almost no radio has the setting on,

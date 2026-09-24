@@ -61,5 +61,5 @@ hold 1800
 # scene walks off this tab to show it, since About radio is precisely where it stands down.
 firmware-install failed ble
 hold 2400
-tab status
+tab radio
 hold 3000

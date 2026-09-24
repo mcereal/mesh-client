@@ -8,7 +8,7 @@
 
 scene demo
 config
-tab status
+tab radio
 hold 900
 
 # The radio comes under pressure. Each of these is a row that only exists while something is

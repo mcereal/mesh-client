@@ -23,6 +23,7 @@
 #include "mesh/ui/nav.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
+#include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/waypoints.h"
 
@@ -94,8 +95,8 @@ MESH_TEST_CASE(ui_click_a_tab_is_that_tab, unit) {
 
     /* Every tab, from wherever the last click left the strip - both directions and the wrap. */
     const enum mesh_ui_screen order[] = {MESH_UI_SCREEN_SETTINGS, MESH_UI_SCREEN_NODES,
-                                         MESH_UI_SCREEN_STATUS,   MESH_UI_SCREEN_MESSAGES,
-                                         MESH_UI_SCREEN_DEVICES,  MESH_UI_SCREEN_WAYPOINTS};
+                                         MESH_UI_SCREEN_RADIO, MESH_UI_SCREEN_MESSAGES,
+                                         MESH_UI_SCREEN_WAYPOINTS};
     for (size_t i = 0; i < sizeof order / sizeof order[0]; ++i) {
         MESH_TEST_FAIL_IF_CLEANUP(
             !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)order[i], &action),
@@ -113,13 +114,13 @@ MESH_TEST_CASE(ui_click_a_row_opens_it, unit) {
     struct mesh_ui_action action;
 
     /* NodeTwo, which is not connected: one click is A on it, which is connecting. */
-    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_tab(&store, MESH_UI_SCREEN_DEVICES),
-                              click_close(&store, capture), "the test needs the Devices tab");
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_devices(&store), click_close(&store, capture),
+                              "the test needs the Devices tab");
     MESH_TEST_FAIL_IF_CLEANUP(
         !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, &action),
         click_close(&store, capture), "the device list drew no box for its second row");
     MESH_TEST_FAIL_IF_CLEANUP(
-        store.nav.cursor[MESH_UI_SCREEN_DEVICES] != 1U || action.type != MESH_UI_ACTION_CONNECT ||
+        store.nav.cursor[MESH_UI_SCREEN_RADIO] != 1U || action.type != MESH_UI_ACTION_CONNECT ||
             strcmp(action.identifier, "AA:BB:CC:DD:EE:02") != 0,
         click_close(&store, capture), "a click on a radio should connect to that radio");
     click_close(&store, capture);
@@ -153,7 +154,7 @@ MESH_TEST_CASE(ui_click_a_bubble_selects_and_a_sheet_keeps_the_screen_under_it, 
     (void)click_render(&store, capture);
     (void)mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_ROWS + 0U, &action);
     (void)mesh_ui_store_handle_click(
-        &store, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_DEVICES, &action);
+        &store, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_RADIO, &action);
     MESH_TEST_FAIL_IF_CLEANUP(
         !store.nav.reaction_open || store.nav.screen != MESH_UI_SCREEN_MESSAGES ||
             action.type != MESH_UI_ACTION_NONE,
@@ -283,8 +284,8 @@ MESH_TEST_CASE(ui_click_against_a_frame_the_store_has_moved_past_is_dropped, uni
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
     struct mesh_ui_action action;
-    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_tab(&store, MESH_UI_SCREEN_DEVICES),
-                              mesh_ui_store_shutdown(&store), "the test needs the Devices tab");
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_devices(&store), mesh_ui_store_shutdown(&store),
+                              "the test needs the Devices tab");
     click_settle(&store);
 
     const struct mesh_ui_device devices[2] = {
@@ -329,17 +330,17 @@ MESH_TEST_CASE(ui_click_a_right_click_menu_is_the_rows_own_commands, unit) {
     MESH_TEST_FAIL_IF(click_open(&store, &capture) != 0, "store or capture failed to open");
     struct mesh_ui_action action;
 
-    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_tab(&store, MESH_UI_SCREEN_DEVICES),
-                              click_close(&store, capture), "the test needs the Devices tab");
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_devices(&store), click_close(&store, capture),
+                              "the test needs the Devices tab");
     MESH_TEST_FAIL_IF_CLEANUP(
         !click_context(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U) ||
-            !store.nav.context_open || store.nav.cursor[MESH_UI_SCREEN_DEVICES] != 1U,
+            !store.nav.context_open || store.nav.cursor[MESH_UI_SCREEN_RADIO] != 1U,
         click_close(&store, capture), "a right-click on a row should select it and open its menu");
 
     /* Anything but a verb puts it down and does nothing else - a key, or a click off it. */
     MESH_TEST_FAIL_IF_CLEANUP(
         !mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action) || store.nav.context_open ||
-            store.nav.cursor[MESH_UI_SCREEN_DEVICES] != 1U,
+            store.nav.cursor[MESH_UI_SCREEN_RADIO] != 1U,
         click_close(&store, capture), "a key should put the menu down and not move the cursor");
     MESH_TEST_FAIL_IF_CLEANUP(
         !click_context(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U) ||
@@ -624,5 +625,36 @@ MESH_TEST_CASE(ui_click_a_right_click_off_a_list_opens_nothing, unit) {
         click_close(&store, capture), "a tab has no menu, and a right-click is not a click");
     MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_store_handle_context(&store, INKCELL_FOCUS_NONE, 0, 0),
                               click_close(&store, capture), "nothing under the pointer is nothing");
+    click_close(&store, capture);
+}
+
+/*
+ * The Status cards' buttons answer a pointer, and the Link card's "devices" is the one that
+ * matters: the device list is only reachable through it, and a window has no d-pad. The id is
+ * the verb's place in the flat list, so the Link card's first button is the rows block's 0 and
+ * its second is 1.
+ */
+MESH_TEST_CASE(ui_click_a_card_button_runs_its_verb, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(click_open(&store, &capture) != 0, "store or capture failed to open");
+    struct mesh_ui_action action;
+
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_tab(&store, MESH_UI_SCREEN_RADIO),
+                              click_close(&store, capture), "the test needs the Radio tab");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, &action),
+        click_close(&store, capture), "the Link card drew no box for its second button");
+    MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_DISCONNECT ||
+                                  store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT,
+                              click_close(&store, capture),
+                              "a click on disconnect should drop the link, as A on it does");
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 0U, &action),
+        click_close(&store, capture), "the Link card drew no box for its devices button");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_ui_nav_devices_showing(&store.nav) || action.type != MESH_UI_ACTION_NONE,
+        click_close(&store, capture), "a click on devices should open the device list");
     click_close(&store, capture);
 }

@@ -194,7 +194,8 @@ MESH_TEST_CASE(ui_chrome_banner_stands_down_where_the_screen_already_says_it, un
 
     /* And the About *section* is what stands it down, not the About row's screen number: the
        tab alone must not, or every Settings screen would lose it. */
-    snapshot.nav.screen = MESH_UI_SCREEN_STATUS;
+    snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
+    snapshot.nav.devices_open = false;
     snapshot.nav.settings_section = (uint8_t)MESH_UI_SETTINGS_ABOUT;
     MESH_TEST_FAIL_IF(!mesh_ui_chrome_banner(&snapshot, &banner),
                       "a stale section on another tab is not the About screen");

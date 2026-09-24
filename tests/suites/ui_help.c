@@ -667,6 +667,11 @@ static bool help_store_tab(struct mesh_ui_store *store, enum mesh_ui_screen scre
     return mesh_test_open_tab(store, screen);
 }
 
+/* The Radio tab's device list, which is a level rather than a tab and so has its own way in. */
+static bool help_store_devices(struct mesh_ui_store *store) {
+    return help_store_tab(store, MESH_UI_SCREEN_RADIO) && mesh_test_open_devices(store);
+}
+
 /*
  * Every tab explains itself, and says which tab it is explaining.
  *
@@ -687,13 +692,18 @@ static bool help_store_tab(struct mesh_ui_store *store, enum mesh_ui_screen scre
  */
 
 MESH_TEST_CASE(help_every_tab_explains_itself, unit) {
+    /* The Radio tab twice: once on the cards it opens on and once on the device list one level
+       in, which was a tab of its own and kept its help when it stopped being one. */
     static const enum mesh_ui_screen k_screens[] = {
-        MESH_UI_SCREEN_MESSAGES, MESH_UI_SCREEN_NODES,  MESH_UI_SCREEN_WAYPOINTS,
-        MESH_UI_SCREEN_DEVICES,  MESH_UI_SCREEN_STATUS,
+        MESH_UI_SCREEN_MESSAGES, MESH_UI_SCREEN_NODES, MESH_UI_SCREEN_WAYPOINTS,
+        MESH_UI_SCREEN_RADIO,    MESH_UI_SCREEN_RADIO,
     };
+    static const bool k_devices[] = {false, false, false, false, true};
     for (size_t i = 0; i < sizeof k_screens / sizeof k_screens[0]; ++i) {
         struct mesh_ui_store store;
-        MESH_TEST_FAIL_IF(!help_store_tab(&store, k_screens[i]), "a tab did not open");
+        MESH_TEST_FAIL_IF(
+            !(k_devices[i] ? help_store_devices(&store) : help_store_tab(&store, k_screens[i])),
+            "a tab did not open");
         MESH_TEST_FAIL_IF(!bar_offers_help(&store), "a tab did not offer the help press");
 
         struct mesh_ui_help_topic topic;
@@ -716,7 +726,9 @@ MESH_TEST_CASE(help_every_tab_explains_itself, unit) {
         MESH_TEST_FAIL_IF(store.nav.help_cursor != 0U, "a feature topic did not open at the top");
         press(&store, INKCELL_KEY_B);
         MESH_TEST_FAIL_IF(store.nav.help_open, "B did not leave a tab's help");
-        MESH_TEST_FAIL_IF(store.nav.screen != k_screens[i], "leaving help left the tab as well");
+        MESH_TEST_FAIL_IF(store.nav.screen != k_screens[i] ||
+                              store.nav.devices_open != k_devices[i],
+                          "leaving help left the tab as well");
     }
     record_success(test_name);
 }
@@ -731,8 +743,7 @@ MESH_TEST_CASE(help_every_tab_explains_itself, unit) {
  */
 MESH_TEST_CASE(help_the_chart_explains_its_axes, unit) {
     struct mesh_ui_store store;
-    MESH_TEST_FAIL_IF(!help_store_tab(&store, MESH_UI_SCREEN_STATUS),
-                      "the Status tab did not open");
+    MESH_TEST_FAIL_IF(!help_store_tab(&store, MESH_UI_SCREEN_RADIO), "the Radio tab did not open");
 
     struct mesh_ui_help_topic cards;
     MESH_TEST_FAIL_IF(!topic_for(&store, &cards), "the cards have no topic");
@@ -850,10 +861,10 @@ MESH_TEST_CASE(help_explains_the_tapback_picker, unit) {
  * press, so all of them are walked rather than the one that was found first.
  */
 MESH_TEST_CASE(help_is_refused_while_a_question_is_armed, unit) {
-    /* The Devices tab's forget (Y), and the conversation list's delete (X). Both are one press
+    /* The device list's forget (Y), and the conversation list's delete (X). Both are one press
        to arm and any other press to stand down. */
     struct mesh_ui_store devices;
-    MESH_TEST_FAIL_IF(!help_store_tab(&devices, MESH_UI_SCREEN_DEVICES), "Devices did not open");
+    MESH_TEST_FAIL_IF(!help_store_devices(&devices), "Devices did not open");
     MESH_TEST_FAIL_IF(!bar_offers_help(&devices), "Devices did not offer help to begin with");
     press(&devices, INKCELL_KEY_Y);
     MESH_TEST_FAIL_IF(!devices.nav.devices_forget_armed, "Y did not arm the forget question");

@@ -303,7 +303,7 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* Nodes */
 
-    /* Waypoints sits between Nodes and Devices, and its list is never empty - the row that
+    /* Waypoints sits between Nodes and Radio, and its list is never empty - the row that
        makes a place is always there, so Right lands on a screen with something under the
        cursor even on a mesh that has shared nothing. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
@@ -313,10 +313,25 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
 
-    /* Devices tab: A connects to an unconnected device and does nothing on the connected one. */
+    /*
+     * The Radio tab opens on the Status cards, which have no list: their rows are the verbs the
+     * cards offer, walked flat. The fixture has a radio attached and a completed handshake, so
+     * all three are on offer - Devices and Disconnect on the Link card and Refresh on the Radio
+     * card - and a fresh cursor stands on the first.
+     */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
-    if (store.nav.screen != MESH_UI_SCREEN_DEVICES) {
-        failure = "RIGHT from Waypoints should reach Devices";
+    if (store.nav.screen != MESH_UI_SCREEN_RADIO ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 3U ||
+        store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DEVICES) {
+        failure = "RIGHT from Waypoints should reach the Radio tab's cards, on Devices";
+        goto cleanup;
+    }
+
+    /* The device list, one level in: A connects to an unconnected device and does nothing on
+       the connected one, and B goes back to the cards on the verb that opened it. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!mesh_ui_nav_devices_showing(&store.nav) || action.type != MESH_UI_ACTION_NONE) {
+        failure = "A on the Devices verb should open the device list and ask nothing";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
@@ -331,23 +346,18 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         failure = "A on another device should request a connect";
         goto cleanup;
     }
-
-    /*
-     * Status has no list: its rows are the verbs its cards offer, walked flat. The fixture has
-     * a radio attached and a completed handshake, so both are on offer - Disconnect on the Link
-     * card and Refresh on the Radio card - and Down steps from one card's button to the other's.
-     */
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
-    if (store.nav.screen != MESH_UI_SCREEN_STATUS ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_STATUS) != 2U ||
-        store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT) {
-        failure = "Status should offer the two verbs its cards carry";
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    if (!mesh_ui_nav_status_showing(&store.nav) ||
+        store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DEVICES) {
+        failure = "B on the device list should land back on the cards, on Devices";
         goto cleanup;
     }
+
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_DISCONNECT ||
         strcmp(action.identifier, "AA:BB:CC:DD:EE:01") != 0) {
-        failure = "A on the Link card should drop the link it names";
+        failure = "A on the Link card's Disconnect should drop the link it names";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
@@ -360,7 +370,7 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     /* And the cursor stops there: two verbs, no third card to step onto. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH) {
-        failure = "DOWN must clamp at the last verb on Status";
+        failure = "DOWN must clamp at the last verb on the Status cards";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);

@@ -41,15 +41,29 @@ const char *mesh_ui_screen_name(enum mesh_ui_screen screen) {
         return inkcell_str(MESH_STR_TAB_NODES);
     case MESH_UI_SCREEN_WAYPOINTS:
         return inkcell_str(MESH_STR_TAB_WAYPOINTS);
-    case MESH_UI_SCREEN_DEVICES:
-        return inkcell_str(MESH_STR_TAB_DEVICES);
-    case MESH_UI_SCREEN_STATUS:
-        return inkcell_str(MESH_STR_TAB_STATUS);
+    case MESH_UI_SCREEN_RADIO:
+        return inkcell_str(MESH_STR_TAB_RADIO);
     case MESH_UI_SCREEN_SETTINGS:
         return inkcell_str(MESH_STR_TAB_SETTINGS);
     default:
         return inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
     }
+}
+
+bool mesh_ui_nav_devices_showing(const struct mesh_ui_nav *nav) {
+    return nav != NULL && nav->screen == MESH_UI_SCREEN_RADIO && nav->devices_open;
+}
+
+void mesh_ui_nav_land_on_devices(struct mesh_ui_nav *nav) {
+    nav->screen = MESH_UI_SCREEN_RADIO;
+    nav->devices_open = true;
+    nav->trend_open = false;
+}
+
+/* The cards themselves: the tab's own list, with neither of its levels open over it. */
+bool mesh_ui_nav_status_showing(const struct mesh_ui_nav *nav) {
+    return nav != NULL && nav->screen == MESH_UI_SCREEN_RADIO && !nav->devices_open &&
+           !nav->trend_open;
 }
 
 static void mesh_ui_nav_refresh_target_name(struct mesh_ui_nav *nav,
@@ -505,8 +519,8 @@ static void mesh_ui_nav_fill_resend(struct mesh_ui_action *action,
  * parallel structs, because it is asked the same question from three places holding different
  * ones - here with a store, and from actions.c and the renderer with a snapshot.
  */
-static void mesh_ui_nav_status_actions(const struct mesh_ui_store *store,
-                                       struct mesh_ui_status_actions *out) {
+void mesh_ui_nav_status_actions(const struct mesh_ui_store *store,
+                                struct mesh_ui_status_actions *out) {
     bool connected = false;
     for (size_t i = 0; i < store->device_count; ++i) {
         connected = connected || store->devices[i].connected;
@@ -590,8 +604,6 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
     }
     case MESH_UI_SCREEN_WAYPOINTS:
         return mesh_ui_nav_waypoint_row_count(nav, store);
-    case MESH_UI_SCREEN_DEVICES:
-        return mesh_ui_devices_row_count(store->devices, store->device_count);
     case MESH_UI_SCREEN_SETTINGS:
         if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
             return mesh_ui_settings_root_count();
@@ -599,8 +611,11 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         return mesh_ui_settings_item_count(
             &store->settings, store->handshake_valid ? &store->handshake : NULL,
             (enum mesh_ui_settings_section)nav->settings_section, nav->settings_channel);
-    case MESH_UI_SCREEN_STATUS:
+    case MESH_UI_SCREEN_RADIO:
     default: {
+        if (nav->devices_open) {
+            return mesh_ui_devices_row_count(store->devices, store->device_count);
+        }
         /* Status has no list. Its "rows" are the verbs its cards offer, walked as one flat
            set - a card is focused because the cursor is on one of its buttons, and a card with
            no verb is stepped over. See include/mesh/ui/status.h for why the list is flat. */
@@ -743,8 +758,9 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
      *
      * mesh_ui_status_verb_resolve() hands back the verb itself while it is still offered, which
      * is the ordinary case and the whole point: a verb arriving or leaving anywhere in the list
-     * no longer moves what A does. With nothing on offer the remembered verb is kept, so a link
-     * that drops and comes back lands the reader back on the button they were on.
+     * no longer moves what A does. When the verb has gone the cursor takes the nearest one above
+     * it, and the device list is always on offer at the top - so a link that drops with the
+     * cursor on disconnect leaves the reader on the way to another radio.
      */
     {
         struct mesh_ui_status_actions actions;
@@ -777,7 +793,13 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
     }
 
     for (int screen = 0; screen < MESH_UI_SCREEN_COUNT; ++screen) {
-        const uint32_t rows = mesh_ui_nav_row_count(nav, store, (enum mesh_ui_screen)screen);
+        /* The Radio tab's row cursor is its device list's whichever level is up - the cards walk
+           `status_verb`, repaired above - so it is held against the list, not the verbs. Held
+           against the verbs it would be clipped to two or three every time the cards were
+           showing, and the list would reopen on a row the reader never left it on. */
+        const uint32_t rows = screen == (int)MESH_UI_SCREEN_RADIO
+                                  ? mesh_ui_devices_row_count(store->devices, store->device_count)
+                                  : mesh_ui_nav_row_count(nav, store, (enum mesh_ui_screen)screen);
         uint32_t *cursor = &nav->cursor[screen];
         if (rows == 0U) {
             if (*cursor != 0U) {
@@ -949,7 +971,7 @@ void mesh_ui_nav_cursor_to_first_row(struct mesh_ui_nav *nav, const struct mesh_
 
 static bool mesh_ui_nav_move_cursor(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                     int delta) {
-    if (nav->screen == MESH_UI_SCREEN_STATUS) {
+    if (nav->screen == MESH_UI_SCREEN_RADIO && !nav->devices_open) {
         /* Status has no rows to walk. Its cursor is a verb, so a press moves along the list on
            offer and names what it lands on rather than counting how far it got - see
            include/mesh/ui/status.h. */
@@ -1535,6 +1557,42 @@ static bool mesh_ui_nav_node_actions_key(struct mesh_ui_nav *nav, const struct m
     }
 }
 
+/* A on a row of the device list: connect to it, or type an address for the network row. */
+static bool mesh_ui_nav_devices_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                        uint32_t cursor, uint32_t rows,
+                                        struct mesh_ui_action *action) {
+    struct mesh_ui_devices_row row;
+    if (cursor >= rows || !mesh_ui_devices_row(store->devices, store->device_count,
+                                               store->network_host, cursor, &row)) {
+        return false;
+    }
+    if (row.type == (uint8_t)MESH_UI_DEVICES_ROW_NETWORK) {
+        /* With an address written down A is the ordinary connect every other row offers;
+           with none there is nothing to connect to, so the press is the one that gets
+           there - a row whose A did nothing until an address existed would be a row with
+           no way of ever acquiring one. */
+        if (row.host[0] == '\0') {
+            mesh_ui_nav_open_network_keyboard(nav, row.host);
+            return true;
+        }
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_CONNECT;
+            action->kind = (uint8_t)MESH_UI_DEVICE_TCP;
+            snprintf(action->identifier, sizeof action->identifier, "%s", row.host);
+        }
+        return false;
+    }
+    if (!mesh_ui_device_connectable(row.device)) {
+        return false;
+    }
+    if (action != NULL) {
+        action->type = MESH_UI_ACTION_CONNECT;
+        action->kind = row.device->kind;
+        snprintf(action->identifier, sizeof action->identifier, "%s", row.device->identifier);
+    }
+    return false;
+}
+
 static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                 struct mesh_ui_action *action) {
     const uint32_t rows = mesh_ui_nav_row_count(nav, store, nav->screen);
@@ -1665,38 +1723,6 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
     }
     case MESH_UI_SCREEN_WAYPOINTS:
         return mesh_ui_nav_waypoint_confirm(nav, store, cursor, action);
-    case MESH_UI_SCREEN_DEVICES: {
-        struct mesh_ui_devices_row row;
-        if (cursor >= rows || !mesh_ui_devices_row(store->devices, store->device_count,
-                                                   store->network_host, cursor, &row)) {
-            return false;
-        }
-        if (row.type == (uint8_t)MESH_UI_DEVICES_ROW_NETWORK) {
-            /* With an address written down A is the ordinary connect every other row offers;
-               with none there is nothing to connect to, so the press is the one that gets
-               there - a row whose A did nothing until an address existed would be a row with
-               no way of ever acquiring one. */
-            if (row.host[0] == '\0') {
-                mesh_ui_nav_open_network_keyboard(nav, row.host);
-                return true;
-            }
-            if (action != NULL) {
-                action->type = MESH_UI_ACTION_CONNECT;
-                action->kind = (uint8_t)MESH_UI_DEVICE_TCP;
-                snprintf(action->identifier, sizeof action->identifier, "%s", row.host);
-            }
-            return false;
-        }
-        if (!mesh_ui_device_connectable(row.device)) {
-            return false;
-        }
-        if (action != NULL) {
-            action->type = MESH_UI_ACTION_CONNECT;
-            action->kind = row.device->kind;
-            snprintf(action->identifier, sizeof action->identifier, "%s", row.device->identifier);
-        }
-        return false;
-    }
     case MESH_UI_SCREEN_SETTINGS: {
         if (nav->settings_section == MESH_UI_SETTINGS_CHANNELS &&
             nav->settings_channel == MESH_UI_SETTINGS_NO_CHANNEL) {
@@ -1825,8 +1851,11 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
         return true;
     }
-    case MESH_UI_SCREEN_STATUS:
+    case MESH_UI_SCREEN_RADIO:
     default: {
+        if (nav->devices_open) {
+            return mesh_ui_nav_devices_confirm(nav, store, cursor, rows, action);
+        }
         struct mesh_ui_status_actions actions;
         mesh_ui_nav_status_actions(store, &actions);
         /* The verb the cursor is on, asked for by name. A verb the screen is not offering is a
@@ -1841,8 +1870,14 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return false;
         }
         switch ((enum mesh_ui_status_verb)chosen->verb) {
+        case MESH_UI_STATUS_VERB_DEVICES:
+            /* Like the trend, a place rather than a request: the list is what discovery has
+               already found, and opening it asks the radio for nothing. */
+            nav->devices_open = true;
+            nav->devices_forget_armed = false;
+            return true;
         case MESH_UI_STATUS_VERB_DISCONNECT:
-            /* The same press X makes on the Devices tab, and it names the radio for the same
+            /* The same press X makes on the device list, and it names the radio for the same
                reason: only one link is ever up, so the transport is told which one to drop
                rather than being left to work it out. */
             action->type = MESH_UI_ACTION_DISCONNECT;
@@ -2046,8 +2081,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     }
 
     /* One press arms Y on the Devices tab; anything else stands it back down. */
-    if (nav->devices_forget_armed &&
-        (key != INKCELL_KEY_Y || nav->screen != MESH_UI_SCREEN_DEVICES)) {
+    if (nav->devices_forget_armed && (key != INKCELL_KEY_Y || !mesh_ui_nav_devices_showing(nav))) {
         nav->devices_forget_armed = false;
         changed = true;
     }
@@ -2151,7 +2185,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      * map. And the screen is checked as well as the flag, because the flag outlives the tab -
      * see `trend_open`.
      */
-    if (nav->trend_open && nav->screen == MESH_UI_SCREEN_STATUS) {
+    if (nav->trend_open && nav->screen == MESH_UI_SCREEN_RADIO) {
         switch (key) {
         case INKCELL_KEY_LEFT:
         case INKCELL_KEY_RIGHT:
@@ -2395,6 +2429,13 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         if (nav->screen == MESH_UI_SCREEN_WAYPOINTS) {
             return mesh_ui_nav_close_waypoint(nav) || changed;
         }
+        if (mesh_ui_nav_devices_showing(nav)) {
+            /* Back to the cards, and the forget question with it: an armed Y is about a row
+               that is no longer on the panel. */
+            nav->devices_open = false;
+            nav->devices_forget_armed = false;
+            return true;
+        }
         return changed;
     case INKCELL_KEY_X:
         if (nav->screen == MESH_UI_SCREEN_MESSAGES && !nav->thread_open) {
@@ -2415,11 +2456,11 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             }
             return mesh_ui_nav_open_reactions(nav, message->packet_id) || changed;
         }
-        if (nav->screen == MESH_UI_SCREEN_DEVICES) {
+        if (mesh_ui_nav_devices_showing(nav)) {
             /* Only one radio is ever connected, so this does not depend on the row: it drops
                the link that is up (or the one coming up), which is what stops auto-connect
                taking the radio straight back. */
-            const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_DEVICES];
+            const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_RADIO];
             if (out_action != NULL) {
                 out_action->type = MESH_UI_ACTION_DISCONNECT;
                 if (cursor < store->device_count &&
@@ -2456,10 +2497,10 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         }
         return changed;
     case INKCELL_KEY_Y:
-        if (nav->screen == MESH_UI_SCREEN_DEVICES) {
+        if (mesh_ui_nav_devices_showing(nav)) {
             /* Forgetting a bond costs a re-pair with the node's PIN, so the first press only
                arms it and the backends say so. A press on any other row re-arms from there. */
-            const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_DEVICES];
+            const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_RADIO];
             struct mesh_ui_devices_row row;
             if (!mesh_ui_devices_row(store->devices, store->device_count, store->network_host,
                                      cursor, &row)) {

@@ -69,6 +69,14 @@ bool mesh_ui_nav_picker_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
  * IPv4 literal is typed without changing layer once.
  */
 void mesh_ui_nav_open_network_keyboard(struct mesh_ui_nav *nav, const char *host);
+/* Puts the Radio tab on its device list, which is where every keyboard raised from that list
+   lands again - the address it typed, the PIN a pairing asked for. */
+void mesh_ui_nav_land_on_devices(struct mesh_ui_nav *nav);
+/* The verbs the Status cards offer, from the store: nav.c walks them and nav_click.c answers a
+   click on one of their buttons. */
+struct mesh_ui_status_actions;
+void mesh_ui_nav_status_actions(const struct mesh_ui_store *store,
+                                struct mesh_ui_status_actions *out);
 /*
  * Done on that keyboard.
  *

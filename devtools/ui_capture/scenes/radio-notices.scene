@@ -5,7 +5,7 @@
 # firmware decision the user is supposed to know about. These three rows are those answers.
 
 scene demo
-tab status
+tab radio
 
 # A busy queue is worth a row; an idle one is not, so the row appears here rather than always.
 queue 6 16

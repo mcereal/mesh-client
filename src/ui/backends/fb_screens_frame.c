@@ -49,10 +49,10 @@ static enum inkcell_icon fb_screen_icon(enum mesh_ui_screen screen) {
            id: icons.def's rule is one id per job, and both are saying "somewhere on Earth". A
            second sprite drawing the same rune would be a second answer to one question. */
         return INKCELL_ICON_POSITION;
-    case MESH_UI_SCREEN_DEVICES:
+    case MESH_UI_SCREEN_RADIO:
+        /* The antenna the Devices tab wore, rather than the Status gauge: the tab is named for
+           the thing, and the thing is a radio. */
         return INKCELL_ICON_DEVICES;
-    case MESH_UI_SCREEN_STATUS:
-        return INKCELL_ICON_STATUS;
     case MESH_UI_SCREEN_SETTINGS:
         return INKCELL_ICON_SETTINGS;
     default:
@@ -262,7 +262,7 @@ static bool fb_route_headed(const struct mesh_ui_nav *nav) {
     struct mesh_ui_route body;
     mesh_ui_route_under_layers(nav, &body);
     return body.level != MESH_UI_ROUTE_HELP &&
-           !(body.level == MESH_UI_ROUTE_LIST && nav->screen == MESH_UI_SCREEN_STATUS);
+           !(body.level == MESH_UI_ROUTE_LIST && nav->screen == MESH_UI_SCREEN_RADIO);
 }
 
 static void fb_heading_begin(struct fb_heading *heading, const struct inkcell_draw_state *state,
@@ -893,18 +893,17 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         case MESH_UI_SCREEN_WAYPOINTS:
             fb_render_waypoints(state, snapshot, &layout);
             break;
-        case MESH_UI_SCREEN_DEVICES:
-            fb_render_devices(state, snapshot, &layout);
-            break;
         case MESH_UI_SCREEN_SETTINGS:
             fb_render_settings(state, snapshot, &layout);
             break;
-        case MESH_UI_SCREEN_STATUS:
+        case MESH_UI_SCREEN_RADIO:
         default:
-            /* The chart over the cards, the way the map is drawn over the node list - and the
-               screen is tested as well as the flag for the same reason: `trend_open` says where
-               the Status tab is standing, not what is on the panel. */
-            if (snapshot->nav.trend_open) {
+            /* The device list or the chart over the cards, the way the map is drawn over the
+               node list - and the screen is tested as well as the flag for the same reason: the
+               flags say where the Radio tab is standing, not what is on the panel. */
+            if (snapshot->nav.devices_open) {
+                fb_render_devices(state, snapshot, &layout);
+            } else if (snapshot->nav.trend_open) {
                 fb_render_trend(state, snapshot, &layout);
             } else {
                 fb_render_status(state, snapshot, &layout);

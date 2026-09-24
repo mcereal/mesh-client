@@ -55,6 +55,10 @@ struct status_entry {
 };
 
 static const struct status_entry k_status_verbs[] = {
+    /* Needs nothing: the list is where a radio is chosen, so it is most wanted exactly when
+       there is no link at all. */
+    {(uint8_t)MESH_UI_STATUS_CARD_LINK, (uint8_t)MESH_UI_STATUS_VERB_DEVICES, MESH_UI_COMMAND_OPEN,
+     MESH_STR_ACTION_DEVICES, 0U},
     {(uint8_t)MESH_UI_STATUS_CARD_LINK, (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT,
      MESH_UI_COMMAND_DISCONNECT, MESH_STR_ACTION_DISCONNECT, STATUS_NEED_LINK},
     {(uint8_t)MESH_UI_STATUS_CARD_MESH, (uint8_t)MESH_UI_STATUS_VERB_TREND, MESH_UI_COMMAND_TREND,

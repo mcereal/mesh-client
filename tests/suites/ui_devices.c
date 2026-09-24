@@ -10,10 +10,12 @@
  */
 
 #include "framework/mesh_test.h"
+#include "support/ui_fixture.h"
 
 #include "mesh/transport/tcp.h"
 #include "mesh/ui/devices.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/route.h"
 #include "mesh/ui/store.h"
 
 #include <stdio.h>
@@ -117,11 +119,12 @@ MESH_TEST_CASE(devices_network_row_stands_down_for_a_live_link, unit) {
     record_success(test_name);
 }
 
-/* Walks the cursor onto the network row from the top of the Devices tab. */
+/* Walks the cursor onto the network row from the top of the device list. */
 static void stand_on_network_row(struct mesh_ui_store *store) {
     struct mesh_ui_action action;
-    store->nav.screen = MESH_UI_SCREEN_DEVICES;
-    store->nav.cursor[MESH_UI_SCREEN_DEVICES] = 0U;
+    store->nav.screen = MESH_UI_SCREEN_RADIO;
+    store->nav.devices_open = true;
+    store->nav.cursor[MESH_UI_SCREEN_RADIO] = 0U;
     const uint32_t rows = mesh_ui_devices_row_count(store->devices, store->device_count);
     for (uint32_t i = 1U; i < rows; ++i) {
         mesh_ui_store_handle_key(store, INKCELL_KEY_DOWN, &action);
@@ -159,7 +162,7 @@ MESH_TEST_CASE(devices_network_row_types_an_address, unit) {
     const bool ok = (action.type == MESH_UI_ACTION_CONNECT) &&
                     action.kind == (uint8_t)MESH_UI_DEVICE_TCP &&
                     strcmp(action.identifier, "10.0.0.7:4403") == 0 && !store.nav.keyboard_open &&
-                    !store.nav.keyboard_network && store.nav.screen == MESH_UI_SCREEN_DEVICES;
+                    !store.nav.keyboard_network && mesh_ui_nav_devices_showing(&store.nav);
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(!ok, "Done should connect to the typed address and land back on Devices");
     record_success(test_name);
@@ -250,8 +253,95 @@ MESH_TEST_CASE(devices_network_keyboard_gives_back_the_draft, unit) {
 
     const bool ok = !store.nav.keyboard_open && !store.nav.keyboard_network &&
                     strcmp(store.nav.draft, "half a message") == 0 &&
-                    store.nav.screen == MESH_UI_SCREEN_DEVICES;
+                    mesh_ui_nav_devices_showing(&store.nav);
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(!ok, "leaving the network keyboard should restore the Compose draft");
+    record_success(test_name);
+}
+
+/*
+ * The Radio tab: the cards first, the device list one level in, and B back out.
+ *
+ * Devices and Status were two tabs and are one now, so what this holds is the shape rather than
+ * any one press. The route is what the slide, the back arrow and the help topic all read, so it
+ * is checked by name; X and Y are checked on the cards because both were the Devices tab's
+ * presses and neither may leak onto a screen that does not draw the rows they act on.
+ */
+MESH_TEST_CASE(ui_radio_tab_opens_on_the_cards_with_devices_one_level_in, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    const char *failure = NULL;
+    struct mesh_ui_action action;
+    struct mesh_ui_route route;
+    char where[64];
+
+    if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_RADIO)) {
+        failure = "the shoulders never reached the Radio tab";
+        goto cleanup;
+    }
+    mesh_ui_route_of(&store.nav, &route);
+    mesh_ui_route_describe(&route, where, sizeof where);
+    if (route.depth != 0U || strcmp(where, "radio/list") != 0 ||
+        !mesh_ui_nav_status_showing(&store.nav)) {
+        failure = "the Radio tab should open on its cards";
+        goto cleanup;
+    }
+
+    /* Y and X on the cards: neither is the device list's here. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    if (store.nav.devices_forget_armed || action.type != MESH_UI_ACTION_NONE) {
+        failure = "Y on the cards should not arm a forget for a row nobody can see";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_NONE) {
+        failure = "X on the cards should not be the device list's disconnect";
+        goto cleanup;
+    }
+
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_route_of(&store.nav, &route);
+    mesh_ui_route_describe(&route, where, sizeof where);
+    if (route.depth != 1U || strcmp(where, "radio/devices") != 0) {
+        failure = "A on the devices verb should put the list one level in";
+        goto cleanup;
+    }
+
+    /* Armed on the list, and B both leaves and stands the question down. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    if (!store.nav.devices_forget_armed) {
+        failure = "Y on a bonded radio should arm the forget";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    if (!mesh_ui_nav_status_showing(&store.nav) || store.nav.devices_forget_armed ||
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "B should land on the cards with nothing armed and nothing asked";
+        goto cleanup;
+    }
+
+    /* And the list keeps its row across the visit, as every list does - its last row, which is
+       further down than the cards have verbs, with a publish in between to run the clamp. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    const uint32_t rows = mesh_ui_devices_row_count(store.devices, store.device_count);
+    for (uint32_t i = 0U; i < rows; ++i) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    struct mesh_ui_snapshot snapshot;
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (rows < 4U || store.nav.cursor[MESH_UI_SCREEN_RADIO] != rows - 1U) {
+        failure = "reopening the list should find the row it was left on";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

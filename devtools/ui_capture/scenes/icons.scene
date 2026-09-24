@@ -28,7 +28,8 @@ pin GOLF
 hold 600
 tab nodes
 hold 700
-tab devices
+tab radio
+key a
 hold 700
 
 # The section list, one icon per row.

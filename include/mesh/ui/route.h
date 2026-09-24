@@ -50,7 +50,7 @@ extern "C" {
  * The order is not a hierarchy - `depth` is - it is just a list.
  */
 enum mesh_ui_route_level {
-    MESH_UI_ROUTE_LIST = 0,     /* the tab's own list: conversations, nodes, devices, sections */
+    MESH_UI_ROUTE_LIST = 0,     /* the tab's own list: conversations, nodes, sections, the cards */
     MESH_UI_ROUTE_THREAD,       /* one conversation, or the all-traffic transcript */
     MESH_UI_ROUTE_MAP,          /* the map over the node list */
     MESH_UI_ROUTE_NODE,         /* one node's detail */
@@ -79,6 +79,8 @@ enum mesh_ui_route_level {
        answer different questions and the help feature table is keyed on the level - one entry
        for both would explain a channel key to somebody looking at a public one. */
     MESH_UI_ROUTE_CONTACT,
+    /* The radios this client could attach to, over the Radio tab's Status cards. */
+    MESH_UI_ROUTE_DEVICES,
     MESH_UI_ROUTE_COUNT
 };
 

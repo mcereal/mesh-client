@@ -118,7 +118,7 @@ void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_sn
     /* Every radio, the network row, and the "nothing found" line. */
     uint8_t steps[MESH_UI_MAX_DEVICES + 2U];
     struct inkcell_fb_list list = fb_list_begin_steps(
-        state, layout, rows + (nothing_found ? 1U : 0U), nav->cursor[MESH_UI_SCREEN_DEVICES], 2U,
+        state, layout, rows + (nothing_found ? 1U : 0U), nav->cursor[MESH_UI_SCREEN_RADIO], 2U,
         steps, sizeof steps, FB_LIST_ROLE_MENU);
     inkcell_fb_list_glide(state, &list, FB_LIST_DEVICES);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);

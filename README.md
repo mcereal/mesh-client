@@ -12,7 +12,7 @@ Small C core, pluggable transports, available in the
   <img src=".github/resources/screenshots/messages.png" width="180" alt="A channel thread, with sent and received messages">
   <img src=".github/resources/screenshots/nodes.png" width="180" alt="The node roster, with age and signal per node">
   <img src=".github/resources/screenshots/waypoints.png" width="180" alt="The waypoint list, with the distance and bearing to each shared place">
-  <img src=".github/resources/screenshots/status.png" width="180" alt="The Status tab: link, mesh and radio cards">
+  <img src=".github/resources/screenshots/status.png" width="180" alt="The Radio tab: link, mesh and radio cards">
   <img src=".github/resources/screenshots/settings.png" width="180" alt="The LoRa settings section">
 </p>
 
@@ -42,8 +42,8 @@ place.
 
 ## Using it
 
-Five tabs — Messages, Nodes, Devices, Status, Settings — driven by the d-pad and face buttons.
-Connect from **Devices** (it bonds and prompts for a PIN-mode node's six digits), or let
+Five tabs — Messages, Nodes, Waypoints, Radio, Settings — driven by the d-pad and face buttons.
+Connect from **Radio → devices** (it bonds and prompts for a PIN-mode node's six digits), or let
 auto-connect find your usual radio on its own.
 
 There is a full CLI too, useful on a desktop and for scripting:

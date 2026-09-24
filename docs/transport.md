@@ -192,7 +192,7 @@ This is a bug fix before it is groundwork: a bootloader presents the same CDC pa
 did, so every step of a connect succeeds and the handshake is then asked of something that speaks
 no protobuf — which draws as a connected radio with the progress bar turning forever.
 `mesh_serial_device_is_radio()` is the predicate; the connect refuses a bootloader with `-ENOTSUP`
-before binding anything, auto-connect skips one, and the Devices tab still lists it with an
+before binding anything, auto-connect skips one, and the device list still lists it with an
 `in bootloader` badge and no `A connect` — a refusal is a row, not silence.
 
 A board behind a bridge chip has **no USB-side bootloader signal at all**: an ESP32 in ROM
@@ -263,7 +263,7 @@ what fixes a failed connect, and a retry goes back through the whole attempt any
 also how it picks up a lease that moved. `tcp_transport_connects_by_name`,
 `tcp_transport_takes_a_name`, `resolve_*`.
 
-### Typing one: the Devices tab's last row
+### Typing one: the device list's last row
 
 **A network cannot be scanned**, so there is one row at the end of the list that *is* the network
 radio: the configured address, or `Set an address`. **A** connects when there is one and opens the

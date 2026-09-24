@@ -13,7 +13,7 @@
 
 scene demo
 config
-tab status
+tab radio
 stats
 airtime 4 1
 hold 900

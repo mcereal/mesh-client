@@ -31,6 +31,7 @@
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/route.h"
+#include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
 
 #include "nav_internal.h"
@@ -125,7 +126,7 @@ static uint32_t *mesh_ui_nav_click_cursor(struct mesh_ui_nav *nav, uint32_t bloc
     }
     /* Status walks verbs rather than rows, and the node detail walks cards: neither has an index
        a click could name, so neither registers rows. */
-    if (nav->screen == MESH_UI_SCREEN_STATUS ||
+    if ((nav->screen == MESH_UI_SCREEN_RADIO && !nav->devices_open) ||
         (nav->screen == MESH_UI_SCREEN_NODES && nav->node_detail_open)) {
         return NULL;
     }
@@ -142,9 +143,32 @@ static void mesh_ui_nav_click_stand_down(struct mesh_ui_nav *nav) {
     nav->devices_forget_armed = false;
 }
 
+/*
+ * A button on the Status cards: the verb at `index` in the flat list, which is what the renderer
+ * registered it as. The cursor is put on that verb by name and A is pressed, so a click runs
+ * exactly what the keycap would - including opening the device list, which is the only way into
+ * it and would otherwise be out of a pointer's reach.
+ */
+static bool mesh_ui_nav_click_status_verb(struct mesh_ui_nav *nav,
+                                          const struct mesh_ui_store *store, uint32_t index,
+                                          struct mesh_ui_action *out_action) {
+    struct mesh_ui_status_actions actions;
+    mesh_ui_nav_status_actions(store, &actions);
+    if (index >= actions.count) {
+        return false; /* drawn on a frame whose verbs have since gone */
+    }
+    const bool moved = nav->status_verb != actions.items[index].verb;
+    nav->status_verb = actions.items[index].verb;
+    return mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_A, out_action) || moved;
+}
+
 static bool mesh_ui_nav_click_row(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                   uint32_t block, uint32_t index,
                                   struct mesh_ui_action *out_action) {
+    if (block == (uint32_t)MESH_UI_FOCUS_ROWS && mesh_ui_nav_status_showing(nav) &&
+        !mesh_ui_nav_click_modal(nav)) {
+        return mesh_ui_nav_click_status_verb(nav, store, index, out_action);
+    }
     bool activate = true;
     uint32_t *const cursor = mesh_ui_nav_click_cursor(nav, block, &activate);
     if (cursor == NULL) {

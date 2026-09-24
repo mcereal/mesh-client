@@ -20,6 +20,8 @@ void mesh_test_nav_populate(struct mesh_ui_store *store);
  * Returns false when the tab could not be reached, which means an overlay is holding the keys.
  */
 bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen);
+/* The Radio tab's device list, opened from the Status cards with A. */
+bool mesh_test_open_devices(struct mesh_ui_store *store);
 
 /*
  * Walks the Settings tab to `section` and opens it, from wherever the cursor is.

@@ -39,6 +39,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TAB_WAYPOINTS] = "Puntos",
     [MESH_STR_TAB_DEVICES] = "Equipos",
     [MESH_STR_TAB_STATUS] = "Estado",
+    [MESH_STR_TAB_RADIO] = "Radio",
     [MESH_STR_TAB_SETTINGS] = "Ajustes",
     [MESH_STR_ACTION_SELECT] = "elegir",
     [MESH_STR_ACTION_BACK] = "volver",
@@ -82,6 +83,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_ACTION_ADDRESS] = "dirección",
     [MESH_STR_ACTION_REFRESH] = "recargar",
     [MESH_STR_ACTION_TREND] = "tendencia",
+    [MESH_STR_ACTION_DEVICES] = "equipos",
     [MESH_STR_ACTION_SPAN] = "periodo",
     /* Y on a node's chart, naming the face the press turns to rather than the one that is up. */
     [MESH_STR_ACTION_READINGS] = "lecturas",

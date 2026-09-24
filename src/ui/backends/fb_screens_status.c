@@ -17,6 +17,7 @@
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/trust.h"
@@ -105,6 +106,16 @@ const struct inkcell_band fb_air_band = {.warn = INKCELL_AIRTIME_BUSY_WARN,
 static void fb_status_card_actions(struct inkcell_fb_card *card,
                                    const struct mesh_ui_status_actions *actions,
                                    enum mesh_ui_status_card which, uint8_t focus) {
+    /*
+     * The buttons are registered for a pointer, in the rows block at their place in the flat
+     * list - the same index the d-pad walks, so a click and a press name one verb. They were
+     * drawn and never registered while every verb here had a keycap somewhere else too; the
+     * device list's is now the only way into that list, and a window has no d-pad.
+     */
+    uint32_t first = 0U;
+    if (mesh_ui_status_card_actions(actions, which, &first) > 0U) {
+        card->action_focus_id = (uint32_t)MESH_UI_FOCUS_ROWS + first;
+    }
     for (uint32_t i = 0U; i < actions->count && i < MESH_UI_STATUS_ACTIONS_MAX; ++i) {
         if (actions->items[i].card != (uint8_t)which) {
             continue;

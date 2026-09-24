@@ -3,6 +3,7 @@
 #include "support/ui_fixture.h"
 
 #include "mesh/core/message.h"
+#include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
 
 #include <stdbool.h>
@@ -114,6 +115,25 @@ bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen)
         mesh_ui_store_handle_key(store, INKCELL_KEY_R1, &action);
     }
     return store->nav.screen == screen;
+}
+
+/*
+ * The device list, reached the way a reader reaches it: the Radio tab, then A on the Link card's
+ * "devices" verb. The verb is asked for by name rather than trusted to be under the cursor, so
+ * a test that walked the cards before calling this still lands on the list.
+ */
+bool mesh_test_open_devices(struct mesh_ui_store *store) {
+    if (!mesh_test_open_tab(store, MESH_UI_SCREEN_RADIO)) {
+        return false;
+    }
+    if (store->nav.devices_open) {
+        return true;
+    }
+    struct mesh_ui_action action;
+    store->nav.trend_open = false;
+    store->nav.status_verb = (uint8_t)MESH_UI_STATUS_VERB_DEVICES;
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    return mesh_ui_nav_devices_showing(&store->nav);
 }
 
 bool mesh_test_settings_open(struct mesh_ui_store *store, enum mesh_ui_settings_section section) {
