@@ -82,7 +82,7 @@ jobs:
       # corpus is added to rather than replaced.
       - name: Restore the corpus
         id: corpus
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: build/fuzz/corpus/${{ matrix.target }}
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
@@ -104,7 +104,7 @@ jobs:
       # than the one that did not, and the next run re-runs it as a regression on the way past.
       - name: Save the corpus
         if: always() && steps.corpus.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: build/fuzz/corpus/${{ matrix.target }}
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
