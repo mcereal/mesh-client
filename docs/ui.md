@@ -374,6 +374,12 @@ to clear the buttons - `top_leading_inset`, which is 0 on the device and in a ca
 window is the Brick's layout everywhere but there. The window holds the panel's 4:3 as it is
 resized, which is what keeps the strip at its top edge.
 
+The frame is placed by inkcell's scaffold (`fb_render_snapshot()` in
+`src/ui/backends/fb_screens_frame.c`), so a window wide enough to leave the compact width class
+moves the tabs into a rail down the leading edge and gives the body the rest. On the Brick, and on
+any window that is still compact, it is the tab strip across the top - kept there on purpose,
+because L1 and R1 are on the top edge of the case - and the frame is the one it always was.
+
 `make ui-capture` is still the way to *review* a UI change, because a picture in a pull request
 is reviewable and a window on somebody's desk is not.
 
@@ -457,10 +463,11 @@ reference; what follows is the map.
 | `inkcell/ui/widgets/control.h` | the switch, the checkbox and radio, the segmented button, the text field |
 | `inkcell/ui/widgets/meter.h` | the meter, the slider, the signal staircase, the sparkline, the proportion bar, the chart |
 | `inkcell/ui/widgets/overlay.h` | the dialog, the snackbar, the QR code |
+| `inkcell/ui/widgets/scaffold.h` | where the chrome goes at each width class: the tab strip on the Brick, a rail on a wider window |
 
 Calls between them run one way — `button` is the leaf everything else reaches for — so a group's
 header names only the groups above it. The two exceptions to one-header-per-group are
-`inkcell/ui/widgets.h`, which includes all nine for a caller that wants the lot, and inkcell's
+`inkcell/ui/widgets.h`, which includes all of them for a caller that wants the lot, and inkcell's
 own `list_internal.h`, the six answers the list window and the row it draws both need.
 
 
@@ -480,7 +487,8 @@ own `list_internal.h`, the six answers the list window and the row it draws both
 | `inkcell_fb_draw_badge()`, `inkcell_fb_draw_state_chip()` | a capsule of text: a count that shouts, a state that is read |
 | `struct inkcell_fb_qr` | a QR code — the one component drawn for a camera rather than for a reader |
 | `inkcell_fb_draw_app_bar()` | the heading, with slots |
-| `inkcell_fb_draw_nav_bar()`, `inkcell_fb_draw_action_bar()` | the chrome |
+| `inkcell_fb_scaffold_begin()`, `inkcell_fb_scaffold_end()` | the chrome, placed: the tabs, the hairline, the banner, the body and the keycaps, from the width class |
+| `inkcell_fb_draw_nav_bar()`, `inkcell_fb_draw_action_bar()` | the bars the scaffold draws |
 | `inkcell_fb_draw_progress()`, `inkcell_fb_draw_banner()` | what the *client* says, as opposed to the radio |
 
 Four authoring rules hold across all of them, and breaking one compiles and looks fine:

@@ -1691,6 +1691,31 @@ static uint32_t settings_label_right(const struct inkcell_theme *theme, uint32_t
     return right;
 }
 
+/*
+ * Whether the last frame capture_frame() took put the tabs in a rail rather than a strip.
+ *
+ * Several cases sweep "the body" as everything below the first eighth of the panel, which is a
+ * cheap way of stepping over the tab strip. A frame with a rail has no strip to step over, and on
+ * one drawn at a small glyph scale the first rows of the body are *inside* that eighth - so those
+ * cases ask capture_body_top() instead of assuming a strip is there.
+ */
+static bool capture_railed;
+
+static uint32_t capture_body_top(uint32_t height) { return capture_railed ? 0U : height / 8U; }
+
+/*
+ * The rendered page from where its content starts: the same stride, a narrower width and a
+ * pointer moved past the tab rail, so a scan written against a panel's margin starts at the body
+ * rather than on the rail's labels. The whole page when there is no rail.
+ */
+static const uint8_t *capture_body(struct inkcell_capture *capture, const uint8_t *pixels,
+                                   uint32_t *width) {
+    const struct inkcell_box content = mesh_ui_capture_content(capture);
+    const size_t bpp = inkcell_capture_state(capture)->surface.bytes_per_pixel;
+    *width = (uint32_t)content.w;
+    return pixels + (size_t)content.x * bpp;
+}
+
 /* Renders `store` as it stands into a fresh capture at `scale`, and hands back a copy of the
    page. The caller frees it. */
 static uint8_t *capture_frame(struct mesh_ui_store *store, const struct inkcell_theme *theme,
@@ -1712,9 +1737,29 @@ static uint8_t *capture_frame(struct mesh_ui_store *store, const struct inkcell_
     inkcell_capture_set_scale(capture, scale);
     const uint8_t *pixels = inkcell_capture_pixels(capture, out_w, out_h, out_stride);
     inkcell_capture_render(capture, &snapshot);
-    uint8_t *frame = malloc(*out_stride * (size_t)*out_h);
+    /*
+     * The body, without the rail beside it.
+     *
+     * At the smaller glyph scales the panel is wide enough in columns to leave the compact width
+     * class, and the tabs move from a strip across the top into a rail down the leading edge.
+     * Every case here reads the *body* - where a row's words start, where a card's edge is - and
+     * measures it from the panel's margin, so the frame is handed back cut to where the content
+     * starts: the same picture those cases were written against, at the same margin. At the
+     * device's own scale the content is the whole panel and nothing is cut.
+     */
+    const struct inkcell_box content = mesh_ui_capture_content(capture);
+    capture_railed = content.x > 0;
+    const size_t bpp = inkcell_capture_state(capture)->surface.bytes_per_pixel;
+    const uint32_t width = (uint32_t)content.w;
+    const size_t stride = (size_t)width * bpp;
+    uint8_t *frame = malloc(stride * (size_t)*out_h);
     if (frame != NULL) {
-        memcpy(frame, pixels, *out_stride * (size_t)*out_h);
+        for (uint32_t y = 0U; y < *out_h; ++y) {
+            memcpy(frame + (size_t)y * stride,
+                   pixels + (size_t)y * *out_stride + (size_t)content.x * bpp, stride);
+        }
+        *out_w = width;
+        *out_stride = stride;
     }
     inkcell_capture_close(capture);
     return frame;
@@ -1780,7 +1825,7 @@ MESH_TEST_CASE(ui_capture_segmented_marks_the_chosen_value, unit) {
                  * under the app bar - so rather than deriving where that is, the whole body is
                  * swept in two columns. Nothing else on this screen moved between the frames.
                  */
-                const uint32_t body_top = height / 8U;
+                const uint32_t body_top = capture_body_top(height);
                 const uint32_t body_bottom = height - height / 8U;
                 const uint32_t label_right = settings_label_right(theme, width, scale);
                 const size_t label_changed =
@@ -1855,7 +1900,7 @@ MESH_TEST_CASE(ui_capture_segmented_refuses_an_unknown_value, unit) {
         }
 
         if (failure == NULL) {
-            const uint32_t body_top = height / 8U;
+            const uint32_t body_top = capture_body_top(height);
             const uint32_t body_bottom = height - height / 8U;
             if (differing_in(frames[0], frames[1], stride, 0U, width - 1U, body_top, body_bottom) ==
                 0U) {
@@ -1911,7 +1956,7 @@ MESH_TEST_CASE(ui_capture_picker_marks_the_current_target, unit) {
         }
 
         if (failure == NULL) {
-            const uint32_t body_top = height / 8U;
+            const uint32_t body_top = capture_body_top(height);
             const uint32_t body_bottom = height / 2U;
             /* The trailing column: the last tenth of the panel, which is where every trailing
                slot in this UI ends up whatever the row is. */
@@ -2357,6 +2402,7 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
                     const uint8_t *pixels =
                         inkcell_capture_pixels(capture, &width, &height, &stride);
                     inkcell_capture_render(capture, snapshot);
+                    pixels = capture_body(capture, pixels, &width);
 
                     /* The bubble's own fill, asked of the theme the same way the renderer asks:
                        ours in the secondary container, or the error container once it failed,
@@ -2806,7 +2852,7 @@ MESH_TEST_CASE(ui_capture_slider_places_the_value, unit) {
             if (failure == NULL) {
                 /* Screen on is the section's first row, so everything further down is rows this
                    value has nothing to do with. */
-                const uint32_t body_top = height / 8U;
+                const uint32_t body_top = capture_body_top(height);
                 const uint32_t body_bottom = height - height / 8U;
                 /* A third of the way down clears the row itself at every scale that ships and
                    still leaves four of this section's rows below it - which is what has to be
@@ -2887,7 +2933,7 @@ MESH_TEST_CASE(ui_capture_slider_refuses_a_word, unit) {
         }
 
         if (failure == NULL) {
-            const uint32_t body_top = height / 8U;
+            const uint32_t body_top = capture_body_top(height);
             const uint32_t body_bottom = height - height / 8U;
             const uint32_t below = body_top + (body_bottom - body_top) / 3U;
             /*
@@ -3012,7 +3058,7 @@ MESH_TEST_CASE(ui_capture_slider_stops_survive_the_fill, unit) {
         if (failure == NULL) {
             const uint32_t ink = rgb_key(inkcell_theme_tone(theme, INKCELL_TONE_PRIMARY));
             const uint32_t ground = rgb_key(inkcell_theme_color(theme, INKCELL_COLOR_BG));
-            const uint32_t body_top = height / 8U;
+            const uint32_t body_top = capture_body_top(height);
             const uint32_t body_bottom = height - height / 8U;
             /* Screen-on offers nine stops, so a filled track carries seven interior marks plus
                the handle's own gap. More than the handle alone is the whole of the claim. */
@@ -4181,6 +4227,7 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
         size_t stride = 0U;
         const uint8_t *pixels = inkcell_capture_pixels(capture, &width, &height, &stride);
         inkcell_capture_render(capture, &snapshot);
+        pixels = capture_body(capture, pixels, &width);
 
         const unsigned fill =
             widest_row_run(capture, pixels, width, height, stride, INKCELL_COLOR_SURFACE);
@@ -4936,7 +4983,7 @@ static uint32_t settings_text_column(const uint8_t *frame, uint32_t width, uint3
     const uint32_t right_edge = settings_label_right(theme, width, scale);
     /* The suite's own estimate of the two bars, the one
        ui_capture_settings_marks_both_halves_of_an_unsaved_row() uses. */
-    const uint32_t body_top = height / 8U;
+    const uint32_t body_top = capture_body_top(height);
     const uint32_t body_bottom = height - height / 8U;
     /* A glyph's left bearing is the only thing two rows of the same column may differ by. The
        failure this is about is a whole step - nine of these - so the allowance can be generous

@@ -163,8 +163,10 @@ static void fb_render_chart(struct inkcell_draw_state *state,
     inkcell_fb_draw_app_bar(state, layout, &screen->bar);
 
     const uint8_t span_choice = snapshot->nav.trend_span;
-    const int margin = inkcell_fb_margin(state);
-    const int body_w = inkcell_fb_panel_width(state) - margin * 2;
+    /* The whole width the frame has, rather than the reading column: a chart is not text. */
+    const struct inkcell_box full = inkcell_fb_full_box(state, layout);
+    const int left = full.x;
+    const int body_w = full.w;
     struct inkcell_trend frame;
     memset(&frame, 0, sizeof frame);
     struct mesh_ui_trend_airtime binned;
@@ -223,7 +225,7 @@ static void fb_render_chart(struct inkcell_draw_state *state,
     spans.active = (size_t)span_choice < spans.count ? (size_t)span_choice : spans.count - 1U;
     spans.value = spans.labels[spans.active];
 
-    const struct inkcell_fb_rect plot_rect = {.x = margin,
+    const struct inkcell_fb_rect plot_rect = {.x = left,
                                               .y = layout->body_y,
                                               .w = body_w,
                                               .h = layout->footer_y - inkcell_fb_gutter(state) -

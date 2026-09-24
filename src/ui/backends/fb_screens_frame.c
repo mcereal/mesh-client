@@ -172,7 +172,19 @@ struct inkcell_fb_render_cache {
      */
     struct inkcell_focus_item focus_storage[MESH_UI_FOCUS_MAX];
     struct inkcell_focus_map focus;
+    /* Where the last frame's content stood: the panel less the tab rail, when the width class
+       put one beside it. See fb_render_content(). */
+    struct inkcell_box content;
 };
+
+struct inkcell_box fb_render_content(const struct inkcell_draw_state *state) {
+    const struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+    if (cache == NULL || inkcell_box_is_empty(cache->content)) {
+        return (struct inkcell_box){0, 0, inkcell_fb_panel_width(state),
+                                    inkcell_fb_panel_height(state)};
+    }
+    return cache->content;
+}
 
 struct fb_overlay_memo *fb_overlay_memo(struct inkcell_draw_state *state, enum fb_overlay_id id) {
     struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
@@ -306,12 +318,12 @@ bool fb_sheet_begin(struct inkcell_draw_state *state, const struct inkcell_fb_la
      * The region a sheet belongs to, and therefore what its scrim dims: the body, and not the
      * tab strip above it or the keycaps below. The dialog states the argument at length - the
      * application has not been replaced, and the keycaps in particular are how the sheet gets
-     * closed.
+     * closed. Beside a rail it is the region, for the same reason: the rail is the tab strip.
      */
     const struct inkcell_fb_rect body = {
-        .x = 0,
+        .x = inkcell_fb_region(state).x,
         .y = layout->nav_y,
-        .w = inkcell_fb_panel_width(state),
+        .w = inkcell_fb_region(state).w,
         .h = layout->footer_y - layout->nav_y,
     };
     if (!inkcell_fb_overlay_begin(state,
@@ -422,51 +434,6 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
 
     inkcell_fb_clear(state, inkcell_fb_color(state, INKCELL_COLOR_BG));
 
-    struct inkcell_fb_layout layout;
-    memset(&layout, 0, sizeof layout);
-    layout.small = inkcell_theme_type_scale(state->theme, INKCELL_TYPE_LABEL, state->scale);
-    layout.line = inkcell_fb_line_adv(state, state->scale);
-    layout.cols = inkcell_fb_cols(state, state->scale);
-    /* The same room as `cols`, in the unit anything laying out real text measures in. */
-    layout.body_w = inkcell_fb_panel_width(state) - 2 * inkcell_fb_margin(state);
-
-    inkcell_fb_draw_nav_bar(state, &layout, fb_tab_chips(snapshot), MESH_UI_SCREEN_COUNT,
-                            (size_t)snapshot->nav.screen);
-
-    /*
-     * The two things the *client* says about itself, rather than what any screen says about
-     * itself. Both are drawn here, once, around whichever screen is up - and both take their
-     * content from src/ui/tables/chrome.c for the reason the action bar takes its verbs from
-     * src/ui/tables/actions.c: which states are worth a notice is a fact about the client, not
-     * about a framebuffer, and it is a unit test's business rather than a screenshot's.
-     *
-     * The bar goes first and costs nothing: it hangs in the gap the navigation bar already
-     * leaves, so `layout` is unchanged by it and a request going out never reflows a list.
-     */
-    inkcell_fb_draw_progress(state, &layout, mesh_ui_chrome_busy(snapshot));
-
-    layout.footer_y = inkcell_fb_panel_height(state) - inkcell_fb_action_bar_height(state, &layout);
-    const int body_height = layout.footer_y - layout.body_y - inkcell_fb_gutter(state);
-    layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
-
-    /*
-     * The banner does cost rows, so it is drawn after the body has been measured and hands back
-     * what is left - exactly as the top app bar under it does. Nothing below this line knows it
-     * happened, which is the whole point: a screen renderer lays out against `layout`.
-     */
-    struct mesh_ui_banner banner;
-    if (mesh_ui_chrome_banner(snapshot, &banner)) {
-        const struct inkcell_fb_banner drawn = {
-            .icon = banner.icon,
-            .text = inkcell_str(banner.text),
-            .supporting =
-                banner.supporting != INKCELL_STR_NONE ? inkcell_str(banner.supporting) : NULL,
-            .detail = banner.detail,
-            .family = banner.family,
-        };
-        inkcell_fb_draw_banner(state, &layout, &drawn);
-    }
-
     /*
      * Which buttons mean something here is no longer decided in this function.
      *
@@ -476,39 +443,81 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
      * instead, walking the same chain of overlays, and it is a unit test's business rather than
      * a screenshot's.
      *
-     * It is asked *before* the screen draws because both ends of the frame read it now: the
+     * It is asked *before* anything is drawn because both ends of the frame read it: the
      * action bar at the bottom says what B does, and the top app bar's leading slot draws an
      * arrow when what B does is leave. Two answers from one table is the whole point - a screen
      * deciding its own back arrow would be free to disagree with the keycap under it.
      */
     struct inkcell_action_bar actions;
     mesh_ui_actions_for(snapshot, &actions);
-    layout.back = mesh_ui_action_bar_goes_back(&actions);
+    const bool back = mesh_ui_action_bar_goes_back(&actions);
     if (state->pointer) {
         mesh_ui_actions_drop_tabs(&actions);
+    }
+
+    /*
+     * The two things the *client* says about itself, rather than what any screen says about
+     * itself: the progress hairline and the banner. Both take their content from
+     * src/ui/tables/chrome.c for the reason the action bar takes its verbs from
+     * src/ui/tables/actions.c - which states are worth a notice is a fact about the client, not
+     * about a framebuffer, and it is a unit test's business rather than a screenshot's.
+     */
+    struct mesh_ui_banner banner;
+    struct inkcell_fb_banner drawn_banner;
+    const bool has_banner = mesh_ui_chrome_banner(snapshot, &banner);
+    if (has_banner) {
+        drawn_banner = (struct inkcell_fb_banner){
+            .icon = banner.icon,
+            .text = inkcell_str(banner.text),
+            .supporting =
+                banner.supporting != INKCELL_STR_NONE ? inkcell_str(banner.supporting) : NULL,
+            .detail = banner.detail,
+            .family = banner.family,
+        };
+    }
+
+    /*
+     * Where all of that goes is inkcell's answer, not this file's: the tabs, the hairline, the
+     * banner, the body and the keycaps are placed by the scaffold from the frame's width class.
+     *
+     * Compact keeps the tab strip across the top rather than the scaffold's bottom bar, and that
+     * is about the case rather than the screen: the Brick's L1 and R1 step through the tabs and
+     * sit on the top edge, and the keycap bar already owns the bottom one. On anything wider -
+     * the SDL window on a desktop - the tabs become a rail down the leading edge and the body
+     * keeps the rest, which is the room a medium window has to spare. On the Brick this is the
+     * frame the hand-built sequence it replaced drew, to the pixel.
+     *
+     * No screen says it has a detail yet, so an expanded window is one pane beside the rail.
+     */
+    const struct inkcell_fb_scaffold scaffold = {
+        .destinations = fb_tab_chips(snapshot),
+        .count = MESH_UI_SCREEN_COUNT,
+        .active = (size_t)snapshot->nav.screen,
+        .compact_nav = INKCELL_FB_COMPACT_NAV_TOP,
+        .footer = true,
+        .back = back,
+        .busy = mesh_ui_chrome_busy(snapshot),
+        .banner = has_banner ? &drawn_banner : NULL,
+    };
+    struct inkcell_fb_scaffold_frame frame;
+    inkcell_fb_scaffold_begin(state, &scaffold, &frame);
+    struct inkcell_fb_layout layout = frame.layout;
+    if (cache != NULL) {
+        cache->content = frame.content;
     }
 
     /*
      * And whether this frame is part of a move between two places, which is the one thing about
      * it that is not a function of the snapshot - see inkcell_fb_transition_offset().
      *
-     * The band is everything below the navigation bar and above the action bar, because those
-     * two are the same on both sides of any move: the strip still names the tab it named, the
-     * keycaps still say what the buttons do. What is inside the band and drawn *before* the
-     * transform - the screen progress bar and the banner - stays put for the same reason, being
-     * about the client rather than about the screen that is arriving.
-     *
-     * It is also declared as animation damage, so the rows it moves through are presented.
-     * Everything in there is a function of the clock while a move is running, and the
-     * partial-redraw path assumes the opposite of anything it has not been told about - which
-     * is why fb_render_begin() does not enter the band at all while one is.
+     * The band is the body - below the tabs, above the keycaps and beside the rail - because
+     * those are the same on both sides of any move. What is drawn *before* it, the hairline and
+     * the banner, stays put for the same reason, being about the client rather than about the
+     * screen that is arriving. The scaffold also declares the band as animation damage: the
+     * partial-redraw path assumes nothing it has not been told about is moving, which is why
+     * fb_render_begin() does not enter the band at all while a move is running.
      */
-    const int slide = inkcell_fb_transition_offset(state);
-    if (slide != 0) {
-        inkcell_fb_animation_damage(state, 0, layout.nav_y, inkcell_fb_panel_width(state),
-                                    layout.footer_y - layout.nav_y);
-        inkcell_fb_shift_begin(state, slide, layout.nav_y, layout.footer_y);
-    }
+    (void)inkcell_fb_scaffold_transition(state, &frame);
 
     /*
      * One tail for every path through this function, which is what lets the chrome below it be
@@ -641,7 +650,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .status = inkcell_line_text(&summary),
         .status_tone = summary_tone,
     };
-    inkcell_fb_draw_action_bar(state, &layout, &bar);
+    inkcell_fb_scaffold_end(state, &frame, &bar);
     fb_render_context(state, snapshot);
 
     /*

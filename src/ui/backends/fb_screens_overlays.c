@@ -127,9 +127,9 @@ void fb_render_help(struct inkcell_draw_state *state, const struct mesh_ui_snaps
     inkcell_fb_draw_large_title(state, layout, &bar, inkcell_scroll_offset(scroll, state->now_ms));
 
     const struct inkcell_fb_rect body = {
-        .x = 0,
+        .x = inkcell_fb_region(state).x,
         .y = layout->body_y,
-        .w = inkcell_fb_panel_width(state),
+        .w = inkcell_fb_region(state).w,
         .h = layout->footer_y - layout->body_y,
     };
     struct inkcell_fb_viewport view;

@@ -87,9 +87,9 @@ static void fb_draw_code_body(struct inkcell_draw_state *state, struct inkcell_f
     }
     const struct inkcell_fb_qr qr = {
         .code = code.size > 0U ? &code : NULL,
-        .box = {.x = 0,
+        .box = {.x = inkcell_fb_region(state).x,
                 .y = layout->body_y,
-                .w = inkcell_fb_panel_width(state),
+                .w = inkcell_fb_region(state).w,
                 .h = text_y - layout->body_y},
     };
     if (inkcell_fb_qr_side(&qr) > 0) {

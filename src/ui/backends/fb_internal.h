@@ -153,6 +153,10 @@ void fb_thread_cache_free(struct inkcell_draw_state *state);
    redraw. */
 void fb_render_cache_free(struct inkcell_draw_state *state);
 
+/* The box the last frame's content stood in - the panel, less the rail when a wider width class
+   put the tabs down the leading edge. The whole panel before anything has been drawn. */
+struct inkcell_box fb_render_content(const struct inkcell_draw_state *state);
+
 /* ---- fb_screens_frame.c -------------------------------------------------------------------- */
 
 /* Draws one whole frame: chrome, then whichever screen the snapshot says is up. */
