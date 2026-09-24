@@ -326,6 +326,14 @@ set(INKWELL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/inkwell)
 add_subdirectory(third_party/inkcell)
 
+# The application framework over both, and the third cut out of this client: what it keeps is
+# the plumbing a second program on this stack would otherwise write again - today the frame
+# scheduler under src/ui/nav/controller.c. Added last, so it finds the inkwell and inkcell above
+# and builds neither of its own; its nested submodules need not even be checked out.
+set(INKSTAND_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory(third_party/inkstand)
+target_link_libraries(meshclient_core PUBLIC inkstand::inkstand)
+
 # inkwell compiles the way this client's own sources do, which matters for exactly two builds.
 #
 # The loop, the codecs and the resolver used to be files in meshclient_core, so they picked up
@@ -344,6 +352,9 @@ add_subdirectory(third_party/inkcell)
 # widget code that has never been through this client's sanitizer job belongs in a change of
 # its own rather than riding along with an extraction.
 target_link_libraries(inkwell PRIVATE meshclient_options)
+# inkstand for the same reason: the frame scheduler was a file in meshclient_core, and the
+# sanitizer job was checking it there.
+target_link_libraries(inkstand PRIVATE meshclient_options)
 
 add_subdirectory(third_party/nanopb)
 target_link_libraries(meshclient_core PUBLIC protobuf-nanopb-static)

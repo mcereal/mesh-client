@@ -18,7 +18,10 @@ evdev -> inkcell_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_
 ```
 
 - **`src/ui/store/store.c`** owns `mesh_ui_snapshot` and signals the loop via an eventfd.
-- **`src/ui/nav/controller.c`** drains the store and calls `backend->present(snapshot)`.
+- **`src/ui/nav/controller.c`** is what a press means: keys, commands and clicks, resolved
+  against the last snapshot. Presenting is inkstand's frame scheduler
+  (`inkstand/nav/frame_scheduler.h`), which drains the store, calls `backend->present(snapshot)`
+  and keeps a frame timer armed only while the backend reports it is still animating.
 - **Backends** implement the three-function `struct inkcell_backend` (`init`, `shutdown`,
   `present`): `fb.c` (the device UI), `cli.c` (a terminal fallback), `stub.c` (tests).
   **Backends are stateless** — they draw the cursor from `snapshot->nav`. A new platform

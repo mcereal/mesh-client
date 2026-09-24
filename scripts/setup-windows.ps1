@@ -71,7 +71,7 @@ try {
             # Do not recurse into Mbed TLS here. Its optional PQ dependencies create paths long
             # enough to exceed Git-for-Windows limits in worktrees. The initial Windows build
             # disables TLS; a later TLS-enabled build can use a short standalone checkout.
-            git -c core.longpaths=true submodule update --init proto/meshtastic third_party/inkwell third_party/inkcell third_party/nanopb
+            git -c core.longpaths=true submodule update --init proto/meshtastic third_party/inkwell third_party/inkcell third_party/inkstand third_party/nanopb
             if ($LASTEXITCODE -ne 0) {
                 throw 'Submodule synchronization failed.'
             }

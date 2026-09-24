@@ -992,8 +992,9 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     if (app == NULL) {
         return;
     }
-    if (app->ui_controller.backend != NULL && app->ui_controller.backend->name != NULL) {
-        snprintf(dst->backend, sizeof dst->backend, "%s", app->ui_controller.backend->name);
+    const char *backend = inkstand_frame_scheduler_backend_name(&app->ui_controller.frames);
+    if (backend != NULL) {
+        snprintf(dst->backend, sizeof dst->backend, "%s", backend);
     }
     /* The preferences file's directory: where a user looking for canned.txt or the caches
        should go, which on the Brick is inside the pak's userdata and not obvious. */
