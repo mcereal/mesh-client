@@ -54,8 +54,7 @@ static int mesh_app_random_key(uint8_t *out, size_t len) {
     if (len > ULONG_MAX) {
         return -EOVERFLOW;
     }
-    const NTSTATUS status =
-        BCryptGenRandom(NULL, out, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    const NTSTATUS status = BCryptGenRandom(NULL, out, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
     return status == 0 ? 0 : -EIO;
 #elif defined(__APPLE__)
     arc4random_buf(out, len);

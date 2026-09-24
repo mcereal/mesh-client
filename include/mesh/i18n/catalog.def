@@ -485,11 +485,19 @@ MESH_STR_ENTRY(MAP_SELECTED_SELF,         "this radio")
 MESH_STR_ENTRY(PEER_EVERYONE,             "all")
 /* A node with no NodeInfo yet has no short name; four dashes hold the column open. */
 MESH_STR_ENTRY(NODES_NO_SHORT_NAME,       "----")
-/* The right-hand column of a node row: how it was heard, then its age. */
-MESH_STR_ENTRY(NODES_ROW_OFF_RADIO,       "off radio %s")
-MESH_STR_ENTRY(NODES_ROW_HOPS,            "%uhop %s")
-MESH_STR_ENTRY(NODES_ROW_MQTT,            "mqtt %s")
-MESH_STR_ENTRY(NODES_ROW_SNR,             "%.1fdB %s")
+/* The facts on a node row's second line - "ALFA · 2 hops · 1.2 km · 87%" - one entry per fact,
+   joined by the separator, so a language reorders nothing and only translates the pieces. The
+   right-hand column is left with the age and the signal bars. */
+MESH_STR_ENTRY(NODES_ROW_SEPARATOR,       " · ")
+MESH_STR_ENTRY(NODES_ROW_OFF_RADIO,       "off radio")
+MESH_STR_ENTRY(NODES_ROW_HOP,             "1 hop")
+MESH_STR_ENTRY(NODES_ROW_HOPS,            "%u hops")
+MESH_STR_ENTRY(NODES_ROW_MQTT,            "via MQTT")
+/* A distance to or from a rounded fix: the "~" the precision presets are labelled with. */
+MESH_STR_ENTRY(NODES_ROW_DISTANCE_APPROX, "~%s")
+MESH_STR_ENTRY(NODES_ROW_SNR,             "%.1f dB")
+MESH_STR_ENTRY(NODES_ROW_BATTERY,         "%u%% battery")
+MESH_STR_ENTRY(NODES_ROW_PLUGGED_IN,      "plugged in")
 /* Our own row, where the others say how they were heard: a radio has no signal to itself. */
 MESH_STR_ENTRY(NODES_ROW_SELF,            "this radio")
 

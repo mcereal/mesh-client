@@ -2247,3 +2247,148 @@ MESH_TEST_CASE(ui_nav_nodes_sort_permutes_but_never_selects, unit) {
 
     record_success(test_name);
 }
+
+/*
+ * ---- a node row's second line ---------------------------------------------------------------
+ *
+ * The row's first line is the name and its right-hand column the age, so the line under the name
+ * is everything else, and each of these is one of the ways it could say something untrue: a route
+ * for our own radio, "direct" beside bars that already say it, a distance with no fix to measure
+ * from, a 101% battery, or the short name twice on a node that has no long one.
+ */
+MESH_TEST_CASE(ui_nav_nodes_row_facts_say_what_the_name_and_age_do_not, unit) {
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 5U;
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].in_nodedb = true;
+        handshake.nodes[i].node_id = 0x1000U + i;
+    }
+    char facts[96];
+
+    /* Us: a name and a battery, and no route - a radio does not reach itself. No fix yet. */
+    struct mesh_ui_node_summary *me = &handshake.nodes[0];
+    snprintf(me->short_name, sizeof me->short_name, "%s", "HOME");
+    snprintf(me->long_name, sizeof me->long_name, "%s", "Home Base");
+    me->metrics.has_battery = true;
+    me->metrics.battery_level = 101U;
+    mesh_ui_node_row_facts(&handshake, me, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "HOME \xc2\xb7 plugged in") != 0,
+                      "our own row is the short name and the power, never a route");
+
+    /* Heard directly: the bars say it, so the line does not - and with no fix of our own there
+       is no distance, whatever the node has told us about itself. */
+    struct mesh_ui_node_summary *near = &handshake.nodes[1];
+    snprintf(near->short_name, sizeof near->short_name, "%s", "ALFA");
+    snprintf(near->long_name, sizeof near->long_name, "%s", "Alfa Ridge");
+    near->has_hops_away = true;
+    near->hops_away = 0U;
+    near->snr = 6.0f;
+    near->snr_time = 100U;
+    near->last_heard = 100U;
+    near->metrics.has_battery = true;
+    near->metrics.battery_level = 87U;
+    near->position.valid = true;
+    near->position.latitude_i = 516000000;
+    mesh_ui_node_row_facts(&handshake, near, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "ALFA \xc2\xb7 87% battery") != 0,
+                      "a direct node's line is not a second copy of its signal bars");
+
+    /* Now we have a fix a tenth of a degree south: the distance arrives, between the route and
+       the battery. */
+    me->position.valid = true;
+    me->position.latitude_i = 515000000;
+    mesh_ui_node_row_facts(&handshake, near, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "ALFA \xc2\xb7 11.1 km \xc2\xb7 87% battery") != 0,
+                      "a fix at both ends is a distance");
+
+    /* A rounded fix is a centre, not a place. Rounded to ~2.9 km, eleven kilometres is still a
+       distance worth giving, marked as approximate; rounded to ~23 km it is a figure about the
+       rounding rather than the node, and it goes. */
+    near->position.precision_bits = 13U;
+    mesh_ui_node_row_facts(&handshake, near, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "ALFA \xc2\xb7 ~11.1 km \xc2\xb7 87% battery") != 0,
+                      "a distance to a rounded fix says it is approximate");
+    near->position.precision_bits = 10U;
+    mesh_ui_node_row_facts(&handshake, near, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "ALFA \xc2\xb7 87% battery") != 0,
+                      "a distance the rounding swallows is not given at all");
+    /* And our own end blurs it the same way: rounding is rounding whichever end it is at. */
+    near->position.precision_bits = 32U;
+    me->position.precision_bits = 10U;
+    mesh_ui_node_row_facts(&handshake, near, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "ALFA \xc2\xb7 87% battery") != 0,
+                      "our own rounded fix blurs the distance as much as theirs");
+    me->position.precision_bits = 0U;
+
+    /* Hops, singular and plural, and MQTT - each the whole route. */
+    struct mesh_ui_node_summary *far = &handshake.nodes[2];
+    snprintf(far->short_name, sizeof far->short_name, "%s", "ECHO");
+    snprintf(far->long_name, sizeof far->long_name, "%s", "Echo Repeater");
+    far->has_hops_away = true;
+    far->hops_away = 1U;
+    mesh_ui_node_row_facts(&handshake, far, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "ECHO \xc2\xb7 1 hop") != 0, "one hop is singular");
+    far->hops_away = 3U;
+    mesh_ui_node_row_facts(&handshake, far, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "ECHO \xc2\xb7 3 hops") != 0, "and three are plural");
+    far->has_hops_away = false;
+    far->via_mqtt = true;
+    mesh_ui_node_row_facts(&handshake, far, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "ECHO \xc2\xb7 via MQTT") != 0, "a broker is a route too");
+
+    /* Off radio wins over everything else about the route: a DM to it cannot leave. */
+    far->in_nodedb = false;
+    far->has_hops_away = true;
+    mesh_ui_node_row_facts(&handshake, far, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(strcmp(facts, "ECHO \xc2\xb7 off radio") != 0,
+                      "a node the radio has forgotten says so before how it was heard");
+
+    /* No long name: the short name is already the row's first line, so it is not repeated -
+       and a node that has said nothing else has an empty line rather than a row of dashes. */
+    struct mesh_ui_node_summary *bare = &handshake.nodes[3];
+    snprintf(bare->short_name, sizeof bare->short_name, "%s", "BRVO");
+    mesh_ui_node_row_facts(&handshake, bare, false, facts, sizeof facts);
+    MESH_TEST_FAIL_IF(facts[0] != '\0', "a node with nothing to add adds nothing");
+
+    record_success(test_name);
+}
+
+/*
+ * The name sort follows the name the row draws first, which is the long name now that the short
+ * one sits on the quiet line under it. A list sorted on the short names but showing the long ones
+ * is a list that looks unsorted.
+ */
+MESH_TEST_CASE(ui_nav_nodes_name_sort_reads_down_the_long_names, unit) {
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 3U;
+    /* Short names in the opposite order to the long ones, so only one of the two can win. */
+    const char *const shorts[] = {"AAAA", "BBBB", "CCCC"};
+    const char *const longs[] = {"Zulu", "Yankee", ""};
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].in_nodedb = true;
+        handshake.nodes[i].node_id = 0x2000U + i;
+        snprintf(handshake.nodes[i].short_name, sizeof handshake.nodes[i].short_name, "%s",
+                 shorts[i]);
+        snprintf(handshake.nodes[i].long_name, sizeof handshake.nodes[i].long_name, "%s", longs[i]);
+    }
+
+    struct mesh_ui_node_view view;
+    mesh_ui_node_view_build(&handshake, MESH_UI_NODE_FILTER_ALL, MESH_UI_NODE_SORT_NAME, &view);
+    const struct mesh_ui_node_summary *first = mesh_ui_node_view_at(&handshake, &view, 0U);
+    const struct mesh_ui_node_summary *second = mesh_ui_node_view_at(&handshake, &view, 1U);
+    const struct mesh_ui_node_summary *third = mesh_ui_node_view_at(&handshake, &view, 2U);
+    /* "CCCC" has no long name, so its short name is what its row shows and what it sorts by. */
+    MESH_TEST_FAIL_IF(first == NULL || first->node_id != 0x2002U,
+                      "a node with no long name sorts by the short name its row shows");
+    MESH_TEST_FAIL_IF(second == NULL || second->node_id != 0x2001U,
+                      "Yankee before Zulu, whatever their short names say");
+    MESH_TEST_FAIL_IF(third == NULL || third->node_id != 0x2000U, "and Zulu last");
+
+    record_success(test_name);
+}

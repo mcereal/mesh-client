@@ -724,7 +724,7 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
         filter_segments.labels[f] =
             inkcell_str(mesh_ui_node_filter_label((enum mesh_ui_node_filter)f));
     }
-    struct inkcell_line line;
+    const bool imperial = mesh_ui_units_imperial(snapshot->settings.units);
     char right[32];
     char age[8];
     char initials[MESH_UI_CONVERSATION_INITIALS_MAX];
@@ -809,72 +809,42 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
         if (node == NULL) {
             continue;
         }
-        const char *short_name = node->short_name[0] != '\0'
-                                     ? node->short_name
-                                     : inkcell_str(MESH_STR_NODES_NO_SHORT_NAME);
-        const char *long_name = node->long_name[0] != '\0' ? node->long_name : "";
         inkcell_fb_format_age(node->last_heard, age, sizeof age);
 
         /*
-         * A node the radio's NodeDB no longer carries says so in the column that would
-         * otherwise hold its signal, because that is the more useful fact: the SNR is from
-         * whenever we last heard it, while "off radio" is why a DM to it may never leave -
-         * there is no stored key to encrypt with. The detail screen spells the same thing out.
+         * The right-hand column is the age, and the signal bars beside it when the node was
+         * heard directly - the two things a roster is scanned down the edge for, so they keep
+         * the edge to themselves.
          *
-         * The branches that say something instead of a signal are the ones where there is no
-         * signal *to this node* to say. An SNR is measured on the packet that arrived, so for a
-         * node reached over several hops it describes the last relay and for one arriving over
-         * MQTT it describes nothing on the air at all - a staircase there would be reporting
-         * somebody else's link as this node's.
+         * How the node reaches us used to share that column ("3hop 2h", "mqtt 1h", "off radio
+         * 5m"), which made it a column of three kinds of word that could not be compared down
+         * the list. That moved to the quiet line under the name - mesh_ui_node_row_facts() -
+         * and so did the decibel figure for a node whose hops were never reported.
          *
-         * The last branch is the one that matters and it is not the same test as the others:
-         * `hops_away` unset means the firmware did not say, which is not the same as zero, and
-         * an SNR of 0.0 is the session layer's own "no reading". Either would give a node
-         * nothing was ever heard from three of four rungs. mesh_ui_node_signal_heard() is the
-         * whole of that question, and everything it declines falls through to the figure this
-         * column drew before - which is the right way round, because printing a number that
-         * describes something else is unhelpful where drawing it is a claim.
+         * The bars are only drawn when mesh_ui_node_signal_heard() says there is a reading
+         * *to this node*: an SNR is measured on the packet that arrived, so for a node reached
+         * over several hops it describes the last relay and for one over MQTT nothing on the
+         * air at all - rungs there would be reporting somebody else's link as this node's.
          */
-        bool direct = false;
         const bool is_me = (me != 0U && node->node_id == me);
+        const bool direct = !is_me && node->in_nodedb &&
+                            !(node->has_hops_away && node->hops_away > 0U) && !node->via_mqtt &&
+                            mesh_ui_node_signal_heard(node);
         if (is_me) {
-            /* Ourselves, ahead of every signal arm: a radio does not hear its own packets, so
-               the 0.0 its NodeDB entry carries is no reading, and how long ago it last heard
-               itself is not an age. The detail screen says the same thing the same way. */
+            /* Ourselves: a radio does not hear its own packets, so the 0.0 its NodeDB entry
+               carries is no reading, and how long ago it last heard itself is not an age. */
             inkwell_str_copy(right, sizeof right, inkcell_str(MESH_STR_NODES_ROW_SELF));
-        } else if (!node->in_nodedb) {
-            inkcell_str_format(right, sizeof right, MESH_STR_NODES_ROW_OFF_RADIO, age);
-        } else if (node->has_hops_away && node->hops_away > 0U) {
-            inkcell_str_format(right, sizeof right, MESH_STR_NODES_ROW_HOPS,
-                               (unsigned)node->hops_away, age);
-        } else if (node->via_mqtt) {
-            inkcell_str_format(right, sizeof right, MESH_STR_NODES_ROW_MQTT, age);
-        } else if (mesh_ui_node_signal_heard(node)) {
-            /*
-             * Heard directly, with a reading of its own: rungs and the age, and the decibels go
-             * to the node's own screen.
-             *
-             * The figure was the column's whole content and it is the part a list cannot use.
-             * "4.2dB" has to be read and then held against a threshold to mean anything, and a
-             * list is forty-two of them - whereas rungs are compared against the rungs above
-             * and below without being read, which is the only thing a column of signals is
-             * scanned for.
-             */
-            direct = true;
-            inkwell_str_copy(right, sizeof right, age);
         } else {
-            /* Hops the firmware never reported, or no reading behind the figure. Exactly the
-               column this list drew before, which is why MESH_STR_NODES_ROW_SNR keeps its
-               entry - and what the CLI backend, which has no staircase, draws throughout. */
-            if (node->snr != 0.0f) {
-                inkcell_str_format(right, sizeof right, MESH_STR_NODES_ROW_SNR, (double)node->snr,
-                                   age);
-            } else {
-                /* 0.0 is the session layer's "no reading", and "0.0dB" printed would claim
-                   one - a packet arriving exactly at the noise floor. The age is all there is. */
-                inkwell_str_copy(right, sizeof right, age);
-            }
+            inkwell_str_copy(right, sizeof right, age);
         }
+
+        /* The name the detail screen's app bar uses, so a row and the screen it opens call the
+           node the same thing - and the name sort compares, so a list sorted by name reads
+           down this column in order. */
+        char name[48];
+        fb_node_title(node, name, sizeof name);
+        char facts[96];
+        mesh_ui_node_row_facts(hs, node, imperial, facts, sizeof facts);
 
         /*
          * The disc carries the node's initials and is tinted by node number, both answered by
@@ -905,12 +875,6 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
          * node_detail.c both refuse to pin our own node - so a star there would advertise a
          * preference that no press can clear.
          */
-        inkcell_line_reset(&line);
-        inkcell_line_column(&line, short_name, 4U);
-        if (long_name[0] != '\0') {
-            inkcell_line_printf(&line, " %s", long_name);
-        }
-
         /* Dim behind the words, so a list that is mostly off-radio reads as one at a glance.
            The open thread's node keeps the accent whatever its NodeDB state: which node you
            are talking to is the one thing the cursor colour is for. */
@@ -929,7 +893,9 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
                     .tint = tint,
                     .role = is_me ? INKCELL_COLOR_PRIMARY : INKCELL_COLOR_COUNT,
                 },
-            .text = inkcell_line_text(&line),
+            .text = name,
+            .supporting = facts[0] != '\0' ? facts : NULL,
+            .supporting_quiet = true,
             .marker_icon = (node->is_favorite && !is_me) ? INKCELL_ICON_PINNED : INKCELL_ICON_NONE,
             .marker_slot = true,
             .tone = tone,
