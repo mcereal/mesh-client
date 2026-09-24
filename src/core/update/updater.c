@@ -590,7 +590,26 @@ static bool updater_bundle_of(const char *binary, char *out, size_t out_len) {
 static bool updater_find_install_target(char *out, size_t out_len) {
 #if defined(__APPLE__)
     char binary[MESH_UPDATE_PATH_MAX];
-    return updater_find_binary(binary, sizeof binary) && updater_bundle_of(binary, out, out_len);
+    if (!updater_find_binary(binary, sizeof binary) || !updater_bundle_of(binary, out, out_len)) {
+        return false;
+    }
+    /* The swap is two renames in the directory that holds the bundle, so that directory has to
+       be writable. It is not when the app runs from the mounted disk image, from the read-only
+       copy Gatekeeper translocates a quarantined download to, or from /Applications for an
+       account that is not an administrator - and an update offered there would fail after the
+       download rather than never be offered. */
+    char parent[MESH_UPDATE_PATH_MAX];
+    snprintf(parent, sizeof parent, "%s", out);
+    char *slash = strrchr(parent, '/');
+    if (slash == NULL) {
+        return false;
+    }
+    *(slash == parent ? slash + 1 : slash) = '\0';
+    if (access(parent, W_OK) != 0) {
+        inkwell_log_info("update", "%s is not writable; updates are not offered", parent);
+        return false;
+    }
+    return true;
 #else
     return updater_find_binary(out, out_len);
 #endif
