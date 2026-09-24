@@ -8,7 +8,9 @@
 scene demo
 nofix
 
-tab waypoints
+tab nodes
+key down 3
+key a
 hold 1400
 
 # A on the row that makes a place. Refused - there is nowhere to put it - and said so, rather

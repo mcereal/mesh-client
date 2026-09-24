@@ -128,7 +128,8 @@ MESH_TEST_CASE(commands_are_the_source_of_the_legacy_action_bar, unit) {
                       "the Nodes sort row should declare SORT");
 
     actions_snapshot(&snapshot);
-    snapshot.nav.screen = MESH_UI_SCREEN_WAYPOINTS;
+    snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot.nav.waypoints_open = true;
     mesh_ui_commands_for(&snapshot, &commands);
     MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_A) != MESH_UI_COMMAND_NEW,
                       "the empty Waypoints row should declare NEW");

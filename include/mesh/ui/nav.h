@@ -26,10 +26,13 @@ struct mesh_ui_store;
    over the open conversation, so it can never be reached with a stale destination. */
 enum mesh_ui_screen {
     MESH_UI_SCREEN_MESSAGES = 0,
+    /*
+     * The points on the mesh: the nodes, which move, and the places, which do not. Waypoints was
+     * a tab of its own beside this one and is now a row of it (MESH_UI_NODES_WAYPOINTS_ROW),
+     * beside the map row - the map already drew both, so the list of places belongs with the
+     * picture of them rather than a tab away from it.
+     */
     MESH_UI_SCREEN_NODES,
-    /* The places, next to the nodes: a waypoint is a point on the mesh that does not move, and
-       it belongs beside the list of points that do rather than buried inside one of them. */
-    MESH_UI_SCREEN_WAYPOINTS,
     /*
      * The radio we are attached to, and the radios we could be.
      *
@@ -47,7 +50,7 @@ enum mesh_ui_screen {
 };
 
 /*
- * The two rows on the front of the Nodes list that are not nodes.
+ * The rows on the front of the Nodes list that are not nodes.
  *
  * The map row opens the map. A row rather than a keycap because the Nodes tab has already spent
  * A, X and Y on things a node row does, and because a way into a screen that only a button
@@ -71,10 +74,14 @@ enum mesh_ui_screen {
 #define MESH_UI_NODES_FILTER_ROW 0U
 #define MESH_UI_NODES_SORT_ROW 1U
 #define MESH_UI_NODES_MAP_ROW 2U
+/* The places list, one level in (`waypoints_open`). Under the map row because it is the same
+   argument - a way into a screen is a row somebody can see - and because the two are the two
+   halves of "where things are". */
+#define MESH_UI_NODES_WAYPOINTS_ROW 3U
 /* Rows before the first node. Written once so a third one cannot be added to only some of the
    arithmetic - which is exactly how the map row's own arrival went wrong before it was, and
    what made the sort row's arrival a constant and two row ids rather than an audit. */
-#define MESH_UI_NODES_LEAD_ROWS 3U
+#define MESH_UI_NODES_LEAD_ROWS 4U
 
 #define MESH_UI_NAV_TARGET_NAME_MAX 40U
 /* nav.settings_section when the Settings tab shows the section list rather than a section. */
@@ -518,9 +525,9 @@ struct mesh_ui_nav {
     bool trend_table;
     uint32_t trend_scroll;
     /*
-     * Waypoints tab: a place's detail is open (cursor[WAYPOINTS] indexes its rows) rather than
-     * the list, whose position is parked in waypoint_list_cursor meanwhile. The same two-level
-     * shape as Nodes, Messages and Settings.
+     * Nodes tab, the places: a place's detail is open (cursor[NODES] indexes its rows) rather
+     * than whatever it was opened from - the places list, or the map - whose position is parked
+     * in waypoint_list_cursor meanwhile. The same two-level shape as a node's detail.
      *
      * The open place is named by id rather than by row for the reason the node detail is: the
      * list is ordered by distance from our own fix, so a fix arriving re-ranks it under the
@@ -534,6 +541,15 @@ struct mesh_ui_nav {
        node detail's remove row is: it takes the place off the mesh for everybody, and a press
        that lands on it by accident should cost nothing. */
     bool waypoint_delete_armed;
+    /*
+     * Nodes tab: the places list is open over the roster, opened from its row. cursor[NODES]
+     * walks the places while it is up; the roster's own position is parked in
+     * `waypoints_nodes_cursor` and put back by B, the node detail's arrangement one level
+     * sideways. Like map_open it outlives a change of tab, so ask
+     * mesh_ui_nav_waypoints_showing() rather than reading it.
+     */
+    bool waypoints_open;
+    uint32_t waypoints_nodes_cursor;
     /* Settings tab: the open section (enum mesh_ui_settings_section) or NO_SECTION for the
        section list. cursor[SETTINGS] indexes whichever list is showing; the section list's
        position is parked here while a section is open. */
@@ -1250,6 +1266,9 @@ const char *mesh_ui_screen_name(enum mesh_ui_screen screen);
  * said `screen == DEVICES` are forty places that could each have forgotten half of it.
  */
 bool mesh_ui_nav_devices_showing(const struct mesh_ui_nav *nav);
+/* The Nodes tab showing a place - the places list, or one place's detail, from the list or from
+   the map - rather than the roster, the map or a node. What the Waypoints tab was. */
+bool mesh_ui_nav_waypoints_showing(const struct mesh_ui_nav *nav);
 bool mesh_ui_nav_status_showing(const struct mesh_ui_nav *nav);
 
 /* Canned replies shown on the Compose tab. Defaults are built in; a file with one message per

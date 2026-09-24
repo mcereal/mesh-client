@@ -41,12 +41,12 @@ hold 260
 
 # Open it and walk down to the device metrics, where the battery row is.
 #
-# The Nodes list has three rows before its first node - the filter row, the sort row and
-# the Map (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
-# three. Our own radio is seeds[0] and row 3, Alfa Ridge is
-# seeds[1] and row 4. A node on mains has no battery trend to draw, so getting this wrong
+# The Nodes list has four rows before its first node - the filter row, the sort row, the Map and
+# Waypoints (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
+# four. Our own radio is seeds[0] and row 4, Alfa Ridge is
+# seeds[1] and row 5. A node on mains has no battery trend to draw, so getting this wrong
 # renders a screen with nothing of the component on it.
-key down 4
+key down 5
 key a
 key down 26
 hold 2000

@@ -44,11 +44,6 @@ static enum inkcell_icon fb_screen_icon(enum mesh_ui_screen screen) {
         return INKCELL_ICON_MESSAGES;
     case MESH_UI_SCREEN_NODES:
         return INKCELL_ICON_NODES;
-    case MESH_UI_SCREEN_WAYPOINTS:
-        /* `place` - the same pin the Position settings section wears, and deliberately the same
-           id: icons.def's rule is one id per job, and both are saying "somewhere on Earth". A
-           second sprite drawing the same rune would be a second answer to one question. */
-        return INKCELL_ICON_POSITION;
     case MESH_UI_SCREEN_RADIO:
         /* The antenna the Devices tab wore, rather than the Status gauge: the tab is named for
            the thing, and the thing is a radio. */
@@ -882,16 +877,16 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
             }
             break;
         case MESH_UI_SCREEN_NODES:
-            /* The map, under any node detail opened from it and over the list it was opened
-               from - the same order src/ui/tables/actions.c names the presses in. */
-            if (snapshot->nav.map_open && !snapshot->nav.node_detail_open) {
+            /* A place or the list of them first, over the roster or the map; then the map, under
+               any node detail opened from it and over the list it was opened from - the same
+               order src/ui/tables/actions.c names the presses in. */
+            if (mesh_ui_nav_waypoints_showing(&snapshot->nav)) {
+                fb_render_waypoints(state, snapshot, &layout);
+            } else if (snapshot->nav.map_open && !snapshot->nav.node_detail_open) {
                 fb_render_map(state, snapshot, &layout);
             } else {
                 fb_render_nodes(state, snapshot, &layout);
             }
-            break;
-        case MESH_UI_SCREEN_WAYPOINTS:
-            fb_render_waypoints(state, snapshot, &layout);
             break;
         case MESH_UI_SCREEN_SETTINGS:
             fb_render_settings(state, snapshot, &layout);

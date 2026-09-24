@@ -42,7 +42,7 @@ place.
 
 ## Using it
 
-Five tabs — Messages, Nodes, Waypoints, Radio, Settings — driven by the d-pad and face buttons.
+Four tabs — Messages, Nodes, Radio, Settings — driven by the d-pad and face buttons.
 Connect from **Radio → devices** (it bonds and prompts for a PIN-mode node's six digits), or let
 auto-connect find your usual radio on its own.
 

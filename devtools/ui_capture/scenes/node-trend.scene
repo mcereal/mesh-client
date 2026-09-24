@@ -44,9 +44,9 @@ hold 260
 
 # ---- the row, and then the picture ----------------------------------------------------------
 #
-# The Nodes list has three rows before its first node - the filter row, the sort row and
-# the Map (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
-# three. Echo Repeater is seeds[5] and row 8. Temperature is
+# The Nodes list has four rows before its first node - the filter row, the sort row, the Map and
+# Waypoints (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
+# four. Echo Repeater is seeds[5] and row 9. Temperature is
 # the first row under its Environment heading, and this node has no device-metrics group above
 # it because a repeater on mains reports no battery.
 #
@@ -59,7 +59,7 @@ hold 260
 # bar, a band and six cells of line in its trailing slot, and A opens the same reading with the
 # room to say what its axes are. That is the rule the Status card's verb set - a row carries a
 # glance, a screen carries a study - reached from the other direction.
-key down 8
+key down 9
 key a
 key down 18
 hold 1400

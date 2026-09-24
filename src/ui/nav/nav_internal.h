@@ -112,6 +112,9 @@ bool mesh_ui_nav_contact_key(struct mesh_ui_nav *nav, enum inkcell_key key);
 
 /* Opens the place with this id over the list, parking the list's cursor. */
 void mesh_ui_nav_open_waypoint(struct mesh_ui_nav *nav, uint32_t id);
+/* The places list over the Nodes roster, and back out of it to the roster's own row. */
+void mesh_ui_nav_open_waypoints(struct mesh_ui_nav *nav);
+bool mesh_ui_nav_close_waypoints(struct mesh_ui_nav *nav);
 /* B out of an open place. False when the list is already showing. */
 bool mesh_ui_nav_close_waypoint(struct mesh_ui_nav *nav);
 /* Raises the keyboard to name a new place at `source_node`'s fix - 0 for our own radio. */

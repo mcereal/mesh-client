@@ -250,14 +250,14 @@ bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *st
      * place, and coming back to Nodes should show the view that was left - so it says where the
      * Nodes tab is standing and *not* what the reader is looking at. Two presses make the
      * difference visible: a shoulder walks off this tab with the map still open behind it, and A
-     * on a waypoint marker jumps to the Waypoints tab outright. Without the screen test below,
+     * on a waypoint marker opens that place over the map. Without the screen test below,
      * the arrows would pan a map nobody can see and the first B on that place would close it
      * instead of the place.
      *
-     * A node's detail is the same question one level in: it is drawn over the map and owns its
-     * own presses, and the map underneath is not being looked at either.
+     * A node's detail, or a place's, is the same question one level in: it is drawn over the map
+     * and owns its own presses, and the map underneath is not being looked at either.
      */
-    if (nav->screen != MESH_UI_SCREEN_NODES || nav->node_detail_open) {
+    if (nav->screen != MESH_UI_SCREEN_NODES || nav->node_detail_open || nav->waypoint_detail_open) {
         return false;
     }
 

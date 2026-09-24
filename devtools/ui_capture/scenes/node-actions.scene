@@ -11,14 +11,14 @@
 # press, which is why its action bar is three keycaps rather than seven: there is no row on it
 # that A means nothing on.
 #
-# The Nodes list has three rows before its first node - the filter row, the sort row and the
-# Map (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus three.
-# Alfa Ridge is seeds[1] and row 4; it reports enough to fill the first screen with facts.
+# The Nodes list has four rows before its first node - the filter row, the sort row and the
+# Map (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus four.
+# Alfa Ridge is seeds[1] and row 5; it reports enough to fill the first screen with facts.
 
 scene demo
 clock 2026-01-15 12:00
 tab nodes
-key down 4
+key down 5
 
 # The detail, as it opens. The cursor starts on the Actions row - a card of its own above the
 # first heading, which is the one row on this screen that is a control rather than a report.

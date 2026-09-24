@@ -19,4 +19,6 @@ config
 waypoint FXTR Trailhead | park on the verge, the gate is unlocked
 waypoint ALFA Ridge repeater
 waypoint CHRL Water cache
-tab waypoints
+tab nodes
+key down 3
+key a

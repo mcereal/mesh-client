@@ -344,7 +344,7 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
 }
 
 /*
- * The Waypoints tab.
+ * The places: the list over the Nodes roster, and one place over it or over the map.
  *
  * Two levels, the Nodes tab's shape - except that the list's A does two different things and
  * the bar says so: on a place it opens, and on the last row it starts a new one. Naming the
@@ -371,11 +371,13 @@ static void actions_waypoints(const struct mesh_ui_nav *nav,
     const uint32_t places = snapshot->waypoints.count > MESH_UI_MAX_WAYPOINTS
                                 ? MESH_UI_MAX_WAYPOINTS
                                 : snapshot->waypoints.count;
-    if (nav->cursor[MESH_UI_SCREEN_WAYPOINTS] >= places) {
+    if (nav->cursor[MESH_UI_SCREEN_NODES] >= places) {
         command_add(bar, MESH_UI_COMMAND_NEW, MESH_STR_ACTION_NEW, INKCELL_BUTTON_A);
     } else {
         command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
     }
+    /* A level of the Nodes tab, so B goes back to the roster it was opened from. */
+    command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
     commands_add_help(snapshot, bar);
     commands_add_tabs(bar);
 }
@@ -867,10 +869,13 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
         actions_messages(nav, snapshot, out);
         break;
     case MESH_UI_SCREEN_NODES:
-        actions_nodes(nav, snapshot, out);
-        break;
-    case MESH_UI_SCREEN_WAYPOINTS:
-        actions_waypoints(nav, snapshot, out);
+        /* A place, or the list of them, over the roster or the map - checked first because it
+           is drawn over both. */
+        if (mesh_ui_nav_waypoints_showing(nav)) {
+            actions_waypoints(nav, snapshot, out);
+        } else {
+            actions_nodes(nav, snapshot, out);
+        }
         break;
     case MESH_UI_SCREEN_SETTINGS:
         actions_settings(nav, snapshot, out);
