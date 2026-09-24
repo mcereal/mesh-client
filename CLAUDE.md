@@ -207,7 +207,8 @@ the subject you need - `store.h` is the umbrella and pulls all six in. See
 not buy.
 
 The cache `store.h` also declares is not in `store.c`: `src/ui/store/store_file.c` is both halves of
-the file on the card, over `store_keys.c` (the key) and `store_fields.c` (the value).
+the file on the card, over `store_keys.c` (the key, a table over inkstand's `persist/keys.h`) and
+inkstand's `persist/fields.h` (the value).
 `src/ui/store/store_archive.c` is the *second* file on the card - one append-only log per conversation,
 which is what lets a thread go back further than the 64-message transport ring - and shares that
 record codec over `store_internal.h`. `src/ui/store/store_trends.c` is the *third* - one append-only
@@ -232,7 +233,7 @@ publish and read back when that node's detail screen is opened. See
 | Radio firmware | `src/core/firmware/` - `firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - see the group map below; **`fb` is the device UI** |
 | UI toolkit | `third_party/inkcell/` - theme, fonts, glyphs, layout, widgets, the fb and SDL backends, input |
-| App framework | `third_party/inkstand/` - the plumbing any app on this stack would write again; today the frame scheduler under `controller.c` and the control socket `make ui-drive` talks to (`inkstand/app/control.h`). Its `docs/extraction.md` is the map of what comes down next |
+| App framework | `third_party/inkstand/` - the plumbing any app on this stack would write again; today the frame scheduler under `controller.c`, the control socket `make ui-drive` talks to (`inkstand/app/control.h`), the scene runner under `ui_capture` and the cache's key table and field reader (`inkstand/persist/`). Its `docs/extraction.md` is the map of what comes down next |
 | UI components | inkcell's `include/inkcell/ui/widgets/*.h` (button, chrome, list, item, bubble, card, control, meter, overlay); `inkcell/ui/widgets.h` is the umbrella, `inkcell/ui/fb_draw.h` the toolkit under it |
 | This client behind the frame | `src/ui/backends/fb_app.c` - the renderer inkcell calls, the move it cannot work out, the theme it is told |
 | Tables the UI reads | `src/ui/tables/` - `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c` (the airtime chart; the frame around it is inkcell's), `duration.c`, `units.c` (metric/imperial lengths) |

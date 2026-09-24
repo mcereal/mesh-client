@@ -18,7 +18,7 @@
  *
  *   mesh_ui_store_save()  spells every key through store_keys.h's writers
  *   mesh_ui_store_load()  switches on mesh_ui_store_key_lookup() and reads the value through
- *                         store_fields.h's typed field lists
+ *                         inkstand/persist/fields.h's typed field lists
  *
  * A key's spelling therefore exists once (store_keys.def) and a value's shape exists once per
  * direction - the writer's format string and the loader's field list, which read as each
@@ -36,10 +36,10 @@
 
 /* For MESH_TRACEROUTE_DONE: a logged route is a finished one, which is the whole of what this
    file has to say about the state a record loads with. */
+#include "inkstand/persist/fields.h"
 #include "mesh/core/session.h"
 #include "mesh/geo/coords.h"
 #include "mesh/ui/settings.h"
-#include "mesh/ui/store_fields.h"
 #include "mesh/ui/store_keys.h"
 
 #include <errno.h>
@@ -479,16 +479,15 @@ static struct mesh_ui_traceroute *cache_traceroute(struct mesh_ui_store_cache *c
  * Most keys are read this way, and that is the format's central rule rather than strictness for
  * its own sake: a line widens by growing a *key*, never a field, so a field count that does not
  * match is a record some other build meant something else by. The few keys that appended a
- * field on the end compare the return of mesh_ui_store_fields_read() themselves, and say so.
+ * field on the end compare the return of inkstand_fields_read() themselves, and say so.
  */
-static bool cache_fields(const char *value, const struct mesh_ui_store_field *fields,
-                         size_t count) {
-    return mesh_ui_store_fields_read(value, fields, count) == count;
+static bool cache_fields(const char *value, const struct inkstand_field *fields, size_t count) {
+    return inkstand_fields_read(value, fields, count) == count;
 }
 
 /* A key whose whole value is one field. */
-static bool cache_field(const char *value, struct mesh_ui_store_field field) {
-    return mesh_ui_store_fields_read(value, &field, 1U) == 1U;
+static bool cache_field(const char *value, struct inkstand_field field) {
+    return inkstand_fields_read(value, &field, 1U) == 1U;
 }
 
 /* A value that is text rather than numbers, already unescaped by the caller. */
@@ -501,9 +500,9 @@ static void cache_text(char *dst, size_t cap, const char *value) {
 static void load_handshake_request(struct mesh_ui_handshake_state *handshake, const char *value) {
     bool in_flight = false;
     uint32_t request_id = 0U;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&in_flight),
-        MESH_UI_STORE_FIELD(&request_id),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&in_flight),
+        INKSTAND_FIELD(&request_id),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -516,10 +515,10 @@ static void load_handshake_config(struct mesh_ui_handshake_state *handshake, con
     bool complete = false;
     uint32_t complete_id = 0U;
     bool has_config = false;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&complete),
-        MESH_UI_STORE_FIELD(&complete_id),
-        MESH_UI_STORE_FIELD(&has_config),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&complete),
+        INKSTAND_FIELD(&complete_id),
+        INKSTAND_FIELD(&has_config),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -532,11 +531,11 @@ static void load_handshake_config(struct mesh_ui_handshake_state *handshake, con
 static void load_handshake_mynode(struct mesh_ui_handshake_state *handshake, const char *value) {
     bool has_my_info = false;
     struct mesh_ui_my_info info = {0};
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&has_my_info),
-        MESH_UI_STORE_FIELD(&info.node_num),
-        MESH_UI_STORE_FIELD(&info.nodedb_entries),
-        MESH_UI_STORE_FIELD(&info.reboot_count),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&has_my_info),
+        INKSTAND_FIELD(&info.node_num),
+        INKSTAND_FIELD(&info.nodedb_entries),
+        INKSTAND_FIELD(&info.reboot_count),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -547,7 +546,7 @@ static void load_handshake_mynode(struct mesh_ui_handshake_state *handshake, con
 
 static void load_handshake_channels(struct mesh_ui_handshake_state *handshake, const char *value) {
     uint32_t count = 0U;
-    if (!cache_field(value, MESH_UI_STORE_FIELD(&count))) {
+    if (!cache_field(value, INKSTAND_FIELD(&count))) {
         return;
     }
     handshake->channel_count = count > MESH_UI_MAX_CHANNELS ? MESH_UI_MAX_CHANNELS : count;
@@ -559,9 +558,9 @@ static void load_channel(struct mesh_ui_channel *channel, const char *value) {
     }
     uint8_t slot = 0U;
     uint8_t role = 0U;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&slot),
-        MESH_UI_STORE_FIELD(&role),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&slot),
+        INKSTAND_FIELD(&role),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -588,10 +587,9 @@ static bool load_node(struct mesh_ui_node_summary *node, const char *value) {
     float snr = 0.0f;
     bool via_mqtt = false;
     uint8_t hops = 0U;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&node_id),  MESH_UI_STORE_FIELD(&last_heard),
-        MESH_UI_STORE_FIELD(&has_hops), MESH_UI_STORE_FIELD(&snr),
-        MESH_UI_STORE_FIELD(&via_mqtt), MESH_UI_STORE_FIELD(&hops),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&node_id), INKSTAND_FIELD(&last_heard), INKSTAND_FIELD(&has_hops),
+        INKSTAND_FIELD(&snr),     INKSTAND_FIELD(&via_mqtt),   INKSTAND_FIELD(&hops),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return false;
@@ -634,11 +632,10 @@ static void load_node_ident(struct mesh_ui_node_summary *node, const char *value
     bool favorite = false;
     bool ignored = false;
     uint8_t channel = 0U;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&hw_model), MESH_UI_STORE_FIELD(&role),
-        MESH_UI_STORE_FIELD(&licensed), MESH_UI_STORE_FIELD(&unmessagable),
-        MESH_UI_STORE_FIELD(&favorite), MESH_UI_STORE_FIELD(&ignored),
-        MESH_UI_STORE_FIELD(&channel),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&hw_model),     INKSTAND_FIELD(&role),     INKSTAND_FIELD(&licensed),
+        INKSTAND_FIELD(&unmessagable), INKSTAND_FIELD(&favorite), INKSTAND_FIELD(&ignored),
+        INKSTAND_FIELD(&channel),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -659,14 +656,14 @@ static void load_node_state(struct mesh_ui_node_summary *node, const char *value
     bool has_user = false;
     bool in_nodedb = false;
     bool verified = false;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&has_user),
-        MESH_UI_STORE_FIELD(&in_nodedb),
-        MESH_UI_STORE_FIELD(&verified),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&has_user),
+        INKSTAND_FIELD(&in_nodedb),
+        INKSTAND_FIELD(&verified),
     };
     /* Two fields or three: a cache from before the verified bit existed leaves it false, which
        is what an unverified key reads as anyway. */
-    if (mesh_ui_store_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 2U) {
+    if (inkstand_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 2U) {
         return;
     }
     node->has_user = has_user;
@@ -690,14 +687,14 @@ static void load_node_rssi(struct mesh_ui_node_summary *node, const char *value)
     }
     int16_t rssi = 0;
     uint32_t stamp = 0U;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&rssi),
-        MESH_UI_STORE_FIELD(&stamp),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&rssi),
+        INKSTAND_FIELD(&stamp),
     };
     /* The stamp joined this line after the reading did, so one field or two: a cache written
        without it still loads, and an unstamped reading reads as current - which is exactly what
        it was before the stamp existed. */
-    if (mesh_ui_store_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 1U) {
+    if (inkstand_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 1U) {
         return;
     }
     node->has_rssi = true;
@@ -710,11 +707,11 @@ static void load_node_position(struct mesh_ui_node_summary *node, const char *va
         return;
     }
     struct mesh_ui_node_position position = {0};
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&position.latitude_i),     MESH_UI_STORE_FIELD(&position.longitude_i),
-        MESH_UI_STORE_FIELD(&position.has_altitude),   MESH_UI_STORE_FIELD(&position.altitude),
-        MESH_UI_STORE_FIELD(&position.time),           MESH_UI_STORE_FIELD(&position.sats_in_view),
-        MESH_UI_STORE_FIELD(&position.precision_bits), MESH_UI_STORE_FIELD(&position.received),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&position.latitude_i),     INKSTAND_FIELD(&position.longitude_i),
+        INKSTAND_FIELD(&position.has_altitude),   INKSTAND_FIELD(&position.altitude),
+        INKSTAND_FIELD(&position.time),           INKSTAND_FIELD(&position.sats_in_view),
+        INKSTAND_FIELD(&position.precision_bits), INKSTAND_FIELD(&position.received),
     };
     /* Seven fields or eight: a cache written before `received` existed still loads, and its
        fixes simply have no arrival time to fall back on.
@@ -724,7 +721,7 @@ static void load_node_position(struct mesh_ui_node_summary *node, const char *va
        bound dance was for. `%d` on text past INT32_MAX is undefined and glibc's answer is 0, so
        scanned narrowly an absurd coordinate arrived at the range check already wearing a valid
        one's clothes and was stored as a fix in the Gulf of Guinea. */
-    if (mesh_ui_store_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 7U) {
+    if (inkstand_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 7U) {
         return;
     }
     /* The cache is a text file on a card the user can edit, so it is an ingress like the air
@@ -742,18 +739,18 @@ static void load_node_metrics(struct mesh_ui_node_summary *node, const char *val
         return;
     }
     struct mesh_ui_node_metrics metrics = {0};
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&metrics.time),
-        MESH_UI_STORE_FIELD(&metrics.has_battery),
-        MESH_UI_STORE_FIELD(&metrics.battery_level),
-        MESH_UI_STORE_FIELD(&metrics.has_voltage),
-        MESH_UI_STORE_FIELD(&metrics.voltage),
-        MESH_UI_STORE_FIELD(&metrics.has_channel_utilization),
-        MESH_UI_STORE_FIELD(&metrics.channel_utilization),
-        MESH_UI_STORE_FIELD(&metrics.has_air_util_tx),
-        MESH_UI_STORE_FIELD(&metrics.air_util_tx),
-        MESH_UI_STORE_FIELD(&metrics.has_uptime),
-        MESH_UI_STORE_FIELD(&metrics.uptime_seconds),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&metrics.time),
+        INKSTAND_FIELD(&metrics.has_battery),
+        INKSTAND_FIELD(&metrics.battery_level),
+        INKSTAND_FIELD(&metrics.has_voltage),
+        INKSTAND_FIELD(&metrics.voltage),
+        INKSTAND_FIELD(&metrics.has_channel_utilization),
+        INKSTAND_FIELD(&metrics.channel_utilization),
+        INKSTAND_FIELD(&metrics.has_air_util_tx),
+        INKSTAND_FIELD(&metrics.air_util_tx),
+        INKSTAND_FIELD(&metrics.has_uptime),
+        INKSTAND_FIELD(&metrics.uptime_seconds),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -767,22 +764,22 @@ static void load_node_environment(struct mesh_ui_node_summary *node, const char 
         return;
     }
     struct mesh_ui_node_environment env = {0};
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&env.time),
-        MESH_UI_STORE_FIELD(&env.has_temperature),
-        MESH_UI_STORE_FIELD(&env.temperature),
-        MESH_UI_STORE_FIELD(&env.has_humidity),
-        MESH_UI_STORE_FIELD(&env.relative_humidity),
-        MESH_UI_STORE_FIELD(&env.has_pressure),
-        MESH_UI_STORE_FIELD(&env.barometric_pressure),
-        MESH_UI_STORE_FIELD(&env.has_iaq),
-        MESH_UI_STORE_FIELD(&env.iaq),
-        MESH_UI_STORE_FIELD(&env.has_lux),
-        MESH_UI_STORE_FIELD(&env.lux),
-        MESH_UI_STORE_FIELD(&env.has_voltage),
-        MESH_UI_STORE_FIELD(&env.voltage),
-        MESH_UI_STORE_FIELD(&env.has_current),
-        MESH_UI_STORE_FIELD(&env.current),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&env.time),
+        INKSTAND_FIELD(&env.has_temperature),
+        INKSTAND_FIELD(&env.temperature),
+        INKSTAND_FIELD(&env.has_humidity),
+        INKSTAND_FIELD(&env.relative_humidity),
+        INKSTAND_FIELD(&env.has_pressure),
+        INKSTAND_FIELD(&env.barometric_pressure),
+        INKSTAND_FIELD(&env.has_iaq),
+        INKSTAND_FIELD(&env.iaq),
+        INKSTAND_FIELD(&env.has_lux),
+        INKSTAND_FIELD(&env.lux),
+        INKSTAND_FIELD(&env.has_voltage),
+        INKSTAND_FIELD(&env.voltage),
+        INKSTAND_FIELD(&env.has_current),
+        INKSTAND_FIELD(&env.current),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -800,10 +797,10 @@ static void load_node_neighbors(struct mesh_ui_node_summary *node, const char *v
     }
     struct mesh_ui_node_neighbors neighbors = {0};
     uint8_t claimed = 0U;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&neighbors.time),
-        MESH_UI_STORE_FIELD(&neighbors.broadcast_interval_secs),
-        MESH_UI_STORE_FIELD(&claimed),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&neighbors.time),
+        INKSTAND_FIELD(&neighbors.broadcast_interval_secs),
+        INKSTAND_FIELD(&claimed),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -818,9 +815,9 @@ static void load_node_neighbor(struct mesh_ui_node_summary *node, uint32_t slot,
         return;
     }
     struct mesh_ui_node_neighbor entry = {0};
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&entry.node_id),
-        MESH_UI_STORE_FIELD(&entry.snr),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&entry.node_id),
+        INKSTAND_FIELD(&entry.snr),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields)) || entry.node_id == 0U) {
         return;
@@ -839,20 +836,20 @@ static void load_node_power(struct mesh_ui_node_summary *node, const char *value
         return;
     }
     struct mesh_ui_node_power power = {0};
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&power.time),
-        MESH_UI_STORE_FIELD(&power.channel[0].has_voltage),
-        MESH_UI_STORE_FIELD(&power.channel[0].voltage),
-        MESH_UI_STORE_FIELD(&power.channel[0].has_current),
-        MESH_UI_STORE_FIELD(&power.channel[0].current),
-        MESH_UI_STORE_FIELD(&power.channel[1].has_voltage),
-        MESH_UI_STORE_FIELD(&power.channel[1].voltage),
-        MESH_UI_STORE_FIELD(&power.channel[1].has_current),
-        MESH_UI_STORE_FIELD(&power.channel[1].current),
-        MESH_UI_STORE_FIELD(&power.channel[2].has_voltage),
-        MESH_UI_STORE_FIELD(&power.channel[2].voltage),
-        MESH_UI_STORE_FIELD(&power.channel[2].has_current),
-        MESH_UI_STORE_FIELD(&power.channel[2].current),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&power.time),
+        INKSTAND_FIELD(&power.channel[0].has_voltage),
+        INKSTAND_FIELD(&power.channel[0].voltage),
+        INKSTAND_FIELD(&power.channel[0].has_current),
+        INKSTAND_FIELD(&power.channel[0].current),
+        INKSTAND_FIELD(&power.channel[1].has_voltage),
+        INKSTAND_FIELD(&power.channel[1].voltage),
+        INKSTAND_FIELD(&power.channel[1].has_current),
+        INKSTAND_FIELD(&power.channel[1].current),
+        INKSTAND_FIELD(&power.channel[2].has_voltage),
+        INKSTAND_FIELD(&power.channel[2].voltage),
+        INKSTAND_FIELD(&power.channel[2].has_current),
+        INKSTAND_FIELD(&power.channel[2].current),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -866,20 +863,20 @@ static void load_node_air_quality(struct mesh_ui_node_summary *node, const char 
         return;
     }
     struct mesh_ui_node_air_quality air = {0};
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&air.time),
-        MESH_UI_STORE_FIELD(&air.has_pm10),
-        MESH_UI_STORE_FIELD(&air.pm10_standard),
-        MESH_UI_STORE_FIELD(&air.has_pm25),
-        MESH_UI_STORE_FIELD(&air.pm25_standard),
-        MESH_UI_STORE_FIELD(&air.has_pm100),
-        MESH_UI_STORE_FIELD(&air.pm100_standard),
-        MESH_UI_STORE_FIELD(&air.has_co2),
-        MESH_UI_STORE_FIELD(&air.co2),
-        MESH_UI_STORE_FIELD(&air.has_voc_index),
-        MESH_UI_STORE_FIELD(&air.voc_index),
-        MESH_UI_STORE_FIELD(&air.has_nox_index),
-        MESH_UI_STORE_FIELD(&air.nox_index),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&air.time),
+        INKSTAND_FIELD(&air.has_pm10),
+        INKSTAND_FIELD(&air.pm10_standard),
+        INKSTAND_FIELD(&air.has_pm25),
+        INKSTAND_FIELD(&air.pm25_standard),
+        INKSTAND_FIELD(&air.has_pm100),
+        INKSTAND_FIELD(&air.pm100_standard),
+        INKSTAND_FIELD(&air.has_co2),
+        INKSTAND_FIELD(&air.co2),
+        INKSTAND_FIELD(&air.has_voc_index),
+        INKSTAND_FIELD(&air.voc_index),
+        INKSTAND_FIELD(&air.has_nox_index),
+        INKSTAND_FIELD(&air.nox_index),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -893,11 +890,11 @@ static void load_node_health(struct mesh_ui_node_summary *node, const char *valu
         return;
     }
     struct mesh_ui_node_health health = {0};
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&health.time),        MESH_UI_STORE_FIELD(&health.has_heart_bpm),
-        MESH_UI_STORE_FIELD(&health.heart_bpm),   MESH_UI_STORE_FIELD(&health.has_spo2),
-        MESH_UI_STORE_FIELD(&health.spo2),        MESH_UI_STORE_FIELD(&health.has_temperature),
-        MESH_UI_STORE_FIELD(&health.temperature),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&health.time),        INKSTAND_FIELD(&health.has_heart_bpm),
+        INKSTAND_FIELD(&health.heart_bpm),   INKSTAND_FIELD(&health.has_spo2),
+        INKSTAND_FIELD(&health.spo2),        INKSTAND_FIELD(&health.has_temperature),
+        INKSTAND_FIELD(&health.temperature),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -911,13 +908,13 @@ static void load_node_host(struct mesh_ui_node_summary *node, const char *value)
         return;
     }
     struct mesh_ui_node_host host = {0};
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&host.time),           MESH_UI_STORE_FIELD(&host.has_uptime),
-        MESH_UI_STORE_FIELD(&host.uptime_seconds), MESH_UI_STORE_FIELD(&host.has_freemem),
-        MESH_UI_STORE_FIELD(&host.freemem_kib),    MESH_UI_STORE_FIELD(&host.has_diskfree),
-        MESH_UI_STORE_FIELD(&host.diskfree_mib),   MESH_UI_STORE_FIELD(&host.has_load),
-        MESH_UI_STORE_FIELD(&host.load1),          MESH_UI_STORE_FIELD(&host.load5),
-        MESH_UI_STORE_FIELD(&host.load15),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&host.time),           INKSTAND_FIELD(&host.has_uptime),
+        INKSTAND_FIELD(&host.uptime_seconds), INKSTAND_FIELD(&host.has_freemem),
+        INKSTAND_FIELD(&host.freemem_kib),    INKSTAND_FIELD(&host.has_diskfree),
+        INKSTAND_FIELD(&host.diskfree_mib),   INKSTAND_FIELD(&host.has_load),
+        INKSTAND_FIELD(&host.load1),          INKSTAND_FIELD(&host.load5),
+        INKSTAND_FIELD(&host.load15),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -929,9 +926,9 @@ static void load_node_host(struct mesh_ui_node_summary *node, const char *value)
 static void load_messages_header(struct mesh_ui_store_cache *cache, const char *value) {
     uint32_t count = 0U;
     uint32_t dropped = 0U;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&count),
-        MESH_UI_STORE_FIELD(&dropped),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&count),
+        INKSTAND_FIELD(&dropped),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -953,11 +950,10 @@ static bool load_message(struct mesh_ui_message *message, const char *value) {
     uint8_t direction = 0U;
     uint8_t ack = 0U;
     bool broadcast = false;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&packet_id), MESH_UI_STORE_FIELD(&peer),
-        MESH_UI_STORE_FIELD(&rx_time),   MESH_UI_STORE_FIELD(&channel),
-        MESH_UI_STORE_FIELD(&direction), MESH_UI_STORE_FIELD(&ack),
-        MESH_UI_STORE_FIELD(&broadcast),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&packet_id), INKSTAND_FIELD(&peer),      INKSTAND_FIELD(&rx_time),
+        INKSTAND_FIELD(&channel),   INKSTAND_FIELD(&direction), INKSTAND_FIELD(&ack),
+        INKSTAND_FIELD(&broadcast),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return false;
@@ -981,17 +977,16 @@ static void load_message_meta(struct mesh_ui_message *message, const char *value
     uint32_t reply_id = 0U;
     bool is_reaction = false;
     uint8_t ack_error = 0U;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&kind),      MESH_UI_STORE_FIELD(&pki),
-        MESH_UI_STORE_FIELD(&reply_id),  MESH_UI_STORE_FIELD(&is_reaction),
-        MESH_UI_STORE_FIELD(&ack_error),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&kind),        INKSTAND_FIELD(&pki),       INKSTAND_FIELD(&reply_id),
+        INKSTAND_FIELD(&is_reaction), INKSTAND_FIELD(&ack_error),
     };
     /* Four fields is a record written before the failure reason was kept, five is one written
        since - the shape load_read_mark() takes for the mute it grew, and the rule an archive
        file needs rather than merely deserves: it holds records from every build that ever ran
        on this card. `ack_error` keeps its 0 for the older ones, which is what the bubble
        already reads as "no reason to give". */
-    if (mesh_ui_store_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 4U) {
+    if (inkstand_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 4U) {
         return;
     }
     message->kind = kind;
@@ -1068,16 +1063,15 @@ static void load_read_mark(struct mesh_ui_read_state *state, uint32_t index, con
         return;
     }
     struct mesh_ui_read_mark mark = {0};
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&mark.kind),  MESH_UI_STORE_FIELD(&mark.channel),
-        MESH_UI_STORE_FIELD(&mark.node),  MESH_UI_STORE_FIELD(&mark.packet_id),
-        MESH_UI_STORE_FIELD(&mark.muted),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&mark.kind),      INKSTAND_FIELD(&mark.channel), INKSTAND_FIELD(&mark.node),
+        INKSTAND_FIELD(&mark.packet_id), INKSTAND_FIELD(&mark.muted),
     };
     /* Four fields is a file written before mutes existed, five is one written since; `muted`
        keeps its false either way. And a mark is worth keeping when it carries *either* half - a
        conversation muted before it was ever read has no packet id to name, and dropping it
        would unmute it on the next launch. */
-    if (mesh_ui_store_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 4U) {
+    if (inkstand_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) < 4U) {
         return;
     }
     if (mark.packet_id == 0U && !mark.muted) {
@@ -1097,11 +1091,11 @@ static void load_airtime(struct mesh_ui_store_cache *cache, uint32_t index, cons
         return;
     }
     struct mesh_ui_store_cached_airtime sample = {0};
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&sample.age_ms),
-        MESH_UI_STORE_FIELD(&sample.utilization),
-        MESH_UI_STORE_FIELD(&sample.tx),
-        MESH_UI_STORE_FIELD(&sample.gap),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&sample.age_ms),
+        INKSTAND_FIELD(&sample.utilization),
+        INKSTAND_FIELD(&sample.tx),
+        INKSTAND_FIELD(&sample.gap),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
         return;
@@ -1124,9 +1118,9 @@ static void load_traceroute(struct mesh_ui_store_cache *cache, uint32_t index, c
     }
     uint32_t target = 0U;
     uint32_t completed = 0U;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&target),
-        MESH_UI_STORE_FIELD(&completed),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&target),
+        INKSTAND_FIELD(&completed),
     };
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields)) || target == 0U) {
         return;
@@ -1166,13 +1160,14 @@ static void load_traceroute_hop(struct mesh_ui_store_cache *cache, uint32_t inde
     uint32_t node_id = 0U;
     bool has_snr = false;
     int16_t snr = 0;
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&node_id),
-        MESH_UI_STORE_FIELD(&has_snr),
-        MESH_UI_STORE_FIELD(&snr),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&node_id),
+        INKSTAND_FIELD(&has_snr),
+        INKSTAND_FIELD(&snr),
     };
     /* Read a field wider than it is written and bounded here, because the reading is an int8_t
-       and store_fields.h has no i8: a value that does not fit is a hop that does not load. */
+       and inkstand/persist/fields.h has no i8: a value that does not fit is a hop that does not
+       load. */
     if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields)) || snr < INT8_MIN ||
         snr > INT8_MAX) {
         return;
@@ -1202,7 +1197,7 @@ static void load_line(struct mesh_ui_store_cache *cache, const char *key, char *
     const enum mesh_ui_store_key id = mesh_ui_store_key_lookup(key, &index, &slot);
     switch (id) {
     case MESH_UI_STORE_KEY_HANDSHAKE_VALID:
-        (void)cache_field(value, MESH_UI_STORE_FIELD(&cache->handshake_valid));
+        (void)cache_field(value, INKSTAND_FIELD(&cache->handshake_valid));
         break;
     case MESH_UI_STORE_KEY_HANDSHAKE_REQUEST:
         load_handshake_request(&cache->handshake, value);
@@ -1214,7 +1209,7 @@ static void load_line(struct mesh_ui_store_cache *cache, const char *key, char *
         load_handshake_mynode(&cache->handshake, value);
         break;
     case MESH_UI_STORE_KEY_HANDSHAKE_ROSTER:
-        (void)cache_field(value, MESH_UI_STORE_FIELD(&cache->handshake.roster_owner));
+        (void)cache_field(value, INKSTAND_FIELD(&cache->handshake.roster_owner));
         break;
     case MESH_UI_STORE_KEY_HANDSHAKE_CHANNEL:
         cache_text(cache->handshake.primary_channel, sizeof cache->handshake.primary_channel,
@@ -1224,13 +1219,13 @@ static void load_line(struct mesh_ui_store_cache *cache, const char *key, char *
         cache_text(cache->handshake.my_short_name, sizeof cache->handshake.my_short_name, value);
         break;
     case MESH_UI_STORE_KEY_HANDSHAKE_CACHED:
-        (void)cache_field(value, MESH_UI_STORE_FIELD(&cache->handshake.cached));
+        (void)cache_field(value, INKSTAND_FIELD(&cache->handshake.cached));
         break;
     case MESH_UI_STORE_KEY_HANDSHAKE_CHANNELS:
         load_handshake_channels(&cache->handshake, value);
         break;
     case MESH_UI_STORE_KEY_HANDSHAKE_NODES:
-        cache->nodes_claimed_set = cache_field(value, MESH_UI_STORE_FIELD(&cache->nodes_claimed));
+        cache->nodes_claimed_set = cache_field(value, INKSTAND_FIELD(&cache->nodes_claimed));
         break;
 
     case MESH_UI_STORE_KEY_CHANNEL:

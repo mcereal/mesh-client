@@ -23,7 +23,7 @@
 #include "inkwell/base/text.h"
 #include "mesh/utils/file.h"
 
-#include "mesh/ui/store_fields.h"
+#include "inkstand/persist/fields.h"
 #include "mesh/ui/store_keys.h"
 
 #include <dirent.h>
@@ -202,13 +202,13 @@ static uint32_t trend_reader_finish(struct trend_reader *reader) {
  */
 static bool trend_read_value(const char *value, struct trend_record *out) {
     memset(out, 0, sizeof *out);
-    const struct mesh_ui_store_field fields[] = {
-        MESH_UI_STORE_FIELD(&out->reading),
-        MESH_UI_STORE_FIELD(&out->delta),
-        MESH_UI_STORE_FIELD(&out->value),
-        MESH_UI_STORE_FIELD(&out->gap),
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&out->reading),
+        INKSTAND_FIELD(&out->delta),
+        INKSTAND_FIELD(&out->value),
+        INKSTAND_FIELD(&out->gap),
     };
-    return mesh_ui_store_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) ==
+    return inkstand_fields_read(value, fields, INKWELL_ARRAY_LEN(fields)) ==
            INKWELL_ARRAY_LEN(fields);
 }
 
