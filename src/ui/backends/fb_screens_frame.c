@@ -119,12 +119,18 @@ static const struct inkcell_fb_chip *fb_tab_chips(const struct mesh_ui_snapshot 
 }
 
 /*
- * The line under the keycaps: what the transport is doing, and either the radio it found or
- * how to leave.
+ * What the foot of the frame says about the link: the radio it found, or what the transport is
+ * doing and how to leave.
  *
  * `tone` is the second half of the same sentence - a link that is up is worth saying in the
  * success colour, and one that is not is not worth shouting about - so the two are decided
  * together here rather than by the widget, which has no idea what the words mean.
+ *
+ * It rides the end of the one-row footer now rather than a line of its own, so the healthy case
+ * is the radio's name alone: "running: Home Base" on every frame was a log line, and the colour
+ * already says it is running. Anything else keeps the whole sentence, because a link that is
+ * not up is the case where the transport's own words are the useful part - and the bar drops
+ * the status first when the row runs short, so a long one costs no verb its place.
  */
 static void fb_link_summary(const struct mesh_ui_snapshot *snapshot, struct inkcell_line *line,
                             enum inkcell_tone *tone) {
@@ -134,7 +140,7 @@ static void fb_link_summary(const struct mesh_ui_snapshot *snapshot, struct inkc
                              : inkcell_str(MESH_STR_HEADER_TRANSPORT_STARTING);
     const struct mesh_ui_device *device = mesh_ui_snapshot_connected_device(snapshot);
     if (device != NULL) {
-        inkcell_line_str(line, MESH_STR_HEADER_STATUS_CONNECTED, status, fb_device_label(device));
+        inkcell_line_printf(line, "%s", fb_device_label(device));
         *tone = INKCELL_TONE_SUCCESS;
         return;
     }
@@ -451,9 +457,10 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
     struct inkcell_action_bar actions;
     mesh_ui_actions_for(snapshot, &actions);
     const bool back = mesh_ui_action_bar_goes_back(&actions);
-    if (state->pointer) {
-        mesh_ui_actions_drop_tabs(&actions);
-    }
+    /* One row at the foot, spent on the screen's own verbs: the tabs and the way back are
+       already on the panel as the tab strip and the heading's arrow. See
+       mesh_ui_actions_compact() for why nothing else is dropped. */
+    mesh_ui_actions_compact(&actions, back);
 
     /*
      * The two things the *client* says about itself, rather than what any screen says about
@@ -495,6 +502,10 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .active = (size_t)snapshot->nav.screen,
         .compact_nav = INKCELL_FB_COMPACT_NAV_TOP,
         .footer = true,
+        /* One row rather than two: the keycaps and the link's state share it, and the body gets
+           the other back. The two-line bar - every press spelled out over a log line - is the
+           frame that read as a launcher's HUD rather than an app. */
+        .footer_kind = INKCELL_FB_FOOTER_COMPACT,
         .back = back,
         .busy = mesh_ui_chrome_busy(snapshot),
         .banner = has_banner ? &drawn_banner : NULL,
@@ -649,6 +660,10 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .count = actions.count,
         .status = inkcell_line_text(&summary),
         .status_tone = summary_tone,
+        /* A leads when it is the screen's own press, and is drawn as the one that matters. Not
+           when some other key leads - X on the device list is a disconnect, and a tonal pill
+           round the verb that drops the link would be recommending it. */
+        .emphasize_first = actions.count > 0U && actions.items[0].button == INKCELL_BUTTON_A,
     };
     inkcell_fb_scaffold_end(state, &frame, &bar);
     fb_render_context(state, snapshot);

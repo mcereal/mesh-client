@@ -493,6 +493,53 @@ MESH_TEST_CASE(actions_back_arrow_follows_the_verb_not_the_key, unit) {
 }
 
 /*
+ * The compact footer keeps every verb and drops only what the chrome already says: the tabs, and
+ * B where the heading's arrow was derived from it. Where B is anything else - discarding edits
+ * here - the arrow is not drawn and the keycap is the only thing saying what B does, so it stays.
+ */
+static bool actions_bar_has(const struct inkcell_action_bar *bar, inkcell_str_id label) {
+    for (size_t i = 0; i < bar->count; ++i) {
+        if (bar->items[i].label == label) {
+            return true;
+        }
+    }
+    return false;
+}
+
+MESH_TEST_CASE(actions_compact_drops_only_what_the_chrome_says, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct inkcell_action_bar bar;
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.thread_open = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    const size_t full = bar.count;
+    mesh_ui_actions_compact(&bar, mesh_ui_action_bar_goes_back(&bar));
+    MESH_TEST_FAIL_IF(actions_bar_has(&bar, MESH_STR_ACTION_TABS), "the tab strip is the tabs");
+    MESH_TEST_FAIL_IF(actions_bar_has(&bar, MESH_STR_ACTION_BACK), "the arrow is the way back");
+    MESH_TEST_FAIL_IF(bar.count != full - 2U, "nothing but those two should go");
+    MESH_TEST_FAIL_IF(!actions_bar_has(&bar, MESH_STR_ACTION_REPLY) ||
+                          !actions_bar_has(&bar, MESH_STR_ACTION_REACT) ||
+                          !actions_bar_has(&bar, MESH_STR_ACTION_WRITE),
+                      "every verb about the thread should stay");
+    MESH_TEST_FAIL_IF(bar.items[0].label != MESH_STR_ACTION_REPLY,
+                      "the screen's first verb should still lead");
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    snapshot.nav.settings_section = MESH_UI_SETTINGS_DISPLAY;
+    snapshot.nav.settings_edit_count = 2U;
+    mesh_ui_actions_for(&snapshot, &bar);
+    const bool b_before = actions_bar_has(&bar, MESH_STR_ACTION_DISCARD);
+    mesh_ui_actions_compact(&bar, mesh_ui_action_bar_goes_back(&bar));
+    MESH_TEST_FAIL_IF(!b_before || !actions_bar_has(&bar, MESH_STR_ACTION_DISCARD),
+                      "B as discard has no arrow to stand in for it and should stay");
+
+    mesh_ui_actions_compact(NULL, true);
+    record_success(test_name);
+}
+
+/*
  * Every state the bar can be in, walked exhaustively rather than by hand.
  *
  * The bar drops actions it cannot fit, and it drops them silently - so a table that overran
