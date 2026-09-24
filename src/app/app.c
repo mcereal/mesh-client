@@ -318,6 +318,11 @@ static void mesh_app_ui_request_stop(void *ctx) {
     inkwell_loop_request_stop((struct inkwell_loop *)ctx);
 }
 
+/* The control socket's `screen`: the tab that is up, by the id a scene file names it with. */
+static const char *mesh_app_control_screen(void *userdata) {
+    return mesh_ui_screen_id(((struct mesh_app *)userdata)->ui_store.nav.screen);
+}
+
 /* The window asking for a frame it cannot draw without the snapshot. */
 static void mesh_app_ui_request_frame(void *userdata) {
     mesh_ui_controller_request_frame(&((struct mesh_app *)userdata)->ui_controller);
@@ -1424,8 +1429,14 @@ int mesh_app_run(struct mesh_app *app) {
         inkcell_input_set_handler(&app->ui_input, mesh_app_on_ui_key, app);
     }
     if (app->config.ui_control_path[0] != '\0') {
-        const int opened = mesh_app_control_open(&app->control, &app->loop, &app->ui_controller,
-                                                 app->config.ui_control_path);
+        const struct mesh_app_control_host host = {
+            .frames = &app->ui_controller.frames,
+            .press = mesh_app_on_ui_key,
+            .screen = mesh_app_control_screen,
+            .userdata = app,
+        };
+        const int opened =
+            mesh_app_control_open(&app->control, &app->loop, &host, app->config.ui_control_path);
         if (opened < 0) {
             inkwell_log_warn("app", "UI control socket at %s did not open: %s",
                              app->config.ui_control_path, strerror(-opened));

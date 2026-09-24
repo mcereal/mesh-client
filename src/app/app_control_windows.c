@@ -4,9 +4,9 @@
 #include <string.h>
 
 int mesh_app_control_open(struct mesh_app_control *control, struct inkwell_loop *loop,
-                          struct mesh_ui_controller *controller, const char *path) {
+                          const struct mesh_app_control_host *host, const char *path) {
     (void)loop;
-    (void)controller;
+    (void)host;
     (void)path;
     if (control == NULL) {
         return -EINVAL;

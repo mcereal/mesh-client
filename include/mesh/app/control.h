@@ -20,14 +20,15 @@
  * An answer is `ok`, `ok DETAIL`, or `error REASON`. A command waits for the one before it: a
  * `shot` after a `key` is a picture of what the key did.
  *
- * Off unless asked for, and 0600 when on: the socket presses keys on a radio client, and
- * nothing that did not start the client has any business doing that. One connection at a time;
+ * Off unless asked for, and 0600 when on: the socket presses keys on a running program, and
+ * nothing that did not start it has any business doing that. One connection at a time;
  * a second is told `error busy`.
  *
  * `shot` needs a backend that draws pixels - fb, sdl or headless. The terminal backend has no
  * frame to give.
  */
 
+#include "inkcell/ui/key.h"
 #include "inkwell/runtime/loop.h"
 
 #include <stdbool.h>
@@ -39,7 +40,22 @@
 extern "C" {
 #endif
 
-struct mesh_ui_controller;
+struct inkstand_frame_scheduler;
+
+/*
+ * What the socket drives, named by what it asks rather than by the program behind it.
+ *
+ * `frames` answers `shot`: whether the panel has stopped moving, and the frame on it. `press` is
+ * `key` - the path a button takes, which only the application knows. `screen` answers `screen`
+ * with an ASCII id, and may be NULL for a program with no such thing to say. `frames` may be
+ * NULL too, and then every `shot` is an error; `press` may not.
+ */
+struct mesh_app_control_host {
+    struct inkstand_frame_scheduler *frames;
+    void (*press)(void *userdata, enum inkcell_key key);
+    const char *(*screen)(void *userdata);
+    void *userdata;
+};
 
 /* sun_path is 104 bytes on a Mac and 108 on Linux; the smaller of the two, with its NUL. */
 #define MESH_APP_CONTROL_PATH_MAX 104U
@@ -59,7 +75,7 @@ enum mesh_app_control_wait {
 
 struct mesh_app_control {
     struct inkwell_loop *loop;
-    struct mesh_ui_controller *controller;
+    struct mesh_app_control_host host;
     char path[MESH_APP_CONTROL_PATH_MAX];
     int listen_fd;
     int client_fd;
@@ -77,7 +93,7 @@ struct mesh_app_control {
  * negative errno; the client runs without the socket either way.
  */
 int mesh_app_control_open(struct mesh_app_control *control, struct inkwell_loop *loop,
-                          struct mesh_ui_controller *controller, const char *path);
+                          const struct mesh_app_control_host *host, const char *path);
 /* Closes the connection and the socket, and removes the socket's file. Safe on a control that
    was never opened, provided it was zeroed. */
 void mesh_app_control_close(struct mesh_app_control *control);

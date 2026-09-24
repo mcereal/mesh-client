@@ -15,13 +15,11 @@
 #include "inkcell/ui/fb_capture.h"
 #include "inkcell/ui/fb_draw.h"
 #include "inkcell/ui/key.h"
+#include "inkstand/nav/frame_scheduler.h"
 #include "inkwell/base/fd.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/time.h"
 #include "inkwell/runtime/timer.h"
-
-#include "mesh/ui/controller.h"
-#include "mesh/ui/route.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -79,7 +77,7 @@ static void mesh_app_control_arm(struct mesh_app_control *control, uint32_t afte
 static void mesh_app_control_shoot(struct mesh_app_control *control, bool settled) {
     control->waiting = MESH_APP_CONTROL_READY;
     struct inkcell_surface frame;
-    if (!mesh_ui_controller_frame(control->controller, &frame)) {
+    if (!inkstand_frame_scheduler_frame(control->host.frames, &frame)) {
         mesh_app_control_reply(control, "error no frame (the backend draws no pixels, or has "
                                         "not drawn yet)");
         return;
@@ -147,7 +145,7 @@ static void mesh_app_control_command(struct mesh_app_control *control, char *lin
             return;
         }
         for (size_t i = 0U; i < count; ++i) {
-            mesh_ui_controller_handle_key(control->controller, inkcell_key_from_name(names[i]));
+            control->host.press(control->host.userdata, inkcell_key_from_name(names[i]));
         }
         mesh_app_control_reply(control, "ok");
     } else if (strcmp(verb, "wait") == 0) {
@@ -174,13 +172,13 @@ static void mesh_app_control_command(struct mesh_app_control *control, char *lin
         control->deadline_ms = inkwell_time_monotonic_ms() + MESH_APP_CONTROL_SETTLE_MS;
         mesh_app_control_arm(control, MESH_APP_CONTROL_POLL_MS);
     } else if (strcmp(verb, "screen") == 0) {
-        const struct mesh_ui_store *const store =
-            control->controller != NULL ? control->controller->store : NULL;
-        if (store == NULL) {
-            mesh_app_control_reply(control, "error no UI");
+        const char *const screen =
+            control->host.screen != NULL ? control->host.screen(control->host.userdata) : NULL;
+        if (screen == NULL) {
+            mesh_app_control_reply(control, "error no screen");
             return;
         }
-        mesh_app_control_reply(control, "ok %s", mesh_ui_screen_id(store->nav.screen));
+        mesh_app_control_reply(control, "ok %s", screen);
     } else if (strcmp(verb, "quit") == 0) {
         mesh_app_control_reply(control, "ok");
         inkwell_loop_request_stop(control->loop);
@@ -294,7 +292,7 @@ static int mesh_app_control_on_timer(int fd, uint32_t events, void *userdata) {
         mesh_app_control_reply(control, "ok");
         break;
     case MESH_APP_CONTROL_SETTLING:
-        if (mesh_ui_controller_settled(control->controller)) {
+        if (inkstand_frame_scheduler_settled(control->host.frames)) {
             mesh_app_control_shoot(control, true);
         } else if (inkwell_time_monotonic_ms() >= control->deadline_ms) {
             mesh_app_control_shoot(control, false);
@@ -310,8 +308,9 @@ static int mesh_app_control_on_timer(int fd, uint32_t events, void *userdata) {
 }
 
 int mesh_app_control_open(struct mesh_app_control *control, struct inkwell_loop *loop,
-                          struct mesh_ui_controller *controller, const char *path) {
-    if (control == NULL || loop == NULL || controller == NULL || path == NULL || path[0] == '\0') {
+                          const struct mesh_app_control_host *host, const char *path) {
+    if (control == NULL || loop == NULL || host == NULL || host->press == NULL || path == NULL ||
+        path[0] == '\0') {
         return -EINVAL;
     }
     memset(control, 0, sizeof *control);
@@ -319,7 +318,7 @@ int mesh_app_control_open(struct mesh_app_control *control, struct inkwell_loop 
     control->client_fd = -1;
     control->timer_fd = -1;
     control->loop = loop;
-    control->controller = controller;
+    control->host = *host;
 
     struct sockaddr_un address = {.sun_family = AF_UNIX};
     if (strlen(path) >= sizeof control->path || strlen(path) >= sizeof address.sun_path) {
@@ -374,7 +373,7 @@ void mesh_app_control_close(struct mesh_app_control *control) {
     mesh_app_control_drop_client(control);
     if (control->timer_fd >= 0) {
         inkwell_loop_remove_fd(control->loop, control->timer_fd);
-        close(control->timer_fd);
+        inkwell_timer_close(control->timer_fd);
         control->timer_fd = -1;
     }
     if (control->listen_fd >= 0) {

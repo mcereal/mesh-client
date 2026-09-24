@@ -18,6 +18,7 @@
 #include "mesh/core/config.h"
 #include "mesh/ui/controller.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/route.h"
 #include "mesh/ui/store.h"
 
 #include <errno.h>
@@ -67,7 +68,33 @@ static bool control_test_frame(void *state, void *userdata, struct inkcell_surfa
     return true;
 }
 
+/* The host a client hands the socket, over a controller and a store the way mesh_app_init() does.
+ */
+struct control_test_ui {
+    struct mesh_ui_store *store;
+    struct mesh_ui_controller *controller;
+};
+
+static void control_test_press(void *userdata, enum inkcell_key key) {
+    mesh_ui_controller_handle_key(((struct control_test_ui *)userdata)->controller, key);
+}
+
+static const char *control_test_screen(void *userdata) {
+    return mesh_ui_screen_id(((struct control_test_ui *)userdata)->store->nav.screen);
+}
+
+static struct mesh_app_control_host control_test_host(struct control_test_ui *ui) {
+    const struct mesh_app_control_host host = {
+        .frames = &ui->controller->frames,
+        .press = control_test_press,
+        .screen = control_test_screen,
+        .userdata = ui,
+    };
+    return host;
+}
+
 struct control_test {
+    struct control_test_ui ui;
     struct inkwell_loop loop;
     struct mesh_ui_store store;
     struct mesh_ui_controller controller;
@@ -97,9 +124,11 @@ static bool control_test_open(struct control_test *test, bool with_frame) {
         inkwell_loop_shutdown(&test->loop);
         return false;
     }
+    test->ui = (struct control_test_ui){.store = &test->store, .controller = &test->controller};
+    const struct mesh_app_control_host host = control_test_host(&test->ui);
     if (mesh_ui_controller_init(&test->controller, &test->store, &test->vtable, &test->backend,
                                 &test->loop) != 0 ||
-        mesh_app_control_open(&test->control, &test->loop, &test->controller, test->path) != 0) {
+        mesh_app_control_open(&test->control, &test->loop, &host, test->path) != 0) {
         mesh_ui_controller_shutdown(&test->controller);
         mesh_ui_store_shutdown(&test->store);
         inkwell_loop_shutdown(&test->loop);
@@ -261,7 +290,9 @@ MESH_TEST_CASE(app_control_does_not_replace_a_file_that_is_not_a_socket, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_controller_init(&controller, &store, NULL, NULL, &loop) != 0,
                       "controller init failed");
 
-    const int opened = mesh_app_control_open(&control, &loop, &controller, path);
+    struct control_test_ui ui = {.store = &store, .controller = &controller};
+    const struct mesh_app_control_host host = control_test_host(&ui);
+    const int opened = mesh_app_control_open(&control, &loop, &host, path);
     struct stat info;
     const bool kept = stat(path, &info) == 0 && S_ISREG(info.st_mode);
     unlink(path);
