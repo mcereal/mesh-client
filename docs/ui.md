@@ -394,14 +394,21 @@ any window that is still compact, it is the tab strip across the top - kept ther
 because L1 and R1 are on the top edge of the case - and the frame is the one it always was.
 
 A window with room for a whole measure of detail beside a list - 1920x1080 at the Brick's scale is
-the first - stands the two side by side. Messages is the screen that does so far: the
-conversations in the leading pane, and beside them the open thread, or a note saying where it will
-be. The nav is the one-pane nav, unchanged: A opens, every press is the thread's while it is open,
-and B closes it. What the width buys is that the list stays put, the conversation the thread came
-from still under its cursor, and the back arrow moves to the thread's heading. Opening and closing
-is not a move either, so nothing slides (`fb_render_split_pair()`). A screen says it has two
-halves in `fb_route_split()`; whether there is room is inkcell's scaffold's to decide.
-`ui_click_a_wide_window_opens_a_thread_beside_its_list` holds it.
+the first - stands the two side by side. Two screens do so:
+
+- **Messages**: the conversations, and beside them the open thread.
+- **Nodes**: the roster, and beside it whatever is open over one node - its detail, a chart of a
+  reading, or the sheet of its verbs.
+
+With nothing open, the detail pane holds a note saying what will appear there. The nav is the
+one-pane nav, unchanged: A opens, every press is the detail's while it is open, and B closes it.
+What the width buys is that the list stays put, with the row the detail came from still under its
+cursor (found by what that row is, since the list re-ranks under an open detail), and the back
+arrow moves to the detail's heading. Opening and closing is not a move either, so nothing slides
+(`fb_render_split_pair()`). A node opened from the map is one pane, as it is on the Brick: B takes
+it back to the map, not the roster. A screen says it has two halves in `fb_route_split()`; whether
+there is room is inkcell's scaffold's to decide. `ui_click_a_wide_window_opens_a_thread_beside_its_list`
+and `ui_click_a_wide_window_opens_a_node_beside_its_roster` hold it.
 
 `make ui-capture` is still the way to *review* a UI change, because a picture in a pull request
 is reviewable and a window on somebody's desk is not.

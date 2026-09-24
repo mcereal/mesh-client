@@ -170,6 +170,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_NODES_EMPTY_WAITING] = "Esperando la lista de nodos...",
     [MESH_STR_NODES_EMPTY_DISCONNECTED] = "Conecta a un nodo para ver la red.",
     [MESH_STR_NODES_GONE] = "Ese nodo ya no está en la lista.",
+    [MESH_STR_NODES_PICK] = "Abre un nodo para verlo aquí.",
     [MESH_STR_NODES_DETAIL_EMPTY] = "Aún no hay datos de este nodo.",
     [MESH_STR_NODES_TITLE_OF] = "Nodos (%u de %u)",
     [MESH_STR_NODES_TITLE_OFF_RADIO] = "Nodos (%u, %u fuera de radio)",

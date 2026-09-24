@@ -496,6 +496,61 @@ MESH_TEST_CASE(ui_click_a_wide_window_opens_a_thread_beside_its_list, unit) {
     click_close(&store, capture);
 }
 
+/* The same split on the Nodes tab: the roster stays, and the node opened from it stands beside
+   it without a slide. */
+MESH_TEST_CASE(ui_click_a_wide_window_opens_a_node_beside_its_roster, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    struct mesh_ui_action action;
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_NODES,
+                  &action) ||
+            store.nav.screen != MESH_UI_SCREEN_NODES,
+        click_close(&store, capture), "a click on the tab should open the roster");
+    click_settle(&store);
+
+    const uint32_t alfa = (uint32_t)MESH_UI_FOCUS_ROWS + MESH_UI_NODES_LEAD_ROWS + 1U;
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect row;
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_rect_of(map, alfa, &row), click_close(&store, capture),
+                              "the roster should register its rows");
+    const int list_right = row.x + row.w;
+    MESH_TEST_FAIL_IF_CLEANUP(list_right > 1920 / 2, click_close(&store, capture),
+                              "the roster should stand in the narrower, leading pane");
+
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, alfa, &action) ||
+                                  !store.nav.node_detail_open ||
+                                  store.nav.node_detail_node != 0x2000U,
+                              click_close(&store, capture), "a click on a node should open it");
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    inkcell_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_fb_transition_offset(inkcell_capture_state(capture)) != 0,
+                              click_close(&store, capture),
+                              "a node opening beside its roster should not slide the frame");
+
+    /* With a node open the rows block is the detail's - the tab's cursor indexes its rows - so
+       the roster beside it stops registering: a click there would move a cursor it is not. */
+    map = click_render(&store, capture);
+    struct inkcell_focus_rect item;
+    for (uint32_t i = 0U; i < 64U; ++i) {
+        if (inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + i, &item)) {
+            MESH_TEST_FAIL_IF_CLEANUP(item.x < list_right, click_close(&store, capture),
+                                      "nothing in the rows block should be the roster's while a "
+                                      "node is open beside it");
+        }
+    }
+    click_close(&store, capture);
+}
+
 MESH_TEST_CASE(ui_click_a_right_click_off_a_list_opens_nothing, unit) {
     struct mesh_ui_store store;
     struct inkcell_capture *capture = NULL;

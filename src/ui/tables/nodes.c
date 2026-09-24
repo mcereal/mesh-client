@@ -315,6 +315,20 @@ mesh_ui_node_view_at(const struct mesh_ui_handshake_state *handshake,
     return &handshake->nodes[at];
 }
 
+uint32_t mesh_ui_node_view_find(const struct mesh_ui_handshake_state *handshake,
+                                const struct mesh_ui_node_view *view, uint32_t node_id) {
+    if (view == NULL) {
+        return 0U;
+    }
+    for (uint32_t i = 0U; i < view->count; ++i) {
+        const struct mesh_ui_node_summary *node = mesh_ui_node_view_at(handshake, view, i);
+        if (node != NULL && node->node_id == node_id) {
+            return i;
+        }
+    }
+    return view->count;
+}
+
 enum mesh_ui_node_sort mesh_ui_node_sort_step(enum mesh_ui_node_sort sort, int delta) {
     const int count = (int)MESH_UI_NODE_SORT_COUNT;
     int at = (int)sort;

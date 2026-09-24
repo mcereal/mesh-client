@@ -486,29 +486,40 @@ void fb_render_node_actions(struct inkcell_draw_state *state,
     fb_sheet_end(state, &frame);
 }
 
+void fb_render_node_pane(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                         struct inkcell_fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    /* The chart over the detail, the way the detail is drawn over the list. The reading is
+       checked rather than a flag because it *is* the flag: MESH_UI_HISTORY_NONE is closed. */
+    if (nav->node_trend != MESH_UI_HISTORY_NONE) {
+        fb_render_node_trend(state, snapshot, layout);
+    } else {
+        fb_render_node_detail(state, snapshot, layout);
+    }
+    /*
+     * And the verbs, on a layer over whichever of the two is up rather than in place of
+     * the detail. Called on every frame because a sheet that is leaving is not in the
+     * snapshot any more - the dialogs above it work the same way and for the same reason.
+     *
+     * Below the chart rather than above it because the two cannot both be up - a chart
+     * opens from a reading and the sheet from the one action row - so what this order
+     * states is which is the deeper level rather than a race being resolved.
+     */
+    fb_render_node_actions(state, snapshot, layout);
+}
+
 void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                      struct inkcell_fb_layout *layout) {
-    const struct mesh_ui_nav *nav = &snapshot->nav;
-    if (nav->node_detail_open) {
-        /* The chart over the detail, the way the detail is drawn over the list. The reading is
-           checked rather than a flag because it *is* the flag: MESH_UI_HISTORY_NONE is closed. */
-        if (nav->node_trend != MESH_UI_HISTORY_NONE) {
-            fb_render_node_trend(state, snapshot, layout);
-        } else {
-            fb_render_node_detail(state, snapshot, layout);
-        }
-        /*
-         * And the verbs, on a layer over whichever of the two is up rather than in place of
-         * the detail. Called on every frame because a sheet that is leaving is not in the
-         * snapshot any more - the dialogs above it work the same way and for the same reason.
-         *
-         * Below the chart rather than above it because the two cannot both be up - a chart
-         * opens from a reading and the sheet from the one action row - so what this order
-         * states is which is the deeper level rather than a race being resolved.
-         */
-        fb_render_node_actions(state, snapshot, layout);
-        return;
+    if (snapshot->nav.node_detail_open) {
+        fb_render_node_pane(state, snapshot, layout);
+    } else {
+        fb_render_node_list(state, snapshot, layout);
     }
+}
+
+void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                         struct inkcell_fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
     if (!snapshot->handshake_valid || snapshot->handshake.node_count == 0U) {
         fb_draw_app_bar(
             state, layout,
@@ -632,11 +643,23 @@ void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snap
     for (uint32_t r = 0; r < rows && r < (uint32_t)(sizeof node_heights); ++r) {
         node_heights[r] = (r == MESH_UI_NODES_FILTER_ROW || r == MESH_UI_NODES_SORT_ROW) ? 1U : 2U;
     }
+    /* With a node open - which is only drawn beside it, on a split frame - the tab's cursor
+       indexes the detail's rows, and the list's own place is the open node's row, found by
+       which node it is: the roster re-ranks under an open detail on every publish. */
+    uint32_t cursor = nav->cursor[MESH_UI_SCREEN_NODES];
+    if (nav->node_detail_open) {
+        const uint32_t at = mesh_ui_node_view_find(hs, &view_rows, nav->node_detail_node);
+        cursor = at < count ? at + MESH_UI_NODES_LEAD_ROWS : nav->node_list_cursor;
+    }
     const struct inkcell_fb_list_style look = fb_list_look(state, FB_LIST_ROLE_FEED);
-    struct inkcell_fb_list list = inkcell_fb_list_begin_styled(
-        state, layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights, NULL, &look);
+    struct inkcell_fb_list list =
+        inkcell_fb_list_begin_styled(state, layout, rows, cursor, node_heights, NULL, &look);
     inkcell_fb_list_glide(state, &list, FB_LIST_NODES);
-    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    /* The rows are the click targets only while they are what the reader is on: a detail open
+       beside them registers its own rows in the same block. */
+    if (!nav->node_detail_open) {
+        inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    }
     /*
      * The filter and the sort are one control group, drawn as two Settings field rows.
      *
