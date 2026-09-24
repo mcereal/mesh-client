@@ -247,6 +247,59 @@ enum fb_scroll_id {
 };
 
 /*
+ * What a list is for, which is what decides how it is set - see fb_list_look().
+ *
+ * Three kinds, because that is how many this client draws: somewhere to go, something to change
+ * where it stands, and a column of subjects to read down. A screen names its kind and never a
+ * density or a focus style, for the reason it names a string id rather than a sentence: one
+ * answer in one place, so the Settings tab and the device list cannot drift into two looks for
+ * the same kind of list.
+ */
+enum fb_list_role {
+    /* Places to go: the settings sections, the radios, a picker. Short, and every row opens
+       something - so it can afford the room. */
+    FB_LIST_ROLE_MENU = 0,
+    /* A settings section's fields, grouped under their headings and changed on the row. */
+    FB_LIST_ROLE_FORM,
+    /* Many subjects, each a name and a line under it: nodes, conversations, waypoints. The list
+       that runs to a hundred rows, where a row's height is what it costs. */
+    FB_LIST_ROLE_FEED,
+};
+
+/*
+ * The look for a list of `role`, at this frame's width.
+ *
+ * Every list takes the accent cursor - a light lift and a capsule down the leading edge, with
+ * the row's own inks kept - and tiered type, so a row's second line and its trailing figure
+ * recede by size rather than by colour alone. A menu and a form stand in inset sections; a feed
+ * stays on the panel.
+ *
+ * Density follows the panel as well as the role. A menu and a form are comfortable
+ * everywhere: they are a dozen or two rows, and air is what makes them read as a settings
+ * screen rather than a file listing - the difference between a handheld app and a launcher's
+ * option page. A feed is compact on the handheld's own compact width, where a row of air is a
+ * node that is not on screen, and comfortable once the width class says the list is a column
+ * in a larger window. Separators come with comfortable rows only - a compact step has
+ * no leading for a hairline to stand in (see struct inkcell_fb_list_style).
+ */
+struct inkcell_fb_list_style fb_list_look(const struct inkcell_draw_state *state,
+                                          enum fb_list_role role);
+
+/*
+ * A list of `count` items at `per_item` steps each, set as `role` says.
+ *
+ * inkcell_fb_list_begin_styled() takes a height per item rather than a count, so the uniform
+ * lists - the conversations, the radios, the waypoints, the picker - write theirs into `steps`,
+ * which is the caller's and is borrowed for the life of the list, exactly as the heights a
+ * screen measures itself are. A list longer than `capacity` is opened unstyled rather than
+ * with heights nobody wrote: the look is lost, the rows and the cursor are not.
+ */
+struct inkcell_fb_list fb_list_begin_steps(const struct inkcell_draw_state *state,
+                                           const struct inkcell_fb_layout *layout, uint32_t count,
+                                           uint32_t cursor, uint8_t per_item, uint8_t *steps,
+                                           size_t capacity, enum fb_list_role role);
+
+/*
  * A layout for a region of the frame that is not the body: a sheet's content, a scrolled
  * body's full extent.
  *

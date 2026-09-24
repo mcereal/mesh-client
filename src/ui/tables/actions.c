@@ -957,3 +957,20 @@ void mesh_ui_actions_drop_tabs(struct inkcell_action_bar *bar) {
     }
     bar->count = kept;
 }
+
+void mesh_ui_actions_compact(struct inkcell_action_bar *bar, bool back) {
+    if (bar == NULL) {
+        return;
+    }
+    mesh_ui_actions_drop_tabs(bar);
+    if (!back) {
+        return;
+    }
+    size_t kept = 0U;
+    for (size_t i = 0; i < bar->count; ++i) {
+        if (bar->items[i].label != MESH_STR_ACTION_BACK) {
+            bar->items[kept++] = bar->items[i];
+        }
+    }
+    bar->count = kept;
+}

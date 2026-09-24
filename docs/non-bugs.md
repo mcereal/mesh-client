@@ -444,7 +444,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   content about the client. Which states raise either is `src/ui/tables/chrome.c`, never a renderer.
   `ui_capture_progress_costs_no_row_and_the_banner_costs_rows`.
 - **A banner says only what nothing else on the frame says, and must be able to resolve.** Hence
-  no "radio disconnected" banner - the status line under the keycaps already says it - and no
+  no "radio disconnected" banner - the link's state at the end of the keycap row already says it - and no
   dismissal, because dismissal is a nav change and refusing it is what keeps the table to states
   that go away on their own. `ui_chrome_banner`.
 - **A font's cell height is not its cap height.** Anything sized to stand beside the text uses
@@ -471,10 +471,11 @@ only a consequence of one of them, and neither is a thing a test could pin.
   drawn, and a verb on an undrawn card leaves the action bar naming a press whose button is not
   on the frame. That is why the Radio card says "no report yet" rather than disappearing.
 - **Two rows of the Link card stand down while a radio is attached, and it is not a missing
-  else.** `fb_link_summary()` builds the line under the keycaps on every frame of every screen, so
-  with a link up it reads "running: Home Base" and the card's Transport and Radio rows were the
-  same two expressions a dozen rows further up. With no radio that line says the quit hint
-  instead, so the rows come back. It is the banner's rule on a card row.
+  else.** `fb_link_summary()` builds the link's state at the end of the keycap row on every frame
+  of every screen, so with a link up it names the radio in the success tone and the card's
+  Transport and Radio rows were the same two facts a dozen rows further up. With no radio it says
+  what the transport is doing and the quit hint instead, so the rows come back. It is the
+  banner's rule on a card row.
 
 ## Charts and history
 
