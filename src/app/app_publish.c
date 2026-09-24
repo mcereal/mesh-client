@@ -992,7 +992,7 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     if (app == NULL) {
         return;
     }
-    const char *backend = mesh_ui_frame_scheduler_backend_name(&app->ui_controller.frames);
+    const char *backend = inkstand_frame_scheduler_backend_name(&app->ui_controller.frames);
     if (backend != NULL) {
         snprintf(dst->backend, sizeof dst->backend, "%s", backend);
     }

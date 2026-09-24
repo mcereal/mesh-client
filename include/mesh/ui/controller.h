@@ -1,8 +1,8 @@
 #pragma once
 
+#include "inkstand/nav/frame_scheduler.h"
 #include "inkwell/runtime/loop.h"
 #include "mesh/ui/commands.h"
-#include "mesh/ui/frame_scheduler.h"
 #include "mesh/ui/store.h"
 
 #ifdef __cplusplus
@@ -31,8 +31,8 @@ typedef void (*mesh_ui_action_handler)(void *userdata, const struct mesh_ui_acti
 /*
  * What a press means, over the frames it is resolved against.
  *
- * Presenting is mesh/ui/frame_scheduler.h's: it drains the store, draws, and keeps a frame timer
- * armed only while the backend is moving. What is here is the half that knows this client's
+ * Presenting is inkstand/nav/frame_scheduler.h's: it drains the store, draws, and keeps a frame
+ * timer armed only while the backend is moving. What is here is the half that knows this client's
  * vocabulary - a key through the nav, a command offered by the last frame, a click on a box it
  * registered - and the action handler a press can reach.
  */
@@ -41,7 +41,7 @@ struct mesh_ui_controller {
     /* The frame the reader is looking at: what the scheduler last presented, and what every
        command and click is resolved against. */
     struct mesh_ui_snapshot snapshot;
-    struct mesh_ui_frame_scheduler frames;
+    struct inkstand_frame_scheduler frames;
     struct inkwell_loop *loop;
     mesh_ui_action_handler on_action;
     void *action_userdata;

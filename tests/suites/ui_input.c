@@ -1129,50 +1129,10 @@ MESH_TEST_CASE(ui_controller_reports_a_backend_that_would_not_open, unit) {
     record_success(test_name);
 }
 
-/* A window resizing faster than the frame interval asks for a frame on every step. Each ask
-   must join the one already armed: re-arming would push the deadline back every time, and
-   nothing would be drawn until the resizing stopped. */
-MESH_TEST_CASE(ui_controller_repeated_frame_requests_do_not_postpone_the_frame, unit) {
-    struct inkwell_loop loop;
-    struct mesh_ui_store store;
-    struct mesh_ui_controller controller;
-    struct test_animation_backend capture = {0};
-    const struct inkcell_backend backend = {
-        .name = "test-animation",
-        .present = test_animation_present,
-        .animating = test_animation_moving,
-    };
-    MESH_TEST_FAIL_IF(inkwell_loop_init(&loop) != 0, "loop init failed");
-    if (mesh_ui_store_init(&store) != 0) {
-        inkwell_loop_shutdown(&loop);
-        record_failure(test_name, "store init failed");
-        return;
-    }
-    if (mesh_ui_controller_init(&controller, &store, &backend, &capture, &loop) != 0) {
-        mesh_ui_store_shutdown(&store);
-        inkwell_loop_shutdown(&loop);
-        record_failure(test_name, "controller init failed");
-        return;
-    }
-
-    /* Asked every 5 ms for ten intervals: the first deadline has to land inside that. */
-    const char *failure = "a frame asked for every 5 ms never came due";
-    struct pollfd poll_fd = {.fd = controller.frames.timer_fd, .events = POLLIN};
-    for (unsigned step = 0U; step < MESH_UI_FRAME_INTERVAL_MS * 10U / 5U; ++step) {
-        mesh_ui_controller_request_frame(&controller);
-        if (poll(&poll_fd, 1, 5) == 1) {
-            failure = NULL;
-            break;
-        }
-    }
-
-    mesh_ui_controller_shutdown(&controller);
-    mesh_ui_store_shutdown(&store);
-    inkwell_loop_shutdown(&loop);
-    MESH_TEST_FAIL_IF(failure != NULL, failure);
-    record_success(test_name);
-}
-
+/* Animation through the real store: the scheduler is inkstand's, and holds its own cases - a
+   request joining a frame already armed among them. What is this client's is the drain and the
+   "nothing changed" hook, which have to leave the store's pending flags clear and the snapshot's
+   update flags empty on a frame that changed nothing. */
 MESH_TEST_CASE(ui_controller_animation_reuses_snapshot_and_consumes_changes, unit) {
     struct inkwell_loop loop;
     struct mesh_ui_store store;

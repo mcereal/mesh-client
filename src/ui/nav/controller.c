@@ -40,7 +40,7 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
     controller->store = store;
     controller->loop = loop;
 
-    const struct mesh_ui_frame_config frames = {
+    const struct inkstand_frame_config frames = {
         .loop = loop,
         .backend = backend,
         .backend_userdata = backend_userdata,
@@ -52,7 +52,7 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
         .source_userdata = store,
         .interval_ms = MESH_UI_FRAME_INTERVAL_MS,
     };
-    const int result = mesh_ui_frame_scheduler_init(&controller->frames, &frames);
+    const int result = inkstand_frame_scheduler_init(&controller->frames, &frames);
     if (result < 0) {
         controller->store = NULL;
         controller->loop = NULL;
@@ -74,11 +74,11 @@ void mesh_ui_controller_set_action_handler(struct mesh_ui_controller *controller
    pressed, and both are read back rather than guessed at. */
 static void mesh_ui_controller_read_frame(struct mesh_ui_controller *controller) {
     uint32_t rows = 0U;
-    if (mesh_ui_frame_scheduler_page_rows(&controller->frames, &rows)) {
+    if (inkstand_frame_scheduler_page_rows(&controller->frames, &rows)) {
         mesh_ui_store_set_page_rows(controller->store, rows);
     }
     const struct inkcell_focus_map *map = NULL;
-    if (mesh_ui_frame_scheduler_focus_map(&controller->frames, &map)) {
+    if (inkstand_frame_scheduler_focus_map(&controller->frames, &map)) {
         mesh_ui_store_set_focus_map(controller->store, map);
     }
 }
@@ -122,7 +122,7 @@ static void mesh_ui_controller_dispatch_command(struct mesh_ui_controller *contr
                                                 enum mesh_ui_command_direction direction,
                                                 bool dismiss_context) {
     if (controller == NULL || controller->store == NULL ||
-        !mesh_ui_frame_scheduler_presented(&controller->frames) ||
+        !inkstand_frame_scheduler_presented(&controller->frames) ||
         command == MESH_UI_COMMAND_NONE) {
         return;
     }
@@ -200,7 +200,7 @@ void mesh_ui_controller_handle_shortcut(struct mesh_ui_controller *controller, c
 
 void mesh_ui_controller_handle_action_key(struct mesh_ui_controller *controller,
                                           enum inkcell_key key) {
-    if (controller == NULL || !mesh_ui_frame_scheduler_presented(&controller->frames) ||
+    if (controller == NULL || !inkstand_frame_scheduler_presented(&controller->frames) ||
         key == INKCELL_KEY_NONE) {
         return;
     }
@@ -233,7 +233,7 @@ void mesh_ui_controller_handle_click(struct mesh_ui_controller *controller, uint
     if (controller == NULL || controller->store == NULL || target == INKCELL_FOCUS_NONE) {
         return;
     }
-    if (mesh_ui_frame_scheduler_presented(&controller->frames) &&
+    if (inkstand_frame_scheduler_presented(&controller->frames) &&
         controller->snapshot.nav.context_open && target > (uint32_t)MESH_UI_FOCUS_MENU &&
         target < (uint32_t)MESH_UI_FOCUS_MENU + (uint32_t)MESH_UI_COMMAND_COUNT) {
         const enum mesh_ui_command_id command =
@@ -266,29 +266,29 @@ void mesh_ui_controller_handle_context(struct mesh_ui_controller *controller, ui
 }
 
 bool mesh_ui_controller_has_backend(const struct mesh_ui_controller *controller) {
-    return controller != NULL && mesh_ui_frame_scheduler_has_backend(&controller->frames);
+    return controller != NULL && inkstand_frame_scheduler_has_backend(&controller->frames);
 }
 
 void mesh_ui_controller_shutdown(struct mesh_ui_controller *controller) {
     if (controller == NULL) {
         return;
     }
-    mesh_ui_frame_scheduler_shutdown(&controller->frames);
+    inkstand_frame_scheduler_shutdown(&controller->frames);
     controller->store = NULL;
     controller->loop = NULL;
 }
 
 void mesh_ui_controller_request_frame(struct mesh_ui_controller *controller) {
     if (controller != NULL) {
-        mesh_ui_frame_scheduler_request_frame(&controller->frames);
+        inkstand_frame_scheduler_request_frame(&controller->frames);
     }
 }
 
 bool mesh_ui_controller_settled(const struct mesh_ui_controller *controller) {
-    return controller == NULL || mesh_ui_frame_scheduler_settled(&controller->frames);
+    return controller == NULL || inkstand_frame_scheduler_settled(&controller->frames);
 }
 
 bool mesh_ui_controller_frame(const struct mesh_ui_controller *controller,
                               struct inkcell_surface *out) {
-    return controller != NULL && mesh_ui_frame_scheduler_frame(&controller->frames, out);
+    return controller != NULL && inkstand_frame_scheduler_frame(&controller->frames, out);
 }

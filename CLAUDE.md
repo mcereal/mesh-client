@@ -30,7 +30,7 @@ is genuinely Linux's (usbfs, the HCI socket, `/proc`) sits behind `#if defined(_
 refusal in the `#else`.
 
 ```bash
-git submodule update --init --recursive   # inkwell + inkcell + nanopb + protobufs; Mbed TLS nests under inkwell
+git submodule update --init --recursive   # inkwell + inkcell + inkstand + nanopb + protobufs; Mbed TLS nests under inkwell
 make test                                 # Debug build + ctest - the default verify step
 make debug                                # Debug build only
 cmake --preset debug                      # the same configure, for an editor or a bare shell
@@ -232,6 +232,7 @@ publish and read back when that node's detail screen is opened. See
 | Radio firmware | `src/core/firmware/` - `firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - see the group map below; **`fb` is the device UI** |
 | UI toolkit | `third_party/inkcell/` - theme, fonts, glyphs, layout, widgets, the fb and SDL backends, input |
+| App framework | `third_party/inkstand/` - the plumbing any app on this stack would write again; today the frame scheduler under `controller.c`. Its `docs/extraction.md` is the map of what comes down next |
 | UI components | inkcell's `include/inkcell/ui/widgets/*.h` (button, chrome, list, item, bubble, card, control, meter, overlay); `inkcell/ui/widgets.h` is the umbrella, `inkcell/ui/fb_draw.h` the toolkit under it |
 | This client behind the frame | `src/ui/backends/fb_app.c` - the renderer inkcell calls, the move it cannot work out, the theme it is told |
 | Tables the UI reads | `src/ui/tables/` - `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c` (the airtime chart; the frame around it is inkcell's), `duration.c`, `units.c` (metric/imperial lengths) |
@@ -250,7 +251,7 @@ its include path - see the flat-header rule above.
 | Group | What is in it |
 |---|---|
 | `src/ui/store/` | the records and the three files on the card, plus `history.c` and `preferences.c` |
-| `src/ui/nav/` | where the reader is and what a press does: `nav*.c`, `route.c`, `controller.c` |
+| `src/ui/nav/` | where the reader is and what a press does: `nav*.c`, `route.c`, `controller.c` (over inkstand's frame scheduler) |
 | `src/ui/settings/` | the settings model: fields, rows, the codec |
 | `src/ui/tables/` | the vocabulary tables a screen names rather than spells out, including `mqtt.c`, which is what a broker failure and a connection state are *called* |
 | `src/ui/views/` | per-screen view models - what a screen says, not how it is drawn |
