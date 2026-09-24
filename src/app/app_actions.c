@@ -403,6 +403,7 @@ static void on_connect(struct mesh_app *app, const struct mesh_ui_action *action
     app->autoconnect_failures = 0U;
     app->autoconnect_preferred_failures = 0U;
     app->autoconnect_tried_preferred = false;
+    app->autoconnect_preferred_missing_ms = 0U;
     app->autoconnect_retry_at_ms = 0U;
 
     /* A user pick beats whatever auto-connect is doing or has done, on either link. */

@@ -670,6 +670,41 @@ MESH_TEST_CASE(app_autoconnect_steps_past_a_refusing_preferred_radio, unit) {
         }
     }
 
+    /*
+     * A streak is about the radio refusing now. Once it has been gone past the grace, the
+     * failures are forgotten, and when it comes back it gets the first attempt again rather
+     * than finding its old failures handing the turn to the other radio.
+     */
+    app.autoconnect_preferred_failures = 3U;
+    mock_devices[0].rssi = 0;
+    mock_devices[1].rssi = 0;
+    mock_devices[2].rssi = 0;
+    mesh_ble_transport_refresh_devices(ble);
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app); /* first miss: noted, not forgotten */
+    if (app.autoconnect_preferred_failures != 3U) {
+        failure = "one miss - a held scan hears nobody - must not forget the streak";
+        goto cleanup;
+    }
+    app.autoconnect_preferred_missing_ms -= 31000U;
+    mesh_app_autoconnect(&app);
+    if (app.autoconnect_preferred_failures != 0U) {
+        failure = "a preferred radio gone past the grace should have its failures forgotten";
+        goto cleanup;
+    }
+    mock_devices[0].rssi = -70;
+    mock_devices[2].rssi = -35;
+    mesh_ble_transport_refresh_devices(ble);
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    {
+        const char *pending = mesh_ble_transport_pending_address(ble);
+        if (pending == NULL || strcmp(pending, mock_devices[0].address) != 0) {
+            failure = "a preferred radio back from away should get the first attempt again";
+            goto cleanup;
+        }
+    }
+
 cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);

@@ -574,6 +574,42 @@ static uint64_t mesh_app_backoff_autoconnect(struct mesh_app *app) {
     return delay;
 }
 
+/*
+ * Forgets a run of failures against the preferred radio once it has been gone for a while.
+ *
+ * The fallback is for a radio that advertises and refuses *now*. One that failed, left, and came
+ * back later has earned its slot again - otherwise it would come back to find its old failures
+ * handing the turn straight to the other radio, which would then become the saved preference.
+ * Not on the first miss, though: every failed connect is followed by a held scan that hears
+ * nobody for a few seconds, and forgetting there would mean the streak never reached the
+ * threshold at all. So it is the same grace a saved radio gets to show up at launch.
+ */
+static void mesh_app_age_preferred_failures(struct mesh_app *app,
+                                            const struct inkwell_ble_device *devices,
+                                            const size_t *in_range, size_t in_range_count,
+                                            uint64_t now) {
+    const char *const preferred = app->config.preferred_ble_device;
+    if (app->autoconnect_preferred_failures == 0U || preferred[0] == '\0') {
+        app->autoconnect_preferred_missing_ms = 0U;
+        return;
+    }
+    for (size_t i = 0; i < in_range_count; ++i) {
+        const struct inkwell_ble_device *device = &devices[in_range[i]];
+        if (strcasecmp(device->address, preferred) == 0 ||
+            strcasecmp(device->name, preferred) == 0) {
+            app->autoconnect_preferred_missing_ms = 0U;
+            return;
+        }
+    }
+    if (app->autoconnect_preferred_missing_ms == 0U) {
+        app->autoconnect_preferred_missing_ms = now;
+    } else if (now - app->autoconnect_preferred_missing_ms >=
+               MESH_APP_AUTOCONNECT_PREFERRED_GRACE_MS) {
+        app->autoconnect_preferred_failures = 0U;
+        app->autoconnect_preferred_missing_ms = 0U;
+    }
+}
+
 void mesh_app_autoconnect(struct mesh_app *app) {
     if (app == NULL || app->autoconnect_disabled || app->autoconnect_held ||
         app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
@@ -611,6 +647,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         app->autoconnect_failures = 0U;
         app->autoconnect_preferred_failures = 0U;
         app->autoconnect_tried_preferred = false;
+        app->autoconnect_preferred_missing_ms = 0U;
         app->autoconnect_started_ms = 0U;
         app->autoconnect_tcp_retry_at_ms = 0U;
         app->autoconnect_waiting_logged = false;
@@ -742,6 +779,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
             in_range[in_range_count++] = i;
         }
     }
+    mesh_app_age_preferred_failures(app, devices, in_range, in_range_count, now);
     if (in_range_count == 0U) {
         return; /* nothing in earshot yet; discovery keeps running */
     }

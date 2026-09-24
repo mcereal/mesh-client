@@ -1186,6 +1186,45 @@ cleanup:
     record_success(test_name);
 }
 
+/* What a previous run's scans heard is not evidence about this one. The transport is a
+   process-wide singleton and a firmware install stops and starts it; a link made in the new run
+   before its scan heard anybody must not read the old run's RSSI as a last-scan reading. */
+MESH_TEST_CASE(ble_transport_forgets_the_last_scan_across_a_restart, unit) {
+    const char *failure = NULL;
+
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:10", "NodeSixteen", -50);
+    struct mesh_transport *const ble = rig.ble;
+    int16_t rssi = 0;
+
+    if (mesh_test_ble_rig_start(&rig) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (!mesh_ble_transport_last_heard(ble, rig.devices[0].address, &rssi) || rssi != -50) {
+        failure = "a running scan should remember what it heard";
+        goto cleanup;
+    }
+    ble->ops->stop(ble);
+    rig.started = false;
+    rig.devices[0].rssi = 0; /* still bonded, not heard by the new run's scan */
+    if (mesh_test_ble_rig_start(&rig) != 0) {
+        failure = "ble restart failed";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_last_heard(ble, rig.devices[0].address, &rssi) ||
+        mesh_ble_transport_scan_held(ble)) {
+        failure = "a restarted transport should not remember the last run's scans";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_test_ble_rig_close(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 /* Enumeration is a blocking GetManagedObjects, and tick() used to make one every second whether
    or not there was a link - so a roster sync spent a blocking second per second in the loop that
    was supposed to be reading it. With the scan held from the connect onward the answer cannot

@@ -765,6 +765,11 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->adapter[0] = '\0';
     state->device_count = 0;
     state->logged_count = 0U;
+    /* What a previous run's scans heard is not evidence about this one: the transport is a
+       process-wide singleton, and a stop/start around a firmware install would otherwise carry
+       those readings into a link made before this run's scan had heard anybody. */
+    state->scanned_count = 0U;
+    state->scanned_ever = false;
     state->refresh_timer_fd = -1;
     state->drain_wake.fd = -1;
     state->drain_wake.write_fd = -1;
@@ -895,6 +900,8 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     state->adapter[0] = '\0';
     state->device_count = 0;
     state->logged_count = 0U;
+    state->scanned_count = 0U;
+    state->scanned_ever = false;
     state->link_state = MESH_BLE_LINK_DISCONNECTED;
     state->connected_address[0] = '\0';
     state->link_address[0] = '\0';
