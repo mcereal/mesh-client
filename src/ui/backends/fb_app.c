@@ -137,6 +137,10 @@ int mesh_ui_capture_open(struct inkcell_capture **out, uint32_t width, uint32_t 
     return result;
 }
 
+struct inkcell_box mesh_ui_capture_content(struct inkcell_capture *capture) {
+    return fb_render_content(inkcell_capture_state(capture));
+}
+
 /*
  * Opens a tile pack on a capture, so a captured map has a basemap under it.
  *

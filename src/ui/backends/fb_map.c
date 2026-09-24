@@ -442,6 +442,12 @@ static enum inkcell_family fb_map_marker_family(const struct mesh_ui_map_marker 
     }
 }
 
+/* Where the line under the map starts: the map's own leading edge, which is the region's rather
+   than the panel's once a rail stands beside the body. */
+static int fb_map_left(const struct inkcell_draw_state *state) {
+    return inkcell_fb_region(state).x + inkcell_fb_margin(state);
+}
+
 /*
  * The line under the map: what the crosshair is on, and how far away it is.
  *
@@ -457,7 +463,7 @@ static void fb_map_draw_selection(const struct inkcell_draw_state *state,
     const struct inkcell_rgb ground = inkcell_fb_color(state, INKCELL_COLOR_BG);
     uint32_t index = 0U;
     if (!mesh_ui_map_selected(view, viewport, &index)) {
-        inkcell_fb_draw_text(state, inkcell_fb_margin(state), y,
+        inkcell_fb_draw_text(state, fb_map_left(state), y,
                              inkcell_str(MESH_STR_MAP_NOTHING_SELECTED), scale,
                              inkcell_fb_color(state, INKCELL_COLOR_TEXT_DIM), ground);
         return;
@@ -514,7 +520,7 @@ static void fb_map_draw_selection(const struct inkcell_draw_state *state,
 
     const struct inkcell_paint paint = inkcell_fb_paint(state, fb_map_marker_family(marker),
                                                         INKCELL_SLOT_BASE, INKCELL_STATE_REST);
-    inkcell_fb_draw_text(state, inkcell_fb_margin(state), y, line, scale, paint.fill, ground);
+    inkcell_fb_draw_text(state, fb_map_left(state), y, line, scale, paint.fill, ground);
 }
 
 /* ---- the basemap -------------------------------------------------------------------------- */
@@ -796,7 +802,6 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
      * and not a measured one (MESH_UI_MAP_FIT_WIDTH). The centre and the zoom are the nav's and
      * are used as they come; only the box is this backend's business.
      */
-    const int margin = inkcell_fb_margin(state);
     const int scale = layout->small;
 
     /*
@@ -826,10 +831,13 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
         return;
     }
     const int selection_y = top + (int)(rows - 1U) * layout->line;
+    /* Edge to edge rather than in the reading column: a map is not text. The full box is the
+       frame's region less its margins, so beside a rail it is the room the rail left. */
+    const struct inkcell_box full = inkcell_fb_full_box(state, layout);
     const struct fb_map_box body = {
-        .x = margin,
+        .x = full.x,
         .y = top,
-        .w = inkcell_fb_panel_width(state) - margin * 2,
+        .w = full.w,
         /* Clear of the line under it by the same step a list leaves between a row and its
            supporting line, so the map's edge and the text below it are not touching. */
         .h = selection_y - top - inkcell_fb_space(state, INKCELL_SPACE_SM),
