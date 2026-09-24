@@ -153,7 +153,7 @@ struct mesh_ui_banner {
  *
  *   **A banner says only what nothing else on the frame says.** This is the overline's rule
  *   (see inkcell_fb_draw_app_bar) arriving somewhere else. It is what refuses "radio disconnected",
- *   which the heading's link mark already reports on every frame, and it is why the
+ *   which the status line under the keycaps already reports on every frame, and it is why the
  *   update banner stands down inside Settings > About - the section it is pointing at states
  *   the same thing in more detail, so a banner over it would be the client telling you
  *   something while you are already reading it.

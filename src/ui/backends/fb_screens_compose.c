@@ -187,7 +187,10 @@ void fb_render_picker(struct inkcell_draw_state *state, const struct mesh_ui_sna
         return;
     }
 
-    struct inkcell_fb_list list = inkcell_fb_list_begin(layout, count, nav->picker_cursor);
+    /* The channels, and every node but our own. */
+    uint8_t steps[MESH_UI_MAX_CHANNELS + MESH_UI_MAX_HANDSHAKE_NODES];
+    struct inkcell_fb_list list = fb_list_begin_steps(state, layout, count, nav->picker_cursor, 1U,
+                                                      steps, sizeof steps, FB_LIST_ROLE_MENU);
     inkcell_fb_list_glide(state, &list, FB_LIST_PICKER);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     char name[96];

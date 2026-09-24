@@ -99,6 +99,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [INKCELL_STR_HINT_QUIT_MENU] = "Pulsa MENU para salir",
     [INKCELL_STR_HINT_QUIT_KEY_CODE] = "Salir: código de tecla %u",
     [MESH_STR_HEADER_TRANSPORT_STARTING] = "iniciando",
+    [MESH_STR_HEADER_STATUS_QUIT] = "%s | %s",
     [MESH_STR_MESSAGES_EMPTY] = "Conecta a un nodo para ver los chats.",
     [MESH_STR_MESSAGES_NEW] = "Nuevo mensaje",
     [MESH_STR_MESSAGES_NEW_PREVIEW] = "Elige un canal o un nodo",

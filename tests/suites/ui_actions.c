@@ -161,16 +161,15 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
                       "Y should forget a radio on the Devices tab");
 
     /*
-     * Status offers the way out whether or not a radio is attached. It used to hold it back
-     * while none was, because the line under the bar ended in the quit hint then; that line is
-     * the heading's link mark now and says nothing about leaving, so Status is the one place
-     * the press is named.
+     * Status offers the way out - but only while a radio is attached, because the line under
+     * the bar already ends in the quit hint when there is none, and the same instruction twice
+     * reads as a rendering fault.
      */
     snapshot.nav.screen = MESH_UI_SCREEN_STATUS;
     snapshot.handshake_valid = false;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != MESH_STR_ACTION_QUIT,
-                      "Status should say how to leave even with nothing connected");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != INKCELL_STR_NONE,
+                      "Status should not repeat the quit hint while nothing is connected");
     /* And nothing else: with no radio its cards carry no verbs, so A means nothing here. */
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != INKCELL_STR_NONE,
                       "Status with no radio should not offer a press it cannot answer");
@@ -490,6 +489,53 @@ MESH_TEST_CASE(actions_back_arrow_follows_the_verb_not_the_key, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_action_bar_goes_back(&bar),
                       "B abandons the bond on the passkey prompt, it does not go back");
 
+    record_success(test_name);
+}
+
+/*
+ * The compact footer keeps every verb and drops only what the chrome already says: the tabs, and
+ * B where the heading's arrow was derived from it. Where B is anything else - discarding edits
+ * here - the arrow is not drawn and the keycap is the only thing saying what B does, so it stays.
+ */
+static bool actions_bar_has(const struct inkcell_action_bar *bar, inkcell_str_id label) {
+    for (size_t i = 0; i < bar->count; ++i) {
+        if (bar->items[i].label == label) {
+            return true;
+        }
+    }
+    return false;
+}
+
+MESH_TEST_CASE(actions_compact_drops_only_what_the_chrome_says, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct inkcell_action_bar bar;
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.thread_open = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    const size_t full = bar.count;
+    mesh_ui_actions_compact(&bar, mesh_ui_action_bar_goes_back(&bar));
+    MESH_TEST_FAIL_IF(actions_bar_has(&bar, MESH_STR_ACTION_TABS), "the tab strip is the tabs");
+    MESH_TEST_FAIL_IF(actions_bar_has(&bar, MESH_STR_ACTION_BACK), "the arrow is the way back");
+    MESH_TEST_FAIL_IF(bar.count != full - 2U, "nothing but those two should go");
+    MESH_TEST_FAIL_IF(!actions_bar_has(&bar, MESH_STR_ACTION_REPLY) ||
+                          !actions_bar_has(&bar, MESH_STR_ACTION_REACT) ||
+                          !actions_bar_has(&bar, MESH_STR_ACTION_WRITE),
+                      "every verb about the thread should stay");
+    MESH_TEST_FAIL_IF(bar.items[0].label != MESH_STR_ACTION_REPLY,
+                      "the screen's first verb should still lead");
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    snapshot.nav.settings_section = MESH_UI_SETTINGS_DISPLAY;
+    snapshot.nav.settings_edit_count = 2U;
+    mesh_ui_actions_for(&snapshot, &bar);
+    const bool b_before = actions_bar_has(&bar, MESH_STR_ACTION_DISCARD);
+    mesh_ui_actions_compact(&bar, mesh_ui_action_bar_goes_back(&bar));
+    MESH_TEST_FAIL_IF(!b_before || !actions_bar_has(&bar, MESH_STR_ACTION_DISCARD),
+                      "B as discard has no arrow to stand in for it and should stay");
+
+    mesh_ui_actions_compact(NULL, true);
     record_success(test_name);
 }
 

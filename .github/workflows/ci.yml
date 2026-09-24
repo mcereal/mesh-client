@@ -105,8 +105,8 @@ jobs:
         run: make test
 
   # Keep the first native slice honest: the UCRT executable must link and the SDL event loop
-  # must start even on a runner without a display or a radio. Do not recurse into optional
-  # Mbed TLS submodules here; the Windows TLS socket backend is not implemented yet.
+  # must start even on a runner without a display or a radio. The setup script brings in Mbed
+  # TLS under inkwell, so this is the build with TLS that a Windows user gets.
   windows:
     name: Build and smoke (Windows UCRT64)
     runs-on: windows-2025

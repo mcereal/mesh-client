@@ -246,6 +246,9 @@ MESH_STR_ENTRY(ACTION_CONFIRM_DISCARD,    "confirm discard")
 
 /* The transport has not said anything yet: the very first frame after launch. */
 MESH_STR_ENTRY(HEADER_TRANSPORT_STARTING, "starting")
+/* "<transport state>: <node we are talking to>" along the top. */
+/* "<transport state> | <how to quit>", when nothing is connected. */
+MESH_STR_ENTRY(HEADER_STATUS_QUIT,        "%s | %s")
 
 /* ---- the Messages tab ---------------------------------------------------------------------- */
 

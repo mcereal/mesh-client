@@ -23,10 +23,21 @@
  */
 #define MESH_FIRMWARE_UPDATE_READY_TIMEOUT_MS 30000U
 
-static const char *firmware_update_staging(void) {
+static const char *firmware_update_staging_default(void) {
+#if defined(_WIN32)
+    /* There is no /tmp to fall back on: the fetch opens its file there and does not make the
+       directory, so a default that is a name only would fail every install. */
+    const char *const temp = getenv("TEMP");
+    if (temp != NULL && temp[0] != '\0') {
+        return temp;
+    }
+#endif
+    return MESH_FIRMWARE_UPDATE_STAGING_DEFAULT;
+}
+
+const char *mesh_firmware_update_staging(void) {
     const char *const from_env = getenv("MESHCLIENT_FIRMWARE_STAGING");
-    return (from_env != NULL && from_env[0] != '\0') ? from_env
-                                                     : MESH_FIRMWARE_UPDATE_STAGING_DEFAULT;
+    return (from_env != NULL && from_env[0] != '\0') ? from_env : firmware_update_staging_default();
 }
 
 const char *mesh_firmware_update_state_name(enum mesh_firmware_update_state state) {
@@ -269,12 +280,29 @@ static void update_begin_usb(struct mesh_firmware_update *update, const char *im
     update_set(update, update_state_of_install(update->usb.state), NULL);
 }
 
-static void update_begin_ble(struct mesh_firmware_update *update, const char *image_path) {
-    char adapter[MESH_FIRMWARE_OTA_PATH_MAX];
-    int result = inkwell_ble_open_private(&update->central);
-    if (result == 0) {
+/*
+ * Opens the install's own client and says whether it has an adapter yet. CoreBluetooth and
+ * Windows find theirs after the open returns, on a later turn of the loop, and bluetoothd can be
+ * mid-restart after the download; so READY asks this every tick and keeps the radio unarmed until
+ * it is true, since a radio sent into its loader with nothing to stream to it is off the mesh.
+ * Every refusal is waited out, as the BLE transport's own bring-up waits them out, and READY's
+ * deadline is what gives up.
+ */
+static bool update_bluetooth_ready(struct mesh_firmware_update *update) {
+    if (!update->bluez_open) {
+        if (inkwell_ble_open_private(&update->central) < 0) {
+            return false;
+        }
         update->bluez_open = true;
         (void)inkwell_ble_attach_loop(&update->central, update->loop);
+    }
+    return inkwell_ble_check_ready(&update->central) == 0;
+}
+
+static void update_begin_ble(struct mesh_firmware_update *update, const char *image_path) {
+    char adapter[MESH_FIRMWARE_OTA_PATH_MAX];
+    int result = -ENODEV;
+    if (update_bluetooth_ready(update)) {
         result = inkwell_ble_find_adapter(&update->central, adapter, sizeof adapter);
     }
     if (result < 0) {
@@ -435,7 +463,7 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
     update->hw_model = board->hw_model;
     update->release = *release;
     inkwell_str_copy(update->where, sizeof update->where, where != NULL ? where : "");
-    inkwell_str_copy(update->staging, sizeof update->staging, firmware_update_staging());
+    inkwell_str_copy(update->staging, sizeof update->staging, mesh_firmware_update_staging());
     update->hooks = *hooks;
     update->on_done = on_done;
     update->userdata = userdata;
@@ -519,13 +547,21 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
         if (update->deadline_ms == 0U) {
             update->deadline_ms = now_ms + MESH_FIRMWARE_UPDATE_READY_TIMEOUT_MS;
         }
-        const bool ready =
-            update->hooks.radio_ready == NULL || update->hooks.radio_ready(update->hooks.userdata);
+        const bool bluetooth =
+            update->path == MESH_FIRMWARE_PATH_USB || update_bluetooth_ready(update);
+        const bool ready = bluetooth && (update->hooks.radio_ready == NULL ||
+                                         update->hooks.radio_ready(update->hooks.userdata));
         if (ready) {
             update_begin_handover(update);
         } else if (now_ms >= update->deadline_ms) {
-            update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NO_RADIO,
-                          inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_RADIO));
+            update_close_bluez(update);
+            if (!bluetooth) {
+                update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_HANDOVER,
+                              inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_ADAPTER));
+            } else {
+                update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NO_RADIO,
+                              inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_RADIO));
+            }
         }
         break;
     }

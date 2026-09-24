@@ -471,11 +471,12 @@ void fb_render_node_actions(struct inkcell_draw_state *state,
     }
     const uint32_t cursor =
         nav->node_actions_cursor < count ? nav->node_actions_cursor : count - 1U;
-    /* The cursor is a row here and never a card, so the span is the row itself: a verb is a
-       control and gets the row highlight, which is the `card` half of the detail's span being
-       false for exactly the rows this screen is made of. */
+    /* The cursor is a row here and never a card: a verb is a control and gets the row's own
+       cue, which is the `card` half of the detail's span being false for exactly the rows this
+       screen is made of. A list of verbs to choose from is a menu, and is set as one. */
+    const struct inkcell_fb_list_style look = fb_list_look(state, FB_LIST_ROLE_MENU);
     struct inkcell_fb_list list =
-        inkcell_fb_list_begin_focus(&inner, count, cursor, heights, cards, cursor, cursor, false);
+        inkcell_fb_list_begin_styled(state, &inner, count, cursor, heights, cards, &look);
     inkcell_fb_list_glide(state, &list, FB_LIST_NODE_ACTIONS);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS);
     uint32_t i;
@@ -631,8 +632,9 @@ void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snap
     for (uint32_t r = 0; r < rows && r < (uint32_t)(sizeof node_heights); ++r) {
         node_heights[r] = (r == MESH_UI_NODES_FILTER_ROW || r == MESH_UI_NODES_SORT_ROW) ? 1U : 2U;
     }
-    struct inkcell_fb_list list = inkcell_fb_list_begin_heights(
-        layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights);
+    const struct inkcell_fb_list_style look = fb_list_look(state, FB_LIST_ROLE_FEED);
+    struct inkcell_fb_list list = inkcell_fb_list_begin_styled(
+        state, layout, rows, nav->cursor[MESH_UI_SCREEN_NODES], node_heights, NULL, &look);
     inkcell_fb_list_glide(state, &list, FB_LIST_NODES);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     /*

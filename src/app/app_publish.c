@@ -2289,7 +2289,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
          * is replaced by the real one the moment the scan catches up. For a network link it is
          * the steady state: nothing enumerates a host, so this is the only row a TCP link will
          * ever have, and what it says about itself is what the whole client says about itself
-         * in the heading's link mark.
+         * in the line under the keycaps.
          *
          * Which is why the kind is stated rather than left to the memset. BLE is 0, so an unset
          * `kind` is a Bluetooth radio - and a renderer asks it three separate questions. The

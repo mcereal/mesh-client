@@ -696,12 +696,13 @@ static void actions_status(const struct mesh_ui_snapshot *snapshot,
         command_add(bar, MESH_UI_COMMAND_CHOOSE, MESH_STR_ACTION_CHOOSE, INKCELL_BUTTON_UP_DOWN);
     }
     /*
-     * And the one thing the Brick's own chrome cannot say: how to get out. Whether or not a
-     * radio is attached - the line under the bar that used to end in the quit hint while none
-     * was has become the heading's link mark, which says what the link is doing and nothing
-     * about leaving.
+     * And the one thing the Brick's own chrome cannot say: how to get out. Only while a radio
+     * is attached - the line under the bar already ends in the quit hint when there is none,
+     * and the same instruction twice reads as a rendering fault.
      */
-    command_add(bar, MESH_UI_COMMAND_QUIT, MESH_STR_ACTION_QUIT, INKCELL_BUTTON_QUIT);
+    if (connected) {
+        command_add(bar, MESH_UI_COMMAND_QUIT, MESH_STR_ACTION_QUIT, INKCELL_BUTTON_QUIT);
+    }
     commands_add_help(snapshot, bar);
     commands_add_tabs(bar);
 }
@@ -951,6 +952,23 @@ void mesh_ui_actions_drop_tabs(struct inkcell_action_bar *bar) {
     size_t kept = 0U;
     for (size_t i = 0; i < bar->count; ++i) {
         if (bar->items[i].label != MESH_STR_ACTION_TABS) {
+            bar->items[kept++] = bar->items[i];
+        }
+    }
+    bar->count = kept;
+}
+
+void mesh_ui_actions_compact(struct inkcell_action_bar *bar, bool back) {
+    if (bar == NULL) {
+        return;
+    }
+    mesh_ui_actions_drop_tabs(bar);
+    if (!back) {
+        return;
+    }
+    size_t kept = 0U;
+    for (size_t i = 0; i < bar->count; ++i) {
+        if (bar->items[i].label != MESH_STR_ACTION_BACK) {
             bar->items[kept++] = bar->items[i];
         }
     }

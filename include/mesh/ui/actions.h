@@ -47,6 +47,18 @@ bool mesh_ui_action_bar_goes_back(const struct inkcell_action_bar *bar);
 void mesh_ui_actions_drop_tabs(struct inkcell_action_bar *bar);
 
 /*
+ * Takes out of `bar` what the chrome around a compact footer already says, so that the one row
+ * it has is spent on the screen's own verbs: "L/R tabs", which the tab strip is, and "B back"
+ * when the heading draws the arrow derived from that same entry (`back`). Every other press
+ * stays, in order - a compact bar that hid a verb would be a verb nothing on the device names,
+ * since the help screen explains settings rather than buttons.
+ *
+ * B is kept wherever it is anything but leaving (discard, cancel, delete a character), because
+ * then the arrow is not drawn and the keycap is the only thing saying what B does.
+ */
+void mesh_ui_actions_compact(struct inkcell_action_bar *bar, bool back);
+
+/*
  * The verbs a pointer finds in the heading rather than as keycaps at the foot.
  *
  * A window with a mouse has no use for "X pin" printed under the panel: a keycap is what a d-pad

@@ -174,8 +174,11 @@ void fb_render_waypoints(struct inkcell_draw_state *state, const struct mesh_ui_
      * there is to do here. The picture goes above the one row instead - which is why this is a
      * banner-shaped sentence rather than inkcell_fb_draw_empty()'s full-body one.
      */
+    /* Every place, and the row that makes one. */
+    uint8_t steps[MESH_UI_MAX_WAYPOINTS + 1U];
     struct inkcell_fb_list list =
-        inkcell_fb_list_begin_rows(layout, count, nav->cursor[MESH_UI_SCREEN_WAYPOINTS], 2U);
+        fb_list_begin_steps(state, layout, count, nav->cursor[MESH_UI_SCREEN_WAYPOINTS], 2U, steps,
+                            sizeof steps, FB_LIST_ROLE_FEED);
     inkcell_fb_list_glide(state, &list, FB_LIST_WAYPOINTS);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     uint32_t i;

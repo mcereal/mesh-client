@@ -331,8 +331,11 @@ void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_s
     for (uint32_t r = 0; r < count; ++r) {
         heights[r] = (section_open && settings_row_slider(&items[r], NULL)) ? 2U : 1U;
     }
-    struct inkcell_fb_list list = inkcell_fb_list_begin_cards(
-        layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS], heights, any_cards ? cards : NULL);
+    const struct inkcell_fb_list_style look =
+        fb_list_look(state, section_open ? FB_LIST_ROLE_FORM : FB_LIST_ROLE_MENU);
+    struct inkcell_fb_list list =
+        inkcell_fb_list_begin_styled(state, layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS],
+                                     heights, any_cards ? cards : NULL, &look);
     inkcell_fb_list_glide(state, &list, FB_LIST_SETTINGS);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
     uint32_t i;

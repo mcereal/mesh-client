@@ -119,15 +119,40 @@ static const struct inkcell_fb_chip *fb_tab_chips(const struct mesh_ui_snapshot 
 }
 
 /*
- * The link, as the heading's status mark: the radio's name in the success tone while one is
- * attached, and what the transport is doing, dimmed, while none is.
+ * What the foot of the frame says about the link: the radio it found, or what the transport is
+ * doing and how to leave.
  *
- * This used to be a line of its own under the keycaps - "running: Home Base" on every frame, a
- * whole row of the panel for a fact that is usually "fine". The heading's mark says the same in
- * one symbol and a word, where a phone says it, and the row goes back to the body.
+ * `tone` is the second half of the same sentence - a link that is up is worth saying in the
+ * success colour, and one that is not is not worth shouting about - so the two are decided
+ * together here rather than by the widget, which has no idea what the words mean.
  *
- * The quit hint that line carried while no radio was attached is not lost: Status offers the
- * press in its own bar, and help lists it.
+ * It rides the end of the one-row footer now rather than a line of its own, so the healthy case
+ * is the radio's name alone: "running: Home Base" on every frame was a log line, and the colour
+ * already says it is running. Anything else keeps the whole sentence, because a link that is
+ * not up is the case where the transport's own words are the useful part - and the bar drops
+ * the status first when the row runs short, so a long one costs no verb its place.
+ */
+static void fb_link_summary(const struct mesh_ui_snapshot *snapshot, struct inkcell_line *line,
+                            enum inkcell_tone *tone) {
+    inkcell_line_reset(line);
+    const char *status = snapshot->transport_status[0] != '\0'
+                             ? snapshot->transport_status
+                             : inkcell_str(MESH_STR_HEADER_TRANSPORT_STARTING);
+    const struct mesh_ui_device *device = mesh_ui_snapshot_connected_device(snapshot);
+    if (device != NULL) {
+        inkcell_line_printf(line, "%s", fb_device_label(device));
+        *tone = INKCELL_TONE_SUCCESS;
+        return;
+    }
+    inkcell_line_str(line, MESH_STR_HEADER_STATUS_QUIT, status, inkcell_input_quit_hint());
+    *tone = INKCELL_TONE_DIM;
+}
+
+/*
+ * The link, as the heading's status mark, for a frame that has no foot to say it at the end of:
+ * the radio's name in the success tone while one is attached, and what the transport is doing,
+ * dimmed, while none is. A pointer frame only - see fb_heading_begin(). The quit hint the foot
+ * adds while nothing is attached has the window's close box to stand for it there.
  */
 static struct inkcell_fb_bar_status fb_link_status(const struct mesh_ui_snapshot *snapshot) {
     const struct mesh_ui_device *device = mesh_ui_snapshot_connected_device(snapshot);
@@ -146,8 +171,9 @@ static struct inkcell_fb_bar_status fb_link_status(const struct mesh_ui_snapshot
 }
 
 /*
- * What the frame hands the first heading drawn on it: the link's state, and - for a pointer -
- * the screen's verbs. See fb_draw_app_bar().
+ * What the frame hands the first heading drawn on it, for a pointer: the screen's verbs, and the
+ * link's state that the foot would otherwise have ended in. On the device it hands nothing - the
+ * keycaps and the link stay at the foot. See fb_draw_app_bar().
  *
  * Worked out once per frame, before any screen draws, because both are facts about the frame
  * rather than about a screen: the link is the client's, and the verbs are the command set every
@@ -235,7 +261,6 @@ static bool fb_route_headed(const struct mesh_ui_nav *nav) {
 static void fb_heading_begin(struct fb_heading *heading, const struct inkcell_draw_state *state,
                              const struct mesh_ui_snapshot *snapshot) {
     memset(heading, 0, sizeof *heading);
-    heading->status = fb_link_status(snapshot);
     if (!state->pointer || fb_layer_up(&snapshot->nav) || !fb_route_headed(&snapshot->nav)) {
         return;
     }
@@ -253,6 +278,10 @@ static void fb_heading_begin(struct fb_heading *heading, const struct inkcell_dr
             .family = verbs[i].destructive ? INKCELL_FAMILY_ERROR : INKCELL_FAMILY_PRIMARY,
             .focus_id = (uint32_t)MESH_UI_FOCUS_BAR + (uint32_t)verbs[i].id,
         };
+    }
+    /* The verbs took the foot away, so the link the foot ended in comes up with them. */
+    if (heading->count > 0U) {
+        heading->status = fb_link_status(snapshot);
     }
 }
 
@@ -334,6 +363,32 @@ struct inkcell_fb_layout fb_layout_in(const struct inkcell_fb_layout *layout,
     return out;
 }
 
+struct inkcell_fb_list_style fb_list_look(const struct inkcell_draw_state *state,
+                                          enum fb_list_role role) {
+    const bool roomy = role != FB_LIST_ROLE_FEED ||
+                       (state != NULL && inkcell_fb_width_class(state) != INKCELL_WIDTH_COMPACT);
+    return (struct inkcell_fb_list_style){
+        .appearance =
+            role == FB_LIST_ROLE_FEED ? INKCELL_FB_LIST_PLAIN : INKCELL_FB_LIST_INSET_GROUPED,
+        .density = roomy ? INKCELL_FB_LIST_COMFORTABLE : INKCELL_FB_LIST_COMPACT,
+        .focus = INKCELL_FB_LIST_FOCUS_ACCENT,
+        .type = INKCELL_FB_LIST_TYPE_TIERED,
+        .separators = roomy,
+    };
+}
+
+struct inkcell_fb_list fb_list_begin_steps(const struct inkcell_draw_state *state,
+                                           const struct inkcell_fb_layout *layout, uint32_t count,
+                                           uint32_t cursor, uint8_t per_item, uint8_t *steps,
+                                           size_t capacity, enum fb_list_role role) {
+    if (steps == NULL || count > capacity) {
+        return inkcell_fb_list_begin_rows(layout, count, cursor, per_item);
+    }
+    memset(steps, per_item, count);
+    const struct inkcell_fb_list_style look = fb_list_look(state, role);
+    return inkcell_fb_list_begin_styled(state, layout, count, cursor, steps, NULL, &look);
+}
+
 /*
  * A right-click menu: the row's own verbs, at the pointer.
  *
@@ -386,6 +441,10 @@ static void fb_render_context(struct inkcell_draw_state *state,
                                                  .w = 0,
                                                  .h = 0},
                                       .modal = true,
+                                      /* Over the body and not of it, and the menu's own corner
+                                         - inkcell_fb_draw_menu() fills with SHAPE_MD. */
+                                      .elevation = INKCELL_ELEVATION_FLOATING,
+                                      .shape = INKCELL_SHAPE_MD,
                                   },
                                   &frame)) {
         return;
@@ -430,6 +489,12 @@ bool fb_sheet_begin(struct inkcell_draw_state *state, const struct inkcell_fb_la
                                       .bounds = body,
                                       .scrim = true,
                                       .modal = true,
+                                      /* Over everything and waiting on an answer, which is
+                                         the modal level. The sheet's top corners are
+                                         inkcell_fb_draw_sheet()'s SHAPE_LG; its square foot
+                                         is off the bottom of the body anyway. */
+                                      .elevation = INKCELL_ELEVATION_MODAL,
+                                      .shape = INKCELL_SHAPE_LG,
                                   },
                                   frame)) {
         return false;
@@ -541,26 +606,23 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
     struct inkcell_action_bar actions;
     mesh_ui_actions_for(snapshot, &actions);
     const bool back = mesh_ui_action_bar_goes_back(&actions);
-    if (state->pointer) {
-        mesh_ui_actions_drop_tabs(&actions);
-    }
+    /* One row at the foot, spent on the screen's own verbs: the tabs and the way back are
+       already on the panel as the tab strip and the heading's arrow. See
+       mesh_ui_actions_compact() for why nothing else is dropped. */
+    mesh_ui_actions_compact(&actions, back);
     if (cache != NULL) {
         fb_heading_begin(&cache->heading, state, snapshot);
     }
     /*
-     * The foot of the frame, which is the part of it that read as a handheld's HUD.
+     * And with a pointer, no foot at all: the verbs are the heading's actions, where a pointer
+     * reader looks for them, and a row of keycaps would be a legend for buttons the reader is not
+     * holding. The link moves up with them as the heading's status mark.
      *
-     * On the device it is one row of keycaps: they are the only place a d-pad reader learns what
-     * the buttons do, so they stay, but the line under them that said which radio was attached
-     * moved up into the heading's status mark (see fb_link_status()). With a pointer there is no
-     * foot at all - the verbs are in the heading, where a pointer reader looks for them, and a
-     * row of keycaps would be a legend for buttons the reader is not holding.
-     *
-     * A layer the heading does not speak for - a dialog, a sheet, the tapbacks, help - keeps the
-     * bar for a pointer too: its answers are what the bar says, and they are not in the heading.
+     * Only where the heading has taken the verbs. Status, whose cards are its heading, and any
+     * layer the heading does not speak for - a dialog, a sheet, the tapbacks, help - keep the
+     * bar, since its answers are not in the heading.
      */
-    const bool heading_verbs = cache != NULL && cache->heading.count > 0U;
-    const bool footless = state->pointer && heading_verbs;
+    const bool footless = state->pointer && cache != NULL && cache->heading.count > 0U;
 
     /*
      * The two things the *client* says about itself, rather than what any screen says about
@@ -602,6 +664,9 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .active = (size_t)snapshot->nav.screen,
         .compact_nav = INKCELL_FB_COMPACT_NAV_TOP,
         .footer = !footless,
+        /* One row rather than two: the keycaps and the link's state share it, and the body gets
+           the other back. The two-line bar - every press spelled out over a log line - is the
+           frame that read as a launcher's HUD rather than an app. */
         .footer_kind = footless ? INKCELL_FB_FOOTER_NONE : INKCELL_FB_FOOTER_COMPACT,
         .back = back,
         .busy = mesh_ui_chrome_busy(snapshot),
@@ -749,15 +814,18 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
                                               : inkcell_focus_marked(&cache->focus));
     }
 
-    /* The link rides the end of the keycap row only on a frame whose screen drew no heading to
-       carry it - Status, whose first card is the link anyway, and the keyboard. */
-    const bool status_said = cache != NULL && cache->heading.claimed;
-    const struct inkcell_fb_bar_status link = fb_link_status(snapshot);
+    struct inkcell_line summary;
+    enum inkcell_tone summary_tone = INKCELL_TONE_DIM;
+    fb_link_summary(snapshot, &summary, &summary_tone);
     const struct inkcell_fb_action_bar bar = {
         .items = actions.items,
         .count = actions.count,
-        .status = status_said ? NULL : link.text,
-        .status_tone = link.tone,
+        .status = inkcell_line_text(&summary),
+        .status_tone = summary_tone,
+        /* A leads when it is the screen's own press, and is drawn as the one that matters. Not
+           when some other key leads - X on the device list is a disconnect, and a tonal pill
+           round the verb that drops the link would be recommending it. */
+        .emphasize_first = actions.count > 0U && actions.items[0].button == INKCELL_BUTTON_A,
     };
     inkcell_fb_scaffold_end(state, &frame, footless ? NULL : &bar);
     fb_render_context(state, snapshot);

@@ -60,25 +60,31 @@ if ($missing.Count -eq 0) {
 
 Push-Location $repoRoot
 try {
-    $outOfSync = git submodule status 2>$null | Select-String '^[+-]'
+    # The direct submodules, and Mbed TLS under inkwell with everything nested in it. Not a bare
+    # --recursive: inkcell and inkstand each pin an inkwell of their own, which this build never
+    # reads because this repository's pin is the one the tree builds.
+    $outOfSync = @(git submodule status 2>$null) +
+        @(git -C third_party/inkwell submodule status --recursive 2>$null) |
+        Select-String '^[+-]'
     $submodulesOutOfSync = $null -ne $outOfSync
     if ($outOfSync) {
         if ($Check) {
             Write-Host 'Submodules:'
             Write-Host '  missing or out of sync'
         } else {
-            Write-Host 'Synchronizing direct submodules...'
-            # Do not recurse into Mbed TLS here. Its optional PQ dependencies create paths long
-            # enough to exceed Git-for-Windows limits in worktrees. The initial Windows build
-            # disables TLS; a later TLS-enabled build can use a short standalone checkout.
+            Write-Host 'Synchronizing submodules...'
+            # Long paths: Mbed TLS's nested post-quantum sources run past MAX_PATH in a worktree.
             git -c core.longpaths=true submodule update --init proto/meshtastic third_party/inkwell third_party/inkcell third_party/inkstand third_party/nanopb
+            if ($LASTEXITCODE -eq 0) {
+                git -c core.longpaths=true -C third_party/inkwell submodule update --init --recursive
+            }
             if ($LASTEXITCODE -ne 0) {
                 throw 'Submodule synchronization failed.'
             }
         }
     } else {
         Write-Host 'Submodules:'
-        Write-Host '  direct dependencies are in sync'
+        Write-Host '  in sync, with Mbed TLS'
     }
 } finally {
     Pop-Location

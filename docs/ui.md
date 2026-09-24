@@ -341,24 +341,20 @@ back button is B (inkcell's `inkcell/ui/pointer.h`). `tests/suites/ui_click.c` c
 real frame.
 
 A window puts the screen's verbs in its heading rather than as keycaps at the foot (inkcell's
-`inkcell_draw_state.pointer`), and draws no foot at all. The verbs are the same command set the
-keycaps are projected from, projected a second time into the app bar's actions
+`inkcell_draw_state.pointer`), and draws no foot at all; the link's state that the foot ended in
+moves up with them as the heading's status mark. The verbs are the same command set the keycaps
+are projected from, projected a second time into the app bar's actions
 (`mesh_ui_actions_heading()` in `src/ui/tables/actions.c`): each is a symbol, the first verb that
 makes, sends or keeps something is the tonal pill with its word beside it, and help is last. A
 command with no symbol in that table stays off the heading, which is how whatever the pointer
 already has somewhere better is left out - a row's own A (the row is clicked), the tabs, the
 arrows (the wheel), quit (the close box), and Back (the heading's arrow). A verb is its command
 (`MESH_UI_FOCUS_BAR + command`) and reaches `mesh_ui_controller_handle_click()`, which runs it
-only if the screen offers it right now. Two places keep the bar for a pointer: Status, whose
-cards are its heading, and any layer the heading does not speak for - a dialog, a sheet, help -
-where it is the toolbar it always was. `pointer` in a capture scene draws the same frame.
-
-On the device the foot is one row of keycaps. They are the only place a d-pad reader learns what
-the buttons do, so they stay; the line that used to sit under them saying which radio was attached
-is the heading's link mark now - the radio's name in the success tone, or what the transport is
-doing, dimmed - and the body has the row back. A screen draws its heading through
-`fb_draw_app_bar()`, which hands the first heading on a frame the mark and the verbs; Status,
-which draws none, gets the mark at the end of its keycap row.
+only if the screen offers it right now. A screen draws its heading through `fb_draw_app_bar()`,
+which hands the first heading on a pointer frame the verbs and the mark. Two places keep the bar
+for a pointer: Status, whose cards are its heading, and any layer the heading does not speak for -
+a dialog, a sheet, help - where it is the toolbar it always was. `pointer` in a capture scene
+draws the same frame.
 
 A right-click (or a control-click) on a row of the screen's list selects it and opens that
 row's menu at the pointer: its row commands, read from the same command set the action bar is
@@ -528,6 +524,19 @@ Four authoring rules hold across all of them, and breaking one compiles and look
 - **A heading is `struct inkcell_fb_app_bar`**, with slots; the back arrow is *derived* from the action
   table, never declared.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.
+- **A list names its role, never its look.** `fb_list_look()` in `fb_screens_frame.c` is the
+  one answer: a *menu* (places to go, verbs to choose) and a *form* (a section's fields) stand in
+  inset sections with comfortable rows; a *feed* (nodes, conversations, waypoints) stays on the
+  panel, compact on the compact width class and comfortable above it. Every list takes the accent
+  cursor - a lift and a leading capsule, the row's own inks kept - and tiered type, and the
+  frame's travelling ring stays off an accent row, going to dialogs and cards instead. A uniform
+  list opens through `fb_list_begin_steps()`.
+
+The foot of the frame is inkcell's one-row compact action bar: the screen's own verbs, then the
+link's state at the row's end (the radio's name in the success tone, or what the transport is
+doing). `mesh_ui_actions_compact()` drops only what the chrome already says - `L/R tabs` and a `B
+back` the heading's arrow stands for - and no verb, because the help screen explains settings,
+not buttons, so a verb the bar hid would be one nothing on the device names.
 
 The tables a screen reads instead of deciding for itself: `actions.c` (button verbs), `status.c`
 (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c`,
@@ -1126,8 +1135,8 @@ catch whatever is actually on the panel — see [`device.md`](device.md#screensh
 client does - its transports, its caches, the radio on the desk - drive that instead:
 `--ui-control PATH` (or `MESHCLIENT_UI_CONTROL`) opens a Unix socket that takes a key by name, a
 wait, and a `shot` that writes the frame as a PPM once nothing on the panel is moving. The
-protocol is in `include/mesh/app/control.h`; `meshclient --ui-send 'key r1; shot /tmp/x.ppm'` is
-its other end, which is what lets a Brick be driven with only the binary it already has.
+protocol is in inkstand's `include/inkstand/app/control.h`; `meshclient --ui-send 'key r1; shot
+/tmp/x.ppm'` is its other end, which is what lets a Brick be driven with only the binary it already has.
 
 `scripts/ui-drive.sh` puts the three places it runs behind one command, and brings every shot
 back as a PNG on this machine:
