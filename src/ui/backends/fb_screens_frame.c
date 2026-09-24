@@ -582,10 +582,12 @@ static void fb_render_begin(struct inkcell_draw_state *state,
 /*
  * Whether the place the reader is standing has a list and a detail that could stand side by side.
  *
- * Messages (the conversations and the thread open from one of them) and Nodes (the roster and
- * whatever is open over one node: its detail, a chart of a reading, the sheet of its verbs). The
- * scaffold decides whether there is room (inkcell/ui/widgets/scaffold.h); this only says the
- * screen has the two halves.
+ * Messages (the conversations and the thread open from one of them), Nodes (the roster and
+ * whatever is open over one node: its detail, a chart of a reading, the sheet of its verbs) and
+ * Settings (the section list and the open section, a module or a channel slot included: the list
+ * keeps the top-level row they are under). The share and contact sheets are not: they are raised
+ * by a row and take the body, as on the Brick. The scaffold decides whether there is room
+ * (inkcell/ui/widgets/scaffold.h); this only says the screen has the two halves.
  */
 static bool fb_route_split(const struct mesh_ui_route *body) {
     switch (body->screen) {
@@ -594,6 +596,9 @@ static bool fb_route_split(const struct mesh_ui_route *body) {
     case MESH_UI_SCREEN_NODES:
         return body->level == MESH_UI_ROUTE_LIST || body->level == MESH_UI_ROUTE_NODE ||
                body->level == MESH_UI_ROUTE_NODE_ACTIONS || body->level == MESH_UI_ROUTE_TREND;
+    case MESH_UI_SCREEN_SETTINGS:
+        return body->level == MESH_UI_ROUTE_LIST || body->level == MESH_UI_ROUTE_SECTION ||
+               body->level == MESH_UI_ROUTE_CHANNEL;
     default:
         return false;
     }
@@ -635,16 +640,35 @@ static void fb_render_split(struct inkcell_draw_state *state,
                             const struct inkcell_fb_scaffold_frame *frame,
                             struct inkcell_fb_layout *layout, bool back) {
     struct inkcell_fb_render_cache *const cache = state->render_cache;
-    const bool nodes = snapshot->nav.screen == MESH_UI_SCREEN_NODES;
-    const bool reading = nodes ? snapshot->nav.node_detail_open : snapshot->nav.thread_open;
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    bool reading;
+    switch (nav->screen) {
+    case MESH_UI_SCREEN_NODES:
+        reading = nav->node_detail_open;
+        break;
+    case MESH_UI_SCREEN_SETTINGS:
+        reading = nav->settings_section != MESH_UI_SETTINGS_NO_SECTION;
+        break;
+    case MESH_UI_SCREEN_MESSAGES:
+    default:
+        reading = nav->thread_open;
+        break;
+    }
     if (cache != NULL && reading) {
         cache->heading.pass = 1U;
     }
     layout->back = back && !reading;
-    if (nodes) {
+    switch (nav->screen) {
+    case MESH_UI_SCREEN_NODES:
         fb_render_node_list(state, snapshot, layout);
-    } else {
+        break;
+    case MESH_UI_SCREEN_SETTINGS:
+        fb_render_settings_list(state, snapshot, layout);
+        break;
+    case MESH_UI_SCREEN_MESSAGES:
+    default:
         fb_render_conversations(state, snapshot, layout);
+        break;
     }
 
     /* Where the reader is, for whatever reads the frame's body back - the pane they are in. */
@@ -656,14 +680,34 @@ static void fb_render_split(struct inkcell_draw_state *state,
     struct inkcell_fb_layout detail = inkcell_fb_scaffold_detail(state, frame, NULL);
     if (reading) {
         detail.back = back;
-        if (nodes) {
+        switch (nav->screen) {
+        case MESH_UI_SCREEN_NODES:
             fb_render_node_pane(state, snapshot, &detail);
-        } else {
+            break;
+        case MESH_UI_SCREEN_SETTINGS:
+            fb_render_settings(state, snapshot, &detail);
+            break;
+        case MESH_UI_SCREEN_MESSAGES:
+        default:
             fb_render_thread(state, snapshot, &detail);
+            break;
         }
     } else {
-        inkcell_fb_draw_empty(state, &detail, nodes ? INKCELL_ICON_NODES : INKCELL_ICON_MESSAGES,
-                              inkcell_str(nodes ? MESH_STR_NODES_PICK : MESH_STR_MESSAGES_PICK));
+        switch (nav->screen) {
+        case MESH_UI_SCREEN_NODES:
+            inkcell_fb_draw_empty(state, &detail, INKCELL_ICON_NODES,
+                                  inkcell_str(MESH_STR_NODES_PICK));
+            break;
+        case MESH_UI_SCREEN_SETTINGS:
+            inkcell_fb_draw_empty(state, &detail, INKCELL_ICON_SETTINGS,
+                                  inkcell_str(MESH_STR_SETTINGS_PICK));
+            break;
+        case MESH_UI_SCREEN_MESSAGES:
+        default:
+            inkcell_fb_draw_empty(state, &detail, INKCELL_ICON_MESSAGES,
+                                  inkcell_str(MESH_STR_MESSAGES_PICK));
+            break;
+        }
     }
     /* The layers that follow - a message's faces, a question - are about the detail, so they
        stand over its pane rather than over the list beside it. */

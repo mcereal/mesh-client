@@ -551,6 +551,67 @@ MESH_TEST_CASE(ui_click_a_wide_window_opens_a_node_beside_its_roster, unit) {
     click_close(&store, capture);
 }
 
+/* And on Settings: the section list stays, the section opened from it stands beside it, and a
+   module one level down keeps it there - the list is the top-level level, whatever is open. */
+MESH_TEST_CASE(ui_click_a_wide_window_opens_a_section_beside_the_sections, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    mesh_ui_store_set_settings(&store, &settings);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    click_settle(&store);
+
+    uint32_t modules = 0U;
+    while (mesh_ui_settings_root_at(modules) != MESH_UI_SETTINGS_MODULES) {
+        ++modules;
+    }
+    const uint32_t row_id = (uint32_t)MESH_UI_FOCUS_ROWS + modules;
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect row;
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_rect_of(map, row_id, &row),
+                              click_close(&store, capture), "the sections should be click targets");
+    const int list_right = row.x + row.w;
+    MESH_TEST_FAIL_IF_CLEANUP(list_right > 1920 / 2, click_close(&store, capture),
+                              "the sections should stand in the narrower, leading pane");
+
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, row_id, &action) ||
+                                  store.nav.settings_section != MESH_UI_SETTINGS_MODULES,
+                              click_close(&store, capture), "a click on Modules should open it");
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    inkcell_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_fb_transition_offset(inkcell_capture_state(capture)) != 0,
+                              click_close(&store, capture),
+                              "a section opening beside the sections should not slide the frame");
+
+    /* A module, from the Modules list now in the detail pane: its rows are that pane's. */
+    map = click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS, &row) || row.x < list_right,
+        click_close(&store, capture), "the Modules list should be the detail pane's targets");
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS, &action) ||
+                                  store.nav.settings_parent != MESH_UI_SETTINGS_MODULES,
+                              click_close(&store, capture), "a click on a module should open it");
+    map = click_render(&store, capture);
+    for (uint32_t i = 0U; i < 64U; ++i) {
+        if (inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + i, &row)) {
+            MESH_TEST_FAIL_IF_CLEANUP(row.x < list_right, click_close(&store, capture),
+                                      "nothing in the rows block should be the section list's "
+                                      "while a section is open beside it");
+        }
+    }
+    click_close(&store, capture);
+}
+
 MESH_TEST_CASE(ui_click_a_right_click_off_a_list_opens_nothing, unit) {
     struct mesh_ui_store store;
     struct inkcell_capture *capture = NULL;

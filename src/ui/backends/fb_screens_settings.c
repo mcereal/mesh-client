@@ -61,17 +61,38 @@ static bool settings_row_slider(const struct mesh_ui_settings_item *item,
  * that header's note is about. Groups and cards are the same number - see there.
  */
 
-/* Settings: the section list, or one section's label/value rows. Editable rows show a
-   pending edit in place of the radio's value, marked with a dot until Y saves it. */
-/* Takes the state mutably, unlike its neighbours: the switches on the toggle rows step an
-   animation kept on it. Nothing else here writes to the state. */
-void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
-                        struct inkcell_fb_layout *layout) {
+/*
+ * The section list's row for whichever section is open, found by what it is: a module is under
+ * Modules and a channel under Channels, so the row is the open section's top-level one. What a
+ * split frame's list pane puts under its cursor while the section stands beside it.
+ */
+static uint32_t settings_open_root_row(const struct mesh_ui_nav *nav) {
+    const uint8_t top = nav->settings_parent != MESH_UI_SETTINGS_NO_SECTION ? nav->settings_parent
+                                                                            : nav->settings_section;
+    const uint32_t count = mesh_ui_settings_root_count();
+    for (uint32_t r = 0U; r < count; ++r) {
+        if ((uint8_t)mesh_ui_settings_root_at(r) == top) {
+            return r;
+        }
+    }
+    return nav->settings_list_cursor;
+}
+
+/*
+ * The screen, or with `roster` the section list alone whatever is open - the leading pane of a
+ * split frame, beside the section it opened. One body for both so the two cannot draw the list
+ * differently.
+ */
+static void fb_render_settings_pane(struct inkcell_draw_state *state,
+                                    const struct mesh_ui_snapshot *snapshot,
+                                    struct inkcell_fb_layout *layout, bool roster) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const struct mesh_ui_settings *settings = &snapshot->settings;
     const struct mesh_ui_handshake_state *handshake =
         snapshot->handshake_valid ? &snapshot->handshake : NULL;
-    const bool section_open = (nav->settings_section != MESH_UI_SETTINGS_NO_SECTION);
+    /* A section open beside this list rather than in place of it. */
+    const bool beside = roster && nav->settings_section != MESH_UI_SETTINGS_NO_SECTION;
+    const bool section_open = !roster && nav->settings_section != MESH_UI_SETTINGS_NO_SECTION;
     const enum mesh_ui_settings_section section =
         (enum mesh_ui_settings_section)nav->settings_section;
 
@@ -333,11 +354,17 @@ void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_s
     }
     const struct inkcell_fb_list_style look =
         fb_list_look(state, section_open ? FB_LIST_ROLE_FORM : FB_LIST_ROLE_MENU);
-    struct inkcell_fb_list list =
-        inkcell_fb_list_begin_styled(state, layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS],
-                                     heights, any_cards ? cards : NULL, &look);
-    inkcell_fb_list_glide(state, &list, FB_LIST_SETTINGS);
-    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    /* With a section open beside the list, the tab's cursor indexes the section's rows and the
+       list's own place is the open section's row. The list is then neither the glide's nor the
+       click's: the section beside it is both. */
+    const uint32_t cursor =
+        beside ? settings_open_root_row(nav) : nav->cursor[MESH_UI_SCREEN_SETTINGS];
+    struct inkcell_fb_list list = inkcell_fb_list_begin_styled(
+        state, layout, count, cursor, heights, any_cards ? cards : NULL, &look);
+    if (!beside) {
+        inkcell_fb_list_glide(state, &list, FB_LIST_SETTINGS);
+        inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    }
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {
         if (section_open) {
@@ -747,4 +774,19 @@ void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_s
             inkcell_fb_list_item(state, &list, i, &row);
         }
     }
+}
+
+/* Settings: the section list, or one section's label/value rows. Editable rows show a
+   pending edit in place of the radio's value, marked with a dot until Y saves it. */
+/* Takes the state mutably, unlike its neighbours: the switches on the toggle rows step an
+   animation kept on it. Nothing else here writes to the state. */
+void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                        struct inkcell_fb_layout *layout) {
+    fb_render_settings_pane(state, snapshot, layout, false);
+}
+
+void fb_render_settings_list(struct inkcell_draw_state *state,
+                             const struct mesh_ui_snapshot *snapshot,
+                             struct inkcell_fb_layout *layout) {
+    fb_render_settings_pane(state, snapshot, layout, true);
 }

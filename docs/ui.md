@@ -394,11 +394,14 @@ any window that is still compact, it is the tab strip across the top - kept ther
 because L1 and R1 are on the top edge of the case - and the frame is the one it always was.
 
 A window with room for a whole measure of detail beside a list - 1920x1080 at the Brick's scale is
-the first - stands the two side by side. Two screens do so:
+the first - stands the two side by side. Three screens do so:
 
 - **Messages**: the conversations, and beside them the open thread.
 - **Nodes**: the roster, and beside it whatever is open over one node - its detail, a chart of a
   reading, or the sheet of its verbs.
+- **Settings**: the section list, and beside it the open section - a module or a channel slot
+  included, with the list keeping the top-level row (Modules, Channels) they are under. The share
+  and contact sheets a row raises still take the body, as on the Brick.
 
 With nothing open, the detail pane holds a note saying what will appear there. The nav is the
 one-pane nav, unchanged: A opens, every press is the detail's while it is open, and B closes it.
@@ -407,8 +410,9 @@ cursor (found by what that row is, since the list re-ranks under an open detail)
 arrow moves to the detail's heading. Opening and closing is not a move either, so nothing slides
 (`fb_render_split_pair()`). A node opened from the map is one pane, as it is on the Brick: B takes
 it back to the map, not the roster. A screen says it has two halves in `fb_route_split()`; whether
-there is room is inkcell's scaffold's to decide. `ui_click_a_wide_window_opens_a_thread_beside_its_list`
-and `ui_click_a_wide_window_opens_a_node_beside_its_roster` hold it.
+there is room is inkcell's scaffold's to decide. `ui_click_a_wide_window_opens_a_thread_beside_its_list`,
+`ui_click_a_wide_window_opens_a_node_beside_its_roster` and
+`ui_click_a_wide_window_opens_a_section_beside_the_sections` hold it.
 
 `make ui-capture` is still the way to *review* a UI change, because a picture in a pull request
 is reviewable and a window on somebody's desk is not.
