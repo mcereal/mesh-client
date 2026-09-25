@@ -84,12 +84,12 @@ MESH_TEST_CASE(commands_are_the_source_of_the_legacy_action_bar, unit) {
     struct mesh_ui_command_set commands;
     mesh_ui_commands_for(&snapshot, &commands);
     const struct mesh_ui_command *open = mesh_ui_commands_find(&commands, MESH_UI_COMMAND_OPEN);
-    const struct mesh_ui_command *delete_command =
-        mesh_ui_commands_find_button(&commands, INKCELL_BUTTON_X);
+    const struct mesh_ui_command *new_command =
+        mesh_ui_commands_find_button(&commands, INKCELL_BUTTON_Y);
     MESH_TEST_FAIL_IF(open == NULL || open->button != INKCELL_BUTTON_A,
                       "the conversation list should offer semantic OPEN on the Brick's A");
-    MESH_TEST_FAIL_IF(delete_command == NULL || delete_command->id != MESH_UI_COMMAND_DELETE,
-                      "the conversation list's X binding should identify DELETE");
+    MESH_TEST_FAIL_IF(new_command == NULL || new_command->id != MESH_UI_COMMAND_NEW,
+                      "the conversation list's Y binding should identify NEW");
 
     struct inkcell_action_bar bar;
     mesh_ui_actions_for(&snapshot, &bar);
@@ -350,10 +350,13 @@ MESH_TEST_CASE(actions_arm_before_they_destroy, unit) {
     struct mesh_ui_snapshot snapshot;
     struct inkcell_action_bar bar;
 
+    /* The cursor here is on "All traffic", which is not a conversation and offers no X of its
+       own - ui_nav_delete_keycap_only_on_a_conversation is the row that does. The arming is
+       what this case is about. */
     actions_snapshot(&snapshot);
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_X) != MESH_STR_ACTION_DELETE,
-                      "X should offer to delete a conversation");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_X) != INKCELL_STR_NONE,
+                      "X should not offer to delete the all-traffic row");
 
     snapshot.nav.messages_delete_armed = true;
     mesh_ui_actions_for(&snapshot, &bar);

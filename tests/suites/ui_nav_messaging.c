@@ -2078,6 +2078,53 @@ cleanup:
 }
 
 /*
+ * X on "All traffic" or "New message" deletes nothing, so the bar must not offer it there: a
+ * keycap that does nothing is the one thing the action table exists to prevent. The press and
+ * the keycap are checked on the same rows so the two cannot drift apart again.
+ */
+MESH_TEST_CASE(ui_nav_delete_keycap_only_on_a_conversation, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_command_set commands;
+
+    /* Row 0 is "All traffic". */
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_commands_for(&snapshot, &commands);
+    if (mesh_ui_commands_find(&commands, MESH_UI_COMMAND_DELETE) != NULL) {
+        failure = "the all-traffic row should not offer X to delete";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (store.nav.messages_delete_armed) {
+        failure = "X on the all-traffic row should arm nothing";
+        goto cleanup;
+    }
+
+    /* Row 1 is a channel, which can be deleted. */
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_commands_for(&snapshot, &commands);
+    const struct mesh_ui_command *del = mesh_ui_commands_find(&commands, MESH_UI_COMMAND_DELETE);
+    if (del == NULL || del->button != INKCELL_BUTTON_X) {
+        failure = "a conversation row should offer X to delete";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * A mute outlives a restart, and outlives the read mark it shares a slot with: a conversation
  * muted before it was ever read has no packet id to be saved under, and a loader that took the
  * id as the price of a line would unmute it on the next launch.
