@@ -146,6 +146,11 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
         command_add(bar, MESH_UI_COMMAND_RESEND, MESH_STR_ACTION_RESEND, INKCELL_BUTTON_START);
     }
     commands_add_help(snapshot, bar);
+    /* The triggers walk the transcript's two landmarks: the first unread bubble (then the
+       oldest), and the newest. See mesh_ui_nav_thread_jump(). After help, so a narrow panel
+       drops this before the screen that explains it. */
+    command_add(bar, MESH_UI_COMMAND_THREAD_JUMP, MESH_STR_ACTION_THREAD_JUMP,
+                INKCELL_BUTTON_TRIGGERS);
     commands_add_tabs(bar);
 }
 

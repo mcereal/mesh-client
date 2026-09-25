@@ -10,6 +10,7 @@
 #include "support/ui_fixture.h"
 
 #include "mesh/core/message.h"
+#include "mesh/ui/commands.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/status.h"
@@ -633,6 +634,85 @@ MESH_TEST_CASE(ui_nav_draft_follows_its_conversation, unit) {
     if (store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
         strcmp(store.nav.draft, "to everyone") != 0) {
         failure = "the channel's own draft should come back";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The triggers in a thread: R2 to the newest bubble, L2 to the first unread one and then the
+ * oldest. A thread opens on its newest bubble, and the "New" line is otherwise a long walk up.
+ */
+MESH_TEST_CASE(ui_nav_thread_triggers_jump_to_unread_and_newest, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_message_list messages;
+    memset(&messages, 0, sizeof messages);
+    messages.count = 6U;
+    for (uint32_t i = 0; i < messages.count; ++i) {
+        messages.entries[i].packet_id = 100U + i;
+        messages.entries[i].peer = 0x3000U;
+        messages.entries[i].direction = MESH_MESSAGE_INBOUND;
+        snprintf(messages.entries[i].peer_name, sizeof messages.entries[i].peer_name, "%s", "BRVO");
+        snprintf(messages.entries[i].text, sizeof messages.entries[i].text, "line %u", (unsigned)i);
+    }
+    mesh_ui_store_set_messages(&store, &messages);
+
+    struct mesh_ui_action action;
+    struct mesh_ui_snapshot snapshot;
+    /* Onto BRVO's row (row 2) and in. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    const uint32_t *cursor = &store.nav.cursor[MESH_UI_SCREEN_MESSAGES];
+    if (!store.nav.thread_open || store.nav.target_node != 0x3000U || *cursor != 5U) {
+        failure = "expected BRVO's thread open on its newest bubble";
+        goto cleanup;
+    }
+
+    /* Read up to line 2 when the thread was opened: the first unread bubble is row 3. */
+    store.nav.thread_unread_from = 102U;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    if (*cursor != 3U) {
+        failure = "L2 should stop on the first unread bubble";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    if (*cursor != 0U) {
+        failure = "a second L2 should go on to the oldest bubble";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
+    if (*cursor != 5U) {
+        failure = "R2 should go to the newest bubble";
+        goto cleanup;
+    }
+    /* With nothing unread, L2 is simply the top. */
+    store.nav.thread_unread_from = 0U;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    if (*cursor != 0U || !store.nav.thread_open) {
+        failure = "with no unread mark L2 should go to the oldest bubble, in the thread";
+        goto cleanup;
+    }
+
+    /* The bar names the pair, on the triggers. */
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    struct mesh_ui_command_set commands;
+    mesh_ui_commands_for(&snapshot, &commands);
+    const struct mesh_ui_command *jump =
+        mesh_ui_commands_find(&commands, MESH_UI_COMMAND_THREAD_JUMP);
+    if (jump == NULL || jump->button != INKCELL_BUTTON_TRIGGERS) {
+        failure = "a thread's bar should offer the jump on the triggers";
         goto cleanup;
     }
 

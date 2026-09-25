@@ -130,6 +130,9 @@ MESH_STR_ENTRY(ACTION_HELP,               "help")
 MESH_STR_ENTRY(ACTION_SCROLL,             "scroll")
 /* The shoulder buttons inside a long picker: ten rows at a time rather than one. */
 MESH_STR_ENTRY(ACTION_JUMP,               "jump 10")
+/* The triggers inside a thread: back to the first unread message (then the oldest), and on to
+   the newest. */
+MESH_STR_ENTRY(ACTION_THREAD_JUMP,        "new / latest")
 /* The map's three presses, and the one screen in this client where the d-pad moves the picture
    instead of a cursor. "pan" is that: sliding the view over the world. */
 MESH_STR_ENTRY(ACTION_PAN,                "pan")
@@ -1463,6 +1466,8 @@ MESH_STR_ENTRY(HELP_LABEL_THREAD_REPLY,   "Replies and tapbacks")
 MESH_STR_ENTRY(HELP_LABEL_THREAD_ALL,     "The all-traffic view")
 MESH_STR_ENTRY(HELP_LABEL_THREAD_HISTORY, "How far back it goes")
 MESH_STR_ENTRY(HELP_LABEL_THREAD_RESEND,  "Sending it again")
+MESH_STR_ENTRY(HELP_LABEL_THREAD_JUMP,    "Getting around")
+MESH_STR_ENTRY(HELP_NOTE_THREAD_JUMP,     "L2 goes back to the first message you had not read, and a second press to the oldest. R2 goes to the newest.")
 MESH_STR_ENTRY(HELP_NOTE_THREAD,          "What was said here, oldest at the top. Your own messages sit on the right; a padlock means the channel was encrypted, and the hop count is how far the message travelled.")
 MESH_STR_ENTRY(HELP_NOTE_THREAD_HISTORY,  "This conversation is kept on the card and goes back further than the radio does - scroll up for older messages. Each conversation has its own store, so a busy channel never pushes a quiet one out.")
 MESH_STR_ENTRY(HELP_NOTE_THREAD_MARKS,    "A clock means the radio is still waiting to hear that a message arrived, a double tick that a node confirmed it, an alert that it did not. A broadcast asks for no answer and carries no mark.")

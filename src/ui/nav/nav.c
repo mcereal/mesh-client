@@ -524,6 +524,48 @@ const struct mesh_ui_message *mesh_ui_nav_message_at_cursor(const struct mesh_ui
     return &messages.entries[indices[cursor]];
 }
 
+/*
+ * The triggers in a thread: R2 to the newest message, L2 back to where the unread ones start.
+ *
+ * A thread opens on its newest bubble, and a long one read a line at a time is a lot of Down to
+ * get back to - or of Up to find the "New" line the frame drew on open. L2 stops at that line
+ * first (the first bubble after `thread_unread_from`) and at the oldest bubble on a second
+ * press, which is the order a reader wants them in: what they missed, then everything.
+ */
+static bool mesh_ui_nav_thread_jump(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                    int direction) {
+    const struct mesh_ui_message_view view = mesh_ui_store_message_view(store, nav);
+    if (view.entries == NULL) {
+        return false;
+    }
+    uint32_t indices[MESH_UI_MAX_THREAD_MESSAGES];
+    const uint32_t count =
+        mesh_ui_nav_filter_messages(nav, view, indices, MESH_UI_MAX_THREAD_MESSAGES);
+    if (count == 0U) {
+        return false;
+    }
+    uint32_t *cursor = &nav->cursor[MESH_UI_SCREEN_MESSAGES];
+    uint32_t target = 0U;
+    if (direction > 0) {
+        target = count - 1U;
+    } else if (nav->thread_unread_from != 0U) {
+        for (uint32_t row = 1U; row < count; ++row) {
+            if (view.entries[indices[row - 1U]].packet_id == nav->thread_unread_from) {
+                /* Already there or above it: the second press goes the rest of the way. */
+                target = (*cursor > row) ? row : 0U;
+                break;
+            }
+        }
+    }
+    if (*cursor == target) {
+        return false;
+    }
+    *cursor = target;
+    /* Off the newest line, so the clamp stops pinning the cursor to it; on it, so it does. */
+    nav->messages_seen = count;
+    return true;
+}
+
 const struct mesh_ui_message *mesh_ui_nav_resendable(const struct mesh_ui_nav *nav,
                                                      struct mesh_ui_message_view messages) {
     if (nav == NULL || messages.entries == NULL || !nav->thread_open) {
@@ -2490,8 +2532,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
        unconditionally: a screen with no headings has no boundaries and answers false, exactly as
        it draws no cards. See mesh_ui_nav_cursor_group(). */
     case INKCELL_KEY_L2:
+        if (nav->screen == MESH_UI_SCREEN_MESSAGES && nav->thread_open) {
+            return mesh_ui_nav_thread_jump(nav, store, -1) || changed;
+        }
         return mesh_ui_nav_cursor_group(nav, store, -1) || changed;
     case INKCELL_KEY_R2:
+        if (nav->screen == MESH_UI_SCREEN_MESSAGES && nav->thread_open) {
+            return mesh_ui_nav_thread_jump(nav, store, +1) || changed;
+        }
         return mesh_ui_nav_cursor_group(nav, store, +1) || changed;
     case INKCELL_KEY_START:
         /*
