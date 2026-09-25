@@ -14,9 +14,9 @@
 
 #include "nav_internal.h"
 
+#include "inkstand/nav/dialog.h"
 #include "mesh/core/message.h"
 #include "mesh/ui/devices.h"
-#include "mesh/ui/dialog.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/help.h"
 #include "mesh/ui/history.h"
@@ -1624,7 +1624,7 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
         const enum mesh_ui_settings_action which = (enum mesh_ui_settings_action)item.number;
         if (mesh_ui_settings_action_needs_confirm(which)) {
             /* Cancel under the cursor, so a repeated press changes nothing. */
-            mesh_ui_dialog_open(&nav->confirm, (uint16_t)which);
+            inkstand_dialog_open(&nav->confirm, (uint16_t)which);
             return true;
         }
         if (mesh_ui_settings_action_is_radio(which)) {
@@ -2787,11 +2787,11 @@ bool mesh_ui_nav_close_verify_number(struct mesh_ui_nav *nav) {
 }
 
 /* A dialog's answers are MESH_UI_FOCUS_DIALOG and the one after it on this client's focus map; the
-   walk between them is mesh/ui/dialog.h's. */
+   walk between them is inkstand's nav/dialog.h's. */
 uint8_t mesh_ui_nav_dialog_answer(const struct mesh_ui_store *store, enum inkcell_key key,
                                   uint8_t cursor) {
-    return mesh_ui_dialog_answer(store != NULL ? store->focus : NULL,
-                                 (uint32_t)MESH_UI_FOCUS_DIALOG, key, cursor);
+    return inkstand_dialog_answer(store != NULL ? store->focus : NULL,
+                                  (uint32_t)MESH_UI_FOCUS_DIALOG, key, cursor);
 }
 
 /*

@@ -3,8 +3,6 @@
 #include "mesh/map/viewport.h"
 /* For struct mesh_ui_message_view, which the transcript's filter takes by value: the nav has
    to see its definition, and the record header names nothing here, so this is not a cycle. */
-#include "inkstand/nav/toast.h"
-#include "mesh/ui/dialog.h"
 #include "mesh/ui/store_message.h"
 
 #include <stdbool.h>
@@ -13,6 +11,7 @@
 
 #include "inkcell/ui/key.h"
 #include "inkcell/ui/keyboard.h"
+#include "inkstand/nav/dialog.h"
 #include "inkstand/nav/toast.h"
 
 #ifdef __cplusplus
@@ -578,10 +577,10 @@ struct mesh_ui_nav {
     uint32_t settings_channel_list_cursor;
     /* The confirm overlay: "Save <section>?" for sections whose write can cut this client off
        (Bluetooth, Channels, LoRa, Security, Power), and every row in the Radio actions
-       section. See mesh/ui/dialog.h. `confirm.subject` is an enum mesh_ui_settings_action and
-       says which of the two it is standing in front of: MESH_UI_SETTINGS_ACTION_NONE is the
+       section. See inkstand's nav/dialog.h. `confirm.subject` is an enum mesh_ui_settings_action
+       and says which of the two it is standing in front of: MESH_UI_SETTINGS_ACTION_NONE is the
        section save, anything else is that radio action. */
-    struct mesh_ui_dialog confirm;
+    struct inkstand_dialog confirm;
     /* Edits made in the open section and not yet saved. Y sends them as one
        MESH_UI_ACTION_SAVE_SETTINGS; B asks once (discard_armed) and discards on the second
        press. The app clears them through mesh_ui_store_settings_edits_clear() once queued. */

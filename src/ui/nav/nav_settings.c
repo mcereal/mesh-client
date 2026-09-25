@@ -360,12 +360,12 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
 bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                              enum inkcell_key key, struct mesh_ui_action *action) {
     uint16_t subject = 0U;
-    switch (mesh_ui_dialog_key(&nav->confirm, store != NULL ? store->focus : NULL,
-                               (uint32_t)MESH_UI_FOCUS_DIALOG, key, &subject)) {
-    case MESH_UI_DIALOG_MOVED:
-    case MESH_UI_DIALOG_CANCELLED:
+    switch (inkstand_dialog_key(&nav->confirm, store != NULL ? store->focus : NULL,
+                                (uint32_t)MESH_UI_FOCUS_DIALOG, key, &subject)) {
+    case INKSTAND_DIALOG_MOVED:
+    case INKSTAND_DIALOG_CANCELLED:
         return true;
-    case MESH_UI_DIALOG_ACCEPTED:
+    case INKSTAND_DIALOG_ACCEPTED:
         break;
     default:
         return false;
@@ -457,7 +457,7 @@ bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh
         if (mesh_ui_settings_section_needs_confirm(
                 (enum mesh_ui_settings_section)nav->settings_section)) {
             /* Cancel under the cursor, so a repeated press changes nothing. */
-            mesh_ui_dialog_open(&nav->confirm, (uint16_t)MESH_UI_SETTINGS_ACTION_NONE);
+            inkstand_dialog_open(&nav->confirm, (uint16_t)MESH_UI_SETTINGS_ACTION_NONE);
             return true;
         }
         mesh_ui_nav_fill_save(nav, action);
