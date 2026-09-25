@@ -287,8 +287,9 @@ MESH_STR_ENTRY(THREAD_KIND_DIRECT,        "direct")
    day separators use. Short: it shares a body row with a hairline either side of it. */
 MESH_STR_ENTRY(THREAD_UNREAD_FROM_HERE,   "New")
 
-/* A message bubble's own header line. SENT is what one of ours says instead of a name. */
-MESH_STR_ENTRY(BUBBLE_SENT,               "sent")
+/* A message bubble's own header line. SENT is what one of ours says instead of a name - the
+   word a chat app uses for the reader, where "sent" read as a delivery state beside the ticks. */
+MESH_STR_ENTRY(BUBBLE_SENT,               "You")
 MESH_STR_ENTRY(BUBBLE_SENT_TO,            "to %s")
 /* The tag after the name saying where the message came in: a channel by number, a direct
    message, an alert, or a sensor. The leading spaces separate it from the name. */
