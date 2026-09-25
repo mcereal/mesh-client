@@ -1230,12 +1230,16 @@ static void format_count(uint32_t value, bool imperial, char *out, size_t out_le
  * limit under MESH_UI_FIELD_LORA_HOPS and a pin under MESH_UI_FIELD_DETECT_PIN, and a leading 0
  * is "never" on one field and "the firmware decides" on the next.
  */
-#define SCALE_PRESETS(array) (array), INKWELL_ARRAY_LEN(array), true, false
+#define SCALE_PRESETS(array)                                                                       \
+    { (array), INKWELL_ARRAY_LEN(array), true, false }
 /* The same, for a list whose leading 0 is "the firmware's own default" or "as much as this
    radio has" rather than the bottom of the scale: the track spans what follows it. */
-#define SCALE_PRESETS_AFTER_ZERO(array) (array), INKWELL_ARRAY_LEN(array), true, true
-#define NAMED_PRESETS(array) (array), INKWELL_ARRAY_LEN(array), false, false
-#define NO_PRESETS NULL, 0U, false, false
+#define SCALE_PRESETS_AFTER_ZERO(array)                                                            \
+    { (array), INKWELL_ARRAY_LEN(array), true, true }
+#define NAMED_PRESETS(array)                                                                       \
+    { (array), INKWELL_ARRAY_LEN(array), false, false }
+#define NO_PRESETS                                                                                 \
+    { NULL, 0U, false, false }
 
 /*
  * Two of the limits in settings_text.def are the same number as a constant declared elsewhere,
@@ -2302,98 +2306,32 @@ const char *mesh_ui_settings_enum_name(enum mesh_ui_setting_field field, uint32_
 
 uint32_t mesh_ui_settings_number_step(enum mesh_ui_setting_field field, uint32_t value, int delta) {
     const struct field_spec *spec = field_spec(field);
-    if (spec->kind != MESH_UI_SETTING_NUMBER || spec->presets == NULL || delta == 0) {
+    if (spec->kind != MESH_UI_SETTING_NUMBER) {
         return value;
     }
-    if (delta > 0) {
-        for (size_t i = 0; i < spec->preset_count; ++i) {
-            if (spec->presets[i] > value) {
-                return spec->presets[i];
-            }
-        }
-        return value;
-    }
-    for (size_t i = spec->preset_count; i > 0U; --i) {
-        if (spec->presets[i - 1U] < value) {
-            return spec->presets[i - 1U];
-        }
-    }
-    return value;
+    return inkstand_form_presets_step(&spec->presets, value, delta);
 }
 
 /*
- * Where `value` sits on a NUMBER field's own scale.
+ * Where `value` sits on a NUMBER field's own scale - the arithmetic is in inkstand's form/scale.h.
  *
- * In *stop* space rather than in value space, and that is the arithmetic worth explaining. The
- * presets a field offers climb geometrically - screen-on is 15s, 30s, a minute, two, five, ten,
- * fifteen, half an hour, an hour - so a handle placed at value/3600 would put eight of the ten
- * choices inside the first sixth of the track and leave the last two with the rest of it. What
- * the reader is choosing between is the *choices*, so the stops are evenly spaced and the
- * position is the index among them.
- *
- * A value the list does not contain still gets a position, interpolated between the two stops it
- * falls between, and that is one thing this can do that a segmented button cannot: a set of
- * alternatives has no room between its members, so an unknown value there had to fall back to
- * words (§10). An axis has room. A radio reporting 42 seconds - a firmware default, a value
- * written by a phone app with a different list - lands where 42 seconds actually is, which is a
- * true statement about a number this client would not itself have offered.
- *
- * What an axis still cannot place is a value below its own bottom stop, and there are two ways
- * to have one. Most of these lists open with a value that is not a quantity at all - a 0 the
- * field reads as "the firmware's own default", or as "as much as this radio has" - which is
- * `preset_zero_aside`, and the track spans what follows it. And two lists simply start above
- * zero, because the thing at the other end refuses anything below that, while a radio nobody has
- * configured still reports 0. Both come back `unplaced` rather than at the bottom, by the same
- * test: anything under the first stop is off the track.
- *
- * The unsigned comparisons are the ones mesh_ui_settings_number_step() walks with, and they are
- * correct over the two signed RSSI lists for the reason stated there - every entry is negative,
- * so two's complement keeps their order, and an unsigned difference of two of them is the true
- * distance between them.
+ * What is this client's is which lists are scales and which stand their 0 aside. LoRa's transmit
+ * power reads 0 as "as much as this radio has", and the first version of the slider drew it with
+ * the handle hard left. And two lists start above zero because the thing at the other end
+ * refuses anything below - the public map drops a report under an hour, the firmware floors
+ * neighbour info at four - while a radio nobody has configured still reports 0 for both.
  */
 bool mesh_ui_settings_number_track(enum mesh_ui_setting_field field, uint32_t value,
                                    struct mesh_ui_settings_track *out) {
     const struct field_spec *spec = field_spec(field);
-    if (spec->kind != MESH_UI_SETTING_NUMBER || !spec->preset_scale || spec->presets == NULL) {
+    struct inkstand_form_track track;
+    if (spec->kind != MESH_UI_SETTING_NUMBER ||
+        !inkstand_form_presets_track(&spec->presets, value, &track)) {
         return false;
-    }
-    const size_t aside = spec->preset_zero_aside ? 1U : 0U;
-    if (spec->preset_count < aside + 2U) {
-        return false;
-    }
-    const uint32_t *stops = spec->presets + aside;
-    const size_t last = spec->preset_count - aside - 1U;
-
-    struct mesh_ui_settings_track track = {.stops = (uint32_t)(last + 1U)};
-    if (value < stops[0]) {
-        /*
-         * Below the bottom stop is off the track, on every scale rather than only on the ones
-         * that stand a zero aside.
-         *
-         * Two lists here start above zero because the thing on the other end refuses anything
-         * below it - the public map drops a report under an hour, the firmware floors neighbour
-         * info at four - and a radio that has never been configured reports 0 for both. Placing
-         * that at the first stop would draw "off" exactly as "every hour", which is the same
-         * false claim `max` was making at the other end of transmit power's list.
-         */
-        track.unplaced = true;
-    } else if (value >= stops[last]) {
-        track.position = INKCELL_ANIM_ONE;
-    } else if (value > stops[0]) {
-        size_t i = 0U;
-        while (i < last && stops[i + 1U] <= value) {
-            ++i;
-        }
-        /* The stop itself, plus however far past it the value has got towards the next one. The
-           span cannot be zero - a preset list is strictly increasing - but a list edited into
-           holding a repeat would divide by it, and the stop is the honest answer for that. */
-        const uint32_t span = stops[i + 1U] - stops[i];
-        const uint64_t within =
-            span > 0U ? ((uint64_t)(value - stops[i]) * INKCELL_ANIM_ONE) / span : 0U;
-        track.position = (int32_t)(((uint64_t)i * INKCELL_ANIM_ONE + within) / last);
     }
     if (out != NULL) {
-        *out = track;
+        *out = (struct mesh_ui_settings_track){
+            .position = track.position, .stops = track.stops, .unplaced = track.unplaced};
     }
     return true;
 }
@@ -2440,35 +2378,12 @@ bool mesh_ui_settings_key_len_ok(enum mesh_ui_setting_field field, size_t len) {
 }
 
 bool mesh_ui_settings_choice_allowed(uint32_t choices, uint32_t count, uint32_t value) {
-    if (value >= count) {
-        return false;
-    }
-    /* No mask is every value, not no value - see the header. And a value at or past the width
-       of the word has no bit to test, so it is outside any set that has one. */
-    if (choices == 0U) {
-        return true;
-    }
-    return value < 32U && (choices & (1U << value)) != 0U;
+    return inkstand_form_choice_allowed(choices, count, value);
 }
 
 uint32_t mesh_ui_settings_choice_step(uint32_t choices, uint32_t count, uint32_t current,
                                       int delta) {
-    if (count == 0U) {
-        return current;
-    }
-    /* Start from somewhere inside the range even when `current` is not: a radio may be holding
-       a value this build's enum does not have, and a press on that row has to land on one that
-       exists rather than walk off the end of the word. */
-    uint32_t value = current < count ? current : 0U;
-    const uint32_t forward = delta < 0 ? count - 1U : 1U;
-    for (uint32_t step = 0; step < count; ++step) {
-        value = (value + forward) % count;
-        if (mesh_ui_settings_choice_allowed(choices, count, value)) {
-            return value;
-        }
-    }
-    /* A full lap with nothing legal on it. One value in the set, or none. */
-    return current;
+    return inkstand_form_choice_step(choices, count, current, delta);
 }
 
 const struct mesh_ui_region_preset *

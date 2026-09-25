@@ -14,6 +14,7 @@
  * mesh_ui_settings_field_label() and friends rather than reading the table.
  */
 
+#include "inkstand/form/scale.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/settings.h"
 
@@ -60,29 +61,17 @@ struct field_spec {
      */
     uint32_t limit;
     const char *(*enum_name)(uint32_t value);
-    const uint32_t *presets; /* NUMBER */
-    size_t preset_count;
     /*
-     * NUMBER: whether the presets *measure* something or *name* something.
+     * NUMBER: the values Left and Right step through, and whether they are a scale.
      *
-     * The difference is not in the numbers and cannot be derived from them - {0, 1, 2, 3, 4, 5,
-     * 6, 7} is a hop limit in one row and a GPIO pin in another, and a length drawn across the
-     * second says a pin is two thirds of the way to being a pin. So every field states which it
-     * is, through SCALE_PRESETS() or NAMED_PRESETS(), and only a scale is offered as a slider.
+     * Whether the presets *measure* or *name* is not in the numbers - {0, 1, 2, 3, 4, 5, 6, 7}
+     * is a hop limit in one row and a GPIO pin in another - so every field states it, through
+     * SCALE_PRESETS() or NAMED_PRESETS(), and only a scale is offered as a slider. Most scales
+     * open with a 0 the field reads as "whatever the firmware picks", and LoRa's transmit power
+     * reads it as "as much as this radio has"; SCALE_PRESETS_AFTER_ZERO() stands that word
+     * outside the scale. See inkstand's form/scale.h.
      */
-    bool preset_scale;
-    /*
-     * NUMBER: whether the first preset is a *word* standing outside that scale.
-     *
-     * Most of these lists open with a 0 the field reads as "whatever the firmware picks", and
-     * one of them - LoRa's transmit power - reads it as "as much as this radio has". Neither is
-     * a quantity, and both were drawn at the bottom of the track by the first version of the
-     * slider: "max" with its handle hard left, which is not merely unhelpful but backwards.
-     *
-     * So the scale is the presets *after* it, stated with SCALE_PRESETS_AFTER_ZERO(), and a
-     * value of 0 on such a field is off the track rather than at the start of it.
-     */
-    bool preset_zero_aside;
+    struct inkstand_form_presets presets;
     inkcell_str_id zero_label; /* NUMBER: what 0 means (seconds formatting) */
     /*
      * NUMBER: overrides the seconds default. `imperial` is the radio's display units, decoded
