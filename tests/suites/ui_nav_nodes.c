@@ -2483,3 +2483,41 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * The empty Nodes tab with no radio behind it says "Connect to a node to see the mesh", and A
+ * is how: it lands on the device list, which is where connecting happens. Waiting for a roster
+ * a radio is already sending, the same press has nothing to do, and Left and Right stay the tab
+ * switch in both - there is no filter row to step.
+ */
+MESH_TEST_CASE(ui_nav_nodes_empty_a_goes_to_the_devices, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    mesh_ui_store_consume_updates(&store, NULL);
+    MESH_TEST_FAIL_IF_CLEANUP(store.handshake_valid, mesh_ui_store_shutdown(&store),
+                              "a fresh store has no radio");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_nav_devices_showing(&store.nav),
+                              mesh_ui_store_shutdown(&store),
+                              "A on the empty Nodes tab should land on the device list");
+
+    /* A radio that has answered and is still sending its roster: nothing to connect to. */
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+    store.nav.devices_open = false;
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen != MESH_UI_SCREEN_NODES,
+                              mesh_ui_store_shutdown(&store),
+                              "waiting for the roster, A should leave the reader where they are");
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}

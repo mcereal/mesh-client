@@ -1910,6 +1910,12 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         if (mesh_ui_nav_waypoints_showing(nav)) {
             return mesh_ui_nav_waypoint_confirm(nav, store, cursor, action);
         }
+        /* An empty list with no radio behind it says "connect", and A is how: the device list
+           is where connecting happens. The action bar names this press on the same condition. */
+        if (!nav->node_detail_open && !store->handshake_valid) {
+            mesh_ui_nav_land_on_devices(nav);
+            return true;
+        }
         if (cursor >= rows) {
             return false;
         }
