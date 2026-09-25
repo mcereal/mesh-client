@@ -35,6 +35,27 @@
 #include <string.h>
 #include <time.h>
 
+/*
+ * The second line of a conversation row. The one row that is a button says what it does
+ * instead of what was last said in it. A row nothing has been said in says so rather than
+ * leaving a blank line that reads as a preview that failed to load - and the all-traffic row,
+ * which is the first thing a new install shows, says what would fill it while no radio is
+ * attached.
+ */
+static const char *fb_conversation_preview(const struct mesh_ui_conversation *conversation,
+                                           bool link_up) {
+    if (conversation->kind == MESH_UI_CONVERSATION_NEW) {
+        return inkcell_str(MESH_STR_MESSAGES_NEW_PREVIEW);
+    }
+    if (conversation->message_count > 0U || conversation->preview[0] != '\0') {
+        return conversation->preview;
+    }
+    if (conversation->kind == MESH_UI_CONVERSATION_ALL && !link_up) {
+        return inkcell_str(MESH_STR_MESSAGES_EMPTY);
+    }
+    return inkcell_str(MESH_STR_MESSAGES_NO_MESSAGES_YET);
+}
+
 /* Level one of the Messages tab: all traffic, the channels, whoever we have direct messages
    with, and the way to start a new one. One conversation cell a row - see inkcell/ui/widgets.h. */
 void fb_render_conversations(struct inkcell_draw_state *state,
@@ -44,16 +65,20 @@ void fb_render_conversations(struct inkcell_draw_state *state,
     struct mesh_ui_store view;
     mesh_ui_store_view(snapshot, &view);
 
+    /* The list always has rows - All traffic and New message are there with nothing else - so
+       the heading counts only the conversations, and an empty client is said on the rows
+       themselves rather than by a screen the list could never reach. */
     const uint32_t count = mesh_ui_nav_conversation_count(&view);
+    const uint32_t threads = mesh_ui_nav_conversation_threads(&view);
     char title[96];
-    inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_MESSAGES), count,
-                           snapshot->messages.dropped);
-    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
-    if (count == 0U) {
-        inkcell_fb_draw_empty(state, layout, INKCELL_ICON_MESSAGES,
-                              inkcell_str(MESH_STR_MESSAGES_EMPTY));
-        return;
+    if (threads == 0U && snapshot->messages.dropped == 0U) {
+        snprintf(title, sizeof title, "%s", inkcell_str(MESH_STR_TAB_MESSAGES));
+    } else {
+        inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_MESSAGES), threads,
+                               snapshot->messages.dropped);
     }
+    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    const bool link_up = view.handshake_valid && view.handshake.link_up;
 
     /*
      * Each conversation is one cell two body rows tall: the avatar, the name and the age, then
@@ -122,9 +147,7 @@ void fb_render_conversations(struct inkcell_draw_state *state,
             .accent = is_view,
             .name = conversation.name,
             .age = age,
-            /* The one row that is a button rather than a conversation says what it does
-               instead of what was last said in it. */
-            .preview = is_new ? inkcell_str(MESH_STR_MESSAGES_NEW_PREVIEW) : conversation.preview,
+            .preview = fb_conversation_preview(&conversation, link_up),
             .preview_outbound = conversation.preview_outbound,
             .badge = badge,
             .unread = (conversation.unread > 0U),

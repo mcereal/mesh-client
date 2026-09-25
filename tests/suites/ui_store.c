@@ -1119,6 +1119,10 @@ MESH_TEST_CASE(ui_store_forget_conversation, unit) {
         failure = "an emptied channel keeps its row: the row is the radio's, not the log's";
         goto cleanup;
     }
+    if (mesh_ui_nav_conversation_threads(&store) != 1U) {
+        failure = "with nothing said anywhere, the heading still counts the channel alone";
+        goto cleanup;
+    }
 
     /* Neither of the rows that is not a conversation can be deleted through this door. */
     struct mesh_ui_message_list messages;

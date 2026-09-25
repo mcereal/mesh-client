@@ -51,6 +51,11 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         failure = "conversation list should hold all traffic, one channel, BRVO and New";
         goto cleanup;
     }
+    /* The heading counts the two that are conversations, not the view over them or the button. */
+    if (mesh_ui_nav_conversation_threads(&store) != 2U) {
+        failure = "the Messages heading should count the channel and BRVO, not all four rows";
+        goto cleanup;
+    }
     struct mesh_ui_conversation conversation;
     if (!mesh_ui_nav_conversation_at(&store, 0U, &conversation) ||
         conversation.kind != MESH_UI_CONVERSATION_ALL || conversation.message_count != 2U ||

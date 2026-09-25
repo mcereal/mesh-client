@@ -1159,6 +1159,11 @@ struct mesh_ui_conversation {
  * cursor while the user is reaching for it.
  */
 uint32_t mesh_ui_nav_conversation_count(const struct mesh_ui_store *store);
+/* The rows of that list that are a conversation somebody can be in - the channels and the
+   direct threads - leaving out "All traffic", which is a view over them, and "New message",
+   which is a button. It is what the tab's heading counts: counting all four kinds read
+   "Messages (3)" over a client that had never received a word. */
+uint32_t mesh_ui_nav_conversation_threads(const struct mesh_ui_store *store);
 bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t index,
                                  struct mesh_ui_conversation *out);
 /* True when X has been pressed once on this conversation and the next one deletes it. What a

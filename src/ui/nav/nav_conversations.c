@@ -394,13 +394,17 @@ uint32_t mesh_ui_nav_unread_total(const struct mesh_ui_store *store) {
     return total;
 }
 
-uint32_t mesh_ui_nav_conversation_count(const struct mesh_ui_store *store) {
+uint32_t mesh_ui_nav_conversation_threads(const struct mesh_ui_store *store) {
     uint8_t slots[MESH_UI_MAX_CHANNELS];
     uint32_t peers[MESH_UI_MAX_MESSAGES];
     const uint32_t channels = mesh_ui_nav_enabled_channels(store, slots, MESH_UI_MAX_CHANNELS);
     const uint32_t directs = mesh_ui_nav_direct_peers(store, peers, MESH_UI_MAX_MESSAGES);
+    return channels + directs;
+}
+
+uint32_t mesh_ui_nav_conversation_count(const struct mesh_ui_store *store) {
     /* All traffic + channels + direct peers + New message. */
-    return 1U + channels + directs + 1U;
+    return 1U + mesh_ui_nav_conversation_threads(store) + 1U;
 }
 
 /* The cell classification behind mesh_ui_nav_initials(), whose contract is in nav.h. */
