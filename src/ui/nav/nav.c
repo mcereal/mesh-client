@@ -2893,159 +2893,42 @@ bool mesh_ui_nav_verify_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     }
 }
 
-/* How long a transient notice stands. One number, read by the setter and by the stamp below. */
-#define MESH_UI_NAV_TOAST_MS 4000U
-
 /*
- * Takes a notice that cannot be said yet, or says why it need not be.
- *
- * Returns true when the caller has nothing more to do - the notice is queued, or is a repeat of
- * one the user is already looking at. False means the snackbar is free and the caller should put
- * the notice straight on it.
- *
- * The repeat test is against what is *showing* and against the newest thing waiting, which is
- * the shape the duplicate actually takes: one event reported twice in a row - a link dropping,
- * a request refused again - rather than the same sentence coming back around after two others.
- * Two identical notices in a row are one notice that stood for eight seconds, which is a
- * snackbar with a stuck button rather than news.
+ * The snackbar is mesh/ui/toast.h's. What is this client's is who calls which: a press answers
+ * through set() or raise() and replaces what is showing - "Connecting to NodeSeven" giving way to
+ * "NodeSeven needs pairing" is one sentence finishing - while an arriving message, a link dropping
+ * or a request refused posts, and waits its turn. A press raises undated because the app ticks
+ * the store with CLOCK_MONOTONIC and the capture harness with a synthetic clock that moves only on
+ * `hold`, and mesh_ui_store_handle_key() dates the notice from whichever drove the last tick.
  */
-static bool mesh_ui_nav_queue_toast(struct mesh_ui_nav *nav, const char *text) {
-    if (nav->toast[0] == '\0') {
-        return false; /* nothing is up; say it now */
-    }
-    const char *newest =
-        nav->toast_queued > 0U ? nav->toast_queue[nav->toast_queued - 1U] : nav->toast;
-    if (strcmp(newest, text) == 0) {
-        return true;
-    }
-    if (nav->toast_queued >= MESH_UI_NAV_TOAST_QUEUE) {
-        /* Drop the oldest waiting one and close the gap - see the field for why it is that end. */
-        memmove(&nav->toast_queue[0], &nav->toast_queue[1],
-                (MESH_UI_NAV_TOAST_QUEUE - 1U) * sizeof nav->toast_queue[0]);
-        nav->toast_queued = MESH_UI_NAV_TOAST_QUEUE - 1U;
-    }
-    snprintf(nav->toast_queue[nav->toast_queued++], MESH_UI_NAV_TOAST_MAX, "%s", text);
-    return true;
-}
-
 void mesh_ui_nav_set_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text) {
-    if (nav == NULL) {
-        return;
+    if (nav != NULL) {
+        mesh_ui_toast_set(&nav->toast, now_ms, text);
     }
-    if (text == NULL || text[0] == '\0') {
-        /* Clearing clears the backlog with it: an empty notice means "say nothing", and a queue
-           that outlived it would start talking again a moment later. */
-        nav->toast[0] = '\0';
-        nav->toast_until_ms = 0U;
-        nav->toast_queued = 0U;
-        return;
-    }
-    snprintf(nav->toast, sizeof nav->toast, "%s", text);
-    nav->toast_until_ms = now_ms + MESH_UI_NAV_TOAST_MS;
 }
 
-/*
- * A notice nothing the user did has asked for: something arrived.
- *
- * The difference from the setter above is which one yields, and it is the whole reason there are
- * two. A notice raised by a *press* supersedes whatever is on the snackbar, because it is the
- * client answering the button that was just pressed and the thing it replaces is usually the
- * earlier half of the same story - "Connecting to NodeSeven" giving way to "NodeSeven needs
- * pairing" is one sentence finishing, not two events, and making the user watch the optimistic
- * half for four seconds before the true one is worse than losing it.
- *
- * A notice about something that *arrived* has no such claim. It is news the user did not ask
- * for, it is not superseding anything, and overwriting the answer to a press with it is how a
- * button comes to look as though it did nothing. So this one waits its turn - and waits behind
- * the other notifications already waiting, which is what stops a burst of arrivals showing the
- * user only whichever happened to be last.
- */
 void mesh_ui_nav_post_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text) {
-    if (nav == NULL || text == NULL || text[0] == '\0') {
-        return;
+    if (nav != NULL) {
+        mesh_ui_toast_post(&nav->toast, now_ms, text);
     }
-    if (mesh_ui_nav_queue_toast(nav, text)) {
-        return;
-    }
-    snprintf(nav->toast, sizeof nav->toast, "%s", text);
-    nav->toast_until_ms = now_ms + MESH_UI_NAV_TOAST_MS;
 }
 
-/*
- * The same notice, raised from inside the nav, where there is no clock to raise it against.
- *
- * A key press is handled wherever the nav is driven from, and the drivers do not share a clock:
- * the app ticks the store with CLOCK_MONOTONIC, and the capture harness ticks it with a
- * synthetic one that starts at 1000 and moves only when a scene says `hold`. A deadline read
- * from the real clock inside a press would therefore mean "four seconds" on the device and
- * "longer than any scene" in a capture - the notice would sit on every frame after the press,
- * or, on a host that had just booted, expire somewhere unpredictable in the middle of one.
- *
- * So a press raises the notice undated and mesh_ui_store_handle_key() dates it from the clock
- * the store was last ticked with, which is by construction the clock driving the frames. The
- * gap is closed inside that one call, before anything is drawn: a frame carrying an undated
- * notice would read to the backend as a *different* notice a frame later - `until_ms` is what
- * tells two of them apart - and restart the entrance it was in the middle of.
- */
 void mesh_ui_nav_raise_toast(struct mesh_ui_nav *nav, const char *text) {
-    if (nav == NULL || text == NULL || text[0] == '\0') {
-        return;
+    if (nav != NULL) {
+        mesh_ui_toast_raise(&nav->toast, text);
     }
-    snprintf(nav->toast, sizeof nav->toast, "%s", text);
-    nav->toast_until_ms = 0U;
 }
 
-/*
- * A press takes down what is showing, and the next notice waiting takes its place.
- *
- * Only the one on the snackbar has been seen; what is queued behind it is news the press did not
- * answer. Cleared along with it, the queue would outlive the snackbar and sit unwalked - the tick
- * only promotes while something is showing - until a later notice went straight up ahead of it
- * and the older ones followed, out of order. The one promoted here is undated, exactly as a
- * notice a press raises is, and mesh_ui_store_handle_key() dates it before anything is drawn.
- */
 bool mesh_ui_nav_dismiss_toast(struct mesh_ui_nav *nav) {
-    if (nav == NULL || nav->toast[0] == '\0') {
-        return false;
-    }
-    if (nav->toast_queued > 0U) {
-        snprintf(nav->toast, sizeof nav->toast, "%s", nav->toast_queue[0]);
-        memmove(&nav->toast_queue[0], &nav->toast_queue[1],
-                (MESH_UI_NAV_TOAST_QUEUE - 1U) * sizeof nav->toast_queue[0]);
-        nav->toast_queued--;
-    } else {
-        nav->toast[0] = '\0';
-    }
-    nav->toast_until_ms = 0U;
-    return true;
+    return nav != NULL && mesh_ui_toast_dismiss(&nav->toast);
 }
 
 void mesh_ui_nav_date_toast(struct mesh_ui_nav *nav, uint64_t now_ms) {
-    if (nav == NULL || nav->toast[0] == '\0' || nav->toast_until_ms != 0U) {
-        return;
+    if (nav != NULL) {
+        mesh_ui_toast_date(&nav->toast, now_ms);
     }
-    nav->toast_until_ms = now_ms + MESH_UI_NAV_TOAST_MS;
 }
 
 bool mesh_ui_nav_tick(struct mesh_ui_nav *nav, uint64_t now_ms) {
-    if (nav == NULL || nav->toast[0] == '\0' || now_ms < nav->toast_until_ms) {
-        return false;
-    }
-    if (nav->toast_queued > 0U) {
-        /*
-         * The next one takes the snackbar, dated from this tick rather than from whenever it was
-         * raised: it is starting to stand now. That also gives it a `until_ms` the backend has
-         * not seen, which is how the widget tells one notice from the next - so it slides in
-         * rather than appearing to be the same notice with different words.
-         */
-        snprintf(nav->toast, sizeof nav->toast, "%s", nav->toast_queue[0]);
-        nav->toast_until_ms = now_ms + MESH_UI_NAV_TOAST_MS;
-        memmove(&nav->toast_queue[0], &nav->toast_queue[1],
-                (MESH_UI_NAV_TOAST_QUEUE - 1U) * sizeof nav->toast_queue[0]);
-        nav->toast_queued--;
-        return true;
-    }
-    nav->toast[0] = '\0';
-    nav->toast_until_ms = 0U;
-    return true;
+    return nav != NULL && mesh_ui_toast_tick(&nav->toast, now_ms);
 }

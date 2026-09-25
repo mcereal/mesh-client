@@ -1087,7 +1087,7 @@ MESH_TEST_CASE(waypoint_nav_refuses_a_new_place_with_no_fix, unit) {
         failure = "nothing should go to the app";
         goto cleanup;
     }
-    if (store.nav.toast[0] == '\0') {
+    if (store.nav.toast.text[0] == '\0') {
         failure = "the refused press should say why";
         goto cleanup;
     }
@@ -1097,12 +1097,12 @@ MESH_TEST_CASE(waypoint_nav_refuses_a_new_place_with_no_fix, unit) {
      * at 1000, so a deadline read from the real clock inside the press would stand for four
      * seconds on the device and for longer than any scene in a capture.
      */
-    if (store.nav.toast_until_ms != 10000U + 4000U) {
+    if (store.nav.toast.until_ms != 10000U + 4000U) {
         failure = "the store should date the notice from the clock it was last ticked with";
         goto cleanup;
     }
     mesh_ui_store_tick(&store, 14000U);
-    if (store.nav.toast[0] != '\0') {
+    if (store.nav.toast.text[0] != '\0') {
         failure = "and four seconds of that clock later it should go";
         goto cleanup;
     }
