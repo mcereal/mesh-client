@@ -571,6 +571,78 @@ cleanup:
 }
 
 /*
+ * A draft belongs to the conversation it was started in. One shared buffer put words written to
+ * one peer into the next thread opened, and compose opens on a non-empty draft - one press from
+ * sending them to somebody else.
+ */
+MESH_TEST_CASE(ui_nav_draft_follows_its_conversation, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_action action;
+
+    /* BRVO is row 2 and #Primary row 1 (see ui_nav_navigation). Start a message to BRVO and
+       leave it unsent: B keeps the draft, a second B leaves the thread. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "meet at the creek");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    if (store.nav.thread_open || strcmp(store.nav.draft, "meet at the creek") != 0) {
+        failure = "B twice should leave the thread with the draft kept";
+        goto cleanup;
+    }
+
+    /* Into the channel: nothing of BRVO's is waiting there, so A lands on the canned replies. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.thread_open || store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR) {
+        failure = "expected #Primary open";
+        goto cleanup;
+    }
+    if (store.nav.draft[0] != '\0') {
+        failure = "a draft written to one peer must not follow the user into a channel";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.compose_open || store.nav.compose_cursor == MESH_UI_COMPOSE_ROW_DRAFT) {
+        failure = "compose in a thread with no draft of its own should open on the canned rows";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+
+    /* The channel gets a draft of its own, and each comes back to its own thread. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "to everyone");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (store.nav.target_node != 0x3000U || strcmp(store.nav.draft, "meet at the creek") != 0) {
+        failure = "going back to BRVO should bring BRVO's draft back";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
+        strcmp(store.nav.draft, "to everyone") != 0) {
+        failure = "the channel's own draft should come back";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * The open thread's row in the conversation list is found by what the thread is, not by where the
  * list was parked - the list beside a thread on a wide window reads it, and a peer's row moves
  * with every message that re-ranks the peers.

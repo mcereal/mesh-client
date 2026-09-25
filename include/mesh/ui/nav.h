@@ -105,6 +105,8 @@ enum mesh_ui_radio_page {
 #define MESH_UI_CANNED_TEXT_MAX 64U
 /* Upstream Data.payload caps at 233 bytes; the draft and action text hold that plus a NUL. */
 #define MESH_UI_DRAFT_MAX 234U
+/* Unsent drafts kept for conversations other than the open one. See `parked_drafts`. */
+#define MESH_UI_PARKED_DRAFTS 4U
 /*
  * Pending Settings edits held until Save. A section with nineteen editable rows has to be able
  * to carry nineteen edits: below that, mesh_ui_nav_edit_set() returns false and the press
@@ -305,6 +307,24 @@ struct mesh_ui_nav {
        it travels in the snapshot with everything else here. */
     struct inkcell_keyboard kb;
     char draft[MESH_UI_DRAFT_MAX];
+    /*
+     * Unsent drafts that belong to conversations other than the open one.
+     *
+     * The draft is the text of *a* conversation, not of the keyboard. It used to be one buffer
+     * that nothing cleared on a change of thread, and compose opens on a non-empty draft - so
+     * words started to one peer were sitting ready in the next thread opened, one press from
+     * going to somebody they were not written for. Opening a thread parks what was being
+     * written here, keyed by the conversation it was for, and brings back whatever was parked
+     * for the one being opened. A handful of slots, oldest overwritten: a draft is a thing
+     * somebody is in the middle of, and nobody is in the middle of five.
+     */
+    struct {
+        uint32_t node;
+        uint8_t channel;
+        uint32_t age; /* higher is more recent; 0 is an empty slot */
+        char text[MESH_UI_DRAFT_MAX];
+    } parked_drafts[MESH_UI_PARKED_DRAFTS];
+    uint32_t parked_draft_clock;
     /* Nodes tab: a node's detail is open (cursor[NODES] indexes its rows) rather than the node
        list, whose position is parked in node_list_cursor meanwhile. The same two-level shape
        as Settings and Messages. Opening a detail does *not* move the compose target; only the

@@ -117,8 +117,62 @@ static void mesh_ui_nav_refresh_target_name(struct mesh_ui_nav *nav,
 }
 
 /* Switching conversation moves the Messages cursor back to the newest line. */
+/* A channel conversation is its slot; a direct one is its peer, whatever channel it was on. */
+static bool mesh_ui_nav_same_conversation(uint32_t node_a, uint8_t channel_a, uint32_t node_b,
+                                          uint8_t channel_b) {
+    if (node_a != node_b) {
+        return false;
+    }
+    return node_a != MESH_MESSAGE_BROADCAST_ADDR || channel_a == channel_b;
+}
+
+/*
+ * The draft follows its conversation: what was being written for the old target is parked, and
+ * whatever was parked for the new one comes back. See `parked_drafts` in nav.h for why.
+ *
+ * Only the Compose draft travels. Any other keyboard job (a setting, a place name, a passkey)
+ * has already parked it in `draft_saved`, and a thread does not open under one of those, so the
+ * swap is skipped rather than guessed at while one is open.
+ */
+static void mesh_ui_nav_swap_draft(struct mesh_ui_nav *nav, uint32_t node_id, uint8_t channel) {
+    const uint8_t new_channel =
+        (node_id == MESH_MESSAGE_BROADCAST_ADDR) ? channel : nav->target_channel;
+    if (nav->keyboard_open || mesh_ui_nav_same_conversation(nav->target_node, nav->target_channel,
+                                                            node_id, new_channel)) {
+        return;
+    }
+    size_t victim = 0U;
+    size_t found = MESH_UI_PARKED_DRAFTS;
+    for (size_t i = 0; i < MESH_UI_PARKED_DRAFTS; ++i) {
+        if (nav->parked_drafts[i].age != 0U &&
+            mesh_ui_nav_same_conversation(nav->parked_drafts[i].node, nav->parked_drafts[i].channel,
+                                          node_id, new_channel)) {
+            found = i;
+        }
+        if (nav->parked_drafts[i].age < nav->parked_drafts[victim].age) {
+            victim = i;
+        }
+    }
+    char incoming[MESH_UI_DRAFT_MAX] = {0};
+    if (found < MESH_UI_PARKED_DRAFTS) {
+        snprintf(incoming, sizeof incoming, "%s", nav->parked_drafts[found].text);
+        nav->parked_drafts[found].age = 0U;
+        nav->parked_drafts[found].text[0] = '\0';
+        victim = found;
+    }
+    if (nav->draft[0] != '\0') {
+        nav->parked_drafts[victim].node = nav->target_node;
+        nav->parked_drafts[victim].channel = nav->target_channel;
+        nav->parked_drafts[victim].age = ++nav->parked_draft_clock;
+        snprintf(nav->parked_drafts[victim].text, sizeof nav->parked_drafts[victim].text, "%s",
+                 nav->draft);
+    }
+    snprintf(nav->draft, sizeof nav->draft, "%s", incoming);
+}
+
 static void mesh_ui_nav_set_target(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                    uint32_t node_id, uint8_t channel, const char *name_hint) {
+    mesh_ui_nav_swap_draft(nav, node_id, channel);
     nav->target_node = node_id;
     nav->target_channel = (node_id == MESH_MESSAGE_BROADCAST_ADDR) ? channel : nav->target_channel;
     nav->inbox = false;
