@@ -9,7 +9,6 @@
 #include <unistd.h>
 
 #if defined(_WIN32)
-#include <direct.h>
 #include <io.h>
 #endif
 
@@ -52,16 +51,4 @@ bool mesh_file_read_at(int fd, uint8_t *buffer, size_t len, uint64_t offset) {
         got += (size_t)n;
     }
     return true;
-}
-
-int mesh_file_mkdir(const char *path) {
-    if (path == NULL || path[0] == '\0') {
-        return -EINVAL;
-    }
-#if defined(_WIN32)
-    const int created = _mkdir(path);
-#else
-    const int created = mkdir(path, 0700);
-#endif
-    return created == 0 ? 0 : -errno;
 }

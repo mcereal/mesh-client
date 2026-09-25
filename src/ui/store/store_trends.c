@@ -19,9 +19,9 @@
 #include "mesh/ui/store_trends.h"
 
 #include "inkwell/base/array.h"
+#include "inkwell/base/file.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
-#include "mesh/utils/file.h"
 
 #include "inkstand/persist/fields.h"
 #include "mesh/ui/store_keys.h"
@@ -341,7 +341,7 @@ int mesh_ui_trends_init(struct mesh_ui_trends *trends, const char *dir) {
     if (dir == NULL || dir[0] == '\0') {
         return -EINVAL;
     }
-    const int failed = mesh_file_mkdir(dir);
+    const int failed = inkwell_file_mkdir(dir);
     if (failed < 0 && failed != -EEXIST) {
         inkwell_log_warn("ui", "Trend log unavailable at %s: %d", dir, failed);
         return failed;

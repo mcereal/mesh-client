@@ -2,8 +2,8 @@
 
 #include "mesh/ui/preferences.h"
 
+#include "inkwell/base/file.h"
 #include "inkwell/base/log.h"
-#include "mesh/utils/file.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -50,7 +50,7 @@ int mesh_ui_preferences_default_path(char *buffer, size_t buffer_len) {
         if (errno != ENOENT) {
             inkwell_log_warn("ui", "Failed to stat %s: %s", buffer, strerror(errno));
         }
-        const int created = mesh_file_mkdir(buffer);
+        const int created = inkwell_file_mkdir(buffer);
         if (created < 0 && created != -EEXIST) {
             inkwell_log_warn("ui", "Failed to create %s: %s", buffer, strerror(-created));
             return created;
@@ -410,7 +410,7 @@ static int ensure_parent_directory(const char *path) {
         inkwell_log_warn("ui", "Failed to stat %s: %s", directory, strerror(errno));
     }
 
-    const int created = mesh_file_mkdir(directory);
+    const int created = inkwell_file_mkdir(directory);
     if (created < 0 && created != -EEXIST) {
         inkwell_log_warn("ui", "Failed to create %s: %s", directory, strerror(-created));
         return created;

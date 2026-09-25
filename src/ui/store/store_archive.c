@@ -17,9 +17,9 @@
 #include "mesh/ui/store_archive.h"
 #include "inkwell/base/record_file.h"
 
+#include "inkwell/base/file.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
-#include "mesh/utils/file.h"
 
 #include "store_internal.h"
 
@@ -459,7 +459,7 @@ int mesh_ui_archive_init(struct mesh_ui_archive *archive, const char *dir) {
     if (dir == NULL || dir[0] == '\0') {
         return -EINVAL;
     }
-    const int failed = mesh_file_mkdir(dir);
+    const int failed = inkwell_file_mkdir(dir);
     if (failed < 0 && failed != -EEXIST) {
         inkwell_log_warn("ui", "Message archive unavailable at %s: %d", dir, failed);
         return failed;
