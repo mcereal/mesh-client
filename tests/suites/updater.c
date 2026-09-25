@@ -36,17 +36,6 @@ static const char k_release_json[] =
     "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\"}"
     "]}";
 
-/* Runs the loop until `updater` leaves `from`, or the budget runs out. Returns true if it
-   moved: every step arrives through the event loop, so the test has to pump it. */
-static bool updater_wait_past(struct inkwell_loop *loop, struct mesh_updater *updater,
-                              enum mesh_update_state from) {
-    for (int i = 0; i < 200 && updater->state == from; ++i) {
-        inkwell_loop_run(loop, 50);
-        mesh_updater_tick(updater, (uint64_t)i * 50U);
-    }
-    return updater->state != from;
-}
-
 /* ---- client version and self-update ------------------------------------------------------- */
 
 /*
@@ -314,6 +303,17 @@ MESH_TEST_CASE(updater_lifecycle, unit) {
 #ifdef INKWELL_HAVE_TLS
 
 #include "support/https_fixture.h"
+
+/* Runs the loop until `updater` leaves `from`, or the budget runs out. Returns true if it
+   moved: every step arrives through the event loop, so the test has to pump it. */
+static bool updater_wait_past(struct inkwell_loop *loop, struct mesh_updater *updater,
+                              enum mesh_update_state from) {
+    for (int i = 0; i < 200 && updater->state == from; ++i) {
+        inkwell_loop_run(loop, 50);
+        mesh_updater_tick(updater, (uint64_t)i * 50U);
+    }
+    return updater->state != from;
+}
 
 /* What the fake GitHub serves, named by path so a case can rewrite a file between requests. */
 struct updater_github {

@@ -2204,7 +2204,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         /* Before the bind there is no tty, so the sysfs id is all we can address it by. */
         const char *identifier =
             serial_devices[i].path[0] != '\0' ? serial_devices[i].path : serial_devices[i].id;
-        snprintf(slot->identifier, sizeof slot->identifier, "%s", identifier);
+        inkwell_str_copy(slot->identifier, sizeof slot->identifier, identifier);
         snprintf(slot->name, sizeof slot->name, "%s", serial_devices[i].name);
         slot->kind = (uint8_t)MESH_UI_DEVICE_SERIAL;
         slot->rssi = 0;
