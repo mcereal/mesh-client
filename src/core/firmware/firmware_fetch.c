@@ -18,6 +18,10 @@
    kilobytes each and a round trip. */
 #define FETCH_STEP_TIMEOUT_MS 20000U
 #define FETCH_IMAGE_TIMEOUT_MS 120000U
+/* And how long any of them may sit silent once connected before it is asked for again. The
+   image's two minutes are for a slow link, not for a CDN that took the request and went quiet:
+   one did, on a Brick, and the retry landed the image in five seconds. */
+#define FETCH_IDLE_TIMEOUT_MS 15000U
 
 /*
  * The most an image may claim to be, in or out of the zip. Both sizes come from a directory
@@ -90,6 +94,7 @@ static bool fetch_start_download(struct mesh_firmware_fetch *fetch, const char *
     request.max_member_bytes = FETCH_IMAGE_MAX;
     request.step_timeout_ms = FETCH_STEP_TIMEOUT_MS;
     request.member_timeout_ms = FETCH_IMAGE_TIMEOUT_MS;
+    request.idle_timeout_ms = FETCH_IDLE_TIMEOUT_MS;
     request.on_done = fetch_on_download;
     request.userdata = fetch;
     return inkwell_zip_fetch_start(&fetch->download, fetch->fetcher, &request) == 0;
