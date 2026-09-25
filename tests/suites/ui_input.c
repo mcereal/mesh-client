@@ -512,6 +512,66 @@ cleanup:
     record_success(test_name);
 }
 
+/*
+ * B held: the press goes back a step at once, as it always did, and a thumb still on it after
+ * the hold delay sends one INKCELL_KEY_B_HELD - never a second, and never after the release.
+ * A keyboard's own autorepeat of the key is the same hold rather than a new one.
+ */
+MESH_TEST_CASE(ui_input_b_held_is_sent_once, unit) {
+    const char *failure = NULL;
+    unsetenv("MESHCLIENT_QUIT_KEYS");
+    unsetenv("MESHCLIENT_KEY_HOLD_MS");
+    inkcell_input_reload_quit_keys();
+    inkcell_input_reload_key_repeat();
+
+    struct test_key_capture capture;
+    memset(&capture, 0, sizeof capture);
+    struct inkcell_input input;
+    memset(&input, 0, sizeof input);
+    inkcell_input_set_handler(&input, test_capture_key, &capture);
+
+    inkcell_input_handle_event(&input, EV_KEY, BTN_SOUTH, 1);
+    if (capture.count != 1U || capture.keys[0] != INKCELL_KEY_B ||
+        inkcell_input_repeat_key(&input) != INKCELL_KEY_B) {
+        failure = "B should go back at once and start timing its hold";
+        goto cleanup;
+    }
+    inkcell_input_handle_event(&input, EV_KEY, BTN_SOUTH, 2);
+    inkcell_input_repeat_tick(&input);
+    inkcell_input_repeat_tick(&input);
+    if (capture.count != 3U || capture.keys[2] != INKCELL_KEY_B_HELD ||
+        inkcell_input_repeat_key(&input) != INKCELL_KEY_NONE) {
+        failure = "a hold should send B_HELD once, and an autorepeat should not restart it";
+        goto cleanup;
+    }
+    inkcell_input_handle_event(&input, EV_KEY, BTN_SOUTH, 0);
+
+    /* Let go first, and there is no hold at all. */
+    inkcell_input_handle_event(&input, EV_KEY, BTN_SOUTH, 1);
+    inkcell_input_handle_event(&input, EV_KEY, BTN_SOUTH, 0);
+    inkcell_input_repeat_tick(&input);
+    if (capture.count != 4U || capture.keys[3] != INKCELL_KEY_B) {
+        failure = "a tap of B should be a tap and nothing more";
+        goto cleanup;
+    }
+
+    /* The knob turns it off. */
+    setenv("MESHCLIENT_KEY_HOLD_MS", "0", 1);
+    inkcell_input_reload_key_repeat();
+    inkcell_input_handle_event(&input, EV_KEY, BTN_SOUTH, 1);
+    if (inkcell_input_repeat_key(&input) != INKCELL_KEY_NONE) {
+        failure = "a zero hold should switch the hold off";
+        goto cleanup;
+    }
+    inkcell_input_handle_event(&input, EV_KEY, BTN_SOUTH, 0);
+
+cleanup:
+    unsetenv("MESHCLIENT_KEY_HOLD_MS");
+    inkcell_input_reload_key_repeat();
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_host_text_uses_visible_keyboard_and_field_cap, unit) {
     struct mesh_ui_store store;
     if (mesh_ui_store_init(&store) != 0) {

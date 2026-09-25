@@ -98,6 +98,8 @@ bool mesh_ui_nav_commit_channel_url(struct mesh_ui_nav *nav);
    channel pair rather than one taking a kind: the parsers differ, the sheets differ, and the
    only thing they share is the keyboard they open. */
 void mesh_ui_nav_open_contact_url_keyboard(struct mesh_ui_nav *nav);
+/* The Nodes list's Find row: its text on the keyboard, to edit. */
+void mesh_ui_nav_open_node_query_keyboard(struct mesh_ui_nav *nav);
 bool mesh_ui_nav_commit_contact_url(struct mesh_ui_nav *nav);
 
 /* B on the share sheet. Its own handler rather than a branch in the tab's, the way the help

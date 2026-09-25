@@ -1582,6 +1582,23 @@ static void on_cycle_text_size(struct mesh_app *app, const struct mesh_ui_action
     mesh_app_publish_ui_state(app);
 }
 
+static void on_save_quick_reply(struct mesh_app *app, const struct mesh_ui_action *action) {
+    const uint64_t now = inkwell_time_monotonic_ms();
+    char path[sizeof app->ui_preferences_path + 16U];
+    const int added = mesh_app_canned_path(app, path, sizeof path)
+                          ? mesh_ui_canned_add(path, action->text)
+                          : -ENOENT;
+    if (added < 0) {
+        inkwell_log_warn("app", "Could not keep a quick reply: %d", added);
+        mesh_ui_store_set_toast(&app->ui_store, now,
+                                inkcell_str(MESH_STR_TOAST_QUICK_REPLY_FAILED));
+        return;
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_QUICK_REPLY_SAVED));
+    /* The list is read at draw time, so the frame the toast asks for already has it. */
+    mesh_app_publish_ui_state(app);
+}
+
 static void on_toggle_dev_updates(struct mesh_app *app, const struct mesh_ui_action *action) {
     const uint64_t now = inkwell_time_monotonic_ms();
     (void)action;
@@ -2002,6 +2019,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_CYCLE_LANGUAGE, on_cycle_language, false},
     {MESH_UI_ACTION_CYCLE_THEME, on_cycle_theme, false},
     {MESH_UI_ACTION_CYCLE_TEXT_SIZE, on_cycle_text_size, false},
+    {MESH_UI_ACTION_SAVE_QUICK_REPLY, on_save_quick_reply, false},
     {MESH_UI_ACTION_TOGGLE_DEV_UPDATES, on_toggle_dev_updates, false},
     {MESH_UI_ACTION_DISCARD_CRASH_REPORT, on_discard_crash_report, false},
     {MESH_UI_ACTION_CHECK_UPDATE, on_check_update, false},

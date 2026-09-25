@@ -305,15 +305,18 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
         snprintf(title, sizeof title, "%s", inkcell_str(MESH_STR_IMPORT_PROMPT));
     } else if (nav->keyboard_contact_url) {
         snprintf(title, sizeof title, "%s", inkcell_str(MESH_STR_CONTACT_IMPORT_PROMPT));
+    } else if (nav->keyboard_node_query) {
+        snprintf(title, sizeof title, "%s", inkcell_str(MESH_STR_NODES_FIND_PROMPT));
     } else {
         inkcell_str_format(title, sizeof title, MESH_STR_COMPOSE_TO, nav->target_name);
     }
     /* The same badge the compose sheet carries, for the same reason: this keyboard was raised
        over a bubble, and the destination in the title is not what says so. A setting's keyboard
        and the pairing prompt never carry one - `reply_to` belongs to the thread. */
-    const bool replying = (!for_passkey && !for_verify && !for_setting && !nav->keyboard_network &&
-                           !nav->keyboard_waypoint && !nav->keyboard_channel_url &&
-                           !nav->keyboard_contact_url && nav->reply_to != 0U);
+    const bool replying =
+        (!for_passkey && !for_verify && !for_setting && !nav->keyboard_network &&
+         !nav->keyboard_waypoint && !nav->keyboard_channel_url && !nav->keyboard_contact_url &&
+         !nav->keyboard_node_query && nav->reply_to != 0U);
     fb_draw_app_bar(state, layout,
                     &(const struct inkcell_fb_app_bar){
                         .title = title,
@@ -335,6 +338,7 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
     struct inkcell_fb_text_field field = {
         .value = nav->draft,
         .caret = true,
+        .caret_back = nav->kb.caret_back,
         .lines = 2U,
         .counter = meter,
     };

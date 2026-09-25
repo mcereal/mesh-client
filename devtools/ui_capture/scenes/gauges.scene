@@ -22,7 +22,7 @@ hold 1200
 # The Nodes list has four rows before its first node - the filter row, the sort row, the Map and
 # Waypoints (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
 # four. Foxtrot Mobile is seeds[6] and row 10.
-key down 10
+key down 11
 key a
 key down 26
 hold 1600

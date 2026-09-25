@@ -27,7 +27,7 @@ waypoint ALFA Ridge repeater | up the fire road, gate code is on the tag
 # bare `key a` here steps the chips instead.
 tab nodes
 hold 800
-key down 2
+key down 3
 key a
 hold 2000
 

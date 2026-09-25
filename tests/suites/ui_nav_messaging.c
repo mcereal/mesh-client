@@ -984,7 +984,7 @@ MESH_TEST_CASE(kb_emoji_cells_are_drawable, unit) {
 
 /*
  * The remapped face buttons: X deletes, B leaves and keeps what was typed, and the triggers
- * shift.
+ * move the caret.
  *
  * All three are the same complaint - the keyboard used the pad the way nothing else does. B was
  * a backspace on the one screen where B is not "back", X was a shift nobody guessed at, and the
@@ -1008,25 +1008,17 @@ MESH_TEST_CASE(kb_face_buttons_follow_the_pad, unit) {
         goto cleanup;
     }
 
-    /* A trigger shifts, and A takes the capital and drops back - the same one-capital rule the
-       layer key had, now on a button that says "shift" on the bar. */
+    /* R1 is the capitals, and A takes one and drops back - the one-capital rule the triggers'
+       shift had, on the panel step that already reached the same layer. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     if (store.nav.kb.layer != INKCELL_KB_UPPER) {
-        failure = "R2 should shift";
+        failure = "R1 from the letters should reach the capitals";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (strcmp(store.nav.draft, "Q") != 0 || store.nav.kb.layer != INKCELL_KB_LOWER) {
-        failure = "shift should apply to one character and then fall back";
-        goto cleanup;
-    }
-    /* And a second press of shift undoes the first, rather than arming a capital nobody can
-       now get rid of without typing one. */
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
-    if (store.nav.kb.layer != INKCELL_KB_LOWER) {
-        failure = "a second shift should disarm the first";
+        failure = "a capital should apply to one character and then fall back";
         goto cleanup;
     }
 
@@ -1035,6 +1027,30 @@ MESH_TEST_CASE(kb_face_buttons_follow_the_pad, unit) {
         failure = "A should type the cell under the cursor";
         goto cleanup;
     }
+    /* The triggers are the caret: L2 steps back over the q, the next letter goes in before
+       it, and R2 steps on again. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* w */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (strcmp(store.nav.draft, "Qwq") != 0) {
+        failure = "L2 should move the caret back, and A should type there";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (strcmp(store.nav.draft, "Qw") != 0) {
+        failure = "R2 should move the caret on, and X should delete before it";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action); /* q */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (strcmp(store.nav.draft, "Qwq") != 0) {
+        failure = "the caret back on the end should type on the end";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* q, back to Qq */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (strcmp(store.nav.draft, "Q") != 0) {
         failure = "X should delete a character";
@@ -1199,7 +1215,7 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
     for (int i = 0; i < 5; ++i) {
         mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     }
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action); /* shift */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action); /* the capitals */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);  /* H */
     if (strcmp(store.nav.draft, "H") != 0 || store.nav.kb.layer != INKCELL_KB_LOWER) {
         failure = "shift should apply to one character";
@@ -2444,6 +2460,134 @@ MESH_TEST_CASE(ui_nav_delete_message, unit) {
     }
     if (store.nav.reaction_open || store.nav.message_delete_armed) {
         failure = "the sheet should close and the arming go with it";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * X on the compose sheet's draft row keeps the draft as a quick reply - and is offered only
+ * for a draft the list would take, so the bar never names a press that comes back refused.
+ */
+MESH_TEST_CASE(ui_nav_compose_x_keeps_the_draft_as_a_reply, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_command_set commands;
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.thread_open) {
+        failure = "expected a thread open";
+        goto cleanup;
+    }
+
+    /* A draft typed and backed out of: the sheet opens on its row. */
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "At the trailhead");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.compose_open || store.nav.compose_cursor != MESH_UI_COMPOSE_ROW_DRAFT) {
+        failure = "compose should open on the draft row";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_commands_for(&snapshot, &commands);
+    const struct mesh_ui_command *keep =
+        mesh_ui_commands_find(&commands, MESH_UI_COMMAND_SAVE_REPLY);
+    if (keep == NULL || keep->button != INKCELL_BUTTON_X) {
+        failure = "the draft row's bar should offer X to keep the draft";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_SAVE_QUICK_REPLY ||
+        strcmp(action.text, "At the trailhead") != 0 || !store.nav.compose_open ||
+        strcmp(store.nav.draft, "At the trailhead") != 0) {
+        failure = "X should ask to keep the draft, and leave both the draft and the sheet";
+        goto cleanup;
+    }
+
+    /* A line already on the list, and one too long for a slot, are not offered. */
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", mesh_ui_canned_text(0));
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_commands_for(&snapshot, &commands);
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (mesh_ui_commands_find(&commands, MESH_UI_COMMAND_SAVE_REPLY) != NULL ||
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "a draft already on the list should not be offered";
+        goto cleanup;
+    }
+    memset(store.nav.draft, 'a', MESH_UI_CANNED_TEXT_MAX);
+    store.nav.draft[MESH_UI_CANNED_TEXT_MAX] = '\0';
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_NONE) {
+        failure = "a draft too long for a slot should not be offered";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * B held from two levels into a node - its sheet of verbs over its detail - lands on the node
+ * list in one gesture, on the node it came from, where it used to be a B per level.
+ */
+MESH_TEST_CASE(ui_nav_b_held_goes_back_to_the_top_of_the_tab, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
+    for (uint32_t row = 0; row < MESH_UI_NODES_LEAD_ROWS + 2U; ++row) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    }
+    const uint32_t node_row = store.nav.cursor[MESH_UI_SCREEN_NODES];
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* the detail */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* its verbs */
+    if (!store.nav.node_actions_open || !store.nav.node_detail_open) {
+        failure = "expected a node's verbs open over its detail";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B_HELD, &action);
+    if (store.nav.node_actions_open || store.nav.node_detail_open ||
+        store.nav.screen != MESH_UI_SCREEN_NODES ||
+        store.nav.cursor[MESH_UI_SCREEN_NODES] != node_row || action.type != MESH_UI_ACTION_NONE) {
+        failure = "B held should unwind to the node list, on the node it came from";
+        goto cleanup;
+    }
+    /* At the top already, it is nothing - not a tab change, not a quit. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B_HELD, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_NODES ||
+        store.nav.cursor[MESH_UI_SCREEN_NODES] != node_row) {
+        failure = "B held on a tab's own list should leave it where it is";
+        goto cleanup;
+    }
+
+    /* A keyboard is a stop: its B keeps a draft rather than leaving a place. */
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B_HELD, &action);
+    if (!store.nav.keyboard_open) {
+        failure = "B held should not close a keyboard";
         goto cleanup;
     }
 

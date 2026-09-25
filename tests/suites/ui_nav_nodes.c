@@ -2393,3 +2393,90 @@ MESH_TEST_CASE(ui_nav_nodes_name_sort_reads_down_the_long_names, unit) {
 
     record_success(test_name);
 }
+
+/* Find matches a piece of the long name, the short name or the id, case folded; no query is
+   every node, and a query narrows only what the filter already kept. */
+MESH_TEST_CASE(ui_nodes_query_matches_names_and_ids, unit) {
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x43a1c0deU;
+    snprintf(node.long_name, sizeof node.long_name, "%s", "Alfa Ridge");
+    snprintf(node.short_name, sizeof node.short_name, "%s", "ALFA");
+
+    MESH_TEST_FAIL_IF(!mesh_ui_node_query_matches(&node, NULL) ||
+                          !mesh_ui_node_query_matches(&node, ""),
+                      "no query should match every node");
+    MESH_TEST_FAIL_IF(!mesh_ui_node_query_matches(&node, "ridge"),
+                      "a piece of the long name should match, case folded");
+    MESH_TEST_FAIL_IF(!mesh_ui_node_query_matches(&node, "lf"),
+                      "a piece of the short name should match");
+    MESH_TEST_FAIL_IF(!mesh_ui_node_query_matches(&node, "!43a1"),
+                      "a piece of the id should match");
+    MESH_TEST_FAIL_IF(mesh_ui_node_query_matches(&node, "bravo"),
+                      "a name that is not there should not match");
+    record_success(test_name);
+}
+
+/*
+ * The Find row, end to end: A opens the keyboard on it, Done narrows the list and leaves the
+ * cursor on the row, a node row then opens the node that matched, and X on the row clears it.
+ */
+MESH_TEST_CASE(ui_nav_nodes_find_row_narrows_the_list, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
+    const uint32_t all_rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES);
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FIND_ROW;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.keyboard_open || !store.nav.keyboard_node_query) {
+        failure = "A on the Find row should open its keyboard";
+        goto cleanup;
+    }
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "brv");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
+    if (store.nav.keyboard_open || strcmp(store.nav.node_query, "brv") != 0 ||
+        store.nav.screen != MESH_UI_SCREEN_NODES ||
+        store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_FIND_ROW) {
+        failure = "Done should set the query and land on the Find row";
+        goto cleanup;
+    }
+    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) !=
+        MESH_UI_NODES_LEAD_ROWS + 1U) {
+        failure = "the query should leave one node under the lead rows";
+        goto cleanup;
+    }
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_LEAD_ROWS;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U) {
+        failure = "the one row left should open the node that matched";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FIND_ROW;
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (store.nav.node_query[0] != '\0' || action.type != MESH_UI_ACTION_NONE ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) != all_rows) {
+        failure = "X on the Find row should clear it, and pin nobody";
+        goto cleanup;
+    }
+
+    /* B out of the Find keyboard leaves the query as it was. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "zzz");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    if (store.nav.keyboard_open || store.nav.node_query[0] != '\0') {
+        failure = "B should leave the Find keyboard without applying it";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

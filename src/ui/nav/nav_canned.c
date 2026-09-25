@@ -9,6 +9,7 @@
  */
 
 #include "inkwell/base/array.h"
+#include "inkwell/base/record_file.h"
 #include "inkwell/base/text.h"
 
 #include "nav_internal.h"
@@ -105,4 +106,51 @@ int mesh_ui_canned_load(const char *path) {
     s_canned_count = count;
     s_canned_loaded = true;
     return (int)count;
+}
+
+bool mesh_ui_canned_accepts(const char *text) {
+    if (text == NULL || text[0] == '\0' || text[0] == '#') {
+        return false;
+    }
+    const size_t len = strlen(text);
+    if (len >= MESH_UI_CANNED_TEXT_MAX) {
+        return false;
+    }
+    for (const unsigned char *c = (const unsigned char *)text; *c != '\0'; ++c) {
+        if (*c < 0x20U) {
+            return false;
+        }
+    }
+    const size_t count = mesh_ui_canned_count();
+    if (count >= MESH_UI_CANNED_MAX) {
+        return false;
+    }
+    for (size_t i = 0U; i < count; ++i) {
+        if (strcmp(mesh_ui_canned_text(i), text) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* The list as it stands, one line each, then the line joining it. */
+static void mesh_ui_canned_write(FILE *file, void *context) {
+    const size_t count = mesh_ui_canned_count();
+    for (size_t i = 0U; i < count; ++i) {
+        fprintf(file, "%s\n", mesh_ui_canned_text(i));
+    }
+    fprintf(file, "%s\n", (const char *)context);
+}
+
+int mesh_ui_canned_add(const char *path, const char *text) {
+    if (path == NULL || path[0] == '\0' || !mesh_ui_canned_accepts(text)) {
+        return -EINVAL;
+    }
+    char temp[512];
+    const int written =
+        inkwell_record_replace(path, temp, sizeof temp, mesh_ui_canned_write, (void *)text, true);
+    if (written < 0) {
+        return written;
+    }
+    return mesh_ui_canned_load(path);
 }

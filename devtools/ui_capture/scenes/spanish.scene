@@ -12,7 +12,7 @@ key b
 tab nodes
 # The Map row, which is the third - see the note in map.scene. A bare `key a` on this list steps
 # the filter chips instead, which is not a screen with much Spanish on it.
-key down 2
+key down 3
 key a
 hold 1200
 key b

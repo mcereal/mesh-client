@@ -922,6 +922,62 @@ cleanup:
 }
 
 /*
+ * Keeping a line: the built-in replies are written out with it, since the file replaces them,
+ * and the list read back is the list that was showing plus the one line.
+ */
+MESH_TEST_CASE(ui_canned_add_keeps_the_defaults, unit) {
+    const char *failure = NULL;
+    char dir[] = "/tmp/meshclient-canned-add-XXXXXX";
+    MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "mkdtemp failed");
+    char path[sizeof dir + 16U];
+    snprintf(path, sizeof path, "%s/canned.txt", dir);
+
+    mesh_ui_canned_reset();
+    const size_t defaults = mesh_ui_canned_count();
+    if (mesh_ui_canned_accepts("") || mesh_ui_canned_accepts("# not a comment") ||
+        mesh_ui_canned_accepts("tab\there") || mesh_ui_canned_accepts(mesh_ui_canned_text(1))) {
+        failure = "empty, comment-shaped, control-byte and duplicate lines must be refused";
+        goto cleanup;
+    }
+    if (mesh_ui_canned_add(path, "At the trailhead") != (int)defaults + 1 ||
+        mesh_ui_canned_count() != defaults + 1U || strcmp(mesh_ui_canned_text(0), "OK") != 0 ||
+        strcmp(mesh_ui_canned_text(defaults), "At the trailhead") != 0) {
+        failure = "the new line should follow the built-in replies";
+        goto cleanup;
+    }
+    /* What is on the card is the same list, read cold. */
+    mesh_ui_canned_reset();
+    if (mesh_ui_canned_load(path) != (int)defaults + 1 ||
+        strcmp(mesh_ui_canned_text(defaults), "At the trailhead") != 0) {
+        failure = "the file should read back as the list that was kept";
+        goto cleanup;
+    }
+    if (mesh_ui_canned_add(path, "At the trailhead") != -EINVAL) {
+        failure = "a second copy of the same line must be refused";
+        goto cleanup;
+    }
+    while (mesh_ui_canned_count() < MESH_UI_CANNED_MAX) {
+        char line[16];
+        snprintf(line, sizeof line, "line %zu", mesh_ui_canned_count());
+        if (mesh_ui_canned_add(path, line) < 0) {
+            failure = "filling the list should succeed up to its cap";
+            goto cleanup;
+        }
+    }
+    if (mesh_ui_canned_accepts("one too many")) {
+        failure = "a full list must refuse another line";
+        goto cleanup;
+    }
+
+cleanup:
+    unlink(path);
+    rmdir(dir);
+    mesh_ui_canned_reset();
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * Deleting a conversation out of the store: its messages and its read mark, and nothing else.
  *
  * The mark has to go with the messages. A mark whose message has been evicted by the ring

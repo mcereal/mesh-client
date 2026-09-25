@@ -146,6 +146,21 @@ static void mesh_app_release_other_link(const struct mesh_transport *keep) {
 
 /* Connects `identifier` over the transport `kind` names, dropping the other link first.
    Returns what the transport's connect returned. */
+bool mesh_app_canned_path(const struct mesh_app *app, char *out, size_t out_len) {
+    if (app == NULL || out == NULL || out_len == 0U || app->ui_preferences_path[0] == '\0') {
+        return false;
+    }
+    if (snprintf(out, out_len, "%s", app->ui_preferences_path) >= (int)out_len) {
+        return false;
+    }
+    char *const slash = strrchr(out, '/');
+    if (slash == NULL) {
+        return false;
+    }
+    const size_t room = out_len - (size_t)(slash + 1 - out);
+    return snprintf(slash + 1, room, "%s", "canned.txt") < (int)room;
+}
+
 int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t kind) {
     struct mesh_transport *transport = mesh_app_transport_for_kind(kind);
     if (transport == NULL) {
@@ -1284,19 +1299,13 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     mesh_app_mqtt_init(app);
 
     /* Optional canned.txt next to the preferences file replaces the built-in quick replies. */
-    if (app->ui_preferences_path[0] != '\0') {
-        char canned_path[sizeof app->ui_preferences_path + 16U];
-        snprintf(canned_path, sizeof canned_path, "%s", app->ui_preferences_path);
-        char *slash = strrchr(canned_path, '/');
-        if (slash != NULL) {
-            const size_t room = sizeof canned_path - (size_t)(slash + 1 - canned_path);
-            snprintf(slash + 1, room, "%s", "canned.txt");
-            const int loaded = mesh_ui_canned_load(canned_path);
-            if (loaded > 0) {
-                inkwell_log_info("app", "Loaded %d canned replies from %s", loaded, canned_path);
-            } else if (loaded != -ENOENT) {
-                inkwell_log_warn("app", "Ignoring %s: %d", canned_path, loaded);
-            }
+    char canned_path[sizeof app->ui_preferences_path + 16U];
+    if (mesh_app_canned_path(app, canned_path, sizeof canned_path)) {
+        const int loaded = mesh_ui_canned_load(canned_path);
+        if (loaded > 0) {
+            inkwell_log_info("app", "Loaded %d canned replies from %s", loaded, canned_path);
+        } else if (loaded != -ENOENT) {
+            inkwell_log_warn("app", "Ignoring %s: %d", canned_path, loaded);
         }
     }
 

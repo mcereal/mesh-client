@@ -361,8 +361,8 @@ static const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct m
         return NULL;
     }
     struct mesh_ui_node_view view;
-    mesh_ui_node_view_build(&store->handshake, (enum mesh_ui_node_filter)nav->node_filter,
-                            (enum mesh_ui_node_sort)nav->node_sort, &view);
+    mesh_ui_node_view_build_query(&store->handshake, (enum mesh_ui_node_filter)nav->node_filter,
+                                  nav->node_query, (enum mesh_ui_node_sort)nav->node_sort, &view);
     return mesh_ui_node_view_at(&store->handshake, &view, cursor - MESH_UI_NODES_LEAD_ROWS);
 }
 
@@ -715,10 +715,11 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
             if (nodes == 0U) {
                 return 0U;
             }
-            return mesh_ui_node_filter_count(&store->handshake,
-                                             nav == NULL
-                                                 ? MESH_UI_NODE_FILTER_ALL
-                                                 : (enum mesh_ui_node_filter)nav->node_filter) +
+            return mesh_ui_node_query_count(&store->handshake,
+                                            nav == NULL
+                                                ? MESH_UI_NODE_FILTER_ALL
+                                                : (enum mesh_ui_node_filter)nav->node_filter,
+                                            nav == NULL ? NULL : nav->node_query) +
                    MESH_UI_NODES_LEAD_ROWS;
         }
         /*
@@ -1488,14 +1489,31 @@ static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, enum inkcell_key ke
     case INKCELL_KEY_A:
     case INKCELL_KEY_START:
         if (nav->compose_cursor == MESH_UI_COMPOSE_ROW_DRAFT) {
+            /* Back into a draft on its end, where a resumed sentence carries on. The grid
+               keeps its place; only the caret is put back. */
+            nav->kb.caret_back = 0U;
             nav->keyboard_open = true;
             return true;
         }
         return mesh_ui_nav_send_canned(nav, action,
                                        nav->compose_cursor - MESH_UI_COMPOSE_FIRST_CANNED);
+    case INKCELL_KEY_X:
+        /* The draft, kept as a quick reply. Only where the bar offers it - on the draft row,
+           with a draft the list would take - and the draft stays, since keeping a line is not
+           the same as sending it. */
+        if (nav->compose_cursor != MESH_UI_COMPOSE_ROW_DRAFT ||
+            !mesh_ui_canned_accepts(nav->draft)) {
+            return false;
+        }
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_SAVE_QUICK_REPLY;
+            snprintf(action->text, sizeof action->text, "%s", nav->draft);
+        }
+        return true;
     case INKCELL_KEY_Y:
         /* Y opened this; a second press types, which is what the row it lands on offers. */
         nav->compose_cursor = MESH_UI_COMPOSE_ROW_DRAFT;
+        nav->kb.caret_back = 0U;
         nav->keyboard_open = true;
         return true;
     case INKCELL_KEY_B:
@@ -1906,6 +1924,10 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             if (mesh_ui_nav_nodes_control_step(nav, cursor, INKCELL_KEY_A)) {
                 return true;
             }
+            if (cursor == MESH_UI_NODES_FIND_ROW) {
+                mesh_ui_nav_open_node_query_keyboard(nav);
+                return true;
+            }
             if (cursor == MESH_UI_NODES_WAYPOINTS_ROW) {
                 /* The places, one level in. Never refused: the list always ends in its "New
                    waypoint here" row, so there is something to stand on even on a mesh that has
@@ -2184,6 +2206,38 @@ bool mesh_ui_nav_contact_key(struct mesh_ui_nav *nav, enum inkcell_key key) {
     return true;
 }
 
+/*
+ * B held: back to the top of the tab, as the presses of B it stands for.
+ *
+ * The press that began the hold has already gone back one step; this carries on, one ordinary B
+ * at a time, while each one leaves the reader somewhere shallower. Made of B rather than of a
+ * jump because every screen's B already knows what leaving it costs - a section with unsaved
+ * edits asks first, an armed delete stands down - and a jump would have to learn all of that
+ * again. So it stops wherever B does something other than go back: at the tab's own list, at a
+ * question (the dialog a B raised, or one that was already up), at a keyboard, whose B keeps a
+ * draft rather than leaving a place, and at a press that asked the app for anything.
+ */
+static bool mesh_ui_nav_back_to_top(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                    struct mesh_ui_action *out_action) {
+    bool changed = false;
+    for (unsigned steps = 0U; steps < 16U; ++steps) {
+        struct mesh_ui_route before;
+        mesh_ui_route_of(nav, &before);
+        if (before.depth == 0U || before.level == MESH_UI_ROUTE_KEYBOARD ||
+            before.level == MESH_UI_ROUTE_CONFIRM || before.level == MESH_UI_ROUTE_VERIFY) {
+            break;
+        }
+        changed = mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_B, out_action) || changed;
+        struct mesh_ui_route after;
+        mesh_ui_route_of(nav, &after);
+        if (after.depth >= before.depth ||
+            (out_action != NULL && out_action->type != MESH_UI_ACTION_NONE)) {
+            break;
+        }
+    }
+    return changed;
+}
+
 bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum inkcell_key key, struct mesh_ui_action *out_action) {
     if (out_action != NULL) {
@@ -2191,6 +2245,9 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     }
     if (nav == NULL || store == NULL) {
         return false;
+    }
+    if (key == INKCELL_KEY_B_HELD) {
+        return mesh_ui_nav_back_to_top(nav, store, out_action);
     }
 
     /* A right-click menu is put down by any key, which then does nothing else: the reader
@@ -2659,6 +2716,18 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
                 }
             }
             return changed;
+        }
+        if (nav->screen == MESH_UI_SCREEN_NODES && !mesh_ui_nav_waypoints_showing(nav) &&
+            !nav->node_detail_open && !nav->map_open &&
+            nav->cursor[nav->screen] == MESH_UI_NODES_FIND_ROW) {
+            /* The Find row's X is its clear, and only while there is something to clear: the
+               bar names it then and not otherwise. The cursor stays on the row - it is above
+               every row a query renumbers. */
+            if (nav->node_query[0] == '\0') {
+                return changed;
+            }
+            nav->node_query[0] = '\0';
+            return true;
         }
         if (nav->screen == MESH_UI_SCREEN_NODES && !mesh_ui_nav_waypoints_showing(nav)) {
             /* The one-press version of the detail's "Pinned to top" row, from either level -

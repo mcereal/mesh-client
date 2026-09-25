@@ -170,6 +170,7 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_INPUT_PROFILE` | `brick` (default) or `xbox`. Decides which evdev code each *printed* face button reports **and** the keycaps the bar draws — one table, since correcting the codes and not the words would name a key that does something else. See [`device.md`](device.md#the-buttons) |
 | `MESHCLIENT_QUIT_KEYS` | override the evdev codes that quit, e.g. `"139,316"` |
 | `MESHCLIENT_KEY_REPEAT_DELAY_MS` | hold-before-repeat, 0–5000, default 350; `0` turns hold-to-scroll off |
+| `MESHCLIENT_KEY_HOLD_MS` | how long B is held before it goes back to the tab's own list, 0–5000, default 600; `0` turns it off |
 | `MESHCLIENT_KEY_REPEAT_MS` | gap between repeats, 10–2000, default 90, halving after eight rows |
 | `MESHCLIENT_UPDATE_REPO`, `_ASSET` | where the self-updater looks |
 | `MESHCLIENT_UPDATE_ALLOW_DEV` | let a `-dev` build install what it finds |
@@ -208,7 +209,7 @@ Four tabs: **Messages, Nodes, Radio, Settings.**
 | L2/R2 | move a whole group at a time, where a screen draws its groups as cards |
 | Up/Down | move the cursor — hold to keep scrolling, which speeds up after a few rows |
 | A | act on the row |
-| B | back out |
+| B | back out — keep it held to go all the way back to the tab's own list |
 | Y | write a message (Messages/Nodes), save a section (Settings) |
 | X | delete a conversation (Messages), refresh (Settings, Radio's pages), pin a node (Nodes), disconnect (Radio's device list) |
 | SELECT | help for what is on screen ([`help.md`](help.md)) |
@@ -227,13 +228,21 @@ failed bubble stays where it is and the retry goes out as a new message.
 message is going: a d-pad keyboard and quick replies from `$HOME/.meshclient/canned.txt`. The
 keyboard uses the pad the way a console keyboard does — **A** types the key under the cursor,
 **X** is the backspace, **B** leaves (keeping what was typed; the grid's own ✕ discards),
-**Y** is a space, **START** sends. **L2/R2** shift for one capital, and **L1/R1** step the panel
-the grid is showing: `abc`, `ABC`, symbols, then three pages of forty emoji. The bottom-left key
+**Y** is a space, **START** sends. **L2/R2** move the caret a character at a time, so a typo
+early in a draft is reached without deleting what follows it; typing, the space and the backspace
+all work at the caret. **L1/R1** step the panel the grid is showing: `abc`, `ABC`
+(one capital, then back to `abc`), symbols, then three pages of forty emoji. The bottom-left key
 of the grid steps the same ring, so everything is reachable without the shoulders.
 
+On the compose sheet, **X** on the draft row keeps the draft as a quick reply. It is offered for a
+draft of up to 63 bytes that is not already on the list, while the list has fewer than 16. The
+list is then written to `canned.txt`, built-in replies included, so it is the file from then on.
+
 **Nodes** is the contact list; A opens a node's detail, where rows appear only for what the node
-has actually reported. Above the nodes are the filter, the sort, the *Map* and the *Waypoints*
-row, which opens the shared places (and the row that marks a new one here); B goes back. **Radio** opens on the link, mesh and radio cards; the Link card's
+has actually reported. Above the nodes are the filter, the sort, *Find* - A types a piece of a
+name, short name or `!id` and the list keeps only the nodes that match; X clears it - the *Map* and
+the *Waypoints* row, which opens the shared places (and the row that marks a new one here); B goes
+back. **Radio** opens on the link, mesh and radio cards; the Link card's
 *devices* button opens the device list, which shows USB ports first (no pairing, so they sort to
 the top), then BLE advertisers; A connects and bonds, X disconnects and holds auto-connect off, Y
 twice forgets a bond, B goes back to the cards. The Mesh card's *nodes* button opens the node

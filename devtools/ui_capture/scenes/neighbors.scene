@@ -17,7 +17,7 @@ tab nodes
 # seeds[4] and row 8.
 
 # Echo Repeater: hears three, and two of those report hearing it back.
-key down 9
+key down 10
 key a
 key down 34
 hold 1600

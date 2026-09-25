@@ -75,15 +75,21 @@ enum mesh_ui_screen {
  */
 #define MESH_UI_NODES_FILTER_ROW 0U
 #define MESH_UI_NODES_SORT_ROW 1U
-#define MESH_UI_NODES_MAP_ROW 2U
+/* Find: a piece of a name, typed. A opens the keyboard on it and X clears it; Left and Right
+   are the tabs here, since the row edits nothing in place - see `node_query`. */
+#define MESH_UI_NODES_FIND_ROW 2U
+/* The Find text's buffer, NUL included: longer than any short name and most long ones. */
+#define MESH_UI_NODE_QUERY_MAX 24U
+#define MESH_UI_NODES_MAP_ROW 3U
 /* The places list, one level in (`waypoints_open`). Under the map row because it is the same
    argument - a way into a screen is a row somebody can see - and because the two are the two
    halves of "where things are". */
-#define MESH_UI_NODES_WAYPOINTS_ROW 3U
+#define MESH_UI_NODES_WAYPOINTS_ROW 4U
 /* Rows before the first node. Written once so a third one cannot be added to only some of the
    arithmetic - which is exactly how the map row's own arrival went wrong before it was, and
-   what made the sort row's arrival a constant and two row ids rather than an audit. */
-#define MESH_UI_NODES_LEAD_ROWS 4U
+   what made the sort row's and the find row's arrivals a constant and a row id rather than an
+   audit. */
+#define MESH_UI_NODES_LEAD_ROWS 5U
 
 #define MESH_UI_NAV_TARGET_NAME_MAX 40U
 /* nav.settings_section when the Settings tab shows the section list rather than a section. */
@@ -357,7 +363,8 @@ struct mesh_ui_nav {
      * Nodes tab: which of the roster the list is showing - `enum mesh_ui_node_filter`, stepped
      * by A on the list's own first row.
      *
-     * A filter rather than a search or a sort, and the reasoning is in include/mesh/ui/nodes.h.
+     * A filter rather than a sort, and the reasoning is in include/mesh/ui/nodes.h; the Find
+     * row's text is `node_query`, beside it.
      * What belongs here is why it is on the nav at all: it decides how many rows the screen has,
      * so mesh_ui_nav_row_count() has to read it, and everything that turns a row into a node has
      * to read it too or the cursor and the list part company on the first press.
@@ -371,6 +378,13 @@ struct mesh_ui_nav {
      * a filter is where they are standing right now.
      */
     uint8_t node_filter; /* enum mesh_ui_node_filter */
+    /*
+     * Nodes tab: the Find row's text - a piece of a name, a short name or an id, narrowing what
+     * the filter kept. "" is no query. On the nav for the filter's reason, since it decides how
+     * many rows there are, and like the filter it lasts until the reader clears it but not
+     * past a restart.
+     */
+    char node_query[MESH_UI_NODE_QUERY_MAX];
     /*
      * Nodes tab: what order the rows the filter kept are in - `enum mesh_ui_node_sort`, stepped
      * by A on the row under the filter's.
@@ -652,6 +666,9 @@ struct mesh_ui_nav {
      * differs is not only the parser but where B lands and which sheet comes up.
      */
     bool keyboard_contact_url;
+    /* When the keyboard is typing the Nodes list's Find text: a seventh flavour, and the one
+       whose text never leaves the client - Done narrows the list, and that is all. */
+    bool keyboard_node_query;
     /* When the keyboard edits a setting rather than the Compose draft: the field it is for
        (NONE for Compose) and the Compose draft parked while it is open. */
     uint16_t keyboard_field;
@@ -845,6 +862,8 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_CYCLE_LANGUAGE,
     /* Steps the text size and remembers it, on the theme's terms. */
     MESH_UI_ACTION_CYCLE_TEXT_SIZE,
+    /* The compose sheet's draft, kept as a quick reply: `text`. The draft itself stays. */
+    MESH_UI_ACTION_SAVE_QUICK_REPLY,
     /* Throw away the crash report a previous run left on the card. Purely local, like the theme
        and the language beside it - there is no radio behind About - and it is what the crash
        banner resolves by: a notice with nowhere to go is the one thing the banner table refuses
@@ -1327,6 +1346,21 @@ size_t mesh_ui_canned_count(void);
 const char *mesh_ui_canned_text(size_t index);
 int mesh_ui_canned_load(const char *path);
 void mesh_ui_canned_reset(void);
+/*
+ * Whether `text` could join the list as it stands: short enough for a slot, not already on it,
+ * room left, and nothing mesh_ui_canned_load() would skip on the way back in - a control byte,
+ * or a leading '#' that would read as a comment. The compose sheet offers the save only when
+ * this holds, so the keycap is never a press that fails.
+ */
+bool mesh_ui_canned_accepts(const char *text);
+/*
+ * Adds `text` to the end of the list and writes the whole list to `path`, which is then the
+ * list: the file replaces the built-in replies, so while they are what is showing they are
+ * written out first rather than lost. Written beside and renamed over, so a card pulled halfway
+ * leaves the old file. Returns the new count, or -EINVAL when the text is not one
+ * mesh_ui_canned_accepts() takes, or the errno the write failed with.
+ */
+int mesh_ui_canned_add(const char *path, const char *text);
 
 #ifdef __cplusplus
 }

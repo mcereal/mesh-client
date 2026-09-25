@@ -19,7 +19,7 @@ tab nodes
 # four.
 #
 # Echo Repeater: a solar node with a two-channel current monitor, seeds[5] and row 9.
-key down 9
+key down 10
 key a
 key down 21
 hold 1200

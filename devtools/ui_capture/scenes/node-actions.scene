@@ -18,7 +18,7 @@
 scene demo
 clock 2026-01-15 12:00
 tab nodes
-key down 5
+key down 6
 
 # The detail, as it opens. The cursor starts on the Actions row - a card of its own above the
 # first heading, which is the one row on this screen that is a control rather than a report.

@@ -46,7 +46,7 @@ hold 260
 # four. Our own radio is seeds[0] and row 4, Alfa Ridge is
 # seeds[1] and row 5. A node on mains has no battery trend to draw, so getting this wrong
 # renders a screen with nothing of the component on it.
-key down 5
+key down 6
 key a
 key down 26
 hold 2000
