@@ -665,7 +665,7 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL,
     /* Not an action: what the two verb tables below are sized by, so a row added above without
        a symbol or a weight is a hole in an array rather than a row that quietly draws nothing.
-       Last, so no existing value moves - nav->confirm_action carries one in a uint8_t. */
+       Last, so no existing value moves - nav->confirm.subject carries one in a uint8_t. */
     MESH_UI_SETTINGS_ACTION_COUNT,
 };
 

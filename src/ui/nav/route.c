@@ -266,10 +266,10 @@ void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_rout
         out->slot = nav->picker_follow;
         out->subject = 0U;
     }
-    if (nav->confirm_open) {
+    if (nav->confirm.open) {
         out->depth++;
         out->level = MESH_UI_ROUTE_CONFIRM;
-        out->slot = nav->confirm_action;
+        out->slot = nav->confirm.subject;
         out->subject = 0U;
     }
     /*
@@ -343,7 +343,7 @@ void mesh_ui_route_under_layers(const struct mesh_ui_nav *nav, struct mesh_ui_ro
      * list of things that are drawn on layers.
      */
     struct mesh_ui_nav without = *nav;
-    without.confirm_open = false;
+    without.confirm.open = false;
     without.verify_open = false;
     without.reaction_open = false;
     without.node_actions_open = false;

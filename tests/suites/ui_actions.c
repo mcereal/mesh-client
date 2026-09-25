@@ -104,7 +104,7 @@ MESH_TEST_CASE(commands_are_the_source_of_the_legacy_action_bar, unit) {
     }
 
     /* Route precedence is shared by dispatch and command discovery: VERIFY is above CONFIRM. */
-    snapshot.nav.confirm_open = true;
+    snapshot.nav.confirm.open = true;
     snapshot.nav.verify_open = true;
     mesh_ui_commands_for(&snapshot, &commands);
     MESH_TEST_FAIL_IF(mesh_ui_commands_find(&commands, MESH_UI_COMMAND_ANSWER) == NULL,
@@ -283,14 +283,14 @@ MESH_TEST_CASE(actions_overlays_win_over_the_screen, unit) {
     snapshot.nav.compose_open = true;
     snapshot.nav.keyboard_open = true;
     snapshot.nav.picker_open = true;
-    snapshot.nav.confirm_open = true;
+    snapshot.nav.confirm.open = true;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_CONFIRM,
                       "a confirmation should outrank every other overlay");
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_SHOULDERS) != INKCELL_STR_NONE,
                       "an overlay should not offer the tabs it cannot reach");
 
-    snapshot.nav.confirm_open = false;
+    snapshot.nav.confirm.open = false;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_CHOOSE,
                       "the picker should outrank the keyboard under it");
@@ -569,7 +569,7 @@ MESH_TEST_CASE(actions_every_state_is_well_formed, unit) {
         for (int screen = 0; screen < MESH_UI_SCREEN_COUNT; ++screen) {
             actions_snapshot(&snapshot);
             snapshot.nav.screen = (enum mesh_ui_screen)screen;
-            snapshot.nav.confirm_open = (flags & 1U) != 0U;
+            snapshot.nav.confirm.open = (flags & 1U) != 0U;
             snapshot.nav.picker_open = (flags & 2U) != 0U;
             snapshot.nav.keyboard_open = (flags & 4U) != 0U;
             snapshot.nav.compose_open = (flags & 8U) != 0U;

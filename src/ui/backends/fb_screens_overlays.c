@@ -231,20 +231,20 @@ static void fb_put_dialog(struct inkcell_draw_state *state, struct inkcell_fb_la
 
 /* "Save <section>?" for the sections whose write can cut this client off, and "Reboot the
    radio?" and its siblings for the Radio actions section. Which of the two it is standing in
-   front of is nav->confirm_action; all three strings come from settings.c. */
+   front of is nav->confirm.subject; all three strings come from settings.c. */
 void fb_render_confirm(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                        struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     /* Not over help, which takes every press - see the note at the tail of
        fb_render_snapshot(). */
-    if (!nav->confirm_open || nav->help_open) {
+    if (!nav->confirm.open || nav->help_open) {
         fb_put_dialog(state, layout, FB_OVERLAY_CONFIRM, false, NULL);
         return;
     }
     const enum mesh_ui_settings_section section =
         (enum mesh_ui_settings_section)mesh_ui_nav_open_section(nav);
     const enum mesh_ui_settings_action confirmed =
-        (enum mesh_ui_settings_action)nav->confirm_action;
+        (enum mesh_ui_settings_action)nav->confirm.subject;
     char title[96];
     char text[256];
     /*
@@ -283,7 +283,7 @@ void fb_render_confirm(struct inkcell_draw_state *state, const struct mesh_ui_sn
         .text = text,
         .accept = mesh_ui_settings_confirm_accept(confirmed),
         .cancel = inkcell_str(MESH_STR_COMMON_CANCEL),
-        .cursor = nav->confirm_cursor,
+        .cursor = nav->confirm.cursor,
         /* A radio action cannot be taken back - a reboot drops the link, a NodeDB reset empties
            the roster - while a section save is only the settings the user has just been
            editing. The two deserve different-coloured answers. */

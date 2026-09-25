@@ -196,25 +196,25 @@ MESH_TEST_CASE(ui_click_a_heading_is_nothing_and_a_dialog_is_answered, unit) {
                               "a heading should not be something a click can land on");
     (void)mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_ROWS + 0U, &action);
     MESH_TEST_FAIL_IF_CLEANUP(
-        store.nav.cursor[MESH_UI_SCREEN_RADIO] != 3U || store.nav.confirm_open,
+        store.nav.cursor[MESH_UI_SCREEN_RADIO] != 3U || store.nav.confirm.open,
         click_close(&store, capture), "a click on a heading should do nothing");
 
     /* The reset asks first, on Cancel - and the question's two answers are clicked like
        anything else. Cancel first, then the verb. */
     MESH_TEST_FAIL_IF_CLEANUP(
         !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, &action) ||
-            !store.nav.confirm_open ||
-            store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
+            !store.nav.confirm.open ||
+            store.nav.confirm.subject != (uint8_t)MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
         click_close(&store, capture), "a click on the reset should ask");
     MESH_TEST_FAIL_IF_CLEANUP(
         !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_DIALOG + 1U, &action) ||
-            store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE,
+            store.nav.confirm.open || action.type != MESH_UI_ACTION_NONE,
         click_close(&store, capture), "a click on Cancel should close the question");
     MESH_TEST_FAIL_IF_CLEANUP(
         !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, &action) ||
             !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_DIALOG + 0U, &action),
         click_close(&store, capture), "the question should come back and be answerable");
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.confirm_open ||
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.confirm.open ||
                                   action.type != MESH_UI_ACTION_RADIO_ACTION ||
                                   action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
                               click_close(&store, capture), "a click on the reset should reset");

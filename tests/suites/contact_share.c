@@ -631,7 +631,7 @@ MESH_TEST_CASE(contact_share_rows_drive_the_two_screens, unit) {
        they typed: two hundred characters of base64 are not worth one wrong one. */
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "not a link");
     mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
-    if (!store.nav.keyboard_open || store.nav.confirm_open || store.nav.toast.text[0] == '\0') {
+    if (!store.nav.keyboard_open || store.nav.confirm.open || store.nav.toast.text[0] == '\0') {
         failure = "a link that does not parse should stay on the keyboard and say so";
         goto cleanup;
     }
@@ -639,7 +639,7 @@ MESH_TEST_CASE(contact_share_rows_drive_the_two_screens, unit) {
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s",
              "https://meshtastic.org/e/#CgkSAQEaBFRlc3Q");
     mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
-    if (!store.nav.keyboard_open || store.nav.confirm_open) {
+    if (!store.nav.keyboard_open || store.nav.confirm.open) {
         failure = "a channel link should not be taken as a contact";
         goto cleanup;
     }
@@ -653,9 +653,9 @@ MESH_TEST_CASE(contact_share_rows_drive_the_two_screens, unit) {
     }
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", link);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
-    if (store.nav.keyboard_open || !store.nav.confirm_open ||
-        store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT ||
-        store.nav.confirm_cursor != 1U) {
+    if (store.nav.keyboard_open || !store.nav.confirm.open ||
+        store.nav.confirm.subject != (uint8_t)MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT ||
+        store.nav.confirm.cursor != 1U) {
         failure = "a link should close the keyboard and raise the sheet, on Cancel";
         goto cleanup;
     }
@@ -676,7 +676,7 @@ MESH_TEST_CASE(contact_share_rows_drive_the_two_screens, unit) {
        app can parse it against the session as it stands then. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action); /* onto the accept button */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_IMPORT_CONTACT ||
+    if (store.nav.confirm.open || action.type != MESH_UI_ACTION_IMPORT_CONTACT ||
         strcmp(action.text, link) != 0) {
         failure = "the sheet's accept should hand the app the link";
         goto cleanup;
