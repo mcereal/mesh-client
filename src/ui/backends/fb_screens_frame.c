@@ -986,8 +986,8 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
      * of the body.
      */
     const struct inkcell_fb_snackbar snackbar = {
-        .text = snapshot->nav.toast,
-        .until_ms = snapshot->nav.toast_until_ms,
+        .text = snapshot->nav.toast.text,
+        .until_ms = snapshot->nav.toast.until_ms,
     };
     inkcell_fb_draw_snackbar(state, &layout, &snackbar);
 }

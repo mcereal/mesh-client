@@ -615,7 +615,7 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
      */
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "not a link");
     mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
-    if (!store.nav.keyboard_open || store.nav.confirm_open || store.nav.toast[0] == '\0') {
+    if (!store.nav.keyboard_open || store.nav.confirm_open || store.nav.toast.text[0] == '\0') {
         failure = "a link that does not parse should stay on the keyboard and say so";
         goto cleanup;
     }

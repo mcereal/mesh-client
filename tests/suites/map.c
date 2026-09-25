@@ -632,7 +632,7 @@ MESH_TEST_CASE(map_opens_from_the_node_list, unit) {
 
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(store.nav.map_open, "so the press does not open a map");
-    MESH_TEST_FAIL_IF(store.nav.toast[0] == '\0', "and says why rather than doing nothing");
+    MESH_TEST_FAIL_IF(store.nav.toast.text[0] == '\0', "and says why rather than doing nothing");
 
     /* Give something a position and the same press opens. */
     struct mesh_ui_handshake_state handshake = store.handshake;

@@ -2503,7 +2503,7 @@ MESH_TEST_CASE(app_connect_failure_toast, unit) {
         failure = "the connect should be in flight";
         goto cleanup;
     }
-    if (strstr(app.ui_store.nav.toast, "Connecting") == NULL) {
+    if (strstr(app.ui_store.nav.toast.text, "Connecting") == NULL) {
         failure = "the user should first be told the connect is in flight";
         goto cleanup;
     }
@@ -2524,8 +2524,8 @@ MESH_TEST_CASE(app_connect_failure_toast, unit) {
         failure = "the pairing failure should have been drained";
         goto cleanup;
     }
-    if (strstr(app.ui_store.nav.toast, "pairing") == NULL ||
-        strstr(app.ui_store.nav.toast, "EE:07") == NULL) {
+    if (strstr(app.ui_store.nav.toast.text, "pairing") == NULL ||
+        strstr(app.ui_store.nav.toast.text, "EE:07") == NULL) {
         failure = "the pairing failure should have reached the screen";
         goto cleanup;
     }
@@ -2560,7 +2560,7 @@ MESH_TEST_CASE(app_connect_failure_toast, unit) {
         failure = "the auto-connect failure should still have been drained";
         goto cleanup;
     }
-    if (strcmp(app.ui_store.nav.toast, "quiet") != 0) {
+    if (strcmp(app.ui_store.nav.toast.text, "quiet") != 0) {
         failure = "an auto-connect failure should not raise a toast";
         goto cleanup;
     }
@@ -2745,7 +2745,7 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
         failure = "the press should have written the new theme to disk";
         goto cleanup;
     }
-    if (app.ui_store.nav.toast[0] == '\0') {
+    if (app.ui_store.nav.toast.text[0] == '\0') {
         failure = "the press should say which theme it landed on";
         goto cleanup;
     }
@@ -2992,7 +2992,7 @@ MESH_TEST_CASE(app_delete_conversation, unit) {
         failure = "the history read back from the cache still holds the deleted conversation";
         goto cleanup;
     }
-    if (app.ui_store.nav.toast[0] == '\0') {
+    if (app.ui_store.nav.toast.text[0] == '\0') {
         failure = "the delete should say what it did";
         goto cleanup;
     }
@@ -3579,7 +3579,7 @@ MESH_TEST_CASE(app_direct_message_notice, unit) {
     snprintf(message.text, sizeof message.text, "%s", "from before the launch");
     mesh_message_log_append(&app->session.messages, &message);
     mesh_app_publish_ui_state(app);
-    if (app->ui_store.nav.toast[0] != '\0') {
+    if (app->ui_store.nav.toast.text[0] != '\0') {
         failure = "a launch should not announce what the cache brought with it";
         goto cleanup;
     }
@@ -3589,8 +3589,8 @@ MESH_TEST_CASE(app_direct_message_notice, unit) {
     snprintf(message.text, sizeof message.text, "%s", "are you heading out");
     mesh_message_log_append(&app->session.messages, &message);
     mesh_app_publish_ui_state(app);
-    if (strstr(app->ui_store.nav.toast, "ALFA") == NULL ||
-        strstr(app->ui_store.nav.toast, "heading out") == NULL) {
+    if (strstr(app->ui_store.nav.toast.text, "ALFA") == NULL ||
+        strstr(app->ui_store.nav.toast.text, "heading out") == NULL) {
         failure = "a direct message should say who sent it and what they said";
         goto cleanup;
     }
@@ -3602,7 +3602,7 @@ MESH_TEST_CASE(app_direct_message_notice, unit) {
     snprintf(message.text, sizeof message.text, "%s", "anyone on the ridge");
     mesh_message_log_append(&app->session.messages, &message);
     mesh_app_publish_ui_state(app);
-    if (app->ui_store.nav.toast[0] != '\0') {
+    if (app->ui_store.nav.toast.text[0] != '\0') {
         failure = "a broadcast should raise nothing";
         goto cleanup;
     }
@@ -3625,7 +3625,7 @@ MESH_TEST_CASE(app_direct_message_notice, unit) {
     /* Delete ALFA's conversation, which is where packet 101 - the cursor - lives. */
     (void)mesh_message_log_forget(&app->session.messages, 2U, 0U);
     mesh_app_publish_ui_state(app);
-    if (app->ui_store.nav.toast[0] != '\0') {
+    if (app->ui_store.nav.toast.text[0] != '\0') {
         failure = "losing the cursor should take our place again silently, not re-announce";
         goto cleanup;
     }
@@ -3635,7 +3635,7 @@ MESH_TEST_CASE(app_direct_message_notice, unit) {
     snprintf(message.text, sizeof message.text, "%s", "genuinely new");
     mesh_message_log_append(&app->session.messages, &message);
     mesh_app_publish_ui_state(app);
-    if (strstr(app->ui_store.nav.toast, "genuinely new") == NULL) {
+    if (strstr(app->ui_store.nav.toast.text, "genuinely new") == NULL) {
         failure = "the reporter should still be live after relocating its cursor";
         goto cleanup;
     }
@@ -3656,7 +3656,7 @@ MESH_TEST_CASE(app_direct_message_notice, unit) {
     snprintf(message.text, sizeof message.text, "%s", "said four hours ago");
     mesh_message_log_append(&app->session.messages, &message);
     mesh_app_publish_ui_state(app);
-    if (app->ui_store.nav.toast[0] != '\0') {
+    if (app->ui_store.nav.toast.text[0] != '\0') {
         failure = "a replayed message is history the user asked for, not a notice";
         goto cleanup;
     }
@@ -3667,7 +3667,7 @@ MESH_TEST_CASE(app_direct_message_notice, unit) {
     snprintf(message.text, sizeof message.text, "%s", "live again");
     mesh_message_log_append(&app->session.messages, &message);
     mesh_app_publish_ui_state(app);
-    if (strstr(app->ui_store.nav.toast, "live again") == NULL) {
+    if (strstr(app->ui_store.nav.toast.text, "live again") == NULL) {
         failure = "a replayed window should not stop the next real arrival being announced";
         goto cleanup;
     }
@@ -3739,7 +3739,7 @@ MESH_TEST_CASE(app_unmute_reports_the_radios_mute, unit) {
     }
     char expected[MESH_UI_NAV_TOAST_MAX];
     inkcell_str_format(expected, sizeof expected, MESH_STR_TOAST_CONVO_MUTED_ON_RADIO, "ALFA");
-    if (strcmp(app->ui_store.nav.toast, expected) != 0) {
+    if (strcmp(app->ui_store.nav.toast.text, expected) != 0) {
         failure = "an unmute the radio overrides should name the radio, not claim success";
         goto cleanup;
     }
@@ -3760,7 +3760,7 @@ MESH_TEST_CASE(app_unmute_reports_the_radios_mute, unit) {
     mesh_app_on_ui_action(app, &action); /* mute */
     mesh_app_on_ui_action(app, &action); /* and unmute */
     inkcell_str_format(expected, sizeof expected, MESH_STR_TOAST_CONVO_UNMUTED, "ALFA");
-    if (strcmp(app->ui_store.nav.toast, expected) != 0) {
+    if (strcmp(app->ui_store.nav.toast.text, expected) != 0) {
         failure = "an unmute with nothing else muting it should say so plainly";
         goto cleanup;
     }

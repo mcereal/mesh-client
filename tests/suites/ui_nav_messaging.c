@@ -456,24 +456,45 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     /* Toasts expire on tick and are dismissed by any key. */
     mesh_ui_store_set_toast(&store, 1000U, "Sent to BRVO");
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
-    if (strcmp(snapshot.nav.toast, "Sent to BRVO") != 0) {
+    if (strcmp(snapshot.nav.toast.text, "Sent to BRVO") != 0) {
         failure = "toast not carried in the snapshot";
         goto cleanup;
     }
     mesh_ui_store_tick(&store, 2000U);
-    if (store.nav.toast[0] == '\0') {
+    if (store.nav.toast.text[0] == '\0') {
         failure = "toast expired too early";
         goto cleanup;
     }
     mesh_ui_store_tick(&store, 6000U);
-    if (store.nav.toast[0] != '\0' || !mesh_ui_store_consume_updates(&store, &snapshot)) {
+    if (store.nav.toast.text[0] != '\0' || !mesh_ui_store_consume_updates(&store, &snapshot)) {
         failure = "toast should expire after a few seconds and repaint";
         goto cleanup;
     }
     mesh_ui_store_set_toast(&store, 7000U, "Connecting");
     if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_SELECT, &action) ||
-        store.nav.toast[0] != '\0') {
+        store.nav.toast.text[0] != '\0') {
         failure = "any key should dismiss a toast";
+        goto cleanup;
+    }
+
+    /*
+     * A press dismisses what is showing, and what was waiting behind it is next. Stranded in the
+     * queue instead, it would sit there unseen - the tick only walks the queue when something is
+     * showing - until a later notice went straight up ahead of it and it came back out of order.
+     * The next one is dated by the press that uncovered it, as a notice a press raises is.
+     */
+    mesh_ui_store_tick(&store, 20000U);
+    mesh_ui_store_post_toast(&store, 20000U, "first");
+    mesh_ui_store_post_toast(&store, 20000U, "second");
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_SELECT, &action) ||
+        strcmp(store.nav.toast.text, "second") != 0 || store.nav.toast.queued != 0U ||
+        store.nav.toast.until_ms != 20000U + 4000U) {
+        failure = "dismissing a notice should hand the snackbar to the one waiting behind it";
+        goto cleanup;
+    }
+    mesh_ui_store_post_toast(&store, 20000U, "third");
+    if (strcmp(store.nav.toast.text, "second") != 0 || store.nav.toast.queued != 1U) {
+        failure = "a notice arriving after a dismiss should wait behind the one it uncovered";
         goto cleanup;
     }
 
@@ -2056,13 +2077,13 @@ MESH_TEST_CASE(ui_nav_toasts_queue_rather_than_overwrite, unit) {
 
     mesh_ui_nav_post_toast(&nav, 1000U, "first");
     mesh_ui_nav_post_toast(&nav, 1000U, "second");
-    if (strcmp(nav.toast, "first") != 0 || nav.toast_queued != 1U) {
+    if (strcmp(nav.toast.text, "first") != 0 || nav.toast.queued != 1U) {
         failure = "a notice arriving while one is up should wait behind it";
         goto done;
     }
     /* A repeat of what is showing is one notice standing twice as long, not two events. */
     mesh_ui_nav_post_toast(&nav, 1000U, "second");
-    if (nav.toast_queued != 1U) {
+    if (nav.toast.queued != 1U) {
         failure = "a repeat of the newest waiting notice should be dropped";
         goto done;
     }
@@ -2072,28 +2093,28 @@ MESH_TEST_CASE(ui_nav_toasts_queue_rather_than_overwrite, unit) {
      * one is worse than losing it - so the setter still replaces, and what was waiting still is.
      */
     mesh_ui_nav_set_toast(&nav, 1200U, "a press answered");
-    if (strcmp(nav.toast, "a press answered") != 0 || nav.toast_queued != 1U) {
+    if (strcmp(nav.toast.text, "a press answered") != 0 || nav.toast.queued != 1U) {
         failure = "a press should take the snackbar without discarding what was waiting";
         goto done;
     }
     mesh_ui_nav_set_toast(&nav, 1200U, "first");
 
     /* Nothing moves until the showing notice has stood its four seconds. */
-    if (mesh_ui_nav_tick(&nav, 2000U) || strcmp(nav.toast, "first") != 0) {
+    if (mesh_ui_nav_tick(&nav, 2000U) || strcmp(nav.toast.text, "first") != 0) {
         failure = "a notice should not be cut short by the one waiting behind it";
         goto done;
     }
-    if (!mesh_ui_nav_tick(&nav, 5201U) || strcmp(nav.toast, "second") != 0) {
+    if (!mesh_ui_nav_tick(&nav, 5201U) || strcmp(nav.toast.text, "second") != 0) {
         failure = "the tick that retires a notice should promote the next";
         goto done;
     }
     /* Dated from the promotion rather than from when it was raised: it is standing now, and a
        deadline the backend has not seen is how the snackbar tells one notice from the next. */
-    if (nav.toast_until_ms <= 5201U || nav.toast_queued != 0U) {
+    if (nav.toast.until_ms <= 5201U || nav.toast.queued != 0U) {
         failure = "a promoted notice should start its own four seconds";
         goto done;
     }
-    if (!mesh_ui_nav_tick(&nav, 20000U) || nav.toast[0] != '\0') {
+    if (!mesh_ui_nav_tick(&nav, 20000U) || nav.toast.text[0] != '\0') {
         failure = "an empty queue should let the snackbar go";
         goto done;
     }
@@ -2105,14 +2126,14 @@ MESH_TEST_CASE(ui_nav_toasts_queue_rather_than_overwrite, unit) {
     mesh_ui_nav_post_toast(&nav, 30000U, "b");
     mesh_ui_nav_post_toast(&nav, 30000U, "c");
     mesh_ui_nav_post_toast(&nav, 30000U, "d");
-    if (nav.toast_queued != MESH_UI_NAV_TOAST_QUEUE || strcmp(nav.toast_queue[0], "b") != 0 ||
-        strcmp(nav.toast_queue[MESH_UI_NAV_TOAST_QUEUE - 1U], "d") != 0) {
+    if (nav.toast.queued != MESH_UI_NAV_TOAST_QUEUE || strcmp(nav.toast.queue[0], "b") != 0 ||
+        strcmp(nav.toast.queue[MESH_UI_NAV_TOAST_QUEUE - 1U], "d") != 0) {
         failure = "a full queue should drop its oldest waiting notice, not its newest";
         goto done;
     }
     /* Clearing clears the backlog with it, or the client starts talking again a moment later. */
     mesh_ui_nav_set_toast(&nav, 30000U, NULL);
-    if (nav.toast[0] != '\0' || nav.toast_queued != 0U) {
+    if (nav.toast.text[0] != '\0' || nav.toast.queued != 0U) {
         failure = "clearing the notice should clear what was waiting behind it";
     }
 

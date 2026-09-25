@@ -848,7 +848,7 @@ MESH_TEST_CASE(ui_capture_slides_the_snackbar_in_and_out, unit) {
     /* Past the four seconds the nav gives it. The store forgets the words here; the backend has
        to keep them long enough to draw the way out. */
     mesh_ui_store_tick(&store, 9000U);
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.toast[0] != '\0', inkcell_capture_close(capture);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.toast.text[0] != '\0', inkcell_capture_close(capture);
                               mesh_ui_store_shutdown(&store), "the notice did not expire");
     MESH_TEST_FAIL_IF_CLEANUP(
         !mesh_ui_store_consume_updates(&store, &snapshot), inkcell_capture_close(capture);
@@ -2647,11 +2647,11 @@ MESH_TEST_CASE(fb_animation_clip_matches_full_composition, unit) {
     snapshot->nav.screen = MESH_UI_SCREEN_MESSAGES;
     for (unsigned frame = 0U; frame < 50U; ++frame) {
         if (frame == 1U || frame == 20U) {
-            snprintf(snapshot->nav.toast, sizeof snapshot->nav.toast, "Saved");
-            snapshot->nav.toast_until_ms = 5000U + frame;
+            snprintf(snapshot->nav.toast.text, sizeof snapshot->nav.toast.text, "Saved");
+            snapshot->nav.toast.until_ms = 5000U + frame;
         }
         if (frame == 15U || frame == 35U)
-            snapshot->nav.toast[0] = '\0';
+            snapshot->nav.toast.text[0] = '\0';
         /* A move between tabs, which since step 13 is also a screen transition: the body is
            redrawn at an offset for the length of one, off a snapshot that does not change while
            it runs. Whatever that declares as damage has to be enough for the clipped
@@ -2719,8 +2719,8 @@ MESH_TEST_CASE(fb_transition_under_layer_matches_full_composition, unit) {
     inkcell_capture_set_reference(reference, true);
     snapshot->nav.screen = MESH_UI_SCREEN_RADIO;
     snapshot->nav.devices_open = true;
-    snprintf(snapshot->nav.toast, sizeof snapshot->nav.toast, "Pairing");
-    snapshot->nav.toast_until_ms = 60000U;
+    snprintf(snapshot->nav.toast.text, sizeof snapshot->nav.toast.text, "Pairing");
+    snapshot->nav.toast.until_ms = 60000U;
     bool clip_seen = false;
     for (unsigned frame = 0U; frame < 60U; ++frame) {
         if (frame == 10U) {

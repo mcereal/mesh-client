@@ -60,8 +60,8 @@ static bool benchmark_transcript(bool animate) {
         for (unsigned frame = 0U; frame < frames; ++frame) {
             snapshot->nav.cursor[MESH_UI_SCREEN_MESSAGES] = animate ? 63U : 62U + frame % 2U;
             if (animate) {
-                snprintf(snapshot->nav.toast, sizeof snapshot->nav.toast, "Saved");
-                snapshot->nav.toast_until_ms = 6000U + frame / 20U;
+                snprintf(snapshot->nav.toast.text, sizeof snapshot->nav.toast.text, "Saved");
+                snapshot->nav.toast.until_ms = 6000U + frame / 20U;
                 inkcell_capture_advance(capture[pass], 16U);
             }
             inkcell_capture_render(capture[pass], snapshot);

@@ -3,6 +3,7 @@
 #include "mesh/map/viewport.h"
 /* For struct mesh_ui_message_view, which the transcript's filter takes by value: the nav has
    to see its definition, and the record header names nothing here, so this is not a cycle. */
+#include "inkstand/nav/toast.h"
 #include "mesh/ui/store_message.h"
 
 #include <stdbool.h>
@@ -11,6 +12,7 @@
 
 #include "inkcell/ui/key.h"
 #include "inkcell/ui/keyboard.h"
+#include "inkstand/nav/toast.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -95,18 +97,10 @@ enum mesh_ui_radio_page {
 };
 /* nav.settings_channel when the Channels section shows its list rather than one channel. */
 #define MESH_UI_SETTINGS_NO_CHANNEL 0xFFU
-#define MESH_UI_NAV_TOAST_MAX 64U
-/*
- * Notices waiting behind the one on screen.
- *
- * There is one snackbar and it stands for four seconds, so two things happening at once used to
- * mean the second overwrote the first and the user saw one of them - which was survivable while
- * almost nothing raised a notice, and stopped being so once an arriving message could. Three is
- * twelve seconds of backlog at the far end: long enough that nothing in a burst is simply lost,
- * short enough that a notice is still about something that just happened. A fourth would be
- * telling the user about something sixteen seconds old.
- */
-#define MESH_UI_NAV_TOAST_QUEUE 3U
+/* The snackbar's limits are inkstand's nav/toast.h's; these names are what this client's callers
+   size a notice buffer by. */
+#define MESH_UI_NAV_TOAST_MAX INKSTAND_TOAST_TEXT_MAX
+#define MESH_UI_NAV_TOAST_QUEUE INKSTAND_TOAST_QUEUE
 #define MESH_UI_CANNED_MAX 16U
 #define MESH_UI_CANNED_TEXT_MAX 64U
 /* Upstream Data.payload caps at 233 bytes; the draft and action text hold that plus a NUL. */
@@ -241,20 +235,9 @@ struct mesh_ui_nav {
     /* The open thread is the all-traffic one; meaningless unless thread_open. */
     bool inbox;
     char target_name[MESH_UI_NAV_TARGET_NAME_MAX];
-    /* One-line transient notice ("Sent to ABCD", "Connecting..."); empty when none. */
-    char toast[MESH_UI_NAV_TOAST_MAX];
-    uint64_t toast_until_ms;
-    /*
-     * What is waiting to be said, oldest first. Undated by construction: a queued notice has
-     * not started standing yet, and it takes its deadline from the tick that promotes it - so
-     * the queue needs no clock and mesh_ui_nav_raise_toast()'s undated path costs nothing here.
-     *
-     * Full means the *oldest waiting* one goes, never the newest. A backlog is only worth
-     * keeping while it is still news, and a burst whose tail was dropped would show the user
-     * the three oldest things that happened and silently withhold what happened last.
-     */
-    char toast_queue[MESH_UI_NAV_TOAST_QUEUE][MESH_UI_NAV_TOAST_MAX];
-    uint8_t toast_queued;
+    /* The snackbar: the one-line transient notice ("Sent to ABCD", "Connecting..."), how long it
+       stands, and what is waiting behind it. See inkstand's nav/toast.h. */
+    struct inkstand_toast toast;
     /* Filtered message count at the last clamp, so a cursor parked on the newest message
        follows new traffic instead of being left behind. */
     uint32_t messages_seen;
@@ -1277,7 +1260,12 @@ void mesh_ui_nav_raise_toast(struct mesh_ui_nav *nav, const char *text);
    for whatever is showing rather than replacing it, and waits behind anything already waiting.
    See the definition for why an arrival yields and a press does not. */
 void mesh_ui_nav_post_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text);
-/* Dates an undated notice. A no-op on one that is already dated, or on no notice at all. */
+/* Takes down the notice showing, for a press. What is waiting stays queued until
+   mesh_ui_nav_date_toast() runs after the press, so a notice the press raised itself goes up first.
+   Returns true when anything was showing. */
+bool mesh_ui_nav_dismiss_toast(struct mesh_ui_nav *nav);
+/* After a press: dates a notice the press raised undated, or, when the press left nothing showing,
+   puts up the next one waiting. A no-op on a dated notice. */
 void mesh_ui_nav_date_toast(struct mesh_ui_nav *nav, uint64_t now_ms);
 /* Clears an expired toast; returns true if it did. */
 bool mesh_ui_nav_tick(struct mesh_ui_nav *nav, uint64_t now_ms);

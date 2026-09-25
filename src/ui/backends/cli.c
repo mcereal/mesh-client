@@ -182,9 +182,9 @@ static void mesh_ui_backend_cli_print_nav(struct mesh_ui_backend_cli_context *co
                               mesh_ui_screen_name(nav->screen), nav->cursor[nav->screen],
                               nav->target_name, convo, nav->keyboard_open ? " [keyboard: " : "",
                               nav->keyboard_open ? nav->draft : "", nav->keyboard_open ? "]" : "",
-                              nav->toast[0] != '\0' ? " | " : "");
-    if (nav->toast[0] != '\0') {
-        mesh_ui_backend_cli_write(context, "[cli-ui] %s\n", nav->toast);
+                              nav->toast.text[0] != '\0' ? " | " : "");
+    if (nav->toast.text[0] != '\0') {
+        mesh_ui_backend_cli_write(context, "[cli-ui] %s\n", nav->toast.text);
     }
 }
 
