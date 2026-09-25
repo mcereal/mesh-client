@@ -76,17 +76,18 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
         }
         command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
         command_add(bar, MESH_UI_COMMAND_NEW, MESH_STR_ACTION_NEW, INKCELL_BUTTON_Y);
-        command_add(bar, MESH_UI_COMMAND_DELETE, MESH_STR_ACTION_DELETE, INKCELL_BUTTON_X);
         /*
-         * The mute, named for the row the cursor is on rather than for the key.
+         * The delete and the mute, the second named for the row the cursor is on rather than
+         * for the key.
          *
          * A verb that reads the cursor is the Status screen's shape rather than the map's: the
          * keycap never appears or vanishes as the user scrolls - which is the flicker the map's
          * comment refuses - it only ever says which way this row would go. "Mute" on a muted
          * conversation would be the bar naming the state instead of the press.
          *
-         * Absent on the two rows that are not conversations, because there the press does
-         * nothing and a keycap that does nothing is the one thing this table exists to prevent.
+         * Both are absent on the two rows that are not conversations - "All traffic" and "New
+         * message" - because there the press does nothing and a keycap that does nothing is the one
+         * thing this table exists to prevent.
          *
          * The view costs a snapshot-sized copy on the stack, which is worth naming because this
          * file is otherwise arithmetic over a few nav fields. It buys the only honest answer:
@@ -104,6 +105,7 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
                                             &conversation) &&
                 (conversation.kind == MESH_UI_CONVERSATION_CHANNEL ||
                  conversation.kind == MESH_UI_CONVERSATION_DIRECT)) {
+                command_add(bar, MESH_UI_COMMAND_DELETE, MESH_STR_ACTION_DELETE, INKCELL_BUTTON_X);
                 if (conversation.muted) {
                     command_add(bar, MESH_UI_COMMAND_UNMUTE, MESH_STR_ACTION_UNMUTE,
                                 INKCELL_BUTTON_START);
