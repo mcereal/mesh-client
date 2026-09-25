@@ -444,9 +444,10 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
             /* The rows of this kind that open a list - a channel slot, a module - as against
                the ones that step a value where they stand. A chevron promises a screen. */
             const bool opens = (item.kind == INKSTAND_FORM_ACTION) && !item.cycle;
-            const enum inkcell_tone tone = item.conflict ? INKCELL_TONE_WARNING
-                                           : item.dirty  ? INKCELL_TONE_STRONG
-                                                         : INKCELL_TONE_NORMAL;
+            const enum inkcell_tone tone = item.conflict   ? INKCELL_TONE_WARNING
+                                           : item.dirty    ? INKCELL_TONE_STRONG
+                                           : item.inactive ? INKCELL_TONE_DIM
+                                                           : INKCELL_TONE_NORMAL;
             /* Empty on every list but Modules, and reserved on all of that one's rows - which
                is what the kind means, and why it is set from the list's answer rather than
                from whether this particular row filled it. */
@@ -462,7 +463,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
              * rule, and asking it here is what stopped the two screens drawing the same row two
              * ways: About radio's fourteen readings were at full strength beside a node's.
              */
-            const bool fact = mesh_ui_settings_item_is_fact(&item);
+            const bool fact = mesh_ui_settings_item_is_fact(&item) || item.inactive;
             /*
              * A verb, drawn as one: the symbol in a tonal disc at the leading edge, the label
              * across the row, and nothing in a value column - which is where "press A" used to

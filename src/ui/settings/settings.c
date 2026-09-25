@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/units.h"
 
@@ -159,6 +160,7 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES] = INKCELL_ICON_SWAP,
     [MESH_UI_SETTINGS_ACTION_CYCLE_THEME] = INKCELL_ICON_THEME,
     [MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE] = INKCELL_ICON_LANGUAGE,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE] = INKCELL_ICON_DISPLAY,
     [MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT] = INKCELL_ICON_DELETE,
 
     /* Radio actions, in the order the section runs them: least to most destructive. */
@@ -225,6 +227,7 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_CYCLE_THEME] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE] = INKCELL_TONE_NORMAL,
     /* The one copy of why the last run died, and nothing else has it - but what is lost is a
        diagnosis rather than anything the reader made, and this is the one row in the two tables
        with no confirm sheet in front of it. Red without a sheet is a trap; see
@@ -2734,11 +2737,18 @@ bool mesh_ui_settings_action_opens(enum mesh_ui_settings_action action) {
  * value in its value column" would take in the forget rows, whose figure is the size of what
  * the press costs; "opens nothing" would take in the two checks, which send a request and
  * redraw when the answer lands. The question is whether pressing A leaves the reader on the
- * same row with a different setting on it, and only these five do.
+ * same row with a different setting on it, and only these six do.
  */
+inkcell_str_id mesh_ui_text_size_name(int8_t size) {
+    return size == MESH_UI_TEXT_SIZE_SMALL   ? MESH_STR_TEXT_SIZE_SMALL
+           : size == MESH_UI_TEXT_SIZE_LARGE ? MESH_STR_TEXT_SIZE_LARGE
+                                             : MESH_STR_TEXT_SIZE_STANDARD;
+}
+
 bool mesh_ui_settings_action_is_cycle(enum mesh_ui_settings_action action) {
     return action == MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE ||
            action == MESH_UI_SETTINGS_ACTION_CYCLE_THEME ||
+           action == MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE ||
            action == MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL ||
            action == MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES ||
            action == MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL;

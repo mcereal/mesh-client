@@ -91,6 +91,13 @@ struct fb_app {
      * for left it.
      */
     bool scrolling;
+    /*
+     * The scale the text size is a step from, and the one it last set, where the backend
+     * pinned the size itself - an `sdl` window sized for its display. A pinned scale that is
+     * not the one this client last set is the backend choosing again, so it becomes the base.
+     */
+    int text_base;
+    int text_applied;
 };
 
 /* The app behind `state`, or NULL when nothing installed one. */

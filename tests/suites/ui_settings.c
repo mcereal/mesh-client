@@ -737,6 +737,42 @@ MESH_TEST_CASE(ui_settings_beacon_presets_follow_their_region, unit) {
 }
 
 /*
+ * The half of LoRa the radio is ignoring recedes: the manual trio under a preset, the preset
+ * without one. Read off the toggle's row, so a pending flip re-tiers the rows before a save.
+ */
+MESH_TEST_CASE(ui_settings_lora_rows_the_preset_overrides_recede, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.use_preset = true;
+
+    struct mesh_ui_settings_item preset;
+    struct mesh_ui_settings_item spread;
+    MESH_TEST_FAIL_IF(!settings_find_field(&settings, MESH_UI_SETTINGS_LORA,
+                                           MESH_UI_FIELD_LORA_PRESET, &preset) ||
+                          !settings_find_field(&settings, MESH_UI_SETTINGS_LORA,
+                                               MESH_UI_FIELD_LORA_SPREAD, &spread),
+                      "the LoRa rows are missing");
+    MESH_TEST_FAIL_IF(preset.inactive || !spread.inactive,
+                      "with the preset on, the manual rows are the ones the radio ignores");
+    MESH_TEST_FAIL_IF(spread.field != MESH_UI_FIELD_LORA_SPREAD, "a receding row stays editable");
+
+    struct mesh_ui_setting_edit edits[1];
+    memset(edits, 0, sizeof edits);
+    edits[0].field = MESH_UI_FIELD_LORA_USE_PRESET;
+    edits[0].number = 0U;
+    MESH_TEST_FAIL_IF(!settings_find_field_edited(&settings, edits, 1U, MESH_UI_SETTINGS_LORA,
+                                                  MESH_UI_FIELD_LORA_PRESET, &preset) ||
+                          !settings_find_field_edited(&settings, edits, 1U, MESH_UI_SETTINGS_LORA,
+                                                      MESH_UI_FIELD_LORA_SPREAD, &spread),
+                      "the LoRa rows are missing after an edit");
+    MESH_TEST_FAIL_IF(!preset.inactive || spread.inactive,
+                      "a pending preset-off should swap which rows recede");
+    record_success(test_name);
+}
+
+/*
  * Every section's editable rows against MESH_UI_SETTINGS_EDITS_MAX, not just the widest one.
  *
  * Over the cap mesh_ui_nav_edit_set() returns false and the press silently does nothing, which
@@ -1980,9 +2016,9 @@ MESH_TEST_CASE(ui_settings_about, unit) {
     /*
      * While a child is running none of the *update* actions are offered, so a second press
      * cannot stack one. Scoped to those four rather than to every action in the section: the
-     * theme row is also an action and is unaffected by a download - it touches nothing the
-     * updater owns - and taking a working control away for an unrelated reason would be its
-     * own bug.
+     * theme and text-size rows are also actions and are unaffected by a download - neither
+     * touches anything the updater owns - and taking a working control away for an unrelated
+     * reason would be its own bug.
      */
     settings.client.update_state = (uint8_t)MESH_UPDATE_DOWNLOADING;
     settings.client.update_busy = true;
@@ -1992,7 +2028,8 @@ MESH_TEST_CASE(ui_settings_about, unit) {
         if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
             item.kind == INKSTAND_FORM_ACTION &&
-            item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
+            item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME &&
+            item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE) {
             failure = "a busy updater should offer no update actions";
             goto cleanup;
         }

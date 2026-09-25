@@ -289,6 +289,12 @@ MESH_TEST_CASE(actions_overlays_win_over_the_screen, unit) {
                       "a confirmation should outrank every other overlay");
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_SHOULDERS) != INKCELL_STR_NONE,
                       "an overlay should not offer the tabs it cannot reach");
+    /* The dialog opens with the ring on Cancel, and A answers with the ringed button. */
+    snapshot.nav.confirm.cursor = INKSTAND_DIALOG_CANCEL;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_CANCEL,
+                      "A on a ringed Cancel must say cancel, not confirm");
+    snapshot.nav.confirm.cursor = INKSTAND_DIALOG_ACCEPT;
 
     snapshot.nav.confirm.open = false;
     mesh_ui_actions_for(&snapshot, &bar);

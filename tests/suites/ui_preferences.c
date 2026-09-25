@@ -31,6 +31,7 @@ MESH_TEST_CASE(ui_preferences_roundtrip, unit) {
     prefs.update_allow_dev = true;
     snprintf(prefs.language, sizeof prefs.language, "%s", "es");
     snprintf(prefs.theme, sizeof prefs.theme, "%s", "light");
+    prefs.text_size = MESH_UI_TEXT_SIZE_LARGE;
     /* The network radio's address, which is a preference rather than a known device: it is in
        no scan, so the MRU list has nothing to rank it against. */
     snprintf(prefs.network_host, sizeof prefs.network_host, "%s", "192.168.1.50:4403");
@@ -54,6 +55,7 @@ MESH_TEST_CASE(ui_preferences_roundtrip, unit) {
         loaded.update_channel != prefs.update_channel ||
         loaded.update_allow_dev != prefs.update_allow_dev ||
         strcmp(loaded.language, prefs.language) != 0 || strcmp(loaded.theme, prefs.theme) != 0 ||
+        loaded.text_size != prefs.text_size ||
         strcmp(loaded.network_host, prefs.network_host) != 0) {
         unlink(prefab_path);
         record_failure(test_name, "roundtrip mismatch");

@@ -117,8 +117,62 @@ static void mesh_ui_nav_refresh_target_name(struct mesh_ui_nav *nav,
 }
 
 /* Switching conversation moves the Messages cursor back to the newest line. */
+/* A channel conversation is its slot; a direct one is its peer, whatever channel it was on. */
+static bool mesh_ui_nav_same_conversation(uint32_t node_a, uint8_t channel_a, uint32_t node_b,
+                                          uint8_t channel_b) {
+    if (node_a != node_b) {
+        return false;
+    }
+    return node_a != MESH_MESSAGE_BROADCAST_ADDR || channel_a == channel_b;
+}
+
+/*
+ * The draft follows its conversation: what was being written for the old target is parked, and
+ * whatever was parked for the new one comes back. See `parked_drafts` in nav.h for why.
+ *
+ * Only the Compose draft travels. Any other keyboard job (a setting, a place name, a passkey)
+ * has already parked it in `draft_saved`, and a thread does not open under one of those, so the
+ * swap is skipped rather than guessed at while one is open.
+ */
+static void mesh_ui_nav_swap_draft(struct mesh_ui_nav *nav, uint32_t node_id, uint8_t channel) {
+    const uint8_t new_channel =
+        (node_id == MESH_MESSAGE_BROADCAST_ADDR) ? channel : nav->target_channel;
+    if (nav->keyboard_open || mesh_ui_nav_same_conversation(nav->target_node, nav->target_channel,
+                                                            node_id, new_channel)) {
+        return;
+    }
+    size_t victim = 0U;
+    size_t found = MESH_UI_PARKED_DRAFTS;
+    for (size_t i = 0; i < MESH_UI_PARKED_DRAFTS; ++i) {
+        if (nav->parked_drafts[i].age != 0U &&
+            mesh_ui_nav_same_conversation(nav->parked_drafts[i].node, nav->parked_drafts[i].channel,
+                                          node_id, new_channel)) {
+            found = i;
+        }
+        if (nav->parked_drafts[i].age < nav->parked_drafts[victim].age) {
+            victim = i;
+        }
+    }
+    char incoming[MESH_UI_DRAFT_MAX] = {0};
+    if (found < MESH_UI_PARKED_DRAFTS) {
+        snprintf(incoming, sizeof incoming, "%s", nav->parked_drafts[found].text);
+        nav->parked_drafts[found].age = 0U;
+        nav->parked_drafts[found].text[0] = '\0';
+        victim = found;
+    }
+    if (nav->draft[0] != '\0') {
+        nav->parked_drafts[victim].node = nav->target_node;
+        nav->parked_drafts[victim].channel = nav->target_channel;
+        nav->parked_drafts[victim].age = ++nav->parked_draft_clock;
+        snprintf(nav->parked_drafts[victim].text, sizeof nav->parked_drafts[victim].text, "%s",
+                 nav->draft);
+    }
+    snprintf(nav->draft, sizeof nav->draft, "%s", incoming);
+}
+
 static void mesh_ui_nav_set_target(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                    uint32_t node_id, uint8_t channel, const char *name_hint) {
+    mesh_ui_nav_swap_draft(nav, node_id, channel);
     nav->target_node = node_id;
     nav->target_channel = (node_id == MESH_MESSAGE_BROADCAST_ADDR) ? channel : nav->target_channel;
     nav->inbox = false;
@@ -468,6 +522,48 @@ const struct mesh_ui_message *mesh_ui_nav_message_at_cursor(const struct mesh_ui
         return NULL;
     }
     return &messages.entries[indices[cursor]];
+}
+
+/*
+ * The triggers in a thread: R2 to the newest message, L2 back to where the unread ones start.
+ *
+ * A thread opens on its newest bubble, and a long one read a line at a time is a lot of Down to
+ * get back to - or of Up to find the "New" line the frame drew on open. L2 stops at that line
+ * first (the first bubble after `thread_unread_from`) and at the oldest bubble on a second
+ * press, which is the order a reader wants them in: what they missed, then everything.
+ */
+static bool mesh_ui_nav_thread_jump(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                    int direction) {
+    const struct mesh_ui_message_view view = mesh_ui_store_message_view(store, nav);
+    if (view.entries == NULL) {
+        return false;
+    }
+    uint32_t indices[MESH_UI_MAX_THREAD_MESSAGES];
+    const uint32_t count =
+        mesh_ui_nav_filter_messages(nav, view, indices, MESH_UI_MAX_THREAD_MESSAGES);
+    if (count == 0U) {
+        return false;
+    }
+    uint32_t *cursor = &nav->cursor[MESH_UI_SCREEN_MESSAGES];
+    uint32_t target = 0U;
+    if (direction > 0) {
+        target = count - 1U;
+    } else if (nav->thread_unread_from != 0U) {
+        for (uint32_t row = 1U; row < count; ++row) {
+            if (view.entries[indices[row - 1U]].packet_id == nav->thread_unread_from) {
+                /* Already there or above it: the second press goes the rest of the way. */
+                target = (*cursor > row) ? row : 0U;
+                break;
+            }
+        }
+    }
+    if (*cursor == target) {
+        return false;
+    }
+    *cursor = target;
+    /* Off the newest line, so the clamp stops pinning the cursor to it; on it, so it does. */
+    nav->messages_seen = count;
+    return true;
 }
 
 const struct mesh_ui_message *mesh_ui_nav_resendable(const struct mesh_ui_nav *nav,
@@ -1694,6 +1790,8 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
                 action->type = MESH_UI_ACTION_CYCLE_LANGUAGE;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
                 action->type = MESH_UI_ACTION_CYCLE_THEME;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE) {
+                action->type = MESH_UI_ACTION_CYCLE_TEXT_SIZE;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT) {
                 action->type = MESH_UI_ACTION_DISCARD_CRASH_REPORT;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE) {
@@ -2436,8 +2534,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
        unconditionally: a screen with no headings has no boundaries and answers false, exactly as
        it draws no cards. See mesh_ui_nav_cursor_group(). */
     case INKCELL_KEY_L2:
+        if (nav->screen == MESH_UI_SCREEN_MESSAGES && nav->thread_open) {
+            return mesh_ui_nav_thread_jump(nav, store, -1) || changed;
+        }
         return mesh_ui_nav_cursor_group(nav, store, -1) || changed;
     case INKCELL_KEY_R2:
+        if (nav->screen == MESH_UI_SCREEN_MESSAGES && nav->thread_open) {
+            return mesh_ui_nav_thread_jump(nav, store, +1) || changed;
+        }
         return mesh_ui_nav_cursor_group(nav, store, +1) || changed;
     case INKCELL_KEY_START:
         /*

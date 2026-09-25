@@ -519,6 +519,9 @@ enum mesh_ui_settings_action {
        when MESHCLIENT_THEME is holding the choice. */
     MESH_UI_SETTINGS_ACTION_CYCLE_THEME,
     MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE,
+    /* Steps the text size - standard, large, small - and saves it. Local, like the theme. Not
+       emitted when MESHCLIENT_FB_SCALE is holding the size. */
+    MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE,
     /* About's crash-report row. Local, and offered only when there is a report to discard. */
     MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT,
     /* Radio actions. Every one of these goes through the confirm overlay, so A on the row
@@ -741,6 +744,9 @@ bool mesh_ui_settings_action_opens(enum mesh_ui_settings_action action);
  * See struct mesh_ui_settings_item::cycle for what the answer is spent on.
  */
 bool mesh_ui_settings_action_is_cycle(enum mesh_ui_settings_action action);
+
+/* The word for a text size (MESH_UI_TEXT_SIZE_*, ui/preferences.h); anything else is standard. */
+inkcell_str_id mesh_ui_text_size_name(int8_t size);
 /* True for the two that install firmware on the radio. They are a radio action in every sense
    that matters and in none that this client's plumbing recognises: nothing goes through the
    admin queue that the app does not send itself, and what comes back is a bus rather than a
@@ -809,6 +815,17 @@ struct mesh_ui_settings_item {
      * half the user did not come to change.
      */
     bool conflict;
+    /*
+     * The row is one the radio ignores while another row says so, and is drawn receding.
+     *
+     * LoRa's manual trio (bandwidth, spread factor, coding rate) means nothing while "Use
+     * preset" is on, and the preset means nothing while it is off. The rows stay listed and
+     * stay editable - so the row count does not move under the cursor as the toggle is edited,
+     * and a manual setting can be readied before the preset is turned off - but a row drawn at
+     * full strength reads as a value the radio is using. Decided from the toggle row's value,
+     * pending edit included, so flipping it re-tiers the rows before a save.
+     */
+    bool inactive;
     /*
      * What this row is *about*, for the leading slot: the cloud on MQTT, the shield on
      * Security. INKCELL_ICON_NONE on a row that is a setting rather than a subject, which is

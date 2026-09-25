@@ -10,6 +10,7 @@
 #include "support/ui_fixture.h"
 
 #include "mesh/core/message.h"
+#include "mesh/ui/commands.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/status.h"
@@ -561,6 +562,157 @@ MESH_TEST_CASE(ui_nav_conversation_isolation, unit) {
     /* Nothing is left to back out of, so a second B is inert rather than surprising. */
     if (mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action)) {
         failure = "B on the conversation list should be a no-op";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A draft belongs to the conversation it was started in. One shared buffer put words written to
+ * one peer into the next thread opened, and compose opens on a non-empty draft - one press from
+ * sending them to somebody else.
+ */
+MESH_TEST_CASE(ui_nav_draft_follows_its_conversation, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_action action;
+
+    /* BRVO is row 2 and #Primary row 1 (see ui_nav_navigation). Start a message to BRVO and
+       leave it unsent: B keeps the draft, a second B leaves the thread. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "meet at the creek");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    if (store.nav.thread_open || strcmp(store.nav.draft, "meet at the creek") != 0) {
+        failure = "B twice should leave the thread with the draft kept";
+        goto cleanup;
+    }
+
+    /* Into the channel: nothing of BRVO's is waiting there, so A lands on the canned replies. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.thread_open || store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR) {
+        failure = "expected #Primary open";
+        goto cleanup;
+    }
+    if (store.nav.draft[0] != '\0') {
+        failure = "a draft written to one peer must not follow the user into a channel";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.compose_open || store.nav.compose_cursor == MESH_UI_COMPOSE_ROW_DRAFT) {
+        failure = "compose in a thread with no draft of its own should open on the canned rows";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+
+    /* The channel gets a draft of its own, and each comes back to its own thread. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "to everyone");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (store.nav.target_node != 0x3000U || strcmp(store.nav.draft, "meet at the creek") != 0) {
+        failure = "going back to BRVO should bring BRVO's draft back";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
+        strcmp(store.nav.draft, "to everyone") != 0) {
+        failure = "the channel's own draft should come back";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The triggers in a thread: R2 to the newest bubble, L2 to the first unread one and then the
+ * oldest. A thread opens on its newest bubble, and the "New" line is otherwise a long walk up.
+ */
+MESH_TEST_CASE(ui_nav_thread_triggers_jump_to_unread_and_newest, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_message_list messages;
+    memset(&messages, 0, sizeof messages);
+    messages.count = 6U;
+    for (uint32_t i = 0; i < messages.count; ++i) {
+        messages.entries[i].packet_id = 100U + i;
+        messages.entries[i].peer = 0x3000U;
+        messages.entries[i].direction = MESH_MESSAGE_INBOUND;
+        snprintf(messages.entries[i].peer_name, sizeof messages.entries[i].peer_name, "%s", "BRVO");
+        snprintf(messages.entries[i].text, sizeof messages.entries[i].text, "line %u", (unsigned)i);
+    }
+    mesh_ui_store_set_messages(&store, &messages);
+
+    struct mesh_ui_action action;
+    struct mesh_ui_snapshot snapshot;
+    /* Onto BRVO's row (row 2) and in. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    const uint32_t *cursor = &store.nav.cursor[MESH_UI_SCREEN_MESSAGES];
+    if (!store.nav.thread_open || store.nav.target_node != 0x3000U || *cursor != 5U) {
+        failure = "expected BRVO's thread open on its newest bubble";
+        goto cleanup;
+    }
+
+    /* Read up to line 2 when the thread was opened: the first unread bubble is row 3. */
+    store.nav.thread_unread_from = 102U;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    if (*cursor != 3U) {
+        failure = "L2 should stop on the first unread bubble";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    if (*cursor != 0U) {
+        failure = "a second L2 should go on to the oldest bubble";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
+    if (*cursor != 5U) {
+        failure = "R2 should go to the newest bubble";
+        goto cleanup;
+    }
+    /* With nothing unread, L2 is simply the top. */
+    store.nav.thread_unread_from = 0U;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    if (*cursor != 0U || !store.nav.thread_open) {
+        failure = "with no unread mark L2 should go to the oldest bubble, in the thread";
+        goto cleanup;
+    }
+
+    /* The bar names the pair, on the triggers. */
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    struct mesh_ui_command_set commands;
+    mesh_ui_commands_for(&snapshot, &commands);
+    const struct mesh_ui_command *jump =
+        mesh_ui_commands_find(&commands, MESH_UI_COMMAND_THREAD_JUMP);
+    if (jump == NULL || jump->button != INKCELL_BUTTON_TRIGGERS) {
+        failure = "a thread's bar should offer the jump on the triggers";
         goto cleanup;
     }
 

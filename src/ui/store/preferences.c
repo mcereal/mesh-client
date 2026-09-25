@@ -329,6 +329,12 @@ int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path
                up, so a file from a newer version that had more themes degrades rather than
                failing, and keeps the name in case that version comes back. */
             snprintf(prefs->theme, sizeof prefs->theme, "%s", value);
+        } else if (key_len == 9U && strncmp(line, "text_size", key_len) == 0) {
+            /* Anything unrecognised is standard, which is the size nobody has to go looking
+               for a way back from. */
+            prefs->text_size = (int8_t)(strcmp(value, "small") == 0   ? MESH_UI_TEXT_SIZE_SMALL
+                                        : strcmp(value, "large") == 0 ? MESH_UI_TEXT_SIZE_LARGE
+                                                                      : MESH_UI_TEXT_SIZE_STANDARD);
         } else if (strncmp(line, "update_allow_dev", key_len) == 0) {
             prefs->update_allow_dev = strcmp(value, "1") == 0;
         } else if (strncmp(line, "known_devices", key_len) == 0) {
@@ -433,6 +439,10 @@ int mesh_ui_preferences_save(const struct mesh_ui_preferences *prefs, const char
     fprintf(file, "update_allow_dev=%s\n", prefs->update_allow_dev ? "1" : "0");
     fprintf(file, "firmware_channel=%s\n", prefs->firmware_channel == 1U ? "alpha" : "stable");
     fprintf(file, "theme=%s\n", prefs->theme);
+    fprintf(file, "text_size=%s\n",
+            prefs->text_size == MESH_UI_TEXT_SIZE_SMALL   ? "small"
+            : prefs->text_size == MESH_UI_TEXT_SIZE_LARGE ? "large"
+                                                          : "standard");
     fprintf(file, "language=%s\n", prefs->language);
     struct inkstand_recent devices;
     devices_list(prefs, &devices);

@@ -130,6 +130,9 @@ MESH_STR_ENTRY(ACTION_HELP,               "help")
 MESH_STR_ENTRY(ACTION_SCROLL,             "scroll")
 /* The shoulder buttons inside a long picker: ten rows at a time rather than one. */
 MESH_STR_ENTRY(ACTION_JUMP,               "jump 10")
+/* The triggers inside a thread: back to the first unread message (then the oldest), and on to
+   the newest. */
+MESH_STR_ENTRY(ACTION_THREAD_JUMP,        "new / latest")
 /* The map's three presses, and the one screen in this client where the d-pad moves the picture
    instead of a cursor. "pan" is that: sliding the view over the world. */
 MESH_STR_ENTRY(ACTION_PAN,                "pan")
@@ -287,8 +290,9 @@ MESH_STR_ENTRY(THREAD_KIND_DIRECT,        "direct")
    day separators use. Short: it shares a body row with a hairline either side of it. */
 MESH_STR_ENTRY(THREAD_UNREAD_FROM_HERE,   "New")
 
-/* A message bubble's own header line. SENT is what one of ours says instead of a name. */
-MESH_STR_ENTRY(BUBBLE_SENT,               "sent")
+/* A message bubble's own header line. SENT is what one of ours says instead of a name - the
+   word a chat app uses for the reader, where "sent" read as a delivery state beside the ticks. */
+MESH_STR_ENTRY(BUBBLE_SENT,               "You")
 MESH_STR_ENTRY(BUBBLE_SENT_TO,            "to %s")
 /* The tag after the name saying where the message came in: a channel by number, a direct
    message, an alert, or a sensor. The leading spaces separate it from the name. */
@@ -1462,6 +1466,8 @@ MESH_STR_ENTRY(HELP_LABEL_THREAD_REPLY,   "Replies and tapbacks")
 MESH_STR_ENTRY(HELP_LABEL_THREAD_ALL,     "The all-traffic view")
 MESH_STR_ENTRY(HELP_LABEL_THREAD_HISTORY, "How far back it goes")
 MESH_STR_ENTRY(HELP_LABEL_THREAD_RESEND,  "Sending it again")
+MESH_STR_ENTRY(HELP_LABEL_THREAD_JUMP,    "Getting around")
+MESH_STR_ENTRY(HELP_NOTE_THREAD_JUMP,     "L2 goes back to the first message you had not read, and a second press to the oldest. R2 goes to the newest.")
 MESH_STR_ENTRY(HELP_NOTE_THREAD,          "What was said here, oldest at the top. Your own messages sit on the right; a padlock means the channel was encrypted, and the hop count is how far the message travelled.")
 MESH_STR_ENTRY(HELP_NOTE_THREAD_HISTORY,  "This conversation is kept on the card and goes back further than the radio does - scroll up for older messages. Each conversation has its own store, so a busy channel never pushes a quiet one out.")
 MESH_STR_ENTRY(HELP_NOTE_THREAD_MARKS,    "A clock means the radio is still waiting to hear that a message arrived, a double tick that a node confirmed it, an alert that it did not. A broadcast asks for no answer and carries no mark.")
@@ -2079,6 +2085,12 @@ MESH_STR_ENTRY(ABOUT_CRASH_DISCARD,       "Discard report")
 MESH_STR_ENTRY(ABOUT_THEME,               "Theme")
 /* The theme is being held by MESHCLIENT_THEME, so the row is a fact rather than a switch. */
 MESH_STR_ENTRY(ABOUT_THEME_ENV,           "Theme (env)")
+MESH_STR_ENTRY(ABOUT_TEXT_SIZE,           "Text size")
+/* MESHCLIENT_FB_SCALE is holding the size, so the row is a fact rather than a switch. */
+MESH_STR_ENTRY(ABOUT_TEXT_SIZE_ENV,       "Text size (env)")
+MESH_STR_ENTRY(TEXT_SIZE_SMALL,           "Small")
+MESH_STR_ENTRY(TEXT_SIZE_STANDARD,        "Standard")
+MESH_STR_ENTRY(TEXT_SIZE_LARGE,           "Large")
 MESH_STR_ENTRY(ABOUT_UPDATES,             "Updates")
 MESH_STR_ENTRY(ABOUT_UPDATES_UNAVAILABLE, "unavailable")
 MESH_STR_ENTRY(ABOUT_UPDATE_CHANNEL,      "Update channel")
@@ -2866,6 +2878,8 @@ MESH_STR_ENTRY(TOAST_PAIRING_CANCELLED,   "Pairing cancelled")
 MESH_STR_ENTRY(TOAST_UPDATE_CHANNEL,      "Update channel: %.*s")
 MESH_STR_ENTRY(TOAST_THEME_HELD,          "MESHCLIENT_THEME is holding the theme")
 MESH_STR_ENTRY(TOAST_THEME,               "Theme: %.*s")
+MESH_STR_ENTRY(TOAST_TEXT_SIZE_HELD,      "MESHCLIENT_FB_SCALE is holding the text size")
+MESH_STR_ENTRY(TOAST_TEXT_SIZE,           "Text size: %.*s")
 MESH_STR_ENTRY(TOAST_DEV_UPDATES_ON,      "Dev updates on; check again")
 MESH_STR_ENTRY(TOAST_DEV_UPDATES_OFF,     "Dev updates off")
 /* The crash report has been deleted. The "(%d)" on the failure is an errno, for the reason

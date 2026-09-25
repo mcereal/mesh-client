@@ -16,6 +16,7 @@
  * adapter - is a column in the table rather than four lines repeated at the top of it.
  */
 
+#include "inkwell/base/env.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
@@ -1554,6 +1555,33 @@ static void on_cycle_theme(struct mesh_app *app, const struct mesh_ui_action *ac
     mesh_app_publish_ui_state(app);
 }
 
+/*
+ * Standard, then large, then small, then round again. Standard first after small so a reader who
+ * overshot is one press from the size the client shipped with; large first after standard
+ * because that is the direction almost everybody who looks for this row is going.
+ */
+static void on_cycle_text_size(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = inkwell_time_monotonic_ms();
+    (void)action;
+
+    if (inkwell_env_get("FB_SCALE") != NULL) {
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_TEXT_SIZE_HELD));
+        return;
+    }
+    const int8_t size = app->ui_preferences.text_size;
+    const int8_t next = size == MESH_UI_TEXT_SIZE_STANDARD ? (int8_t)MESH_UI_TEXT_SIZE_LARGE
+                        : size == MESH_UI_TEXT_SIZE_LARGE  ? (int8_t)MESH_UI_TEXT_SIZE_SMALL
+                                                           : (int8_t)MESH_UI_TEXT_SIZE_STANDARD;
+    app->ui_preferences.text_size = next;
+    app->ui_preferences_dirty = true;
+    inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_TEXT_SIZE, (int)(sizeof toast - 8U),
+                       inkcell_str(mesh_ui_text_size_name(next)));
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+    /* The press's own frame is the answer, for the reason on_cycle_theme() publishes. */
+    mesh_app_publish_ui_state(app);
+}
+
 static void on_toggle_dev_updates(struct mesh_app *app, const struct mesh_ui_action *action) {
     const uint64_t now = inkwell_time_monotonic_ms();
     (void)action;
@@ -1973,6 +2001,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_CYCLE_UPDATE_CHANNEL, on_cycle_update_channel, false},
     {MESH_UI_ACTION_CYCLE_LANGUAGE, on_cycle_language, false},
     {MESH_UI_ACTION_CYCLE_THEME, on_cycle_theme, false},
+    {MESH_UI_ACTION_CYCLE_TEXT_SIZE, on_cycle_text_size, false},
     {MESH_UI_ACTION_TOGGLE_DEV_UPDATES, on_toggle_dev_updates, false},
     {MESH_UI_ACTION_DISCARD_CRASH_REPORT, on_discard_crash_report, false},
     {MESH_UI_ACTION_CHECK_UPDATE, on_check_update, false},
