@@ -2201,6 +2201,38 @@ bool mesh_ui_nav_contact_key(struct mesh_ui_nav *nav, enum inkcell_key key) {
     return true;
 }
 
+/*
+ * B held: back to the top of the tab, as the presses of B it stands for.
+ *
+ * The press that began the hold has already gone back one step; this carries on, one ordinary B
+ * at a time, while each one leaves the reader somewhere shallower. Made of B rather than of a
+ * jump because every screen's B already knows what leaving it costs - a section with unsaved
+ * edits asks first, an armed delete stands down - and a jump would have to learn all of that
+ * again. So it stops wherever B does something other than go back: at the tab's own list, at a
+ * question (the dialog a B raised, or one that was already up), at a keyboard, whose B keeps a
+ * draft rather than leaving a place, and at a press that asked the app for anything.
+ */
+static bool mesh_ui_nav_back_to_top(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                    struct mesh_ui_action *out_action) {
+    bool changed = false;
+    for (unsigned steps = 0U; steps < 16U; ++steps) {
+        struct mesh_ui_route before;
+        mesh_ui_route_of(nav, &before);
+        if (before.depth == 0U || before.level == MESH_UI_ROUTE_KEYBOARD ||
+            before.level == MESH_UI_ROUTE_CONFIRM || before.level == MESH_UI_ROUTE_VERIFY) {
+            break;
+        }
+        changed = mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_B, out_action) || changed;
+        struct mesh_ui_route after;
+        mesh_ui_route_of(nav, &after);
+        if (after.depth >= before.depth ||
+            (out_action != NULL && out_action->type != MESH_UI_ACTION_NONE)) {
+            break;
+        }
+    }
+    return changed;
+}
+
 bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum inkcell_key key, struct mesh_ui_action *out_action) {
     if (out_action != NULL) {
@@ -2208,6 +2240,9 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     }
     if (nav == NULL || store == NULL) {
         return false;
+    }
+    if (key == INKCELL_KEY_B_HELD) {
+        return mesh_ui_nav_back_to_top(nav, store, out_action);
     }
 
     /* A right-click menu is put down by any key, which then does nothing else: the reader

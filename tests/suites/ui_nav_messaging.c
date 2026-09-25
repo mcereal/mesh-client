@@ -2542,3 +2542,57 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * B held from two levels into a node - its sheet of verbs over its detail - lands on the node
+ * list in one gesture, on the node it came from, where it used to be a B per level.
+ */
+MESH_TEST_CASE(ui_nav_b_held_goes_back_to_the_top_of_the_tab, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
+    for (uint32_t row = 0; row < MESH_UI_NODES_LEAD_ROWS + 2U; ++row) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    }
+    const uint32_t node_row = store.nav.cursor[MESH_UI_SCREEN_NODES];
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* the detail */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* its verbs */
+    if (!store.nav.node_actions_open || !store.nav.node_detail_open) {
+        failure = "expected a node's verbs open over its detail";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B_HELD, &action);
+    if (store.nav.node_actions_open || store.nav.node_detail_open ||
+        store.nav.screen != MESH_UI_SCREEN_NODES ||
+        store.nav.cursor[MESH_UI_SCREEN_NODES] != node_row || action.type != MESH_UI_ACTION_NONE) {
+        failure = "B held should unwind to the node list, on the node it came from";
+        goto cleanup;
+    }
+    /* At the top already, it is nothing - not a tab change, not a quit. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B_HELD, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_NODES ||
+        store.nav.cursor[MESH_UI_SCREEN_NODES] != node_row) {
+        failure = "B held on a tab's own list should leave it where it is";
+        goto cleanup;
+    }
+
+    /* A keyboard is a stop: its B keeps a draft rather than leaving a place. */
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B_HELD, &action);
+    if (!store.nav.keyboard_open) {
+        failure = "B held should not close a keyboard";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

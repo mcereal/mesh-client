@@ -170,6 +170,7 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_INPUT_PROFILE` | `brick` (default) or `xbox`. Decides which evdev code each *printed* face button reports **and** the keycaps the bar draws — one table, since correcting the codes and not the words would name a key that does something else. See [`device.md`](device.md#the-buttons) |
 | `MESHCLIENT_QUIT_KEYS` | override the evdev codes that quit, e.g. `"139,316"` |
 | `MESHCLIENT_KEY_REPEAT_DELAY_MS` | hold-before-repeat, 0–5000, default 350; `0` turns hold-to-scroll off |
+| `MESHCLIENT_KEY_HOLD_MS` | how long B is held before it goes back to the tab's own list, 0–5000, default 600; `0` turns it off |
 | `MESHCLIENT_KEY_REPEAT_MS` | gap between repeats, 10–2000, default 90, halving after eight rows |
 | `MESHCLIENT_UPDATE_REPO`, `_ASSET` | where the self-updater looks |
 | `MESHCLIENT_UPDATE_ALLOW_DEV` | let a `-dev` build install what it finds |
@@ -208,7 +209,7 @@ Four tabs: **Messages, Nodes, Radio, Settings.**
 | L2/R2 | move a whole group at a time, where a screen draws its groups as cards |
 | Up/Down | move the cursor — hold to keep scrolling, which speeds up after a few rows |
 | A | act on the row |
-| B | back out |
+| B | back out — keep it held to go all the way back to the tab's own list |
 | Y | write a message (Messages/Nodes), save a section (Settings) |
 | X | delete a conversation (Messages), refresh (Settings, Radio's pages), pin a node (Nodes), disconnect (Radio's device list) |
 | SELECT | help for what is on screen ([`help.md`](help.md)) |
