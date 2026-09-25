@@ -1184,9 +1184,15 @@ static void build_lora(const struct mesh_ui_settings *s, struct item_list *list)
        not the one the radio is still sitting on. */
     const uint32_t region = region_row != NULL ? region_row->number : s->region;
     const struct mesh_ui_region_preset *legal = mesh_ui_settings_region_preset(s, region);
-    item_field(list, MESH_UI_FIELD_LORA_USE_PRESET, s->use_preset ? 1U : 0U, NULL);
-    constrain_preset_row(s, region,
-                         item_field(list, MESH_UI_FIELD_LORA_PRESET, s->modem_preset, NULL), 0U);
+    const struct mesh_ui_settings_item *use_preset_row =
+        item_field(list, MESH_UI_FIELD_LORA_USE_PRESET, s->use_preset ? 1U : 0U, NULL);
+    const bool preset_on = use_preset_row != NULL ? use_preset_row->number != 0U : s->use_preset;
+    struct mesh_ui_settings_item *preset_row =
+        item_field(list, MESH_UI_FIELD_LORA_PRESET, s->modem_preset, NULL);
+    constrain_preset_row(s, region, preset_row, 0U);
+    if (preset_row != NULL) {
+        preset_row->inactive = !preset_on;
+    }
     /*
      * A licensed band on a node that does not claim a licence. The firmware marks the amateur
      * regions itself, and the pair it disagrees with is one section over: `Licensed operator`
@@ -1209,9 +1215,15 @@ static void build_lora(const struct mesh_ui_settings *s, struct item_list *list)
     }
     /* The manual trio only applies with the preset off; they stay listed so the row count
        does not move under the cursor as the toggle is edited. */
-    item_field(list, MESH_UI_FIELD_LORA_BANDWIDTH, s->bandwidth, NULL);
-    item_field(list, MESH_UI_FIELD_LORA_SPREAD, s->spread_factor, NULL);
-    item_field(list, MESH_UI_FIELD_LORA_CODING, s->coding_rate, NULL);
+    const enum mesh_ui_setting_field manual[] = {
+        MESH_UI_FIELD_LORA_BANDWIDTH, MESH_UI_FIELD_LORA_SPREAD, MESH_UI_FIELD_LORA_CODING};
+    const uint32_t manual_value[] = {s->bandwidth, s->spread_factor, s->coding_rate};
+    for (size_t m = 0; m < sizeof manual / sizeof manual[0]; ++m) {
+        struct mesh_ui_settings_item *row = item_field(list, manual[m], manual_value[m], NULL);
+        if (row != NULL) {
+            row->inactive = preset_on;
+        }
+    }
     item_field(list, MESH_UI_FIELD_LORA_HOPS, s->hop_limit, NULL);
     item_field(list, MESH_UI_FIELD_LORA_TX_ENABLED, s->tx_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_LORA_TX_POWER, (uint32_t)(uint8_t)s->tx_power, NULL);

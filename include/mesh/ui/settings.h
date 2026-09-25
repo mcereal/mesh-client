@@ -810,6 +810,17 @@ struct mesh_ui_settings_item {
      */
     bool conflict;
     /*
+     * The row is one the radio ignores while another row says so, and is drawn receding.
+     *
+     * LoRa's manual trio (bandwidth, spread factor, coding rate) means nothing while "Use
+     * preset" is on, and the preset means nothing while it is off. The rows stay listed and
+     * stay editable - so the row count does not move under the cursor as the toggle is edited,
+     * and a manual setting can be readied before the preset is turned off - but a row drawn at
+     * full strength reads as a value the radio is using. Decided from the toggle row's value,
+     * pending edit included, so flipping it re-tiers the rows before a save.
+     */
+    bool inactive;
+    /*
      * What this row is *about*, for the leading slot: the cloud on MQTT, the shield on
      * Security. INKCELL_ICON_NONE on a row that is a setting rather than a subject, which is
      * every row of every section except the one that lists the modules.
