@@ -4741,7 +4741,7 @@ MESH_TEST_CASE(ui_capture_settings_marks_both_halves_of_an_unsaved_row, unit) {
                                    MESH_UI_SETTINGS_NO_CHANNEL, r, &item)) {
             break;
         }
-        if (item.kind == MESH_UI_SETTING_TOGGLE) {
+        if (item.kind == INKSTAND_FORM_TOGGLE) {
             toggle_row = r;
             found = true;
         }

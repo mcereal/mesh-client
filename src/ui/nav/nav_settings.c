@@ -102,9 +102,9 @@ static bool mesh_ui_nav_edit_set(struct mesh_ui_nav *nav, const struct mesh_ui_s
         return false;
     }
     bool same;
-    if (base.kind == MESH_UI_SETTING_TEXT) {
+    if (base.kind == INKSTAND_FORM_TEXT) {
         same = (text != NULL && strcmp(base.text, text) == 0);
-    } else if (base.kind == MESH_UI_SETTING_KEY) {
+    } else if (base.kind == INKSTAND_FORM_KEY) {
         /* Keeping the key, or typing the very key the radio has, is no edit. */
         same = (number == MESH_UI_PSK_KEEP);
         if (number == MESH_UI_PSK_TYPED && text != NULL) {
@@ -176,10 +176,10 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
     /* A flag is edited exactly as a toggle is - it carries 0 or 1 like one, and which bit of
        which word that ends up in is the write builder's business, not this one's. The kinds
        differ in how the row is *drawn*, which is the backend's. */
-    case MESH_UI_SETTING_TOGGLE:
-    case MESH_UI_SETTING_FLAG:
+    case INKSTAND_FORM_TOGGLE:
+    case INKSTAND_FORM_FLAG:
         return mesh_ui_nav_edit_set(nav, store, field, item.number != 0U ? 0U : 1U, NULL);
-    case MESH_UI_SETTING_ENUM: {
+    case INKSTAND_FORM_ENUM: {
         /* The set of values is the row's, not the field's: a modem preset's depends on the
            region row above it, and the row was built after that row's edit. */
         const uint32_t count = mesh_ui_settings_enum_count(field);
@@ -189,14 +189,14 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
         }
         return mesh_ui_nav_edit_set(nav, store, field, next, NULL);
     }
-    case MESH_UI_SETTING_NUMBER: {
+    case INKSTAND_FORM_NUMBER: {
         const uint32_t next = mesh_ui_settings_number_step(field, item.number, delta);
         if (next == item.number) {
             return false;
         }
         return mesh_ui_nav_edit_set(nav, store, field, next, NULL);
     }
-    case MESH_UI_SETTING_KEY:
+    case INKSTAND_FORM_KEY:
         if (key == INKCELL_KEY_A) {
             mesh_ui_nav_open_field_keyboard(nav, &item); /* the key as hex */
             return true;
@@ -210,7 +210,7 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
                 item.choices, (uint32_t)MESH_UI_PSK_TYPED, current, delta);
             return mesh_ui_nav_edit_set(nav, store, field, choice, NULL);
         }
-    case MESH_UI_SETTING_TEXT:
+    case INKSTAND_FORM_TEXT:
         if (key != INKCELL_KEY_A) {
             return false;
         }
@@ -253,7 +253,7 @@ bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav, const struct mesh
         }
         text[kept] = '\0';
     }
-    if (mesh_ui_settings_field_kind(field) == MESH_UI_SETTING_KEY) {
+    if (mesh_ui_settings_field_kind(field) == INKSTAND_FORM_KEY) {
         uint8_t parsed[MESH_UI_PSK_MAX];
         size_t parsed_len = 0U;
         if (!mesh_ui_settings_key_parse(text, parsed, sizeof parsed, &parsed_len) ||

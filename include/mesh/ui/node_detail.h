@@ -80,7 +80,7 @@ enum mesh_ui_node_row_kind {
     MESH_UI_NODE_ROW_HEADING,  /* a group title; no value, not selectable */
     MESH_UI_NODE_ROW_ACTION,   /* A does something; `action` says what */
     /*
-     * A reading with an absolute scale, on the same terms as a setting's MESH_UI_SETTING_METER:
+     * A reading with an absolute scale, on the same terms as a setting's INKSTAND_FORM_METER:
      * still a fact with a label and a formatted value, and additionally a number a backend that
      * can draw one may draw.
      *

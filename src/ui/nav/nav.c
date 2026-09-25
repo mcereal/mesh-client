@@ -973,7 +973,7 @@ bool mesh_ui_nav_row_is_heading(const struct mesh_ui_nav *nav, const struct mesh
         struct mesh_ui_settings_item items[MESH_UI_SETTINGS_ITEMS_MAX];
         const uint32_t count =
             mesh_ui_nav_section_items(nav, store, true, items, MESH_UI_SETTINGS_ITEMS_MAX);
-        return row < count && items[row].kind == MESH_UI_SETTING_HEADING;
+        return row < count && items[row].kind == INKSTAND_FORM_HEADING;
     }
     return false;
 }
@@ -1105,7 +1105,7 @@ static uint32_t mesh_ui_nav_heading_map(const struct mesh_ui_nav *nav,
             mesh_ui_nav_section_items(nav, store, true, items, MESH_UI_SETTINGS_ITEMS_MAX);
         const uint32_t rows = count < max ? count : max;
         for (uint32_t r = 0; r < rows; ++r) {
-            out[r] = items[r].kind == MESH_UI_SETTING_HEADING;
+            out[r] = items[r].kind == INKSTAND_FORM_HEADING;
         }
         return rows;
     }
@@ -1616,7 +1616,7 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
        `number`, which keeps the nav from needing to know what any section means. */
     struct mesh_ui_settings_item item;
     if (mesh_ui_nav_settings_current(nav, store, true, &item) &&
-        item.kind == MESH_UI_SETTING_ACTION && item.field == MESH_UI_FIELD_NONE) {
+        item.kind == INKSTAND_FORM_ACTION && item.field == MESH_UI_FIELD_NONE) {
         /* A destructive radio action is never done on the press that selected it: the
            row opens the question, and the answer to that is what goes out. The rest go
            straight through. */
@@ -1904,7 +1904,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                module is than the channel branch above knows about a channel. */
             struct mesh_ui_settings_item row;
             if (!mesh_ui_nav_settings_current(nav, store, true, &row) ||
-                row.kind != MESH_UI_SETTING_ACTION) {
+                row.kind != INKSTAND_FORM_ACTION) {
                 return false;
             }
             nav->settings_module_list_cursor = cursor;

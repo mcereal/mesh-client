@@ -40,7 +40,7 @@
  */
 static bool settings_row_slider(const struct mesh_ui_settings_item *item,
                                 struct mesh_ui_settings_track *out) {
-    if (item->kind != MESH_UI_SETTING_NUMBER || item->field == MESH_UI_FIELD_NONE) {
+    if (item->kind != INKSTAND_FORM_NUMBER || item->field == MESH_UI_FIELD_NONE) {
         return false;
     }
     return mesh_ui_settings_number_track(item->field, item->number, out);
@@ -232,7 +232,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
      * next one; the heading itself stands on no card, in the break, where it becomes the card's
      * label and pays for both cards' insets without costing a row. Derived rather than declared
      * because the groups are already in the rows - a `group` field on the item would be a second
-     * way of saying what MESH_UI_SETTING_HEADING says.
+     * way of saying what INKSTAND_FORM_HEADING says.
      *
      * A section with no headings gets no cards at all and draws exactly as it always has. That
      * is the right answer rather than a gap: a card is what says "these rows belong together",
@@ -278,7 +278,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
         uint8_t card = 0U;
         any_cards = true;
         for (uint32_t r = 0; r < count; ++r) {
-            if (items[r].kind == MESH_UI_SETTING_HEADING) {
+            if (items[r].kind == INKSTAND_FORM_HEADING) {
                 /* The heading stands on no card, in the break between the one that ended and the
                    one it opens - which is where the column gets the only air it has, and why the
                    grouping costs no rows. See the card-list note in inkcell/ui/widgets.h. */
@@ -326,7 +326,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
     bool section_has_field = false;
     if (section_open) {
         for (uint32_t r = 0; r < count; ++r) {
-            if (items[r].kind == MESH_UI_SETTING_HEADING) {
+            if (items[r].kind == INKSTAND_FORM_HEADING) {
                 continue;
             }
             if (!mesh_ui_settings_item_is_verb(&items[r])) {
@@ -392,7 +392,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
             const struct mesh_ui_settings_item item = items[i];
             /* A heading names the group below it: dimmed, no marker, and no value column -
                the same row the node detail draws, so the two screens stay identical. */
-            if (item.kind == MESH_UI_SETTING_HEADING) {
+            if (item.kind == INKSTAND_FORM_HEADING) {
                 /*
                  * Plain, and the leading slot under it - which is what every heading in this tab
                  * draws, without exception.
@@ -443,7 +443,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
             const bool marker_yields = (marker == INKCELL_ICON_STEPPER);
             /* The rows of this kind that open a list - a channel slot, a module - as against
                the ones that step a value where they stand. A chevron promises a screen. */
-            const bool opens = (item.kind == MESH_UI_SETTING_ACTION) && !item.cycle;
+            const bool opens = (item.kind == INKSTAND_FORM_ACTION) && !item.cycle;
             const enum inkcell_tone tone = item.conflict ? INKCELL_TONE_WARNING
                                            : item.dirty  ? INKCELL_TONE_STRONG
                                                          : INKCELL_TONE_NORMAL;
@@ -490,7 +490,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
              * claim to open anything.
              */
             if (mesh_ui_settings_item_is_verb(&item)) {
-                const bool off = (item.kind == MESH_UI_SETTING_ACTION_OFF);
+                const bool off = (item.kind == INKSTAND_FORM_ACTION_OFF);
                 const enum inkcell_tone verb_tone = item.conflict ? INKCELL_TONE_WARNING
                                                     : item.dirty  ? INKCELL_TONE_STRONG
                                                                   : item.tone;
@@ -504,7 +504,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
                  * inkcell_fb_list_item() for a label column, and the column is measured once for
                  * the screen, so the verb's value starts in the same cell a setting's does.
                  *
-                 * MESH_UI_SETTING_ACTION only, and not the withdrawn one beside it: "not
+                 * INKSTAND_FORM_ACTION only, and not the withdrawn one beside it: "not
                  * supported" is a reason rather than a value, it belongs against the trailing
                  * edge where the chevron it replaces was, and it is drawn quietly there - which
                  * is what says the offer is withdrawn rather than the answer being blank.
@@ -518,7 +518,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
                  */
                 const bool verb_opens = !off && mesh_ui_settings_action_opens(
                                                     (enum mesh_ui_settings_action)item.number);
-                if (section_has_field && item.kind == MESH_UI_SETTING_ACTION &&
+                if (section_has_field && item.kind == INKSTAND_FORM_ACTION &&
                     item.value[0] != '\0') {
                     const struct inkcell_fb_list_item value_row = {
                         .leading = {.kind = INKCELL_FB_LEADING_TONAL, .icon = item.icon},
@@ -597,8 +597,8 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
              * says. The row is keyed on its index, above everything the field enum can reach,
              * because a meter row has no field of its own - it is a fact, not a control.
              */
-            if (item.kind == MESH_UI_SETTING_METER) {
-                const bool unknown = item.number == MESH_UI_METER_UNKNOWN;
+            if (item.kind == INKSTAND_FORM_METER) {
+                const bool unknown = item.number == INKSTAND_FORM_METER_UNKNOWN;
                 struct inkcell_fb_meter meter = {
                     .id = 0x03000000U | i,
                     .kind = unknown ? INKCELL_FB_METER_INDETERMINATE : INKCELL_FB_METER_DETERMINATE,
@@ -629,7 +629,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
              * animating in one frame is the same control in the next; 0x06 keeps it clear of
              * the switch, the meters and the slider.
              */
-            if (item.kind == MESH_UI_SETTING_FLAG) {
+            if (item.kind == INKSTAND_FORM_FLAG) {
                 struct inkcell_fb_selection sel = {
                     .id = 0x06000000U | ((uint32_t)view->channel << 16) | (uint32_t)item.field,
                     .on = item.number != 0U,
@@ -651,7 +651,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
                 inkcell_fb_list_item(state, &list, i, &row);
                 continue;
             }
-            if (item.kind == MESH_UI_SETTING_TOGGLE) {
+            if (item.kind == INKSTAND_FORM_TOGGLE) {
                 struct inkcell_fb_switch sw = {
                     .id = item.field != MESH_UI_FIELD_NONE
                               ? 0x01000000U | ((uint32_t)view->channel << 16) | (uint32_t)item.field
@@ -731,7 +731,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
              * as they were; a set nobody can take in at a glance is better read one at a time.
              */
             const uint32_t choices =
-                item.kind == MESH_UI_SETTING_ENUM ? mesh_ui_settings_enum_count(item.field) : 0U;
+                item.kind == INKSTAND_FORM_ENUM ? mesh_ui_settings_enum_count(item.field) : 0U;
             /* A segment nobody may pick is a segment that must not be drawn: the control says
                "one of these", so a constrained row falls back to the stepped word rather than
                offering a set it would then refuse. No row does this today - the two constrained

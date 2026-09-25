@@ -13,8 +13,8 @@
 #include "inkcell/ui/icon.h"
 #include "inkcell/ui/theme.h"
 
+#include "inkstand/form/field.h"
 #include "mesh/i18n/strings.h"
-#include "mesh/ui/form_field.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store_handshake.h"
 #include "mesh/ui/store_settings.h"
@@ -217,7 +217,7 @@ enum mesh_ui_setting_field {
      * PositionConfig.position_flags: what a position packet carries, as ten bits of one
      * uint32 rather than ten fields.
      *
-     * Ten rows of kind MESH_UI_SETTING_FLAG, each naming its own bit, because the wire being
+     * Ten rows of kind INKSTAND_FORM_FLAG, each naming its own bit, because the wire being
      * one word is not a reason for the screen to be one row: "send the fix time" is a setting
      * a person has an opinion about and `0x0281` is not. The field table carries the mask
      * (see struct field_spec), so a bit upstream adds later is a row here rather than a
@@ -501,7 +501,7 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_COUNT,
 };
 
-/* What an ACTION row does when A is pressed. Rows of kind MESH_UI_SETTING_ACTION carry one in
+/* What an ACTION row does when A is pressed. Rows of kind INKSTAND_FORM_ACTION carry one in
    `number`, so the nav can raise the right action without knowing what the section means. */
 enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_NONE = 0,
@@ -772,7 +772,7 @@ enum mesh_ui_psk_choice {
 struct mesh_ui_settings_item {
     char label[MESH_UI_SETTINGS_LABEL_MAX];
     char value[MESH_UI_SETTINGS_VALUE_MAX];
-    enum mesh_ui_setting_kind kind;
+    enum inkstand_form_kind kind;
     enum mesh_ui_setting_field field;    /* NONE: read-only */
     bool dirty;                          /* value shown is a pending edit */
     uint32_t number;                     /* toggle 0/1, enum index, raw number, or key choice */
@@ -855,7 +855,7 @@ struct mesh_ui_settings_item {
      */
     bool verb;
     /*
-     * A is what steps this row's own value: it is a setting wearing MESH_UI_SETTING_ACTION's
+     * A is what steps this row's own value: it is a setting wearing INKSTAND_FORM_ACTION's
      * clothes, not a verb.
      *
      * Five rows say it - Language, Theme, the client's update channel, the dev-updates switch
@@ -886,7 +886,7 @@ struct mesh_ui_settings_item {
  * decide whether a row gets a tonal disc and drops its value column, and two backends working
  * it out for themselves is how they come to disagree.
  *
- * It is a stored flag rather than a kind because MESH_UI_SETTING_ACTION is doing two jobs, and
+ * It is a stored flag rather than a kind because INKSTAND_FORM_ACTION is doing two jobs, and
  * separating them is a change to the nav rather than to the drawing. A channel row and a module
  * row are ACTION too - the nav answers all three with A, which is what the kind is for there -
  * and mesh_ui_settings_channel_at_row() tells a slot from a share row by reading `number`
@@ -1056,7 +1056,7 @@ const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field);
    of text - the help topic is the one, and holding ids there is what lets a test read it with no
    locale in force. */
 inkcell_str_id mesh_ui_settings_field_label_id(enum mesh_ui_setting_field field);
-enum mesh_ui_setting_kind mesh_ui_settings_field_kind(enum mesh_ui_setting_field field);
+enum inkstand_form_kind mesh_ui_settings_field_kind(enum mesh_ui_setting_field field);
 enum mesh_ui_settings_section mesh_ui_settings_field_section(enum mesh_ui_setting_field field);
 /*
  * What one setting does, as a catalog id, or INKCELL_STR_NONE for a row whose label is already the

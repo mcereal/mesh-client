@@ -70,7 +70,7 @@ MESH_TEST_CASE(ui_settings_items, unit) {
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
                                              MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
                           strcmp(item.label, "Region") != 0 || strcmp(item.value, "US") != 0 ||
-                          item.kind != MESH_UI_SETTING_ENUM,
+                          item.kind != INKSTAND_FORM_ENUM,
                       "LoRa region row is wrong");
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
                                              MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
@@ -85,7 +85,7 @@ MESH_TEST_CASE(ui_settings_items, unit) {
     MESH_TEST_FAIL_IF(
         !mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_SECURITY,
                                MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-            item.kind != MESH_UI_SETTING_KEY || strncmp(item.value, "deadbeef...", 11U) != 0 ||
+            item.kind != INKSTAND_FORM_KEY || strncmp(item.value, "deadbeef...", 11U) != 0 ||
             strstr(item.value, "32 bytes") == NULL,
         "public key fingerprint is wrong");
     /*
@@ -135,7 +135,7 @@ MESH_TEST_CASE(ui_settings_edits, unit) {
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_USER,
                                              MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
                           item.field != MESH_UI_FIELD_USER_LONG_NAME ||
-                          item.kind != MESH_UI_SETTING_TEXT || item.dirty ||
+                          item.kind != INKSTAND_FORM_TEXT || item.dirty ||
                           strcmp(item.text, "Meshtastic 0ad8") != 0 ||
                           strcmp(item.value, "Meshtastic 0ad8") != 0,
                       "long name row is wrong");
@@ -146,7 +146,7 @@ MESH_TEST_CASE(ui_settings_edits, unit) {
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_DISPLAY,
                                              MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
                           item.field != MESH_UI_FIELD_DISPLAY_SCREEN_ON ||
-                          item.kind != MESH_UI_SETTING_NUMBER || item.number != 60U ||
+                          item.kind != INKSTAND_FORM_NUMBER || item.number != 60U ||
                           strcmp(item.value, "1m") != 0,
                       "screen-on row is wrong");
     MESH_TEST_FAIL_IF(
@@ -166,8 +166,7 @@ MESH_TEST_CASE(ui_settings_edits, unit) {
         "enum tables are wrong");
     MESH_TEST_FAIL_IF(
         mesh_ui_settings_field_section(MESH_UI_FIELD_SF_SERVER) != MESH_UI_SETTINGS_STORE_FORWARD ||
-            mesh_ui_settings_field_kind(MESH_UI_FIELD_TELEMETRY_INTERVAL) !=
-                MESH_UI_SETTING_NUMBER ||
+            mesh_ui_settings_field_kind(MESH_UI_FIELD_TELEMETRY_INTERVAL) != INKSTAND_FORM_NUMBER ||
             strcmp(mesh_ui_settings_field_label(MESH_UI_FIELD_USER_SHORT_NAME), "Short name") != 0,
         "field descriptions are wrong");
     /* All fifteen TelemetryConfig wire fields have a row, under five headings. Pinned as a
@@ -180,9 +179,8 @@ MESH_TEST_CASE(ui_settings_edits, unit) {
        Enabled, Interval. The heading itself carries no field and no value. */
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_TELEMETRY,
                                              MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-                          item.kind != MESH_UI_SETTING_HEADING ||
-                          item.field != MESH_UI_FIELD_NONE || item.value[0] != '\0' ||
-                          strcmp(item.label, "Device") != 0,
+                          item.kind != INKSTAND_FORM_HEADING || item.field != MESH_UI_FIELD_NONE ||
+                          item.value[0] != '\0' || strcmp(item.label, "Device") != 0,
                       "telemetry should open on a heading");
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_TELEMETRY,
                                              MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
@@ -254,7 +252,7 @@ MESH_TEST_CASE(ui_settings_modules, unit) {
     struct mesh_ui_settings_item item;
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_MODULES,
                                              MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-                          item.kind != MESH_UI_SETTING_ACTION ||
+                          item.kind != INKSTAND_FORM_ACTION ||
                           item.number != (uint32_t)mesh_ui_settings_module_at(0U) ||
                           strcmp(item.value, "not loaded") != 0,
                       "a module the radio has not sent should say so");
@@ -446,7 +444,7 @@ MESH_TEST_CASE(ui_settings_position_flags_are_the_wire_bits, unit) {
         const uint32_t bit = mesh_ui_settings_field_bit(field);
         MESH_TEST_FAIL_IF(bit != k_expected[i].bit,
                           "a position flag row does not carry the protobuf's own bit");
-        MESH_TEST_FAIL_IF(mesh_ui_settings_field_kind(field) != MESH_UI_SETTING_FLAG,
+        MESH_TEST_FAIL_IF(mesh_ui_settings_field_kind(field) != INKSTAND_FORM_FLAG,
                           "a row in a flag group is not a flag");
         MESH_TEST_FAIL_IF((seen & bit) != 0U, "two position flag rows claim the same bit");
         seen |= bit;
@@ -456,7 +454,7 @@ MESH_TEST_CASE(ui_settings_position_flags_are_the_wire_bits, unit) {
        would be a row the write builder has no mask for. */
     for (int i = 0; i < (int)MESH_UI_FIELD_COUNT; ++i) {
         const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)i;
-        if (mesh_ui_settings_field_kind(field) != MESH_UI_SETTING_FLAG) {
+        if (mesh_ui_settings_field_kind(field) != INKSTAND_FORM_FLAG) {
             MESH_TEST_FAIL_IF(mesh_ui_settings_field_bit(field) != 0U,
                               "a field that is not a flag answers with a bit");
             continue;
@@ -498,7 +496,7 @@ MESH_TEST_CASE(ui_settings_position_flag_rows, unit) {
         struct mesh_ui_settings_item item;
         if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_POSITION,
                                   MESH_UI_SETTINGS_NO_CHANNEL, row, &item) &&
-            item.kind == MESH_UI_SETTING_HEADING &&
+            item.kind == INKSTAND_FORM_HEADING &&
             strcmp(item.label, inkcell_str(MESH_STR_HEAD_POSITION_CARRIES)) == 0) {
             heading_row = row;
             break;
@@ -535,10 +533,10 @@ MESH_TEST_CASE(ui_settings_position_flag_rows, unit) {
  * which is a bug with no symptom until a radio reads back the wrong destination.
  */
 MESH_TEST_CASE(ui_settings_beacon_targets_are_four_records_of_one_shape, unit) {
-    static const enum mesh_ui_setting_kind k_shape[MESH_UI_BEACON_TARGET_FIELDS] = {
-        MESH_UI_SETTING_ENUM,   /* preset */
-        MESH_UI_SETTING_ENUM,   /* region */
-        MESH_UI_SETTING_NUMBER, /* channel */
+    static const enum inkstand_form_kind k_shape[MESH_UI_BEACON_TARGET_FIELDS] = {
+        INKSTAND_FORM_ENUM,   /* preset */
+        INKSTAND_FORM_ENUM,   /* region */
+        INKSTAND_FORM_NUMBER, /* channel */
     };
     const uint32_t count = mesh_ui_settings_group_count(MESH_UI_FIELD_GROUP_BEACON_TARGETS);
     MESH_TEST_FAIL_IF(count != MESH_UI_BEACON_TARGETS * MESH_UI_BEACON_TARGET_FIELDS,
@@ -623,7 +621,7 @@ MESH_TEST_CASE(ui_settings_beacon_rows, unit) {
         MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_BEACON,
                                                  MESH_UI_SETTINGS_NO_CHANNEL, row, &item),
                           "a beacon row is missing");
-        if (item.kind == MESH_UI_SETTING_HEADING) {
+        if (item.kind == INKSTAND_FORM_HEADING) {
             char expect[MESH_UI_SETTINGS_LABEL_MAX];
             inkcell_str_format(expect, sizeof expect, MESH_STR_HEAD_BEACON_TARGET,
                                (unsigned)(headings + 1U));
@@ -935,7 +933,7 @@ MESH_TEST_CASE(ui_settings_network_section, unit) {
                       "Static should add a heading and four addresses");
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_NETWORK,
                                              MESH_UI_SETTINGS_NO_CHANNEL, 5U, &item) ||
-                          item.kind != MESH_UI_SETTING_HEADING,
+                          item.kind != INKSTAND_FORM_HEADING,
                       "the static addresses should sit under a heading");
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_NETWORK,
                                              MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
@@ -1103,7 +1101,7 @@ MESH_TEST_CASE(ui_settings_large_modules, unit) {
             struct mesh_ui_settings_item head;
             if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_EXT_NOTIFICATION,
                                        MESH_UI_SETTINGS_NO_CHANNEL, row, &head) ||
-                head.kind != MESH_UI_SETTING_HEADING ||
+                head.kind != INKSTAND_FORM_HEADING ||
                 strcmp(head.label, k_groups[g].heading) != 0) {
                 continue;
             }
@@ -1324,8 +1322,8 @@ MESH_TEST_CASE(settings_text_fields_fit_the_edit_buffer, unit) {
     uint32_t widest = 0U;
     for (unsigned f = 0; f < (unsigned)MESH_UI_FIELD_COUNT; ++f) {
         const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)f;
-        const enum mesh_ui_setting_kind kind = mesh_ui_settings_field_kind(field);
-        if (kind != MESH_UI_SETTING_TEXT && kind != MESH_UI_SETTING_KEY) {
+        const enum inkstand_form_kind kind = mesh_ui_settings_field_kind(field);
+        if (kind != INKSTAND_FORM_TEXT && kind != INKSTAND_FORM_KEY) {
             continue;
         }
         const uint32_t limit = mesh_ui_settings_text_max(field);
@@ -1732,7 +1730,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
     for (uint32_t i = 0; i < rows; ++i) {
         if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
-            item.kind == MESH_UI_SETTING_ACTION &&
+            item.kind == INKSTAND_FORM_ACTION &&
             item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_UPDATE) {
             check_row = i;
         }
@@ -1769,7 +1767,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
     }
     if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
                               MESH_UI_SETTINGS_NO_CHANNEL, theme_row, &item)) {
-        if (item.kind != MESH_UI_SETTING_ACTION ||
+        if (item.kind != INKSTAND_FORM_ACTION ||
             item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
             failure = "the theme row should be the cycle-theme action";
             goto cleanup;
@@ -1807,7 +1805,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
             strncmp(item.label, "Theme", 5U) == 0) {
             pinned_row_found = true;
-            if (item.kind != MESH_UI_SETTING_INFO ||
+            if (item.kind != INKSTAND_FORM_INFO ||
                 item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
                 failure = "an environment-held theme should not offer a press";
                 goto cleanup;
@@ -1993,7 +1991,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
     for (uint32_t i = 0; i < busy_rows; ++i) {
         if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
-            item.kind == MESH_UI_SETTING_ACTION &&
+            item.kind == INKSTAND_FORM_ACTION &&
             item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
             failure = "a busy updater should offer no update actions";
             goto cleanup;
@@ -2006,8 +2004,8 @@ MESH_TEST_CASE(ui_settings_about, unit) {
      *
      * A download with a size to divide by carries a fraction, and the row's words are the figure
      * alone - the row above already says which step is running, and repeating it here would clip
-     * the one thing this row adds. A step with no length carries MESH_UI_METER_UNKNOWN, which is
-     * a bar that moves without claiming a position rather than one parked at zero.
+     * the one thing this row adds. A step with no length carries INKSTAND_FORM_METER_UNKNOWN, which
+     * is a bar that moves without claiming a position rather than one parked at zero.
      */
     settings.client.update_progress_known = true;
     settings.client.update_progress = 714U;
@@ -2016,7 +2014,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
     for (uint32_t i = 0; i < busy_rows; ++i) {
         if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
                                    MESH_UI_SETTINGS_NO_CHANNEL, i, &item) ||
-            item.kind != MESH_UI_SETTING_METER) {
+            item.kind != INKSTAND_FORM_METER) {
             continue;
         }
         found_meter = true;
@@ -2049,11 +2047,11 @@ MESH_TEST_CASE(ui_settings_about, unit) {
          ++i) {
         if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
                                    MESH_UI_SETTINGS_NO_CHANNEL, i, &item) ||
-            item.kind != MESH_UI_SETTING_METER) {
+            item.kind != INKSTAND_FORM_METER) {
             continue;
         }
         found_meter = true;
-        if (item.number != MESH_UI_METER_UNKNOWN) {
+        if (item.number != INKSTAND_FORM_METER_UNKNOWN) {
             failure = "a step with no length should be an unknown meter, not a zero one";
             goto cleanup;
         }
@@ -2080,7 +2078,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
                                    MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
             continue;
         }
-        if (item.kind == MESH_UI_SETTING_ACTION) {
+        if (item.kind == INKSTAND_FORM_ACTION) {
             failure = "an unsupported updater should offer no actions";
             goto cleanup;
         }
@@ -2751,7 +2749,7 @@ MESH_TEST_CASE(settings_verbs_that_cannot_be_undone_are_red, unit) {
 }
 
 /*
- * MESH_UI_SETTING_ACTION is doing two jobs, and mesh_ui_settings_item_is_verb() is what tells
+ * INKSTAND_FORM_ACTION is doing two jobs, and mesh_ui_settings_item_is_verb() is what tells
  * them apart: Radio actions' rows *do* something, and the Modules and Channels lists' rows open
  * a list. Both are ACTION because the nav answers both with A.
  *
@@ -2798,7 +2796,7 @@ MESH_TEST_CASE(settings_openers_are_not_verbs, unit) {
                                              MESH_UI_SETTINGS_CHANNELS, MESH_UI_SETTINGS_NO_CHANNEL,
                                              0U, &item),
                       "the Channels list should have a slot row");
-    MESH_TEST_FAIL_IF(item.kind != MESH_UI_SETTING_ACTION,
+    MESH_TEST_FAIL_IF(item.kind != INKSTAND_FORM_ACTION,
                       "a channel slot should still be the kind the nav opens with A");
     MESH_TEST_FAIL_IF(mesh_ui_settings_item_is_verb(&item),
                       "a channel slot opens a list and is not a verb");
@@ -2814,7 +2812,7 @@ MESH_TEST_CASE(settings_openers_are_not_verbs, unit) {
                                    MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
             break;
         }
-        if (item.kind == MESH_UI_SETTING_HEADING) {
+        if (item.kind == INKSTAND_FORM_HEADING) {
             continue;
         }
         if (!mesh_ui_settings_item_is_verb(&item)) {
@@ -2895,15 +2893,15 @@ MESH_TEST_CASE(settings_withdrawn_verbs_keep_the_section_shape, unit) {
             record_failure(test_name, message);
             return;
         }
-        if (item.kind == MESH_UI_SETTING_HEADING) {
+        if (item.kind == INKSTAND_FORM_HEADING) {
             continue;
         }
         /* Withdrawn, and still the same verb: same symbol, same place, and the nav cannot fire
            it because it is no longer the kind A answers. */
-        if (item.kind == MESH_UI_SETTING_ACTION) {
+        if (item.kind == INKSTAND_FORM_ACTION) {
             continue; /* the two forget rows are local and stay pressable */
         }
-        if (item.kind != MESH_UI_SETTING_ACTION_OFF || !mesh_ui_settings_item_is_verb(&item) ||
+        if (item.kind != INKSTAND_FORM_ACTION_OFF || !mesh_ui_settings_item_is_verb(&item) ||
             !inkcell_icon_is_valid(item.icon)) {
             snprintf(message, sizeof message, "row %u (%.*s) lost its shape when the link dropped",
                      row, (int)sizeof live[row], live[row]);
@@ -2997,7 +2995,7 @@ MESH_TEST_CASE(ui_settings_a_disc_marks_a_press_that_acts, unit) {
                                        MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
                 break;
             }
-            if (item.kind != MESH_UI_SETTING_ACTION && item.kind != MESH_UI_SETTING_ACTION_OFF) {
+            if (item.kind != INKSTAND_FORM_ACTION && item.kind != INKSTAND_FORM_ACTION_OFF) {
                 /* Not a row built from the action table at all - a channel slot and a module row
                    are ACTION and carry a slot or a section in `number`, which is why the two
                    kinds above are what this walk reads and `cycle` is what it trusts. */
@@ -3109,7 +3107,7 @@ MESH_TEST_CASE(ui_settings_a_fact_is_a_row_nothing_changes, unit) {
              */
             bool expected = false;
             uint32_t *counter = NULL;
-            if (item.kind == MESH_UI_SETTING_HEADING) {
+            if (item.kind == INKSTAND_FORM_HEADING) {
                 /* Names the card rather than standing on it. */
                 expected = false;
                 counter = NULL;
@@ -3119,7 +3117,7 @@ MESH_TEST_CASE(ui_settings_a_fact_is_a_row_nothing_changes, unit) {
             } else if (item.cycle) {
                 expected = false; /* A steps its own value */
                 counter = &cycles;
-            } else if (item.kind == MESH_UI_SETTING_ACTION) {
+            } else if (item.kind == INKSTAND_FORM_ACTION) {
                 expected = false; /* a channel slot or a module: the press opens a list */
                 counter = &opens;
             } else if (item.field != MESH_UI_FIELD_NONE) {
@@ -3219,13 +3217,13 @@ MESH_TEST_CASE(ui_settings_a_marker_says_how_the_row_is_changed, unit) {
                    switches arrive as read-only toggles and must not offer a press. */
                 expected = INKCELL_ICON_NONE;
                 counter = &quiet;
-            } else if (item.kind == MESH_UI_SETTING_TEXT || item.kind == MESH_UI_SETTING_KEY) {
+            } else if (item.kind == INKSTAND_FORM_TEXT || item.kind == INKSTAND_FORM_KEY) {
                 expected = INKCELL_ICON_EDIT;
                 counter = &typed;
-            } else if (item.kind == MESH_UI_SETTING_ENUM || item.kind == MESH_UI_SETTING_NUMBER) {
+            } else if (item.kind == INKSTAND_FORM_ENUM || item.kind == INKSTAND_FORM_NUMBER) {
                 expected = INKCELL_ICON_STEPPER;
                 counter = &stepped;
-            } else if (item.kind == MESH_UI_SETTING_TOGGLE || item.kind == MESH_UI_SETTING_FLAG) {
+            } else if (item.kind == INKSTAND_FORM_TOGGLE || item.kind == INKSTAND_FORM_FLAG) {
                 expected = INKCELL_ICON_NONE;
                 counter = &controls;
             }
@@ -3265,7 +3263,7 @@ MESH_TEST_CASE(ui_settings_a_marker_says_how_the_row_is_changed, unit) {
 MESH_TEST_CASE(ui_settings_a_state_mark_outranks_the_offer, unit) {
     struct mesh_ui_settings_item item;
     memset(&item, 0, sizeof item);
-    item.kind = MESH_UI_SETTING_TOGGLE;
+    item.kind = INKSTAND_FORM_TOGGLE;
     item.field = MESH_UI_FIELD_USER_LICENSED;
 
     /* A switch says its own offer, so the gutter is free for a state to use. */
@@ -3276,7 +3274,7 @@ MESH_TEST_CASE(ui_settings_a_state_mark_outranks_the_offer, unit) {
                       "an unsaved switch should still say so");
 
     /* And over a row that would otherwise have had something to say. */
-    item.kind = MESH_UI_SETTING_ENUM;
+    item.kind = INKSTAND_FORM_ENUM;
     item.field = MESH_UI_FIELD_DEVICE_ROLE;
     MESH_TEST_FAIL_IF(mesh_ui_settings_item_marker(&item) != INKCELL_ICON_UNSAVED,
                       "an unsaved edit outranks the stepper");
@@ -3367,7 +3365,7 @@ MESH_TEST_CASE(ui_settings_row_icons_are_all_or_nothing, unit) {
              * section used. The node detail and Status keep their card headers and are card
              * screens; a settings section is a list of fields, and a list has one subheader.
              */
-            if (item.kind == MESH_UI_SETTING_HEADING) {
+            if (item.kind == INKSTAND_FORM_HEADING) {
                 if (has_icon) {
                     snprintf(message, sizeof message,
                              "%s row %u is a heading with a symbol - the Settings tab heads every "
@@ -3711,7 +3709,7 @@ MESH_TEST_CASE(ui_settings_connection_status, unit) {
     struct mesh_ui_settings_item item;
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
                                              MESH_UI_SETTINGS_NO_CHANNEL, bare, &item) ||
-                          item.kind != MESH_UI_SETTING_HEADING,
+                          item.kind != INKSTAND_FORM_HEADING,
                       "the interfaces should start under a heading");
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
                                              MESH_UI_SETTINGS_NO_CHANNEL, bare + 2U, &item) ||
@@ -3767,7 +3765,7 @@ MESH_TEST_CASE(ui_settings_radio_firmware_install_row, unit) {
     for (uint32_t i = 0; i < count; ++i) {
         MESH_TEST_FAIL_IF(mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
                                                 MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
-                              item.kind == MESH_UI_SETTING_ACTION &&
+                              item.kind == INKSTAND_FORM_ACTION &&
                               mesh_ui_settings_action_is_install_firmware(
                                   (enum mesh_ui_settings_action)item.number),
                           "a blocked board should offer no install row");
@@ -3821,11 +3819,11 @@ MESH_TEST_CASE(ui_settings_radio_firmware_install_row, unit) {
             continue;
         }
         MESH_TEST_FAIL_IF(
-            item.kind == MESH_UI_SETTING_ACTION &&
+            item.kind == INKSTAND_FORM_ACTION &&
                 (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE ||
                  item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL),
             "nothing else in the section is pressable while an install runs");
-        if (item.kind == MESH_UI_SETTING_METER && strstr(item.value, "43%") != NULL) {
+        if (item.kind == INKSTAND_FORM_METER && strstr(item.value, "43%") != NULL) {
             metered = true;
             /* A fraction the module answered with, on the bar rather than only in the words. */
             MESH_TEST_FAIL_IF(item.number != 430U, "the meter should carry the same fraction");
@@ -3843,7 +3841,7 @@ MESH_TEST_CASE(ui_settings_radio_firmware_install_row, unit) {
     for (uint32_t i = 0; i < count; ++i) {
         if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
-            item.kind == MESH_UI_SETTING_METER && item.number == MESH_UI_METER_UNKNOWN) {
+            item.kind == INKSTAND_FORM_METER && item.number == INKSTAND_FORM_METER_UNKNOWN) {
             indeterminate = true;
         }
     }
@@ -4274,22 +4272,22 @@ MESH_TEST_CASE(ui_settings_lora_advanced, unit) {
 
     struct {
         uint32_t row;
-        enum mesh_ui_setting_kind kind;
+        enum inkstand_form_kind kind;
         enum mesh_ui_setting_field field;
         const char *value;
     } const expect[] = {
-        {11U, MESH_UI_SETTING_HEADING, MESH_UI_FIELD_NONE, NULL},
-        {12U, MESH_UI_SETTING_TOGGLE, MESH_UI_FIELD_LORA_BOOST_GAIN, "on"},
-        {14U, MESH_UI_SETTING_TEXT, MESH_UI_FIELD_LORA_CHANNEL_NUM, "42"},
-        {15U, MESH_UI_SETTING_TEXT, MESH_UI_FIELD_LORA_OVERRIDE_FREQ, "906.8750 MHz"},
-        {16U, MESH_UI_SETTING_TEXT, MESH_UI_FIELD_LORA_FREQUENCY_TRIM, "-12.5 Hz"},
-        {17U, MESH_UI_SETTING_HEADING, MESH_UI_FIELD_NONE, NULL},
-        {18U, MESH_UI_SETTING_TEXT, MESH_UI_FIELD_LORA_IGNORE_NODE_0, "!433d1b2c"},
-        {21U, MESH_UI_SETTING_HEADING, MESH_UI_FIELD_NONE, NULL},
-        {22U, MESH_UI_SETTING_TEXT, MESH_UI_FIELD_LORA_HAM_CALL_SIGN, NULL},
-        {23U, MESH_UI_SETTING_TEXT, MESH_UI_FIELD_LORA_HAM_FREQUENCY, "906.8750 MHz"},
-        {24U, MESH_UI_SETTING_NUMBER, MESH_UI_FIELD_LORA_HAM_TX_POWER, "27 dBm"},
-        {25U, MESH_UI_SETTING_ACTION, MESH_UI_FIELD_NONE, NULL},
+        {11U, INKSTAND_FORM_HEADING, MESH_UI_FIELD_NONE, NULL},
+        {12U, INKSTAND_FORM_TOGGLE, MESH_UI_FIELD_LORA_BOOST_GAIN, "on"},
+        {14U, INKSTAND_FORM_TEXT, MESH_UI_FIELD_LORA_CHANNEL_NUM, "42"},
+        {15U, INKSTAND_FORM_TEXT, MESH_UI_FIELD_LORA_OVERRIDE_FREQ, "906.8750 MHz"},
+        {16U, INKSTAND_FORM_TEXT, MESH_UI_FIELD_LORA_FREQUENCY_TRIM, "-12.5 Hz"},
+        {17U, INKSTAND_FORM_HEADING, MESH_UI_FIELD_NONE, NULL},
+        {18U, INKSTAND_FORM_TEXT, MESH_UI_FIELD_LORA_IGNORE_NODE_0, "!433d1b2c"},
+        {21U, INKSTAND_FORM_HEADING, MESH_UI_FIELD_NONE, NULL},
+        {22U, INKSTAND_FORM_TEXT, MESH_UI_FIELD_LORA_HAM_CALL_SIGN, NULL},
+        {23U, INKSTAND_FORM_TEXT, MESH_UI_FIELD_LORA_HAM_FREQUENCY, "906.8750 MHz"},
+        {24U, INKSTAND_FORM_NUMBER, MESH_UI_FIELD_LORA_HAM_TX_POWER, "27 dBm"},
+        {25U, INKSTAND_FORM_ACTION, MESH_UI_FIELD_NONE, NULL},
     };
     for (size_t i = 0; i < sizeof expect / sizeof expect[0]; ++i) {
         if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
@@ -4609,7 +4607,7 @@ MESH_TEST_CASE(ui_settings_about_radio_names_the_node_being_configured, unit) {
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U,
                                              MESH_UI_SETTINGS_RADIO, MESH_UI_SETTINGS_NO_CHANNEL,
                                              0U, &item) ||
-                          item.kind != MESH_UI_SETTING_HEADING,
+                          item.kind != INKSTAND_FORM_HEADING,
                       "whose radio this is comes first, under a heading of its own");
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U,
                                              MESH_UI_SETTINGS_RADIO, MESH_UI_SETTINGS_NO_CHANNEL,
@@ -4619,7 +4617,7 @@ MESH_TEST_CASE(ui_settings_about_radio_names_the_node_being_configured, unit) {
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U,
                                              MESH_UI_SETTINGS_RADIO, MESH_UI_SETTINGS_NO_CHANNEL,
                                              2U, &item) ||
-                          item.kind != MESH_UI_SETTING_ACTION ||
+                          item.kind != INKSTAND_FORM_ACTION ||
                           item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL,
                       "with the press that comes back to our own radio under it");
 

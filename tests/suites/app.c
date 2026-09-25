@@ -1687,7 +1687,7 @@ MESH_TEST_CASE(app_lora_security_write_build, unit) {
                                     MESH_UI_SETTINGS_NO_CHANNEL) != 10U ||
             !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_SECURITY,
                                    MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
-            item.field != MESH_UI_FIELD_SECURITY_PRIVATE_KEY || item.kind != MESH_UI_SETTING_KEY ||
+            item.field != MESH_UI_FIELD_SECURITY_PRIVATE_KEY || item.kind != INKSTAND_FORM_KEY ||
             strlen(item.text) != 44U || strstr(item.value, "256-bit") == NULL ||
             !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_SECURITY,
                                    MESH_UI_SETTINGS_NO_CHANNEL, 4U, &item) ||
@@ -2785,7 +2785,7 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
     for (uint32_t i = 0; i < rows; ++i) {
         if (mesh_ui_settings_item(&app.ui_store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
-            item.kind == MESH_UI_SETTING_ACTION &&
+            item.kind == INKSTAND_FORM_ACTION &&
             item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE) {
             language_row = i;
         }
@@ -2816,7 +2816,7 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
     mesh_app_publish_ui_state(&app);
     if (!mesh_ui_settings_item(&app.ui_store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
                                MESH_UI_SETTINGS_NO_CHANNEL, language_row, &item) ||
-        item.kind != MESH_UI_SETTING_INFO) {
+        item.kind != INKSTAND_FORM_INFO) {
         failure = "an explicit language override must make the row read-only";
         goto cleanup;
     }

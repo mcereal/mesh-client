@@ -142,7 +142,6 @@ add_library(meshclient_core
     src/ui/nav/nav_waypoints.c
     src/ui/tables/reactions.c
     src/ui/settings/settings.c
-    src/ui/settings/form_field.c
     src/ui/settings/settings_codec.c
     src/ui/settings/settings_rows.c
     src/ui/nav/route.c
