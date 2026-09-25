@@ -2,10 +2,13 @@
 
 #include "mesh/ui/preferences.h"
 
+#include "mesh/ui/store_recent.h"
+
 #include "inkwell/base/file.h"
 #include "inkwell/base/log.h"
 
 #include <errno.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -81,56 +84,20 @@ static void strip_newline(char *line) {
     }
 }
 
-bool mesh_ui_preferences_knows_radio(const struct mesh_ui_preferences *prefs, uint32_t node_num) {
-    if (prefs == NULL || node_num == 0U) {
-        return false;
-    }
-    for (uint8_t i = 0; i < prefs->known_radio_count && i < MESH_UI_MAX_KNOWN_RADIOS; ++i) {
-        if (prefs->known_radios[i] == node_num) {
-            return true;
-        }
-    }
-    return false;
+/* The two lists as the record carries them - an array and a count byte each - seen through
+   store_recent's view. The read-only questions build one over a const record; nothing on those
+   paths writes through it. */
+static void radios_list(const struct mesh_ui_preferences *prefs, struct mesh_ui_recent *list) {
+    (void)mesh_ui_recent_init(list, (void *)prefs->known_radios, sizeof prefs->known_radios[0],
+                              MESH_UI_MAX_KNOWN_RADIOS, prefs->known_radio_count, NULL, NULL);
 }
 
-bool mesh_ui_preferences_note_radio(struct mesh_ui_preferences *prefs, uint32_t node_num) {
-    if (prefs == NULL || node_num == 0U) {
-        return false;
-    }
-    if (prefs->known_radio_count > MESH_UI_MAX_KNOWN_RADIOS) {
-        prefs->known_radio_count = MESH_UI_MAX_KNOWN_RADIOS;
-    }
-    if (prefs->known_radio_count > 0U && prefs->known_radios[0] == node_num) {
-        return false; /* already the most recent; the common case, every publish */
-    }
-
-    /* Slide everything ahead of the existing entry down by one and put this radio in front.
-       A radio we have not seen before pushes the oldest one off the end. */
-    uint8_t existing = prefs->known_radio_count;
-    for (uint8_t i = 0; i < prefs->known_radio_count; ++i) {
-        if (prefs->known_radios[i] == node_num) {
-            existing = i;
-            break;
-        }
-    }
-    uint8_t shift_from = existing;
-    if (existing == prefs->known_radio_count) {
-        if (prefs->known_radio_count < MESH_UI_MAX_KNOWN_RADIOS) {
-            prefs->known_radio_count++;
-        }
-        shift_from = (uint8_t)(prefs->known_radio_count - 1U);
-    }
-    for (uint8_t i = shift_from; i > 0U; --i) {
-        prefs->known_radios[i] = prefs->known_radios[i - 1U];
-    }
-    prefs->known_radios[0] = node_num;
-    return true;
-}
-
-/* One identity test for a device, shared by the three list operations below. A BLE address is
-   case-insensitive (BlueZ writes them upper-case, a config file may not); a tty path is not. */
-static bool device_matches(const struct mesh_ui_known_device *entry, const char *identifier,
-                           uint8_t kind) {
+/* One identity test for a device, shared by every list operation. The kind is part of it - the
+   same string over the other link is another device, which is what stops a tty path being handed
+   to BLE. A BLE address is case-insensitive (BlueZ writes them upper-case, a config file may
+   not); a tty path is not. */
+static bool device_same(const struct mesh_ui_known_device *entry, const char *identifier,
+                        uint8_t kind) {
     if (entry->kind != kind) {
         return false;
     }
@@ -138,20 +105,55 @@ static bool device_matches(const struct mesh_ui_known_device *entry, const char 
                                              : strcasecmp(entry->identifier, identifier) == 0;
 }
 
+static bool device_entry_same(const void *entry, const void *wanted, void *context) {
+    (void)context;
+    const struct mesh_ui_known_device *other = wanted;
+    return device_same(entry, other->identifier, other->kind);
+}
+
+static void devices_list(const struct mesh_ui_preferences *prefs, struct mesh_ui_recent *list) {
+    (void)mesh_ui_recent_init(list, (void *)prefs->known_devices, sizeof prefs->known_devices[0],
+                              MESH_UI_MAX_KNOWN_DEVICES, prefs->known_device_count,
+                              device_entry_same, NULL);
+}
+
+static struct mesh_ui_known_device device_entry(const char *identifier, uint8_t kind) {
+    struct mesh_ui_known_device entry;
+    memset(&entry, 0, sizeof entry);
+    snprintf(entry.identifier, sizeof entry.identifier, "%s", identifier);
+    entry.kind = kind;
+    return entry;
+}
+
+bool mesh_ui_preferences_knows_radio(const struct mesh_ui_preferences *prefs, uint32_t node_num) {
+    if (prefs == NULL || node_num == 0U) {
+        return false;
+    }
+    struct mesh_ui_recent radios;
+    radios_list(prefs, &radios);
+    return mesh_ui_recent_rank(&radios, &node_num) >= 0;
+}
+
+bool mesh_ui_preferences_note_radio(struct mesh_ui_preferences *prefs, uint32_t node_num) {
+    if (prefs == NULL || node_num == 0U) {
+        return false;
+    }
+    struct mesh_ui_recent radios;
+    radios_list(prefs, &radios);
+    const bool changed = mesh_ui_recent_note(&radios, &node_num);
+    prefs->known_radio_count = (uint8_t)radios.count;
+    return changed;
+}
+
 int mesh_ui_preferences_device_rank(const struct mesh_ui_preferences *prefs, const char *identifier,
                                     uint8_t kind) {
     if (prefs == NULL || identifier == NULL || identifier[0] == '\0') {
         return -1;
     }
-    const uint8_t count = prefs->known_device_count < MESH_UI_MAX_KNOWN_DEVICES
-                              ? prefs->known_device_count
-                              : MESH_UI_MAX_KNOWN_DEVICES;
-    for (uint8_t i = 0; i < count; ++i) {
-        if (device_matches(&prefs->known_devices[i], identifier, kind)) {
-            return (int)i;
-        }
-    }
-    return -1;
+    struct mesh_ui_recent devices;
+    devices_list(prefs, &devices);
+    const struct mesh_ui_known_device wanted = device_entry(identifier, kind);
+    return mesh_ui_recent_rank(&devices, &wanted);
 }
 
 bool mesh_ui_preferences_note_device(struct mesh_ui_preferences *prefs, const char *identifier,
@@ -159,52 +161,27 @@ bool mesh_ui_preferences_note_device(struct mesh_ui_preferences *prefs, const ch
     if (prefs == NULL || identifier == NULL || identifier[0] == '\0') {
         return false;
     }
-    if (prefs->known_device_count > MESH_UI_MAX_KNOWN_DEVICES) {
-        prefs->known_device_count = MESH_UI_MAX_KNOWN_DEVICES;
-    }
 
-    /* By value before anything moves, for the same reason forget_device does it: the identifier
-       may well point into the list this is about to shift, or at preferred_device itself, which
-       would make the write below an overlapping copy. */
-    char wanted[sizeof prefs->known_devices[0].identifier];
-    snprintf(wanted, sizeof wanted, "%s", identifier);
-    identifier = wanted;
+    /* By value before anything moves: the identifier may well point into the list this is about
+       to shift, or at preferred_device itself, which would make the write below an overlapping
+       copy. */
+    const struct mesh_ui_known_device wanted = device_entry(identifier, kind);
 
     bool changed = false;
-    if (strcmp(prefs->preferred_device, identifier) != 0 || prefs->preferred_device_kind != kind) {
-        snprintf(prefs->preferred_device, sizeof prefs->preferred_device, "%s", identifier);
+    if (strcmp(prefs->preferred_device, wanted.identifier) != 0 ||
+        prefs->preferred_device_kind != kind) {
+        snprintf(prefs->preferred_device, sizeof prefs->preferred_device, "%s", wanted.identifier);
         prefs->preferred_device_kind = kind;
         changed = true;
     }
 
-    if (prefs->known_device_count > 0U &&
-        device_matches(&prefs->known_devices[0], identifier, kind)) {
-        return changed; /* already the most recent; the common case, every publish */
+    struct mesh_ui_recent devices;
+    devices_list(prefs, &devices);
+    if (mesh_ui_recent_note(&devices, &wanted)) {
+        changed = true;
     }
-
-    /* Slide everything ahead of the existing entry down by one and put this device in front.
-       A radio we have not connected to before pushes the oldest one off the end. */
-    uint8_t existing = prefs->known_device_count;
-    for (uint8_t i = 0; i < prefs->known_device_count; ++i) {
-        if (device_matches(&prefs->known_devices[i], identifier, kind)) {
-            existing = i;
-            break;
-        }
-    }
-    uint8_t shift_from = existing;
-    if (existing == prefs->known_device_count) {
-        if (prefs->known_device_count < MESH_UI_MAX_KNOWN_DEVICES) {
-            prefs->known_device_count++;
-        }
-        shift_from = (uint8_t)(prefs->known_device_count - 1U);
-    }
-    for (uint8_t i = shift_from; i > 0U; --i) {
-        prefs->known_devices[i] = prefs->known_devices[i - 1U];
-    }
-    snprintf(prefs->known_devices[0].identifier, sizeof prefs->known_devices[0].identifier, "%s",
-             identifier);
-    prefs->known_devices[0].kind = kind;
-    return true;
+    prefs->known_device_count = (uint8_t)devices.count;
+    return changed;
 }
 
 bool mesh_ui_preferences_forget_device(struct mesh_ui_preferences *prefs, const char *identifier,
@@ -212,34 +189,23 @@ bool mesh_ui_preferences_forget_device(struct mesh_ui_preferences *prefs, const 
     if (prefs == NULL || identifier == NULL || identifier[0] == '\0') {
         return false;
     }
-    const int rank = mesh_ui_preferences_device_rank(prefs, identifier, kind);
-    if (rank < 0) {
-        return false;
-    }
 
     /* By value before anything moves, as note_device does: the natural way to call this is with
-       a pointer to the entry being dropped, and the shift below would leave that pointing at the
-       radio that slid into its place - so the head test at the end would ask about the wrong
-       one. */
-    char wanted[sizeof prefs->known_devices[0].identifier];
-    snprintf(wanted, sizeof wanted, "%s", identifier);
-    identifier = wanted;
+       a pointer to the entry being dropped, and the shift would leave that pointing at the radio
+       that slid into its place - so the head test at the end would ask about the wrong one. */
+    const struct mesh_ui_known_device wanted = device_entry(identifier, kind);
 
-    for (uint8_t i = (uint8_t)rank; i + 1U < prefs->known_device_count; ++i) {
-        prefs->known_devices[i] = prefs->known_devices[i + 1U];
+    struct mesh_ui_recent devices;
+    devices_list(prefs, &devices);
+    if (!mesh_ui_recent_forget(&devices, &wanted)) {
+        return false;
     }
-    if (prefs->known_device_count > 0U) {
-        prefs->known_device_count--;
-    }
-    memset(&prefs->known_devices[prefs->known_device_count], 0,
-           sizeof prefs->known_devices[prefs->known_device_count]);
+    prefs->known_device_count = (uint8_t)devices.count;
 
     /* A radio whose pairing is gone is not the one to reconnect to. The next device in the
        list takes the head, which is the same answer auto-connect would reach anyway. */
-    if (prefs->preferred_device[0] != '\0' && prefs->preferred_device_kind == kind &&
-        (kind == MESH_UI_PREFS_KIND_SERIAL
-             ? strcmp(prefs->preferred_device, identifier) == 0
-             : strcasecmp(prefs->preferred_device, identifier) == 0)) {
+    if (prefs->preferred_device[0] != '\0' &&
+        device_same(&wanted, prefs->preferred_device, prefs->preferred_device_kind)) {
         if (prefs->known_device_count > 0U) {
             snprintf(prefs->preferred_device, sizeof prefs->preferred_device, "%s",
                      prefs->known_devices[0].identifier);
@@ -250,6 +216,59 @@ bool mesh_ui_preferences_forget_device(struct mesh_ui_preferences *prefs, const 
         }
     }
     return true;
+}
+
+/* "kind:identifier". The kind comes first because a BLE address is full of colons and a tty path
+   is full of slashes; only the first colon on an entry is the separator. */
+static bool parse_device(const char *text, size_t len, void *entry, void *context) {
+    (void)context;
+    const char *separator = memchr(text, ':', len);
+    if (separator == NULL || separator + 1 == text + len) {
+        return false;
+    }
+    struct mesh_ui_known_device *device = entry;
+    const size_t kind_len = (size_t)(separator - text);
+    device->kind =
+        (uint8_t)(kind_len == 6U && memcmp(text, "serial", 6U) == 0 ? MESH_UI_PREFS_KIND_SERIAL
+                                                                    : 0U);
+    const size_t id_len = len - kind_len - 1U;
+    const size_t copy_len =
+        id_len < sizeof device->identifier - 1U ? id_len : sizeof device->identifier - 1U;
+    memcpy(device->identifier, separator + 1, copy_len);
+    device->identifier[copy_len] = '\0';
+    return true;
+}
+
+static int write_device(FILE *out, const void *entry, void *context) {
+    (void)context;
+    const struct mesh_ui_known_device *device = entry;
+    return fprintf(out, "%s:%s", device->kind == MESH_UI_PREFS_KIND_SERIAL ? "serial" : "ble",
+                   device->identifier) < 0
+               ? -EIO
+               : 0;
+}
+
+/* A node number in decimal. Node 0 is not a node, and is dropped like anything unreadable. */
+static bool parse_radio(const char *text, size_t len, void *entry, void *context) {
+    (void)context;
+    char digits[16];
+    if (len == 0U || len >= sizeof digits || text[0] < '0' || text[0] > '9') {
+        return false;
+    }
+    memcpy(digits, text, len);
+    digits[len] = '\0';
+    char *end = NULL;
+    const unsigned long parsed = strtoul(digits, &end, 10);
+    if (end != digits + len || parsed == 0UL || parsed > UINT32_MAX) {
+        return false;
+    }
+    *(uint32_t *)entry = (uint32_t)parsed;
+    return true;
+}
+
+static int write_radio(FILE *out, const void *entry, void *context) {
+    (void)context;
+    return fprintf(out, "%" PRIu32, *(const uint32_t *)entry) < 0 ? -EIO : 0;
 }
 
 int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path) {
@@ -313,52 +332,19 @@ int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path
         } else if (strncmp(line, "update_allow_dev", key_len) == 0) {
             prefs->update_allow_dev = strcmp(value, "1") == 0;
         } else if (strncmp(line, "known_devices", key_len) == 0) {
-            /* "kind:identifier" entries, comma separated, most recent first - the order is the
-               value here, so it is read back in file order rather than through note_device().
-               The kind comes first because a BLE address is full of colons and a tty path is
-               full of slashes; only the first colon on an entry is the separator. */
-            prefs->known_device_count = 0U;
-            const char *cursor = value;
-            while (*cursor != '\0' && prefs->known_device_count < MESH_UI_MAX_KNOWN_DEVICES) {
-                const char *comma = strchr(cursor, ',');
-                const size_t entry_len = comma != NULL ? (size_t)(comma - cursor) : strlen(cursor);
-                char entry[80];
-                const size_t copy_len =
-                    entry_len < sizeof entry - 1U ? entry_len : sizeof entry - 1U;
-                memcpy(entry, cursor, copy_len);
-                entry[copy_len] = '\0';
-
-                char *separator = strchr(entry, ':');
-                if (separator != NULL && separator[1] != '\0') {
-                    *separator = '\0';
-                    const uint8_t kind =
-                        (uint8_t)(strcmp(entry, "serial") == 0 ? MESH_UI_PREFS_KIND_SERIAL : 0U);
-                    const char *identifier = separator + 1;
-                    if (mesh_ui_preferences_device_rank(prefs, identifier, kind) < 0) {
-                        struct mesh_ui_known_device *slot =
-                            &prefs->known_devices[prefs->known_device_count++];
-                        snprintf(slot->identifier, sizeof slot->identifier, "%s", identifier);
-                        slot->kind = kind;
-                    }
-                }
-                cursor = comma != NULL ? comma + 1 : cursor + entry_len;
-            }
+            /* Most recent first - the order is the value here, so it is read back in file order
+               rather than through note_device(). */
+            struct mesh_ui_recent devices;
+            devices_list(prefs, &devices);
+            prefs->known_device_count =
+                (uint8_t)mesh_ui_recent_parse(&devices, value, ',', parse_device, NULL);
         } else if (strncmp(line, "known_radios", key_len) == 0) {
-            /* One comma-separated line, most recent first - the order is the value here, so
-               it is read back in file order rather than through note_radio(). */
-            prefs->known_radio_count = 0U;
-            const char *cursor = value;
-            while (*cursor != '\0' && prefs->known_radio_count < MESH_UI_MAX_KNOWN_RADIOS) {
-                char *end = NULL;
-                const unsigned long parsed = strtoul(cursor, &end, 10);
-                if (end == cursor) {
-                    break;
-                }
-                if (parsed != 0UL && !mesh_ui_preferences_knows_radio(prefs, (uint32_t)parsed)) {
-                    prefs->known_radios[prefs->known_radio_count++] = (uint32_t)parsed;
-                }
-                cursor = (*end == ',') ? end + 1 : end;
-            }
+            /* One comma-separated line, most recent first, read back in file order for the same
+               reason. */
+            struct mesh_ui_recent radios;
+            radios_list(prefs, &radios);
+            prefs->known_radio_count =
+                (uint8_t)mesh_ui_recent_parse(&radios, value, ',', parse_radio, NULL);
         }
     }
 
@@ -448,17 +434,15 @@ int mesh_ui_preferences_save(const struct mesh_ui_preferences *prefs, const char
     fprintf(file, "firmware_channel=%s\n", prefs->firmware_channel == 1U ? "alpha" : "stable");
     fprintf(file, "theme=%s\n", prefs->theme);
     fprintf(file, "language=%s\n", prefs->language);
+    struct mesh_ui_recent devices;
+    devices_list(prefs, &devices);
     fprintf(file, "known_devices=");
-    for (uint8_t i = 0; i < prefs->known_device_count && i < MESH_UI_MAX_KNOWN_DEVICES; ++i) {
-        fprintf(file, "%s%s:%s", i > 0U ? "," : "",
-                prefs->known_devices[i].kind == MESH_UI_PREFS_KIND_SERIAL ? "serial" : "ble",
-                prefs->known_devices[i].identifier);
-    }
+    (void)mesh_ui_recent_write(&devices, file, ',', write_device, NULL);
     fputc('\n', file);
+    struct mesh_ui_recent radios;
+    radios_list(prefs, &radios);
     fprintf(file, "known_radios=");
-    for (uint8_t i = 0; i < prefs->known_radio_count && i < MESH_UI_MAX_KNOWN_RADIOS; ++i) {
-        fprintf(file, "%s%u", i > 0U ? "," : "", prefs->known_radios[i]);
-    }
+    (void)mesh_ui_recent_write(&radios, file, ',', write_radio, NULL);
     fputc('\n', file);
 
     fclose(file);

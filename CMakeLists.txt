@@ -167,6 +167,7 @@ add_library(meshclient_core
     src/ui/backends/fb_screens_status.c
     src/ui/backends/fb_screens_waypoints.c
     src/ui/store/preferences.c
+    src/ui/store/store_recent.c
     src/ui/tables/trust.c
 )
 
