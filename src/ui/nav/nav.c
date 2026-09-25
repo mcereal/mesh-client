@@ -2894,41 +2894,42 @@ bool mesh_ui_nav_verify_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
 }
 
 /*
- * The snackbar is mesh/ui/toast.h's. What is this client's is who calls which: a press answers
- * through set() or raise() and replaces what is showing - "Connecting to NodeSeven" giving way to
- * "NodeSeven needs pairing" is one sentence finishing - while an arriving message, a link dropping
- * or a request refused posts, and waits its turn. A press raises undated because the app ticks
- * the store with CLOCK_MONOTONIC and the capture harness with a synthetic clock that moves only on
- * `hold`, and mesh_ui_store_handle_key() dates the notice from whichever drove the last tick.
+ * The snackbar is inkstand's nav/toast.h's. What is this client's is who calls which: a press
+ * answers through set() or raise() and replaces what is showing - "Connecting to NodeSeven" giving
+ * way to "NodeSeven needs pairing" is one sentence finishing - while an arriving message, a link
+ * dropping or a request refused posts, and waits its turn. A press raises undated because the app
+ * ticks the store with CLOCK_MONOTONIC and the capture harness with a synthetic clock that moves
+ * only on `hold`, and mesh_ui_store_handle_key() dates the notice from whichever drove the last
+ * tick.
  */
 void mesh_ui_nav_set_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text) {
     if (nav != NULL) {
-        mesh_ui_toast_set(&nav->toast, now_ms, text);
+        inkstand_toast_set(&nav->toast, now_ms, text);
     }
 }
 
 void mesh_ui_nav_post_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text) {
     if (nav != NULL) {
-        mesh_ui_toast_post(&nav->toast, now_ms, text);
+        inkstand_toast_post(&nav->toast, now_ms, text);
     }
 }
 
 void mesh_ui_nav_raise_toast(struct mesh_ui_nav *nav, const char *text) {
     if (nav != NULL) {
-        mesh_ui_toast_raise(&nav->toast, text);
+        inkstand_toast_raise(&nav->toast, text);
     }
 }
 
 bool mesh_ui_nav_dismiss_toast(struct mesh_ui_nav *nav) {
-    return nav != NULL && mesh_ui_toast_dismiss(&nav->toast);
+    return nav != NULL && inkstand_toast_dismiss(&nav->toast);
 }
 
 void mesh_ui_nav_date_toast(struct mesh_ui_nav *nav, uint64_t now_ms) {
     if (nav != NULL) {
-        mesh_ui_toast_date(&nav->toast, now_ms);
+        inkstand_toast_date(&nav->toast, now_ms);
     }
 }
 
 bool mesh_ui_nav_tick(struct mesh_ui_nav *nav, uint64_t now_ms) {
-    return nav != NULL && mesh_ui_toast_tick(&nav->toast, now_ms);
+    return nav != NULL && inkstand_toast_tick(&nav->toast, now_ms);
 }

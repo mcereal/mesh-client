@@ -133,7 +133,6 @@ add_library(meshclient_core
     src/ui/nav/controller.c
     src/ui/views/map.c
     src/ui/nav/nav.c
-    src/ui/nav/toast.c
     src/ui/nav/nav_canned.c
     src/ui/nav/nav_click.c
     src/ui/nav/nav_conversations.c

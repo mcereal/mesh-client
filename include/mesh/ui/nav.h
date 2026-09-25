@@ -3,8 +3,8 @@
 #include "mesh/map/viewport.h"
 /* For struct mesh_ui_message_view, which the transcript's filter takes by value: the nav has
    to see its definition, and the record header names nothing here, so this is not a cycle. */
+#include "inkstand/nav/toast.h"
 #include "mesh/ui/store_message.h"
-#include "mesh/ui/toast.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -12,6 +12,7 @@
 
 #include "inkcell/ui/key.h"
 #include "inkcell/ui/keyboard.h"
+#include "inkstand/nav/toast.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -96,10 +97,10 @@ enum mesh_ui_radio_page {
 };
 /* nav.settings_channel when the Channels section shows its list rather than one channel. */
 #define MESH_UI_SETTINGS_NO_CHANNEL 0xFFU
-/* The snackbar's limits are mesh/ui/toast.h's; these names are what this client's callers size a
-   notice buffer by. */
-#define MESH_UI_NAV_TOAST_MAX MESH_UI_TOAST_TEXT_MAX
-#define MESH_UI_NAV_TOAST_QUEUE MESH_UI_TOAST_QUEUE
+/* The snackbar's limits are inkstand's nav/toast.h's; these names are what this client's callers
+   size a notice buffer by. */
+#define MESH_UI_NAV_TOAST_MAX INKSTAND_TOAST_TEXT_MAX
+#define MESH_UI_NAV_TOAST_QUEUE INKSTAND_TOAST_QUEUE
 #define MESH_UI_CANNED_MAX 16U
 #define MESH_UI_CANNED_TEXT_MAX 64U
 /* Upstream Data.payload caps at 233 bytes; the draft and action text hold that plus a NUL. */
@@ -235,8 +236,8 @@ struct mesh_ui_nav {
     bool inbox;
     char target_name[MESH_UI_NAV_TARGET_NAME_MAX];
     /* The snackbar: the one-line transient notice ("Sent to ABCD", "Connecting..."), how long it
-       stands, and what is waiting behind it. See mesh/ui/toast.h. */
-    struct mesh_ui_toast toast;
+       stands, and what is waiting behind it. See inkstand's nav/toast.h. */
+    struct inkstand_toast toast;
     /* Filtered message count at the last clamp, so a cursor parked on the newest message
        follows new traffic instead of being left behind. */
     uint32_t messages_seen;
