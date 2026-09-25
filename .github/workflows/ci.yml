@@ -379,6 +379,8 @@ jobs:
   linux-cli:
     name: Linux CLI (static x86-64, musl)
     runs-on: ubuntu-24.04
+    # A few minutes when it works. Without a cap, a hang runs to GitHub's six-hour default.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v7

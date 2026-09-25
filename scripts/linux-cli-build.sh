@@ -70,7 +70,11 @@ if [[ ! -f "${MUSL_DBUS_PREFIX}/lib/libdbus-1.a" ]]; then
     mkdir -p "${SRC_DIR}"
     (
         cd "${SRC_DIR}"
-        wget -q "https://dbus.freedesktop.org/releases/dbus/dbus-${DBUS_VERSION}.tar.xz"
+        # Bounded: wget's defaults are a 15-minute read timeout and 20 tries, and this step's
+        # output goes to a log printed only on failure, so a stalled server read as a CI job
+        # hung with no output until the runner's six-hour limit.
+        wget -q --timeout=30 --tries=3 --waitretry=5 \
+            "https://dbus.freedesktop.org/releases/dbus/dbus-${DBUS_VERSION}.tar.xz"
         tar -xf "dbus-${DBUS_VERSION}.tar.xz"
         cd "dbus-${DBUS_VERSION}"
 
