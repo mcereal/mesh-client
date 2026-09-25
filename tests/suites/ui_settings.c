@@ -5027,5 +5027,17 @@ MESH_TEST_CASE(node_detail_speaks_the_readers_terms, unit) {
                       "an unnamed secondary slot is named by its number");
     MESH_TEST_FAIL_IF(strcmp(node_detail_value(items, count, "Latitude"), "47.62050") != 0,
                       "with no stated rounding, the coordinate keeps the wire's precision");
+
+    /* A rounding the radio's own setting does not offer is still a rounding. */
+    node.position.precision_bits = 5U; /* hundreds of kilometres */
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    MESH_TEST_FAIL_IF(strcmp(node_detail_value(items, count, "Latitude"), "48") != 0,
+                      "a fix rounded coarser than the settings table still drops its decimals");
+    node.position.precision_bits = 21U; /* ~11 m */
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    MESH_TEST_FAIL_IF(strcmp(node_detail_value(items, count, "Latitude"), "47.6205") != 0,
+                      "a fix rounded finer than the settings table keeps four decimals");
     record_success(test_name);
 }

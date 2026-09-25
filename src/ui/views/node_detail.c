@@ -835,19 +835,24 @@ static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_su
  *
  * Fixed-point 1e-7 degrees on the wire, and five decimals is about a metre, which is finer than
  * anything a LoRa node reports - so five is the most this ever says, and what it says when the
- * sender stated no rounding. A node that rounded its fix to ~360 m printed "47.62050" over a
- * Precision row saying "~360 m", which is the coordinate claiming a metre in the one place the
- * reader cannot see the row that takes it back. A degree of latitude is about 111 km and each
- * decimal is a tenth of the one before, so the answer is the first decimal whose step is no
- * coarser than the footprint: one more digit than the rounding strictly supports rather than
- * one fewer, because a digit too many is noise and a digit too few moves the point.
+ * sender stated no rounding (0) or none at all (32). A node that rounded its fix to ~360 m printed
+ * "47.62050" over a Precision row saying "~360 m", which is the coordinate claiming a metre in
+ * the one place the reader cannot see the row that takes it back.
+ *
+ * The footprint is worked out from the bit count rather than read from the settings table,
+ * because the table is the ten values the radio's own setting offers and a sender may use any:
+ * keeping `bits` of the 32-bit coordinate leaves steps of 2^(32 - bits) units of 1e-7 degrees,
+ * and half a step either side of a degree of latitude's ~111 km is the "~360 m" the table says
+ * for 16. A decimal is then printed while its step is no coarser than that footprint: one digit
+ * more than the rounding strictly supports rather than one fewer, because a digit too many is
+ * noise and a digit too few moves the point.
  */
 static int node_degree_decimals(uint8_t precision_bits) {
-    const uint32_t metres = mesh_ui_settings_precision_metres(precision_bits);
-    if (metres == 0U) {
-        return 5; /* not rounded, exact, or not said: the wire's own figure */
+    if (precision_bits == 0U || precision_bits >= 32U) {
+        return 5; /* not said, or not rounded: the wire's own figure */
     }
-    uint32_t step = 111000U;
+    const uint64_t metres = (111000ULL << (31U - precision_bits)) / 10000000ULL;
+    uint64_t step = 111000U;
     int decimals = 0;
     while (decimals < 5 && step > metres) {
         step /= 10U;
