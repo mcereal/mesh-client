@@ -2,7 +2,7 @@
 
 #include "mesh/ui/preferences.h"
 
-#include "mesh/ui/store_recent.h"
+#include "inkstand/persist/recent.h"
 
 #include "inkwell/base/file.h"
 #include "inkwell/base/log.h"
@@ -85,11 +85,11 @@ static void strip_newline(char *line) {
 }
 
 /* The two lists as the record carries them - an array and a count byte each - seen through
-   store_recent's view. The read-only questions build one over a const record; nothing on those
-   paths writes through it. */
-static void radios_list(const struct mesh_ui_preferences *prefs, struct mesh_ui_recent *list) {
-    (void)mesh_ui_recent_init(list, (void *)prefs->known_radios, sizeof prefs->known_radios[0],
-                              MESH_UI_MAX_KNOWN_RADIOS, prefs->known_radio_count, NULL, NULL);
+   inkstand's recently-used list. The read-only questions build one over a const record; nothing
+   on those paths writes through it. */
+static void radios_list(const struct mesh_ui_preferences *prefs, struct inkstand_recent *list) {
+    (void)inkstand_recent_init(list, (void *)prefs->known_radios, sizeof prefs->known_radios[0],
+                               MESH_UI_MAX_KNOWN_RADIOS, prefs->known_radio_count, NULL, NULL);
 }
 
 /* One identity test for a device, shared by every list operation. The kind is part of it - the
@@ -111,10 +111,10 @@ static bool device_entry_same(const void *entry, const void *wanted, void *conte
     return device_same(entry, other->identifier, other->kind);
 }
 
-static void devices_list(const struct mesh_ui_preferences *prefs, struct mesh_ui_recent *list) {
-    (void)mesh_ui_recent_init(list, (void *)prefs->known_devices, sizeof prefs->known_devices[0],
-                              MESH_UI_MAX_KNOWN_DEVICES, prefs->known_device_count,
-                              device_entry_same, NULL);
+static void devices_list(const struct mesh_ui_preferences *prefs, struct inkstand_recent *list) {
+    (void)inkstand_recent_init(list, (void *)prefs->known_devices, sizeof prefs->known_devices[0],
+                               MESH_UI_MAX_KNOWN_DEVICES, prefs->known_device_count,
+                               device_entry_same, NULL);
 }
 
 static struct mesh_ui_known_device device_entry(const char *identifier, uint8_t kind) {
@@ -129,18 +129,18 @@ bool mesh_ui_preferences_knows_radio(const struct mesh_ui_preferences *prefs, ui
     if (prefs == NULL || node_num == 0U) {
         return false;
     }
-    struct mesh_ui_recent radios;
+    struct inkstand_recent radios;
     radios_list(prefs, &radios);
-    return mesh_ui_recent_rank(&radios, &node_num) >= 0;
+    return inkstand_recent_rank(&radios, &node_num) >= 0;
 }
 
 bool mesh_ui_preferences_note_radio(struct mesh_ui_preferences *prefs, uint32_t node_num) {
     if (prefs == NULL || node_num == 0U) {
         return false;
     }
-    struct mesh_ui_recent radios;
+    struct inkstand_recent radios;
     radios_list(prefs, &radios);
-    const bool changed = mesh_ui_recent_note(&radios, &node_num);
+    const bool changed = inkstand_recent_note(&radios, &node_num);
     prefs->known_radio_count = (uint8_t)radios.count;
     return changed;
 }
@@ -150,10 +150,10 @@ int mesh_ui_preferences_device_rank(const struct mesh_ui_preferences *prefs, con
     if (prefs == NULL || identifier == NULL || identifier[0] == '\0') {
         return -1;
     }
-    struct mesh_ui_recent devices;
+    struct inkstand_recent devices;
     devices_list(prefs, &devices);
     const struct mesh_ui_known_device wanted = device_entry(identifier, kind);
-    return mesh_ui_recent_rank(&devices, &wanted);
+    return inkstand_recent_rank(&devices, &wanted);
 }
 
 bool mesh_ui_preferences_note_device(struct mesh_ui_preferences *prefs, const char *identifier,
@@ -175,9 +175,9 @@ bool mesh_ui_preferences_note_device(struct mesh_ui_preferences *prefs, const ch
         changed = true;
     }
 
-    struct mesh_ui_recent devices;
+    struct inkstand_recent devices;
     devices_list(prefs, &devices);
-    if (mesh_ui_recent_note(&devices, &wanted)) {
+    if (inkstand_recent_note(&devices, &wanted)) {
         changed = true;
     }
     prefs->known_device_count = (uint8_t)devices.count;
@@ -195,9 +195,9 @@ bool mesh_ui_preferences_forget_device(struct mesh_ui_preferences *prefs, const 
        that slid into its place - so the head test at the end would ask about the wrong one. */
     const struct mesh_ui_known_device wanted = device_entry(identifier, kind);
 
-    struct mesh_ui_recent devices;
+    struct inkstand_recent devices;
     devices_list(prefs, &devices);
-    if (!mesh_ui_recent_forget(&devices, &wanted)) {
+    if (!inkstand_recent_forget(&devices, &wanted)) {
         return false;
     }
     prefs->known_device_count = (uint8_t)devices.count;
@@ -334,17 +334,17 @@ int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path
         } else if (strncmp(line, "known_devices", key_len) == 0) {
             /* Most recent first - the order is the value here, so it is read back in file order
                rather than through note_device(). */
-            struct mesh_ui_recent devices;
+            struct inkstand_recent devices;
             devices_list(prefs, &devices);
             prefs->known_device_count =
-                (uint8_t)mesh_ui_recent_parse(&devices, value, ',', parse_device, NULL);
+                (uint8_t)inkstand_recent_parse(&devices, value, ',', parse_device, NULL);
         } else if (strncmp(line, "known_radios", key_len) == 0) {
             /* One comma-separated line, most recent first, read back in file order for the same
                reason. */
-            struct mesh_ui_recent radios;
+            struct inkstand_recent radios;
             radios_list(prefs, &radios);
             prefs->known_radio_count =
-                (uint8_t)mesh_ui_recent_parse(&radios, value, ',', parse_radio, NULL);
+                (uint8_t)inkstand_recent_parse(&radios, value, ',', parse_radio, NULL);
         }
     }
 
@@ -434,15 +434,15 @@ int mesh_ui_preferences_save(const struct mesh_ui_preferences *prefs, const char
     fprintf(file, "firmware_channel=%s\n", prefs->firmware_channel == 1U ? "alpha" : "stable");
     fprintf(file, "theme=%s\n", prefs->theme);
     fprintf(file, "language=%s\n", prefs->language);
-    struct mesh_ui_recent devices;
+    struct inkstand_recent devices;
     devices_list(prefs, &devices);
     fprintf(file, "known_devices=");
-    (void)mesh_ui_recent_write(&devices, file, ',', write_device, NULL);
+    (void)inkstand_recent_write(&devices, file, ',', write_device, NULL);
     fputc('\n', file);
-    struct mesh_ui_recent radios;
+    struct inkstand_recent radios;
     radios_list(prefs, &radios);
     fprintf(file, "known_radios=");
-    (void)mesh_ui_recent_write(&radios, file, ',', write_radio, NULL);
+    (void)inkstand_recent_write(&radios, file, ',', write_radio, NULL);
     fputc('\n', file);
 
     fclose(file);
