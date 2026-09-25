@@ -276,7 +276,7 @@ MESH_STR_ENTRY(MESSAGES_ALL_TRAFFIC,      "All traffic")
    not track - and a later unnamed slot is shown by its number. */
 MESH_STR_ENTRY(CHANNEL_PRIMARY,           "#Primary")
 MESH_STR_ENTRY(CHANNEL_NUMBERED,          "#Ch%u")
-MESH_STR_ENTRY(MESSAGES_NO_MESSAGES_YET,  "no messages yet")
+MESH_STR_ENTRY(MESSAGES_NO_MESSAGES_YET,  "No messages yet")
 /* Shown over a conversation row that is one more X press from being deleted. */
 MESH_STR_ENTRY(MESSAGES_DELETE_ARMED,     "X again to delete")
 /* The unread badge, once the count stops being worth reading exactly. */
