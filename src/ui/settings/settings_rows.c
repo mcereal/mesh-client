@@ -232,7 +232,7 @@ static struct mesh_ui_settings_item *item_field(struct item_list *list,
                                                 enum mesh_ui_setting_field field, uint32_t number,
                                                 const char *text) {
     const struct field_spec *spec = field_spec(field);
-    struct mesh_ui_settings_item *item = item_add(list, spec->label, spec->kind);
+    struct mesh_ui_settings_item *item = item_add(list, spec->form.label, spec->form.kind);
     if (item == NULL) {
         return NULL;
     }
@@ -245,7 +245,7 @@ static struct mesh_ui_settings_item *item_field(struct item_list *list,
         text = edit->text;
     }
     item->number = number;
-    switch (spec->kind) {
+    switch (spec->form.kind) {
     /* A flag says "on" and "off" in the value column exactly as a toggle does. The two differ
        in the control drawn beside the words, which is the backend's choice to make. */
     case MESH_UI_SETTING_TOGGLE:
@@ -361,14 +361,14 @@ static void item_key_field(struct item_list *list, enum mesh_ui_setting_field fi
        offered channel is a ChannelSettings and its key is named in the same words. */
     const bool aes =
         (field == MESH_UI_FIELD_CHANNEL_KEY || field == MESH_UI_FIELD_BEACON_OFFER_KEY);
-    struct mesh_ui_settings_item *item = item_add(list, spec->label, spec->kind);
+    struct mesh_ui_settings_item *item = item_add(list, spec->form.label, spec->form.kind);
     if (item == NULL) {
         return;
     }
     item->field = field;
     /* A KEY row's set is the field table's and never moves; it is on the row for the same
        reason an enum's is, which is that Left and Right read the row rather than the table. */
-    item->choices = spec->choices;
+    item->choices = spec->form.choices;
     mesh_ui_settings_key_text(key, len, item->text, sizeof item->text);
     const struct mesh_ui_setting_edit *edit =
         mesh_ui_settings_find_edit(list->edits, list->edit_count, field);

@@ -14,8 +14,8 @@
  * mesh_ui_settings_field_label() and friends rather than reading the table.
  */
 
-#include "inkstand/form/scale.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/form_field.h"
 #include "mesh/ui/settings.h"
 
 #include <stdbool.h>
@@ -38,41 +38,20 @@ enum mesh_ui_setting_text_limit {
 };
 
 /*
- * What one editable field is: its label, how it is edited, and what values it will take.
+ * What one editable field is, in this client's table.
  *
- * `label` and `zero_label` are catalog ids rather than text, so the table describes what a row
- * *is* and src/i18n answers what it is called. INKCELL_STR_NONE in zero_label means the field has
- * no special name for 0 and the seconds formatter handles it.
+ * `form` is the part any form has - label, kind, section, limits, presets, note - and is
+ * inkstand's shape (mesh/ui/form_field.h), read through k_form's stride. What follows it is this
+ * client's alone. k_fields is initialised positionally, so the order here is part of every row:
+ * a column added anywhere but the end renumbers all of them, and the braces around `form` are
+ * what make a row that forgets one a type error.
  */
 struct field_spec {
-    inkcell_str_id label;
-    enum mesh_ui_setting_kind kind;
-    enum mesh_ui_settings_section section;
-    /*
-     * What values this field will take, which is a different number for each kind that has an
-     * opinion: TEXT the byte cap, ENUM how many values there are, FLAG *which bit* of its
-     * group's word the row is.
-     *
-     * The third reading is the one worth arguing for. A mask is not a limit in English - but it
-     * is the same thing to this table, which is "what this field's values are", and the
-     * alternative is an eleventh member that every one of the rows below would have to state
-     * for the sake of the ten that mean anything by it. See the note on `note` for why a member
-     * is not free here.
-     */
-    uint32_t limit;
-    const char *(*enum_name)(uint32_t value);
-    /*
-     * NUMBER: the values Left and Right step through, and whether they are a scale.
-     *
-     * Whether the presets *measure* or *name* is not in the numbers - {0, 1, 2, 3, 4, 5, 6, 7}
-     * is a hop limit in one row and a GPIO pin in another - so every field states it, through
-     * SCALE_PRESETS() or NAMED_PRESETS(), and only a scale is offered as a slider. Most scales
-     * open with a 0 the field reads as "whatever the firmware picks", and LoRa's transmit power
-     * reads it as "as much as this radio has"; SCALE_PRESETS_AFTER_ZERO() stands that word
-     * outside the scale. See inkstand's form/scale.h.
-     */
-    struct inkstand_form_presets presets;
-    inkcell_str_id zero_label; /* NUMBER: what 0 means (seconds formatting) */
+    struct mesh_ui_form_field form;
+    /* NUMBER: what 0 means, for the seconds formatter. INKCELL_STR_NONE means 0 has no special
+       name. A catalog id rather than text, so the table says what a row *is* and src/i18n
+       answers what it is called. */
+    inkcell_str_id zero_label;
     /*
      * NUMBER: overrides the seconds default. `imperial` is the radio's display units, decoded
      * by mesh_ui_units_imperial(), and every formatter takes it whether or not it has anything
@@ -81,26 +60,10 @@ struct field_spec {
      * would let the next one do the same.
      */
     void (*format)(uint32_t value, bool imperial, char *out, size_t out_len);
-    uint32_t choices; /* KEY: MESH_UI_PSK_CHOICE_BIT mask Left/Right walk */
-    /*
-     * What this setting does, in a sentence or two, for the help screen - and INKCELL_STR_NONE
-     * for a row whose label is already the whole explanation.
-     *
-     * Last in the struct rather than beside `label`, where it belongs by meaning, because
-     * k_fields is initialised *positionally*: a member added in the middle would renumber
-     * every one of the hundred and fifty rows below it, silently and in a way the compiler
-     * would only catch where the types happened to disagree.
-     *
-     * Every row states it, INKCELL_STR_NONE included, which is what makes that renumbering a
-     * diagnostic rather than a silence. Leaving it off and relying on the trailing member
-     * being zeroed says the same thing to the language and nothing at all to a reader - and
-     * it is a -Wmissing-field-initializers on each such row under clang, which is fifty-two
-     * warnings standing between a CI log and the one that would matter.
-     *
-     * See docs/help.md for what a note may say and how long it may be.
-     */
-    inkcell_str_id note;
 };
+
+/* The form k_fields is: every mesh_ui_settings_* field question is asked of it. */
+extern const struct mesh_ui_form mesh_ui_settings_form;
 
 /* The spec for `field`, never NULL - an unknown field yields the MESH_UI_FIELD_NONE row. */
 const struct field_spec *field_spec(enum mesh_ui_setting_field field);

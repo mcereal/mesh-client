@@ -14,6 +14,7 @@
 #include "inkcell/ui/theme.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/form_field.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store_handshake.h"
 #include "mesh/ui/store_settings.h"
@@ -170,76 +171,6 @@ uint32_t mesh_ui_settings_module_count(void);
 enum mesh_ui_settings_section mesh_ui_settings_module_at(uint32_t row);
 /* True for a section that lives under Modules rather than at the top level. */
 bool mesh_ui_settings_section_is_module(enum mesh_ui_settings_section section);
-
-enum mesh_ui_setting_kind {
-    MESH_UI_SETTING_INFO = 0, /* read-only fact */
-    MESH_UI_SETTING_TOGGLE,
-    /*
-     * A boolean that is one *bit* of a larger field, rather than a field of its own.
-     *
-     * Edited exactly as a toggle is - Left, Right and A flip it, and it carries 0 or 1 in
-     * `number` like any other - so the nav, the edit list and the save need no new case. What
-     * is different is the two ends: the row builder reads its bit out of the word its group
-     * names, and the write builder sets or clears that bit in the same word rather than
-     * assigning the whole of it.
-     *
-     * A kind of its own and not a flag on the spec, because the *drawing* differs and the
-     * drawing is what a kind is for. A switch is a boolean that acts: flick it and the thing
-     * it names is on. A flag is a boolean that is part of a set - one of the ten things a
-     * position packet may carry - and the set is only readable as a set. That is the checkbox,
-     * and inkcell/ui/widgets.h has said since the control was built that a square is "any of these"
-     * where a circle is "one of these".
-     *
-     * The CLI backend draws the same "on"/"off" it draws for a toggle, because the difference
-     * is a picture rather than a fact.
-     */
-    MESH_UI_SETTING_FLAG,
-    MESH_UI_SETTING_ENUM,
-    MESH_UI_SETTING_TEXT,
-    MESH_UI_SETTING_NUMBER,
-    MESH_UI_SETTING_KEY,
-    MESH_UI_SETTING_ACTION,
-    /*
-     * A verb that cannot be pressed right now, and why - "not connected", "not supported",
-     * "nothing to drop".
-     *
-     * Every one of these used to be MESH_UI_SETTING_INFO, which was right about the *nav* and
-     * wrong about the row: A does nothing on either, but an INFO row is a stated fact and this
-     * is an offer that is currently withdrawn. A section whose rows change shape when the link
-     * drops moves the cursor out from under the reader - which is the rule item_radio_action()
-     * was written for - and collapsing a verb to a fact changed its shape in every way but its
-     * row count. Drawn as the verb it is: the same symbol in the same column, dimmed, with the
-     * reason against the trailing edge instead of the chevron.
-     *
-     * Not pressable, and that is the whole reason it is a kind of its own rather than a flag on
-     * ACTION. The nav answers A by looking for MESH_UI_SETTING_ACTION, so a withdrawn verb is
-     * refused by construction; spelled as `action + disabled` it would be refused only by
-     * everywhere that remembered to ask.
-     *
-     * The CLI backend draws it exactly as INFO, because there the difference was never visible:
-     * a label, and the reason in the value column.
-     */
-    MESH_UI_SETTING_ACTION_OFF,
-    /* A group title inside a long section: dimmed, no value column, and A on it does nothing.
-       The same row mesh_ui_node_item has drawn since the node detail existed. A heading is
-       never added or removed by an edit - a row count that moves under the cursor mid-edit
-       moves the cursor, which is the rule the LoRa trio is always listed for. */
-    MESH_UI_SETTING_HEADING,
-    /*
-     * A read-only quantity whose *level* is the point: how far an update has downloaded, how
-     * much of something is used up. `number` is permille, or MESH_UI_METER_UNKNOWN when work is
-     * happening whose extent cannot be known.
-     *
-     * `value` is still filled in with the same fact in words, and that is deliberate rather than
-     * redundant: a backend that cannot draw a bar - the CLI one - shows the row as an ordinary
-     * fact and loses nothing. A kind is a description of the content, and it stays a description
-     * of the content even when only one backend can act on it.
-     */
-    MESH_UI_SETTING_METER,
-};
-
-/* MESH_UI_SETTING_METER: the `number` for a step that is running with no fraction to report. */
-#define MESH_UI_METER_UNKNOWN UINT32_MAX
 
 /* Editable settings. Each is one protobuf field; app.c turns an edit back into the protobuf
    (mesh_app_apply_setting_edit) and this module knows how to show and step it. */
