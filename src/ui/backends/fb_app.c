@@ -42,18 +42,26 @@ static void fb_app_render(struct inkcell_draw_state *state, const void *snapshot
     (void)inkcell_fb_state_set_theme_by_id(state, snapshot->settings.client.theme);
 
     /*
-     * And the text size, a whole glyph step either side of the theme's own. After the theme,
-     * because a theme switch brings that theme's scale with it. A scale somebody pinned -
-     * MESHCLIENT_FB_SCALE, or a capture's `scale` line - is kept, which is also what keeps
-     * every capture drawing at the size its scene asked for.
+     * And the text size, a whole glyph step either side of the size the frame would otherwise
+     * have. After the theme, because a theme switch brings that theme's scale with it.
+     * MESHCLIENT_FB_SCALE, or a capture's `scale` line, is kept as it stands - which is also
+     * what keeps every capture drawing at the size its scene asked for. A window sized for its
+     * display is pinned too, but by the backend, so the step is taken from what it chose.
      */
+    const int step = (int)snapshot->settings.client.text_size * INKCELL_SCALE(1);
     if (!state->scale_pinned) {
-        const int wanted = inkcell_theme_clamp_scale(
-            state->theme, (int)state->theme->metrics.scale +
-                              (int)snapshot->settings.client.text_size * INKCELL_SCALE(1));
+        app->text_base = (int)state->theme->metrics.scale;
+    } else if (snapshot->settings.client.text_size_from_env) {
+        app->text_base = 0;
+    } else if (app->text_base == 0 || state->scale != app->text_applied) {
+        app->text_base = state->scale;
+    }
+    if (app->text_base > 0) {
+        const int wanted = inkcell_theme_clamp_scale(state->theme, app->text_base + step);
         if (wanted != state->scale) {
             inkcell_fb_state_set_theme(state, state->theme, wanted);
         }
+        app->text_applied = state->scale;
     }
 
     /*
