@@ -178,9 +178,15 @@ static int dfu_pace_fired(int fd, uint32_t events, void *userdata) {
     return 0;
 }
 
+/*
+ * One shot, armed again by every packet that goes: the pace is measured from the send, not from
+ * a schedule. A periodic timer granted its credit on the schedule, and a packet held back past
+ * one by a write still in flight went out late - with the next credit already due, so the two
+ * went closer than the pace, which is the burst this exists to prevent.
+ */
 static void dfu_pace(struct mesh_ble_dfu *dfu, bool on) {
     if (dfu->pace_fd >= 0) {
-        (void)(on ? inkwell_timer_arm_every(dfu->pace_fd, dfu->pace_ms)
+        (void)(on ? inkwell_timer_arm_once(dfu->pace_fd, dfu->pace_ms)
                   : inkwell_timer_disarm(dfu->pace_fd));
     }
 }
@@ -248,6 +254,7 @@ static bool dfu_issue_next(struct mesh_ble_dfu *dfu) {
         const size_t left = dfu->image_len - dfu->sent;
         dfu_issue(dfu, dfu->packet_handle, dfu->image + dfu->sent,
                   left < dfu->packet ? left : dfu->packet, false);
+        dfu_pace(dfu, true);
         return true;
     }
     return false;
