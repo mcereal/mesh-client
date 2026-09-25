@@ -1493,6 +1493,19 @@ static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, enum inkcell_key ke
         }
         return mesh_ui_nav_send_canned(nav, action,
                                        nav->compose_cursor - MESH_UI_COMPOSE_FIRST_CANNED);
+    case INKCELL_KEY_X:
+        /* The draft, kept as a quick reply. Only where the bar offers it - on the draft row,
+           with a draft the list would take - and the draft stays, since keeping a line is not
+           the same as sending it. */
+        if (nav->compose_cursor != MESH_UI_COMPOSE_ROW_DRAFT ||
+            !mesh_ui_canned_accepts(nav->draft)) {
+            return false;
+        }
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_SAVE_QUICK_REPLY;
+            snprintf(action->text, sizeof action->text, "%s", nav->draft);
+        }
+        return true;
     case INKCELL_KEY_Y:
         /* Y opened this; a second press types, which is what the row it lands on offers. */
         nav->compose_cursor = MESH_UI_COMPOSE_ROW_DRAFT;

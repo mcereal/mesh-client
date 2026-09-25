@@ -2452,3 +2452,77 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * X on the compose sheet's draft row keeps the draft as a quick reply - and is offered only
+ * for a draft the list would take, so the bar never names a press that comes back refused.
+ */
+MESH_TEST_CASE(ui_nav_compose_x_keeps_the_draft_as_a_reply, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_command_set commands;
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.thread_open) {
+        failure = "expected a thread open";
+        goto cleanup;
+    }
+
+    /* A draft typed and backed out of: the sheet opens on its row. */
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "At the trailhead");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.compose_open || store.nav.compose_cursor != MESH_UI_COMPOSE_ROW_DRAFT) {
+        failure = "compose should open on the draft row";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_commands_for(&snapshot, &commands);
+    const struct mesh_ui_command *keep =
+        mesh_ui_commands_find(&commands, MESH_UI_COMMAND_SAVE_REPLY);
+    if (keep == NULL || keep->button != INKCELL_BUTTON_X) {
+        failure = "the draft row's bar should offer X to keep the draft";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_SAVE_QUICK_REPLY ||
+        strcmp(action.text, "At the trailhead") != 0 || !store.nav.compose_open ||
+        strcmp(store.nav.draft, "At the trailhead") != 0) {
+        failure = "X should ask to keep the draft, and leave both the draft and the sheet";
+        goto cleanup;
+    }
+
+    /* A line already on the list, and one too long for a slot, are not offered. */
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", mesh_ui_canned_text(0));
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_commands_for(&snapshot, &commands);
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (mesh_ui_commands_find(&commands, MESH_UI_COMMAND_SAVE_REPLY) != NULL ||
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "a draft already on the list should not be offered";
+        goto cleanup;
+    }
+    memset(store.nav.draft, 'a', MESH_UI_CANNED_TEXT_MAX);
+    store.nav.draft[MESH_UI_CANNED_TEXT_MAX] = '\0';
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_NONE) {
+        failure = "a draft too long for a slot should not be offered";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

@@ -231,6 +231,10 @@ keyboard uses the pad the way a console keyboard does — **A** types the key un
 the grid is showing: `abc`, `ABC`, symbols, then three pages of forty emoji. The bottom-left key
 of the grid steps the same ring, so everything is reachable without the shoulders.
 
+On the compose sheet, **X** on the draft row keeps the draft as a quick reply. It is offered for a
+draft of up to 63 bytes that is not already on the list, while the list has fewer than 16. The
+list is then written to `canned.txt`, built-in replies included, so it is the file from then on.
+
 **Nodes** is the contact list; A opens a node's detail, where rows appear only for what the node
 has actually reported. Above the nodes are the filter, the sort, the *Map* and the *Waypoints*
 row, which opens the shared places (and the row that marks a new one here); B goes back. **Radio** opens on the link, mesh and radio cards; the Link card's

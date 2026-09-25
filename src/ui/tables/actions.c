@@ -868,6 +868,12 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
          */
         if (nav->compose_cursor == MESH_UI_COMPOSE_ROW_DRAFT) {
             command_add(out, MESH_UI_COMMAND_TYPE, MESH_STR_ACTION_TYPE, INKCELL_BUTTON_A);
+            /* Offered only for a draft the list would take, so the key is never a press that
+               comes back refused - see mesh_ui_canned_accepts(). */
+            if (mesh_ui_canned_accepts(nav->draft)) {
+                command_add(out, MESH_UI_COMMAND_SAVE_REPLY, MESH_STR_ACTION_SAVE_REPLY,
+                            INKCELL_BUTTON_X);
+            }
         } else {
             command_add(out, MESH_UI_COMMAND_SEND, MESH_STR_ACTION_SEND, INKCELL_BUTTON_A);
         }
@@ -1057,6 +1063,7 @@ enum inkcell_icon mesh_ui_command_icon(enum mesh_ui_command_id id) {
     case MESH_UI_COMMAND_READINGS:
         return INKCELL_ICON_TELEMETRY;
     case MESH_UI_COMMAND_SAVE:
+    case MESH_UI_COMMAND_SAVE_REPLY:
     case MESH_UI_COMMAND_DONE:
         return INKCELL_ICON_CHECK;
     case MESH_UI_COMMAND_ADDRESS:

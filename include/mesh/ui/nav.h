@@ -845,6 +845,8 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_CYCLE_LANGUAGE,
     /* Steps the text size and remembers it, on the theme's terms. */
     MESH_UI_ACTION_CYCLE_TEXT_SIZE,
+    /* The compose sheet's draft, kept as a quick reply: `text`. The draft itself stays. */
+    MESH_UI_ACTION_SAVE_QUICK_REPLY,
     /* Throw away the crash report a previous run left on the card. Purely local, like the theme
        and the language beside it - there is no radio behind About - and it is what the crash
        banner resolves by: a notice with nowhere to go is the one thing the banner table refuses
@@ -1327,6 +1329,21 @@ size_t mesh_ui_canned_count(void);
 const char *mesh_ui_canned_text(size_t index);
 int mesh_ui_canned_load(const char *path);
 void mesh_ui_canned_reset(void);
+/*
+ * Whether `text` could join the list as it stands: short enough for a slot, not already on it,
+ * room left, and nothing mesh_ui_canned_load() would skip on the way back in - a control byte,
+ * or a leading '#' that would read as a comment. The compose sheet offers the save only when
+ * this holds, so the keycap is never a press that fails.
+ */
+bool mesh_ui_canned_accepts(const char *text);
+/*
+ * Adds `text` to the end of the list and writes the whole list to `path`, which is then the
+ * list: the file replaces the built-in replies, so while they are what is showing they are
+ * written out first rather than lost. Written beside and renamed over, so a card pulled halfway
+ * leaves the old file. Returns the new count, or -EINVAL when the text is not one
+ * mesh_ui_canned_accepts() takes, or the errno the write failed with.
+ */
+int mesh_ui_canned_add(const char *path, const char *text);
 
 #ifdef __cplusplus
 }

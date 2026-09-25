@@ -220,6 +220,8 @@ MESH_STR_ENTRY(ACTION_CHART,              "chart")
 MESH_STR_ENTRY(ACTION_GROUPS,             "groups")
 /* Write the pending edits to the radio; throw them away. */
 MESH_STR_ENTRY(ACTION_SAVE,               "save")
+/* The compose sheet's X on the draft row: keeps the draft as a quick reply. */
+MESH_STR_ENTRY(ACTION_SAVE_REPLY,         "keep as reply")
 MESH_STR_ENTRY(ACTION_DISCARD,            "discard")
 /* Change the value on the highlighted row in place, with Left and Right. */
 MESH_STR_ENTRY(ACTION_EDIT,               "edit")
@@ -2880,6 +2882,8 @@ MESH_STR_ENTRY(TOAST_THEME_HELD,          "MESHCLIENT_THEME is holding the theme
 MESH_STR_ENTRY(TOAST_THEME,               "Theme: %.*s")
 MESH_STR_ENTRY(TOAST_TEXT_SIZE_HELD,      "MESHCLIENT_FB_SCALE is holding the text size")
 MESH_STR_ENTRY(TOAST_TEXT_SIZE,           "Text size: %.*s")
+MESH_STR_ENTRY(TOAST_QUICK_REPLY_SAVED,   "Kept as a quick reply")
+MESH_STR_ENTRY(TOAST_QUICK_REPLY_FAILED,  "Could not keep the quick reply")
 MESH_STR_ENTRY(TOAST_DEV_UPDATES_ON,      "Dev updates on; check again")
 MESH_STR_ENTRY(TOAST_DEV_UPDATES_OFF,     "Dev updates off")
 /* The crash report has been deleted. The "(%d)" on the failure is an errno, for the reason

@@ -23,6 +23,10 @@
 
 /* ---- app.c: link routing ---------------------------------------------------------------- */
 
+/* Where the quick replies live: canned.txt beside the preferences file. False when there is no
+   preferences file to be beside, which is a run with nowhere to keep one. */
+bool mesh_app_canned_path(const struct mesh_app *app, char *out, size_t out_len);
+
 /* Connects `identifier` over the transport `kind` names (a mesh_ui_device_kind), dropping the
    other link first. Returns the transport's connect() result. */
 int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t kind);
