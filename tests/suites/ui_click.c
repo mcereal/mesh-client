@@ -658,3 +658,36 @@ MESH_TEST_CASE(ui_click_a_card_button_runs_its_verb, unit) {
         click_close(&store, capture), "a click on devices should open the device list");
     click_close(&store, capture);
 }
+
+/*
+ * Help's heading is the large title, which drew its back arrow without registering it: a pointer
+ * clicked the arrow and nothing happened, and the keycap bar had already dropped B for the
+ * arrow it could not find. The arrow is B, as it is on every other heading.
+ */
+MESH_TEST_CASE(ui_click_the_back_arrow_on_help_closes_it, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(click_open(&store, &capture) != 0, "store or capture failed to open");
+    struct mesh_ui_action action;
+    inkcell_capture_state(capture)->pointer = true;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_NODES,
+                  &action),
+        click_close(&store, capture), "the strip drew no box for Nodes");
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_SELECT, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.help_open, click_close(&store, capture),
+                              "Select should open help on the Nodes tab");
+
+    const uint32_t arrow = INKCELL_FOCUS_KEY(INKCELL_KEY_B);
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect box;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(map, arrow, &box) ||
+            inkcell_focus_hit(map, box.x + box.w / 2, box.y + box.h / 2) != arrow,
+        click_close(&store, capture), "help's back arrow should be a box a pointer can click");
+    (void)mesh_ui_store_handle_key(&store, inkcell_focus_key_of(arrow), &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.help_open || store.nav.screen != MESH_UI_SCREEN_NODES,
+                              click_close(&store, capture),
+                              "the arrow should close help and leave the Nodes list up");
+    click_close(&store, capture);
+}
