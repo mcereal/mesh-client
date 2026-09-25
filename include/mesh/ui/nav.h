@@ -1277,6 +1277,9 @@ void mesh_ui_nav_raise_toast(struct mesh_ui_nav *nav, const char *text);
    for whatever is showing rather than replacing it, and waits behind anything already waiting.
    See the definition for why an arrival yields and a press does not. */
 void mesh_ui_nav_post_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text);
+/* Takes down the notice showing, for a press, and puts up the next one waiting, undated. Returns
+   true when anything was showing. */
+bool mesh_ui_nav_dismiss_toast(struct mesh_ui_nav *nav);
 /* Dates an undated notice. A no-op on one that is already dated, or on no notice at all. */
 void mesh_ui_nav_date_toast(struct mesh_ui_nav *nav, uint64_t now_ms);
 /* Clears an expired toast; returns true if it did. */

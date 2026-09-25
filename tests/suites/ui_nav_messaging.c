@@ -477,6 +477,27 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
 
+    /*
+     * A press dismisses what is showing, and what was waiting behind it is next. Stranded in the
+     * queue instead, it would sit there unseen - the tick only walks the queue when something is
+     * showing - until a later notice went straight up ahead of it and it came back out of order.
+     * The next one is dated by the press that uncovered it, as a notice a press raises is.
+     */
+    mesh_ui_store_tick(&store, 20000U);
+    mesh_ui_store_post_toast(&store, 20000U, "first");
+    mesh_ui_store_post_toast(&store, 20000U, "second");
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_SELECT, &action) ||
+        strcmp(store.nav.toast, "second") != 0 || store.nav.toast_queued != 0U ||
+        store.nav.toast_until_ms != 20000U + 4000U) {
+        failure = "dismissing a notice should hand the snackbar to the one waiting behind it";
+        goto cleanup;
+    }
+    mesh_ui_store_post_toast(&store, 20000U, "third");
+    if (strcmp(store.nav.toast, "second") != 0 || store.nav.toast_queued != 1U) {
+        failure = "a notice arriving after a dismiss should wait behind the one it uncovered";
+        goto cleanup;
+    }
+
 cleanup:
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);

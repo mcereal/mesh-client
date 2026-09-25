@@ -2104,12 +2104,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     }
 
     /* Any press dismisses a notice; whether the frame changes is decided below. */
-    bool changed = false;
-    if (nav->toast[0] != '\0') {
-        nav->toast[0] = '\0';
-        nav->toast_until_ms = 0U;
-        changed = true;
-    }
+    bool changed = mesh_ui_nav_dismiss_toast(nav);
 
     struct mesh_ui_route active;
     mesh_ui_route_of(nav, &active);
@@ -2998,6 +2993,31 @@ void mesh_ui_nav_raise_toast(struct mesh_ui_nav *nav, const char *text) {
     }
     snprintf(nav->toast, sizeof nav->toast, "%s", text);
     nav->toast_until_ms = 0U;
+}
+
+/*
+ * A press takes down what is showing, and the next notice waiting takes its place.
+ *
+ * Only the one on the snackbar has been seen; what is queued behind it is news the press did not
+ * answer. Cleared along with it, the queue would outlive the snackbar and sit unwalked - the tick
+ * only promotes while something is showing - until a later notice went straight up ahead of it
+ * and the older ones followed, out of order. The one promoted here is undated, exactly as a
+ * notice a press raises is, and mesh_ui_store_handle_key() dates it before anything is drawn.
+ */
+bool mesh_ui_nav_dismiss_toast(struct mesh_ui_nav *nav) {
+    if (nav == NULL || nav->toast[0] == '\0') {
+        return false;
+    }
+    if (nav->toast_queued > 0U) {
+        snprintf(nav->toast, sizeof nav->toast, "%s", nav->toast_queue[0]);
+        memmove(&nav->toast_queue[0], &nav->toast_queue[1],
+                (MESH_UI_NAV_TOAST_QUEUE - 1U) * sizeof nav->toast_queue[0]);
+        nav->toast_queued--;
+    } else {
+        nav->toast[0] = '\0';
+    }
+    nav->toast_until_ms = 0U;
+    return true;
 }
 
 void mesh_ui_nav_date_toast(struct mesh_ui_nav *nav, uint64_t now_ms) {
