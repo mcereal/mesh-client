@@ -5,11 +5,11 @@
  *
  * What this is for and the three decisions behind its format are in
  * include/mesh/ui/store_trends.h; this file is the mechanics. It sits beside store_archive.c in
- * the store group and stands on the same journal (store_journal.h) - the same open-write-close
- * append, the same compaction off one size check, the same rewrite through a temporary - over a
- * record that is four numbers instead of five lines. It is the one of the two that needs the
- * journal's `resumed`: every record is measured from the one before it, so whether a file was
- * already there is a question about the chain, not the directory.
+ * the store group and stands on the same journal (inkstand/persist/journal.h) - the same
+ * open-write-close append, the same compaction off one size check, the same rewrite through a
+ * temporary - over a record that is four numbers instead of five lines. It is the one of the two
+ * that needs the journal's `resumed`: every record is measured from the one before it, so whether a
+ * file was already there is a question about the chain, not the directory.
  *
  * Every entry point tolerates a disabled log - one whose directory could not be made - and
  * reports success for it. A Brick with a full or read-only card is still a client, and what
@@ -56,7 +56,7 @@
  */
 static bool trends_subject(const struct mesh_ui_trends *trends, uint32_t node_id, char *out,
                            size_t out_len) {
-    if (trends == NULL || !mesh_ui_journal_enabled(&trends->journal) || node_id == 0U ||
+    if (trends == NULL || !inkstand_journal_enabled(&trends->journal) || node_id == 0U ||
         out == NULL) {
         return false;
     }
@@ -187,7 +187,7 @@ static void trends_read_line(void *context, const char *key, char *value) {
     if (!trend_read_value(value, &record)) {
         return;
     }
-    struct trend_record *slot = mesh_ui_journal_ring_push(context);
+    struct trend_record *slot = inkstand_journal_ring_push(context);
     if (slot != NULL) {
         *slot = record;
     }
@@ -198,16 +198,16 @@ static int trends_read_file(const struct mesh_ui_trends *trends, const char *sub
     if (entries == NULL || capacity == 0U || out_count == NULL) {
         return -EINVAL;
     }
-    struct mesh_ui_journal_ring ring;
-    mesh_ui_journal_ring_init(&ring, entries, sizeof *entries, capacity);
+    struct inkstand_journal_ring ring;
+    inkstand_journal_ring_init(&ring, entries, sizeof *entries, capacity);
 
     char line[MESH_UI_TRENDS_LINE_MAX];
-    const int result =
-        mesh_ui_journal_read(&trends->journal, subject, line, sizeof line, trends_read_line, &ring);
+    const int result = inkstand_journal_read(&trends->journal, subject, line, sizeof line,
+                                             trends_read_line, &ring);
     if (result != 0) {
         return result;
     }
-    *out_count = mesh_ui_journal_ring_finish(&ring);
+    *out_count = inkstand_journal_ring_finish(&ring);
     return 0;
 }
 
@@ -260,7 +260,7 @@ static void trends_compact(const struct mesh_ui_trends *trends, const char *subj
 
     struct trends_rewrite_context context = {keep, count};
     const int result =
-        mesh_ui_journal_replace(&trends->journal, subject, trends_write_replacement, &context);
+        inkstand_journal_replace(&trends->journal, subject, trends_write_replacement, &context);
     if (result != 0) {
         inkwell_log_warn("ui", "Could not compact trend log %s: %d", subject, result);
         return;
@@ -275,8 +275,8 @@ int mesh_ui_trends_init(struct mesh_ui_trends *trends, const char *dir) {
         return -EINVAL;
     }
     memset(trends, 0, sizeof *trends);
-    const int result = mesh_ui_journal_init(&trends->journal, dir, MESH_UI_TRENDS_SUFFIX,
-                                            MESH_UI_TRENDS_FILE_MAX_BYTES);
+    const int result = inkstand_journal_init(&trends->journal, dir, MESH_UI_TRENDS_SUFFIX,
+                                             MESH_UI_TRENDS_FILE_MAX_BYTES);
     if (result != 0 && result != -EINVAL) {
         inkwell_log_warn("ui", "Trend log unavailable at %s: %d", dir, result);
     }
@@ -415,7 +415,7 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
     if (trends == NULL || history == NULL) {
         return -EINVAL;
     }
-    if (!mesh_ui_journal_enabled(&trends->journal)) {
+    if (!inkstand_journal_enabled(&trends->journal)) {
         return 0;
     }
     trends_prune(trends, history);
@@ -476,8 +476,8 @@ int mesh_ui_trends_append(struct mesh_ui_trends *trends, const struct mesh_ui_hi
             .chain_at = state->written_at,
         };
         bool over_cap = false;
-        const int result = mesh_ui_journal_append(&trends->journal, subject, trends_write_append,
-                                                  &append, &over_cap);
+        const int result = inkstand_journal_append(&trends->journal, subject, trends_write_append,
+                                                   &append, &over_cap);
         if (result != 0) {
             /* `state` is untouched, so these readings are written again on the next publish. */
             inkwell_log_warn("ui", "Could not append to trend log %s: %d", subject, result);
@@ -595,5 +595,5 @@ int mesh_ui_trends_forget(struct mesh_ui_trends *trends) {
     memset(trends->nodes, 0, sizeof trends->nodes);
     /* Only what the journal wrote, matched on the suffix, and any temporary an interrupted
        compaction left beside one: it goes with the file it was going to replace. */
-    return mesh_ui_journal_forget_all(&trends->journal);
+    return inkstand_journal_forget_all(&trends->journal);
 }

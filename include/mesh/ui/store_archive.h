@@ -51,7 +51,7 @@
  * the thread screen draws from.
  */
 
-#include "mesh/ui/store_journal.h"
+#include "inkstand/persist/journal.h"
 #include "mesh/ui/store_message.h"
 
 #include <stdbool.h>
@@ -136,7 +136,7 @@ struct mesh_ui_archive_recent {
 struct mesh_ui_archive {
     /* The files, one per conversation. A disabled journal disables the archive entirely, which
        is what a client with nowhere to write runs as. */
-    struct mesh_ui_journal journal;
+    struct inkstand_journal journal;
     /* The record index handed to the next append - a grouping counter, not a count of what is
        on disk. See the header comment. */
     uint32_t next_index;

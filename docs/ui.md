@@ -65,6 +65,12 @@ There are three files on the card and they answer different questions.
 | Keys | `include/mesh/ui/store_keys.def` | the same message records, over `store_internal.h` | one `trend` record, off the same table |
 | Read | at launch, all of it | when a conversation is opened, one file | when a node's detail is opened, one file |
 | Code | `src/ui/store/store_file.c` | `src/ui/store/store_archive.c` | `src/ui/store/store_trends.c` |
+| Under it | inkwell's `base/record_file.h` | inkstand's `persist/journal.h` | inkstand's `persist/journal.h` |
+
+The two logs are one mechanism twice: inkstand's journal owns the directory, the append, the
+size check, the ring a file is read through and the rewrite through a temporary, and each log
+supplies what a record is and when to compact. A log whose directory cannot be made is disabled
+and quiet, and the live view is unaffected.
 
 The cache is what makes a Brick with no radio in range open on a roster. All three are written
 through a temporary and renamed into place, which for the cache matters more than its "rebuilt

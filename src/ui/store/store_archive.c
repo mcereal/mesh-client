@@ -52,7 +52,7 @@
  */
 static bool archive_subject(const struct mesh_ui_archive *archive, uint8_t kind, uint32_t node,
                             uint8_t channel, char *out, size_t out_len) {
-    if (archive == NULL || !mesh_ui_journal_enabled(&archive->journal) || out == NULL) {
+    if (archive == NULL || !inkstand_journal_enabled(&archive->journal) || out == NULL) {
         return false;
     }
     int written;
@@ -189,7 +189,7 @@ static bool archive_writable(const struct mesh_ui_message *message) {
  * what the file is allowed to keep (MESH_UI_ARCHIVE_MAX_MESSAGES).
  */
 struct archive_reader {
-    struct mesh_ui_journal_ring ring;
+    struct inkstand_journal_ring ring;
     /* The record being assembled, and the index its msg[] line carried. */
     struct mesh_ui_message current;
     uint32_t current_index;
@@ -205,9 +205,9 @@ static struct mesh_ui_message *archive_buffer_find(const struct archive_reader *
     if (message->packet_id == 0U) {
         return NULL;
     }
-    const uint32_t held = mesh_ui_journal_ring_held(&reader->ring);
+    const uint32_t held = inkstand_journal_ring_held(&reader->ring);
     for (uint32_t i = 0; i < held; ++i) {
-        struct mesh_ui_message *entry = mesh_ui_journal_ring_at(&reader->ring, i);
+        struct mesh_ui_message *entry = inkstand_journal_ring_at(&reader->ring, i);
         if (archive_same_message(entry, message)) {
             return entry;
         }
@@ -234,7 +234,7 @@ static void archive_reader_commit(struct archive_reader *reader) {
         *seen = reader->current;
         return;
     }
-    struct mesh_ui_message *slot = mesh_ui_journal_ring_push(&reader->ring);
+    struct mesh_ui_message *slot = inkstand_journal_ring_push(&reader->ring);
     if (slot != NULL) {
         *slot = reader->current;
     }
@@ -288,16 +288,16 @@ static int archive_read_file(const struct mesh_ui_archive *archive, const char *
     }
     struct archive_reader reader;
     memset(&reader, 0, sizeof reader);
-    mesh_ui_journal_ring_init(&reader.ring, entries, sizeof *entries, capacity);
+    inkstand_journal_ring_init(&reader.ring, entries, sizeof *entries, capacity);
 
     char line[MESH_UI_ARCHIVE_LINE_MAX];
-    const int result = mesh_ui_journal_read(&archive->journal, subject, line, sizeof line,
-                                            archive_read_line, &reader);
+    const int result = inkstand_journal_read(&archive->journal, subject, line, sizeof line,
+                                             archive_read_line, &reader);
     if (result != 0) {
         return result;
     }
     archive_reader_commit(&reader);
-    *out_count = mesh_ui_journal_ring_finish(&reader.ring);
+    *out_count = inkstand_journal_ring_finish(&reader.ring);
     if (out_dropped != NULL) {
         *out_dropped = reader.ring.dropped;
     }
@@ -329,7 +329,8 @@ static void archive_write_replacement(FILE *file, void *context) {
 static int archive_rewrite(const struct mesh_ui_archive *archive, const char *subject,
                            const struct mesh_ui_message *messages, uint32_t count) {
     struct archive_rewrite_context context = {messages, count};
-    return mesh_ui_journal_replace(&archive->journal, subject, archive_write_replacement, &context);
+    return inkstand_journal_replace(&archive->journal, subject, archive_write_replacement,
+                                    &context);
 }
 
 /*
@@ -382,8 +383,8 @@ static int archive_append_records(struct mesh_ui_archive *archive, const char *s
     }
     struct archive_append_context context = {archive, messages, count};
     bool over_cap = false;
-    const int result = mesh_ui_journal_append(&archive->journal, subject, archive_write_append,
-                                              &context, &over_cap);
+    const int result = inkstand_journal_append(&archive->journal, subject, archive_write_append,
+                                               &context, &over_cap);
     if (result != 0) {
         return result;
     }
@@ -400,8 +401,8 @@ int mesh_ui_archive_init(struct mesh_ui_archive *archive, const char *dir) {
         return -EINVAL;
     }
     memset(archive, 0, sizeof *archive);
-    const int result = mesh_ui_journal_init(&archive->journal, dir, MESH_UI_ARCHIVE_SUFFIX,
-                                            MESH_UI_ARCHIVE_FILE_MAX_BYTES);
+    const int result = inkstand_journal_init(&archive->journal, dir, MESH_UI_ARCHIVE_SUFFIX,
+                                             MESH_UI_ARCHIVE_FILE_MAX_BYTES);
     if (result != 0 && result != -EINVAL) {
         inkwell_log_warn("ui", "Message archive unavailable at %s: %d", dir, result);
     }
@@ -419,7 +420,7 @@ int mesh_ui_archive_append(struct mesh_ui_archive *archive,
     if (archive == NULL || list == NULL) {
         return -EINVAL;
     }
-    if (!mesh_ui_journal_enabled(&archive->journal)) {
+    if (!inkstand_journal_enabled(&archive->journal)) {
         return 0;
     }
 
@@ -520,7 +521,7 @@ int mesh_ui_archive_seed(struct mesh_ui_archive *archive, const struct mesh_ui_m
     if (archive == NULL || list == NULL) {
         return -EINVAL;
     }
-    if (!mesh_ui_journal_enabled(&archive->journal)) {
+    if (!inkstand_journal_enabled(&archive->journal)) {
         return 0;
     }
 
@@ -551,7 +552,7 @@ int mesh_ui_archive_seed(struct mesh_ui_archive *archive, const struct mesh_ui_m
         }
         /* A conversation that already has a file has a transcript at least as good as this one,
            and rewriting it with the cache's 64 would be throwing history away to save it. */
-        if (mesh_ui_journal_exists(&archive->journal, subject)) {
+        if (inkstand_journal_exists(&archive->journal, subject)) {
             continue;
         }
 
@@ -635,7 +636,7 @@ int mesh_ui_archive_forget_conversation(struct mesh_ui_archive *archive, uint8_t
     if (!archive_subject(archive, kind, node, channel, subject, sizeof subject)) {
         return 0;
     }
-    return mesh_ui_journal_forget(&archive->journal, subject);
+    return inkstand_journal_forget(&archive->journal, subject);
 }
 
 /*
@@ -776,8 +777,8 @@ int mesh_ui_archive_forget_message(struct mesh_ui_archive *archive, uint8_t kind
     /* A delete that found its message somewhere else leaves this file exactly as it was: the
        journal replaces it only when the filter says it dropped something. */
     char line[MESH_UI_ARCHIVE_LINE_MAX];
-    const int result = mesh_ui_journal_filter(&archive->journal, subject, line, sizeof line,
-                                              archive_filter_line, archive_filter_end, &filter);
+    const int result = inkstand_journal_filter(&archive->journal, subject, line, sizeof line,
+                                               archive_filter_line, archive_filter_end, &filter);
     if (result <= 0) {
         return result;
     }
