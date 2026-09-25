@@ -3,7 +3,7 @@
 # nothing here is written against a policy newer than this. A too-old cmake is turned away by
 # the presets file itself, which says so by name.
 cmake_minimum_required(VERSION 3.18)
-project(meshclient VERSION 2.71.1 LANGUAGES C)
+project(meshclient VERSION 2.72.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
