@@ -227,8 +227,10 @@ failed bubble stays where it is and the retry goes out as a new message.
 message is going: a d-pad keyboard and quick replies from `$HOME/.meshclient/canned.txt`. The
 keyboard uses the pad the way a console keyboard does — **A** types the key under the cursor,
 **X** is the backspace, **B** leaves (keeping what was typed; the grid's own ✕ discards),
-**Y** is a space, **START** sends. **L2/R2** shift for one capital, and **L1/R1** step the panel
-the grid is showing: `abc`, `ABC`, symbols, then three pages of forty emoji. The bottom-left key
+**Y** is a space, **START** sends. **L2/R2** move the caret a character at a time, so a typo
+early in a draft is reached without deleting what follows it; typing, the space and the backspace
+all work at the caret. **L1/R1** step the panel the grid is showing: `abc`, `ABC`
+(one capital, then back to `abc`), symbols, then three pages of forty emoji. The bottom-left key
 of the grid steps the same ring, so everything is reachable without the shoulders.
 
 On the compose sheet, **X** on the draft row keeps the draft as a quick reply. It is offered for a

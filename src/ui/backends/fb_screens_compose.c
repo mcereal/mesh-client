@@ -335,6 +335,7 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
     struct inkcell_fb_text_field field = {
         .value = nav->draft,
         .caret = true,
+        .caret_back = nav->kb.caret_back,
         .lines = 2U,
         .counter = meter,
     };

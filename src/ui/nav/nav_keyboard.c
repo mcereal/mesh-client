@@ -592,5 +592,6 @@ bool mesh_ui_nav_insert_text(struct mesh_ui_nav *nav, const char *text) {
         return false;
     }
     const struct inkcell_keyboard_layout layout = mesh_ui_nav_kb_layout(nav);
-    return inkcell_keyboard_insert_text(&layout, nav->draft, sizeof nav->draft, text);
+    return inkcell_keyboard_insert_text_at_caret(&nav->kb, &layout, nav->draft, sizeof nav->draft,
+                                                 text);
 }

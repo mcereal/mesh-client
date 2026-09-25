@@ -1488,6 +1488,9 @@ static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, enum inkcell_key ke
     case INKCELL_KEY_A:
     case INKCELL_KEY_START:
         if (nav->compose_cursor == MESH_UI_COMPOSE_ROW_DRAFT) {
+            /* Back into a draft on its end, where a resumed sentence carries on. The grid
+               keeps its place; only the caret is put back. */
+            nav->kb.caret_back = 0U;
             nav->keyboard_open = true;
             return true;
         }
@@ -1509,6 +1512,7 @@ static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, enum inkcell_key ke
     case INKCELL_KEY_Y:
         /* Y opened this; a second press types, which is what the row it lands on offers. */
         nav->compose_cursor = MESH_UI_COMPOSE_ROW_DRAFT;
+        nav->kb.caret_back = 0U;
         nav->keyboard_open = true;
         return true;
     case INKCELL_KEY_B:

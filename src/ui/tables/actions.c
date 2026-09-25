@@ -853,9 +853,9 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
         command_add(out, MESH_UI_COMMAND_DELETE, MESH_STR_ACTION_DELETE, INKCELL_BUTTON_X);
         command_add(out, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
         command_add(out, MESH_UI_COMMAND_SPACE, MESH_STR_ACTION_SPACE, INKCELL_BUTTON_Y);
-        /* Last, and in this order, because the bar drops from the end: the shoulders reach the
-           panel the character is on, which is no use without the shift that is one of them. */
-        command_add(out, MESH_UI_COMMAND_SHIFT, MESH_STR_ACTION_SHIFT, INKCELL_BUTTON_TRIGGERS);
+        /* Last, and in this order, because the bar drops from the end: the caret is what a
+           correction needs, and the shoulders' panels are also the grid's bottom-left key. */
+        command_add(out, MESH_UI_COMMAND_CARET, MESH_STR_ACTION_CARET, INKCELL_BUTTON_TRIGGERS);
         command_add(out, MESH_UI_COMMAND_KEYS, MESH_STR_ACTION_KEYS, INKCELL_BUTTON_SHOULDERS);
         return;
     }

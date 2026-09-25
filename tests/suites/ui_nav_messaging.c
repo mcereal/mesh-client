@@ -984,7 +984,7 @@ MESH_TEST_CASE(kb_emoji_cells_are_drawable, unit) {
 
 /*
  * The remapped face buttons: X deletes, B leaves and keeps what was typed, and the triggers
- * shift.
+ * move the caret.
  *
  * All three are the same complaint - the keyboard used the pad the way nothing else does. B was
  * a backspace on the one screen where B is not "back", X was a shift nobody guessed at, and the
@@ -1008,25 +1008,17 @@ MESH_TEST_CASE(kb_face_buttons_follow_the_pad, unit) {
         goto cleanup;
     }
 
-    /* A trigger shifts, and A takes the capital and drops back - the same one-capital rule the
-       layer key had, now on a button that says "shift" on the bar. */
+    /* R1 is the capitals, and A takes one and drops back - the one-capital rule the triggers'
+       shift had, on the panel step that already reached the same layer. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     if (store.nav.kb.layer != INKCELL_KB_UPPER) {
-        failure = "R2 should shift";
+        failure = "R1 from the letters should reach the capitals";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (strcmp(store.nav.draft, "Q") != 0 || store.nav.kb.layer != INKCELL_KB_LOWER) {
-        failure = "shift should apply to one character and then fall back";
-        goto cleanup;
-    }
-    /* And a second press of shift undoes the first, rather than arming a capital nobody can
-       now get rid of without typing one. */
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
-    if (store.nav.kb.layer != INKCELL_KB_LOWER) {
-        failure = "a second shift should disarm the first";
+        failure = "a capital should apply to one character and then fall back";
         goto cleanup;
     }
 
@@ -1035,6 +1027,30 @@ MESH_TEST_CASE(kb_face_buttons_follow_the_pad, unit) {
         failure = "A should type the cell under the cursor";
         goto cleanup;
     }
+    /* The triggers are the caret: L2 steps back over the q, the next letter goes in before
+       it, and R2 steps on again. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* w */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (strcmp(store.nav.draft, "Qwq") != 0) {
+        failure = "L2 should move the caret back, and A should type there";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (strcmp(store.nav.draft, "Qw") != 0) {
+        failure = "R2 should move the caret on, and X should delete before it";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action); /* q */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (strcmp(store.nav.draft, "Qwq") != 0) {
+        failure = "the caret back on the end should type on the end";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* q, back to Qq */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (strcmp(store.nav.draft, "Q") != 0) {
         failure = "X should delete a character";
@@ -1199,7 +1215,7 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
     for (int i = 0; i < 5; ++i) {
         mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     }
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action); /* shift */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action); /* the capitals */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);  /* H */
     if (strcmp(store.nav.draft, "H") != 0 || store.nav.kb.layer != INKCELL_KB_LOWER) {
         failure = "shift should apply to one character";

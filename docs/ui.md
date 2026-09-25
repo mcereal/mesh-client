@@ -215,7 +215,7 @@ and X refreshes it. `input_brick_face_buttons` pins all four. **Do not "fix" any
 See [`device.md`](device.md#the-buttons).
 
 **L2 and R2 are absolute axes, not buttons.** The pad declares no `BTN_TL2`, so the two triggers
-on the case went unread until the keyboard wanted a shift key. `inkcell_input_map_trigger()` reads
+on the case went unread until the keyboard wanted a shift key (they are its caret now). `inkcell_input_map_trigger()` reads
 `ABS_Z`/`ABS_RZ` and a latch in `inkcell_input_handle_device_event()` turns a squeeze into one
 press — on this hardware a trigger is digital (255 down, 0 up), but the axis is an axis, and a pad
 that reported the way up as a ramp would otherwise be a press per value.
@@ -264,7 +264,9 @@ as `DISMISS` and `CANCEL` so that this client does not have to work out which on
 
 **The layers are a ring of panels, not a layer with pages inside it.** `abc`, `ABC`, symbols,
 then one page of forty emoji at a time. The grid's bottom-left key and `L1`/`R1` walk it and
-nothing else does; `L2`/`R2` are the shift, which is one capital and then back. The ring, the
+nothing else does; `L2`/`R2` move the caret, a cell at a time. They were the shift, and the
+shift was the one press already somewhere else: R1 from the letters is the same one-shot
+capitals. The ring, the
 tables behind it and the invariants that hold them - every cell carries a key, every printable
 ASCII character is reachable on some layer - are inkcell's now, and so are the tests that say so
 (`tests/suites/ui_keyboard.c` in that tree).

@@ -146,7 +146,7 @@ MESH_STR_ENTRY(ACTION_TYPE,               "type")
 MESH_STR_ENTRY(ACTION_PAIR,               "pair")
 MESH_STR_ENTRY(ACTION_DELETE,             "delete")
 /* The keyboard's own: the case layer, a space, and "I have finished typing". */
-MESH_STR_ENTRY(ACTION_SHIFT,              "shift")
+MESH_STR_ENTRY(ACTION_CARET,              "cursor")
 /* The shoulders on the keyboard, which step the panel ring rather than the tabs: the three
    character layers and then a page of emoji at a time. */
 MESH_STR_ENTRY(ACTION_KEYS,               "keys")
