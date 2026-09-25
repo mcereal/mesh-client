@@ -391,6 +391,9 @@ static bool mesh_app_select_sdl(struct mesh_app *app, const struct inkcell_backe
             /* The frame opens with the tab strip, so on a Mac the window's buttons can sit in
                it - see inkcell/ui/sdl.h. */
             .unified_titlebar = true,
+            /* A laptop, not the Brick: text the size the rest of the desktop's is, at the
+               display's own density. MESHCLIENT_FB_SCALE still overrides it. */
+            .display_scale = true,
             .request_frame = mesh_app_ui_request_frame,
             .frame_userdata = app,
         };
