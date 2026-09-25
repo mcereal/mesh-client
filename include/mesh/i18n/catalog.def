@@ -1115,6 +1115,7 @@ MESH_STR_ENTRY(NODE_POWER_CHANNEL,        "Channel %u")
  * written for the phone app while holding a Brick.
  */
 MESH_STR_ENTRY(SETTINGS_SECTION_ABOUT,                    "About MeshClient")
+MESH_STR_ENTRY(SETTINGS_GROUP_RADIO,                      "Radio settings")
 MESH_STR_ENTRY(SETTINGS_SECTION_RADIO,                    "About radio")
 MESH_STR_ENTRY(SETTINGS_SECTION_USER,                     "User")
 MESH_STR_ENTRY(SETTINGS_SECTION_DEVICE,                   "Device")

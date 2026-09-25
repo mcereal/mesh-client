@@ -581,6 +581,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_NODE_VAL_GIGABYTES] = "%.1f GB",
     [MESH_STR_NODE_VAL_LOAD] = "%.2f %.2f %.2f",
     [MESH_STR_NODE_POWER_CHANNEL] = "Canal %u",
+    [MESH_STR_SETTINGS_GROUP_RADIO] = "Ajustes de la radio",
     [MESH_STR_SETTINGS_SECTION_ABOUT] = "Sobre MeshClient",
     [MESH_STR_SETTINGS_SECTION_RADIO] = "Acerca de la radio",
     [MESH_STR_SETTINGS_SECTION_USER] = "Usuario",
