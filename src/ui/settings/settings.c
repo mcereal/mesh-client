@@ -2309,11 +2309,11 @@ uint32_t mesh_ui_settings_number_step(enum mesh_ui_setting_field field, uint32_t
     if (spec->kind != MESH_UI_SETTING_NUMBER) {
         return value;
     }
-    return mesh_ui_form_presets_step(&spec->presets, value, delta);
+    return inkstand_form_presets_step(&spec->presets, value, delta);
 }
 
 /*
- * Where `value` sits on a NUMBER field's own scale - the arithmetic is mesh/ui/form_scale.h's.
+ * Where `value` sits on a NUMBER field's own scale - the arithmetic is in inkstand's form/scale.h.
  *
  * What is this client's is which lists are scales and which stand their 0 aside. LoRa's transmit
  * power reads 0 as "as much as this radio has", and the first version of the slider drew it with
@@ -2324,9 +2324,9 @@ uint32_t mesh_ui_settings_number_step(enum mesh_ui_setting_field field, uint32_t
 bool mesh_ui_settings_number_track(enum mesh_ui_setting_field field, uint32_t value,
                                    struct mesh_ui_settings_track *out) {
     const struct field_spec *spec = field_spec(field);
-    struct mesh_ui_form_track track;
+    struct inkstand_form_track track;
     if (spec->kind != MESH_UI_SETTING_NUMBER ||
-        !mesh_ui_form_presets_track(&spec->presets, value, &track)) {
+        !inkstand_form_presets_track(&spec->presets, value, &track)) {
         return false;
     }
     if (out != NULL) {
@@ -2378,12 +2378,12 @@ bool mesh_ui_settings_key_len_ok(enum mesh_ui_setting_field field, size_t len) {
 }
 
 bool mesh_ui_settings_choice_allowed(uint32_t choices, uint32_t count, uint32_t value) {
-    return mesh_ui_form_choice_allowed(choices, count, value);
+    return inkstand_form_choice_allowed(choices, count, value);
 }
 
 uint32_t mesh_ui_settings_choice_step(uint32_t choices, uint32_t count, uint32_t current,
                                       int delta) {
-    return mesh_ui_form_choice_step(choices, count, current, delta);
+    return inkstand_form_choice_step(choices, count, current, delta);
 }
 
 const struct mesh_ui_region_preset *

@@ -14,8 +14,8 @@
  * mesh_ui_settings_field_label() and friends rather than reading the table.
  */
 
+#include "inkstand/form/scale.h"
 #include "mesh/i18n/strings.h"
-#include "mesh/ui/form_scale.h"
 #include "mesh/ui/settings.h"
 
 #include <stdbool.h>
@@ -69,9 +69,9 @@ struct field_spec {
      * SCALE_PRESETS() or NAMED_PRESETS(), and only a scale is offered as a slider. Most scales
      * open with a 0 the field reads as "whatever the firmware picks", and LoRa's transmit power
      * reads it as "as much as this radio has"; SCALE_PRESETS_AFTER_ZERO() stands that word
-     * outside the scale. See mesh/ui/form_scale.h.
+     * outside the scale. See inkstand's form/scale.h.
      */
-    struct mesh_ui_form_presets presets;
+    struct inkstand_form_presets presets;
     inkcell_str_id zero_label; /* NUMBER: what 0 means (seconds formatting) */
     /*
      * NUMBER: overrides the seconds default. `imperial` is the radio's display units, decoded
