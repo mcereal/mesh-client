@@ -2482,10 +2482,17 @@ const struct inkstand_form mesh_ui_settings_form = {k_fields, sizeof k_fields[0]
 _Static_assert(MESH_UI_FIELD_COUNT <= UINT16_MAX,
                "a field id is 16 bits in the form and the edits");
 
+/* A field id as the form holds one, checked *before* it is narrowed: the form bounds-checks what
+   it is handed, but an enum value past the table would first wrap to 16 bits and arrive as some
+   real row's id. Every question put to the form goes through here. */
+static uint16_t form_id(enum mesh_ui_setting_field field) {
+    return (unsigned)field < MESH_UI_FIELD_COUNT ? (uint16_t)field : (uint16_t)MESH_UI_FIELD_NONE;
+}
+
 /* The row for `field` with this client's columns too - the same row mesh_ui_settings_form
    answers for, so an unknown field is the MESH_UI_FIELD_NONE row either way. */
 const struct field_spec *field_spec(enum mesh_ui_setting_field field) {
-    return (const struct field_spec *)inkstand_form_field(&mesh_ui_settings_form, (uint16_t)field);
+    return (const struct field_spec *)inkstand_form_field(&mesh_ui_settings_form, form_id(field));
 }
 
 const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field) {
@@ -2512,6 +2519,10 @@ enum mesh_ui_settings_section mesh_ui_settings_field_section(enum mesh_ui_settin
  * editable row was retired would keep whatever the column said.
  */
 bool mesh_ui_settings_section_has_fields(enum mesh_ui_settings_section section) {
+    /* Checked before narrowing, as form_id() does for a field. */
+    if ((unsigned)section >= MESH_UI_SETTINGS_SECTION_COUNT) {
+        return false;
+    }
     return inkstand_form_section_has_fields(&mesh_ui_settings_form, (uint16_t)section);
 }
 
@@ -2555,19 +2566,19 @@ enum mesh_ui_setting_field mesh_ui_settings_group_field(enum mesh_ui_setting_fie
 }
 
 uint32_t mesh_ui_settings_field_bit(enum mesh_ui_setting_field field) {
-    return inkstand_form_bit(&mesh_ui_settings_form, (uint16_t)field);
+    return inkstand_form_bit(&mesh_ui_settings_form, form_id(field));
 }
 
 uint32_t mesh_ui_settings_enum_count(enum mesh_ui_setting_field field) {
-    return inkstand_form_enum_count(&mesh_ui_settings_form, (uint16_t)field);
+    return inkstand_form_enum_count(&mesh_ui_settings_form, form_id(field));
 }
 
 const char *mesh_ui_settings_enum_name(enum mesh_ui_setting_field field, uint32_t value) {
-    return inkstand_form_enum_name(&mesh_ui_settings_form, (uint16_t)field, value);
+    return inkstand_form_enum_name(&mesh_ui_settings_form, form_id(field), value);
 }
 
 uint32_t mesh_ui_settings_number_step(enum mesh_ui_setting_field field, uint32_t value, int delta) {
-    return inkstand_form_number_step(&mesh_ui_settings_form, (uint16_t)field, value, delta);
+    return inkstand_form_number_step(&mesh_ui_settings_form, form_id(field), value, delta);
 }
 
 /*
@@ -2582,7 +2593,7 @@ uint32_t mesh_ui_settings_number_step(enum mesh_ui_setting_field field, uint32_t
 bool mesh_ui_settings_number_track(enum mesh_ui_setting_field field, uint32_t value,
                                    struct mesh_ui_settings_track *out) {
     struct inkstand_form_track track;
-    if (!inkstand_form_number_track(&mesh_ui_settings_form, (uint16_t)field, value, &track)) {
+    if (!inkstand_form_number_track(&mesh_ui_settings_form, form_id(field), value, &track)) {
         return false;
     }
     if (out != NULL) {
@@ -2603,11 +2614,11 @@ bool mesh_ui_settings_number_track(enum mesh_ui_setting_field field, uint32_t va
  * `settings_text_fields_fit_the_edit_buffer` instead - which names the field.
  */
 uint32_t mesh_ui_settings_text_max(enum mesh_ui_setting_field field) {
-    return inkstand_form_text_max(&mesh_ui_settings_form, (uint16_t)field);
+    return inkstand_form_text_max(&mesh_ui_settings_form, form_id(field));
 }
 
 uint32_t mesh_ui_settings_key_choices(enum mesh_ui_setting_field field) {
-    return inkstand_form_key_choices(&mesh_ui_settings_form, (uint16_t)field);
+    return inkstand_form_key_choices(&mesh_ui_settings_form, form_id(field));
 }
 
 bool mesh_ui_settings_key_len_ok(enum mesh_ui_setting_field field, size_t len) {
@@ -2983,7 +2994,8 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
 const struct mesh_ui_setting_edit *
 mesh_ui_settings_find_edit(const struct mesh_ui_setting_edit *edits, size_t edit_count,
                            enum mesh_ui_setting_field field) {
-    if (edits == NULL || field == MESH_UI_FIELD_NONE) {
+    /* Past the table is no field, and must not wrap to one an edit is held for. */
+    if (edits == NULL || field == MESH_UI_FIELD_NONE || (unsigned)field >= MESH_UI_FIELD_COUNT) {
         return NULL;
     }
     for (size_t i = 0; i < edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {

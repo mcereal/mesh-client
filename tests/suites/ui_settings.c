@@ -4883,3 +4883,35 @@ MESH_TEST_CASE(ui_settings_radio_details_fits_at_its_longest, unit) {
                       "the page ends on the factory reset, not wherever the cap cut it off");
     record_success(test_name);
 }
+
+/*
+ * A field id past the table is no field, however far past it is.
+ *
+ * The form holds ids in 16 bits and bounds-checks what it is handed, but a value past 65535
+ * narrowed first would wrap to a real row - 65536 + 1 is the long name's row - and answer with its
+ * label, its kind and its limit. So the check comes before the narrowing, and an edit held for the
+ * row it would have wrapped to is not found for it.
+ */
+MESH_TEST_CASE(ui_settings_a_field_past_the_table_wraps_to_no_row, unit) {
+    const enum mesh_ui_setting_field wrapped =
+        (enum mesh_ui_setting_field)(65536U + (unsigned)MESH_UI_FIELD_USER_LONG_NAME);
+    MESH_TEST_FAIL_IF(mesh_ui_settings_field_kind(wrapped) !=
+                              mesh_ui_settings_field_kind(MESH_UI_FIELD_NONE) ||
+                          mesh_ui_settings_field_label_id(wrapped) !=
+                              mesh_ui_settings_field_label_id(MESH_UI_FIELD_NONE) ||
+                          mesh_ui_settings_text_max(wrapped) != 0U,
+                      "an id past 16 bits should be the NONE row, not the row it wraps to");
+
+    struct mesh_ui_setting_edit edit;
+    memset(&edit, 0, sizeof edit);
+    edit.field = (uint16_t)MESH_UI_FIELD_USER_LONG_NAME;
+    MESH_TEST_FAIL_IF(mesh_ui_settings_find_edit(&edit, 1U, wrapped) != NULL,
+                      "an id past the table should find no edit, not the one it wraps to");
+
+    const enum mesh_ui_settings_section wrapped_section =
+        (enum mesh_ui_settings_section)(65536U + (unsigned)MESH_UI_SETTINGS_USER);
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_section_has_fields(MESH_UI_SETTINGS_USER) ||
+                          mesh_ui_settings_section_has_fields(wrapped_section),
+                      "a section past the table should have no fields");
+    record_success(test_name);
+}
