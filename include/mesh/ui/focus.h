@@ -30,7 +30,7 @@ extern "C" {
 
 enum mesh_ui_focus_id {
     /* A dialog's answers, in the dialog's own numbering: 0 is accept and 1 is cancel, which is
-       what nav.confirm_cursor and nav.verify_cursor already carry. */
+       what nav.confirm.cursor and nav.verify_cursor already carry. */
     MESH_UI_FOCUS_DIALOG = 1,
     /* A right-click menu's verbs, `base + enum mesh_ui_command_id`. The visible menu is a
        desktop command surface, so its targets name operations rather than Brick buttons. */

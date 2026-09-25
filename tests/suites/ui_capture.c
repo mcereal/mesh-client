@@ -1430,14 +1430,14 @@ MESH_TEST_CASE(ui_capture_dialog_marks_the_selected_answer, unit) {
         size_t stride = 0U;
 
         for (unsigned cursor = 0U; cursor < 2U && failure == NULL; ++cursor) {
-            store.nav.confirm_open = true;
-            store.nav.confirm_cursor = (uint8_t)cursor;
+            store.nav.confirm.open = true;
+            store.nav.confirm.cursor = (uint8_t)cursor;
             store.nav.screen = MESH_UI_SCREEN_SETTINGS;
 
             struct mesh_ui_snapshot snapshot;
             memset(&snapshot, 0, sizeof snapshot);
             mesh_ui_store_request_refresh(&store);
-            if (!mesh_ui_store_consume_updates(&store, &snapshot) || !snapshot.nav.confirm_open) {
+            if (!mesh_ui_store_consume_updates(&store, &snapshot) || !snapshot.nav.confirm.open) {
                 failure = "no snapshot carrying the confirm overlay";
                 break;
             }
@@ -1535,15 +1535,15 @@ MESH_TEST_CASE(ui_capture_dialog_actions_stay_inside_the_panel, unit) {
     /* The largest multiplier the UI accepts, which is where the row overflowed. */
     for (size_t a = 0; a < sizeof actions / sizeof actions[0] && failure == NULL; ++a) {
         for (unsigned cursor = 0U; cursor < 2U && failure == NULL; ++cursor) {
-            store.nav.confirm_open = true;
-            store.nav.confirm_cursor = (uint8_t)cursor;
-            store.nav.confirm_action = (uint8_t)actions[a];
+            store.nav.confirm.open = true;
+            store.nav.confirm.cursor = (uint8_t)cursor;
+            store.nav.confirm.subject = (uint8_t)actions[a];
             store.nav.screen = MESH_UI_SCREEN_SETTINGS;
 
             struct mesh_ui_snapshot snapshot;
             memset(&snapshot, 0, sizeof snapshot);
             mesh_ui_store_request_refresh(&store);
-            if (!mesh_ui_store_consume_updates(&store, &snapshot) || !snapshot.nav.confirm_open) {
+            if (!mesh_ui_store_consume_updates(&store, &snapshot) || !snapshot.nav.confirm.open) {
                 failure = "no snapshot carrying the confirm overlay";
                 break;
             }
@@ -1603,7 +1603,7 @@ MESH_TEST_CASE(ui_capture_dialog_actions_stay_inside_the_panel, unit) {
              * is not an escape whatever its colour.
              */
             struct mesh_ui_snapshot beneath = snapshot;
-            beneath.nav.confirm_open = false;
+            beneath.nav.confirm.open = false;
             struct inkcell_capture *under = NULL;
             if (mesh_ui_capture_open(&under, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT,
                                      INKCELL_SCALE_MAX) != 0) {
@@ -5649,9 +5649,9 @@ static bool dialog_moves(uint32_t width, uint32_t height, uint8_t cursor, enum i
        is covered there. What is under test is the press once one is up. */
     store.nav.screen = MESH_UI_SCREEN_SETTINGS;
     store.nav.settings_section = MESH_UI_SETTINGS_ACTIONS;
-    store.nav.confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_REBOOT;
-    store.nav.confirm_open = true;
-    store.nav.confirm_cursor = cursor;
+    store.nav.confirm.subject = (uint8_t)MESH_UI_SETTINGS_ACTION_REBOOT;
+    store.nav.confirm.open = true;
+    store.nav.confirm.cursor = cursor;
 
     struct mesh_ui_snapshot snapshot;
     memset(&snapshot, 0, sizeof snapshot);
@@ -5678,7 +5678,7 @@ static bool dialog_moves(uint32_t width, uint32_t height, uint8_t cursor, enum i
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, key, &action);
-    const bool moved = store.nav.confirm_cursor != cursor;
+    const bool moved = store.nav.confirm.cursor != cursor;
 
     inkcell_capture_close(capture);
     mesh_ui_store_shutdown(&store);
@@ -5730,13 +5730,13 @@ MESH_TEST_CASE(ui_capture_a_dialog_falls_back_before_its_first_frame, unit) {
     inkcell_focus_begin(&map, items, 2U);
     mesh_ui_store_set_focus_map(&store, &map);
     store.nav.screen = MESH_UI_SCREEN_SETTINGS;
-    store.nav.confirm_open = true;
-    store.nav.confirm_cursor = 1U;
+    store.nav.confirm.open = true;
+    store.nav.confirm.cursor = 1U;
 
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
-    const bool moved = store.nav.confirm_cursor == 0U;
+    const bool moved = store.nav.confirm.cursor == 0U;
 
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(!moved, "a stale underlying frame should not trap focus on Cancel");
@@ -5757,13 +5757,13 @@ MESH_TEST_CASE(ui_capture_a_dialog_ignores_the_rows_behind_it, unit) {
     (void)inkcell_focus_add(&map, (uint32_t)MESH_UI_FOCUS_DIALOG, 770, 481, 230, 44);
     mesh_ui_store_set_focus_map(&store, &map);
     store.nav.screen = MESH_UI_SCREEN_SETTINGS;
-    store.nav.confirm_open = true;
-    store.nav.confirm_cursor = 1U;
+    store.nav.confirm.open = true;
+    store.nav.confirm.cursor = 1U;
 
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
-    const bool moved = store.nav.confirm_cursor == 0U;
+    const bool moved = store.nav.confirm.cursor == 0U;
 
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(!moved, "a modal should resolve focus without the dimmed rows behind it");
@@ -5840,9 +5840,9 @@ MESH_TEST_CASE(ui_capture_focus_ring_follows_the_dialog_cursor, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     store.nav.screen = MESH_UI_SCREEN_SETTINGS;
-    store.nav.confirm_open = true;
-    store.nav.confirm_cursor = 0U;
-    store.nav.confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_REBOOT;
+    store.nav.confirm.open = true;
+    store.nav.confirm.cursor = 0U;
+    store.nav.confirm.subject = (uint8_t)MESH_UI_SETTINGS_ACTION_REBOOT;
 
     struct inkcell_capture *capture = NULL;
     MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
@@ -5856,7 +5856,7 @@ MESH_TEST_CASE(ui_capture_focus_ring_follows_the_dialog_cursor, unit) {
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
     render_until_still(capture, &snapshot);
 
-    const uint32_t first = (uint32_t)MESH_UI_FOCUS_DIALOG + store.nav.confirm_cursor;
+    const uint32_t first = (uint32_t)MESH_UI_FOCUS_DIALOG + store.nav.confirm.cursor;
     struct inkcell_focus_rect box = {0, 0, 0, 0};
     struct inkcell_focus_rect ring = {0, 0, 0, 0};
     const bool placed = inkcell_focus_rect_of(state->focus, first, &box) &&
@@ -5872,9 +5872,9 @@ MESH_TEST_CASE(ui_capture_focus_ring_follows_the_dialog_cursor, unit) {
                               mesh_ui_store_shutdown(&store),
                               "the rows dimmed behind the question must not take the ring");
 
-    const uint8_t before = store.nav.confirm_cursor;
+    const uint8_t before = store.nav.confirm.cursor;
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
-    if (store.nav.confirm_cursor == before) {
+    if (store.nav.confirm.cursor == before) {
         (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     }
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
@@ -5882,7 +5882,7 @@ MESH_TEST_CASE(ui_capture_focus_ring_follows_the_dialog_cursor, unit) {
     const bool travelling = inkcell_capture_animating(capture);
     render_until_still(capture, &snapshot);
 
-    const uint32_t next = (uint32_t)MESH_UI_FOCUS_DIALOG + store.nav.confirm_cursor;
+    const uint32_t next = (uint32_t)MESH_UI_FOCUS_DIALOG + store.nav.confirm.cursor;
     const bool landed = next != first && inkcell_focus_rect_of(state->focus, next, &box) &&
                         inkcell_fb_focus_ring_rect(state, &ring, NULL) &&
                         memcmp(&box, &ring, sizeof box) == 0;

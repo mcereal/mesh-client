@@ -942,18 +942,18 @@ MESH_TEST_CASE(help_is_not_offered_over_an_overlay_on_a_section, unit) {
        told us, and a test that pressed a fixed row would be asserting the section's order. */
     for (uint32_t row = 0;
          row < mesh_ui_nav_row_count(&confirm.nav, &confirm, confirm.nav.screen) &&
-         !confirm.nav.confirm_open;
+         !confirm.nav.confirm.open;
          ++row) {
         press(&confirm, INKCELL_KEY_A);
-        if (!confirm.nav.confirm_open) {
+        if (!confirm.nav.confirm.open) {
             press(&confirm, INKCELL_KEY_DOWN);
         }
     }
-    MESH_TEST_FAIL_IF(!confirm.nav.confirm_open, "no row raised the confirm dialog");
+    MESH_TEST_FAIL_IF(!confirm.nav.confirm.open, "no row raised the confirm dialog");
     MESH_TEST_FAIL_IF(bar_offers_help(&confirm), "the confirm dialog offered the help press");
     press(&confirm, INKCELL_KEY_SELECT);
     MESH_TEST_FAIL_IF(confirm.nav.help_open, "SELECT opened help over the confirm dialog");
-    MESH_TEST_FAIL_IF(!confirm.nav.confirm_open, "SELECT answered the question instead");
+    MESH_TEST_FAIL_IF(!confirm.nav.confirm.open, "SELECT answered the question instead");
     record_success(test_name);
 }
 

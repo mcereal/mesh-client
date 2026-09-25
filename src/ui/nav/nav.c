@@ -14,6 +14,7 @@
 
 #include "nav_internal.h"
 
+#include "inkstand/nav/dialog.h"
 #include "mesh/core/message.h"
 #include "mesh/ui/devices.h"
 #include "mesh/ui/focus.h"
@@ -1622,9 +1623,8 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
            straight through. */
         const enum mesh_ui_settings_action which = (enum mesh_ui_settings_action)item.number;
         if (mesh_ui_settings_action_needs_confirm(which)) {
-            nav->confirm_open = true;
-            nav->confirm_cursor = 1U; /* Cancel, so a repeated press changes nothing */
-            nav->confirm_action = (uint8_t)which;
+            /* Cancel under the cursor, so a repeated press changes nothing. */
+            inkstand_dialog_open(&nav->confirm, (uint16_t)which);
             return true;
         }
         if (mesh_ui_settings_action_is_radio(which)) {
@@ -2786,6 +2786,14 @@ bool mesh_ui_nav_close_verify_number(struct mesh_ui_nav *nav) {
     return true;
 }
 
+/* A dialog's answers are MESH_UI_FOCUS_DIALOG and the one after it on this client's focus map; the
+   walk between them is inkstand's nav/dialog.h's. */
+uint8_t mesh_ui_nav_dialog_answer(const struct mesh_ui_store *store, enum inkcell_key key,
+                                  uint8_t cursor) {
+    return inkstand_dialog_answer(store != NULL ? store->focus : NULL,
+                                  (uint32_t)MESH_UI_FOCUS_DIALOG, key, cursor);
+}
+
 /*
  * One key while the sheet is up.
  *
@@ -2801,58 +2809,6 @@ bool mesh_ui_nav_close_verify_number(struct mesh_ui_nav *nav) {
  * the user never made. The exchange stays open and the core expires it (see
  * mesh/core/key_verification.h), or the user answers it when the sheet comes back.
  */
-uint8_t mesh_ui_nav_dialog_answer(const struct mesh_ui_store *store, enum inkcell_key key,
-                                  uint8_t cursor) {
-    const uint8_t here = (uint8_t)(cursor == 0U ? 0U : 1U);
-    const uint8_t other = (uint8_t)(here == 0U ? 1U : 0U);
-    const struct inkcell_focus_map *const map = store != NULL ? store->focus : NULL;
-    enum inkcell_focus_dir dir;
-    const uint32_t here_id = (uint32_t)MESH_UI_FOCUS_DIALOG + here;
-    /*
-     * A backend can already have handed the controller a perfectly good map from the frame
-     * under a dialog which has only just opened.  That is not the same thing as a map of the
-     * dialog: neither answer is in it yet.  Treat it like the no-map case and keep the old
-     * toggle fallback, otherwise the safe default (Cancel) becomes a trap until another frame
-     * happens to replace the map.
-     */
-    if (map == NULL || !inkcell_focus_has(map, here_id) || !inkcell_focus_dir_for_key(key, &dir)) {
-        return other;
-    }
-    /*
-     * Resolve inside the modal, not against every box dimmed behind it. A wide settings row
-     * can cross the same horizontal band as these buttons; the general finder then quite
-     * reasonably chooses that nearer rectangle, and the range guard below quite reasonably
-     * refuses to let a modal cursor land there. Together those two correct local decisions
-     * trap the cursor on Cancel. A two-item map states the missing fact: while this question is
-     * up, its two answers are the whole focus world.
-     */
-    struct inkcell_focus_item items[2];
-    struct inkcell_focus_map dialog;
-    inkcell_focus_begin(&dialog, items, 2U);
-    for (uint8_t answer = 0U; answer < 2U; ++answer) {
-        const uint32_t id = (uint32_t)MESH_UI_FOCUS_DIALOG + answer;
-        struct inkcell_focus_rect rect;
-        if (inkcell_focus_rect_of(map, id, &rect)) {
-            (void)inkcell_focus_add(&dialog, id, rect.x, rect.y, rect.w, rect.h);
-        }
-    }
-    const uint32_t to = inkcell_focus_find(&dialog, here_id, dir);
-    if (to == INKCELL_FOCUS_NONE) {
-        /*
-         * Nothing that way. On a dialog that is the edge of the panel and the press goes spare,
-         * which is the right answer and not the old one: Left from the leading button used to
-         * land on the trailing one, so a reader holding Left saw the cursor shuttling between
-         * two answers rather than resting on the one they had reached.
-         */
-        return here;
-    }
-    if (to < (uint32_t)MESH_UI_FOCUS_DIALOG || to > (uint32_t)MESH_UI_FOCUS_DIALOG + 1U) {
-        /* Something else on the frame. A dialog is modal, so the cursor does not leave it. */
-        return here;
-    }
-    return (uint8_t)(to - (uint32_t)MESH_UI_FOCUS_DIALOG);
-}
-
 bool mesh_ui_nav_verify_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum inkcell_key key, struct mesh_ui_action *action) {
     const uint8_t stage = store != NULL ? store->verification.stage : 0U;

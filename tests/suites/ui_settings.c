@@ -4004,12 +4004,12 @@ MESH_TEST_CASE(ui_settings_firmware_install_goes_through_the_sheet, unit) {
         failure = "A on the row opens the question rather than sending the radio anywhere";
         goto cleanup;
     }
-    if (!store.nav.confirm_open ||
-        store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE) {
+    if (!store.nav.confirm.open ||
+        store.nav.confirm.subject != (uint8_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE) {
         failure = "and the sheet should be the one for this bus";
         goto cleanup;
     }
-    if (store.nav.confirm_cursor != 1U) {
+    if (store.nav.confirm.cursor != 1U) {
         failure = "the sheet opens on Cancel, so a repeated press changes nothing";
         goto cleanup;
     }
@@ -4017,7 +4017,7 @@ MESH_TEST_CASE(ui_settings_firmware_install_goes_through_the_sheet, unit) {
     /* B backs out and nothing happens, which is the half of the sheet that matters most. */
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
-    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE) {
+    if (store.nav.confirm.open || action.type != MESH_UI_ACTION_NONE) {
         failure = "backing out of the sheet should install nothing";
         goto cleanup;
     }
@@ -4026,7 +4026,7 @@ MESH_TEST_CASE(ui_settings_firmware_install_goes_through_the_sheet, unit) {
     store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = install_row;
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    store.nav.confirm_cursor = 0U;
+    store.nav.confirm.cursor = 0U;
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE) {
@@ -4037,7 +4037,7 @@ MESH_TEST_CASE(ui_settings_firmware_install_goes_through_the_sheet, unit) {
         failure = "and should carry the bus the sheet named";
         goto cleanup;
     }
-    if (store.nav.confirm_open) {
+    if (store.nav.confirm.open) {
         failure = "the sheet closes behind it";
         goto cleanup;
     }

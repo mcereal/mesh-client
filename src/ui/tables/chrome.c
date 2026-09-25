@@ -59,7 +59,7 @@ bool mesh_ui_chrome_busy(const struct mesh_ui_snapshot *snapshot) {
  * ui_chrome_banner_yields_to_a_modal walks one at a time to catch.
  */
 static bool mesh_ui_chrome_modal_open(const struct mesh_ui_nav *nav) {
-    return nav->confirm_open || nav->picker_open || nav->keyboard_open || nav->compose_open ||
+    return nav->confirm.open || nav->picker_open || nav->keyboard_open || nav->compose_open ||
            nav->reaction_open || nav->help_open;
 }
 

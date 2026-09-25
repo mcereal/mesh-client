@@ -225,7 +225,7 @@ MESH_TEST_CASE(ui_chrome_banner_yields_to_a_modal, unit) {
         snapshot.settings.client.update_state = (uint8_t)MESH_UPDATE_READY;
         switch (overlay) {
         case 0:
-            snapshot.nav.confirm_open = true;
+            snapshot.nav.confirm.open = true;
             break;
         case 1:
             snapshot.nav.picker_open = true;

@@ -201,7 +201,7 @@ enum fb_list_id {
  *
  * A layer is on the panel until its travel says otherwise, and the app has to keep describing
  * its content for exactly that long - which the nav cannot do: mesh_ui_nav_confirm_close()
- * clears `confirm_action` the moment an answer is given, and a verification sheet's stage is
+ * clears `confirm.subject` the moment an answer is given, and a verification sheet's stage is
  * gone as soon as the exchange ends. Without this the two would vanish on the frame they were
  * answered instead of going away, which is what they did when they were screens.
  *

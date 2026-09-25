@@ -615,7 +615,7 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
      */
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "not a link");
     mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
-    if (!store.nav.keyboard_open || store.nav.confirm_open || store.nav.toast.text[0] == '\0') {
+    if (!store.nav.keyboard_open || store.nav.confirm.open || store.nav.toast.text[0] == '\0') {
         failure = "a link that does not parse should stay on the keyboard and say so";
         goto cleanup;
     }
@@ -633,9 +633,9 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
-    if (store.nav.keyboard_open || !store.nav.confirm_open ||
-        store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS ||
-        store.nav.confirm_cursor != 1U) {
+    if (store.nav.keyboard_open || !store.nav.confirm.open ||
+        store.nav.confirm.subject != (uint8_t)MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS ||
+        store.nav.confirm.cursor != 1U) {
         failure = "a link should close the keyboard and raise the sheet, on Cancel";
         goto cleanup;
     }
@@ -655,7 +655,7 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
        app can parse it against whatever the radio's table has become since. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action); /* onto the accept button */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_IMPORT_CHANNELS ||
+    if (store.nav.confirm.open || action.type != MESH_UI_ACTION_IMPORT_CHANNELS ||
         strcmp(action.text, link) != 0) {
         failure = "the sheet's accept should hand the app the link";
         goto cleanup;

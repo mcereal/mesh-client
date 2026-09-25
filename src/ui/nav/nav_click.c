@@ -90,7 +90,7 @@ static bool mesh_ui_nav_click_tab(struct mesh_ui_nav *nav, const struct mesh_ui_
  */
 static uint32_t *mesh_ui_nav_click_cursor(struct mesh_ui_nav *nav, uint32_t block, bool *activate) {
     *activate = true;
-    if (nav->help_open || nav->verify_open || nav->confirm_open) {
+    if (nav->help_open || nav->verify_open || nav->confirm.open) {
         return NULL;
     }
     if (block == (uint32_t)MESH_UI_FOCUS_SHEET_ROWS) {
@@ -207,8 +207,8 @@ static bool mesh_ui_nav_click_dialog(struct mesh_ui_nav *nav, const struct mesh_
     }
     if (nav->verify_open) {
         nav->verify_cursor = answer;
-    } else if (nav->confirm_open) {
-        nav->confirm_cursor = answer;
+    } else if (nav->confirm.open) {
+        nav->confirm.cursor = answer;
     } else {
         /* A dialog still travelling out after its answer. */
         return false;

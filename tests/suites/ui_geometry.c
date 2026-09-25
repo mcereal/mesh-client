@@ -254,9 +254,9 @@ MESH_TEST_CASE(ui_geometry_overlays_stay_inside_the_panel, unit) {
         for (size_t overlay = 0U;
              overlay < sizeof k_overlays / sizeof k_overlays[0] && failure == NULL; ++overlay) {
             store.nav.screen = overlay == 0U ? MESH_UI_SCREEN_SETTINGS : MESH_UI_SCREEN_MESSAGES;
-            store.nav.confirm_open = overlay == 0U;
-            store.nav.confirm_cursor = 0U;
-            store.nav.confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE;
+            store.nav.confirm.open = overlay == 0U;
+            store.nav.confirm.cursor = 0U;
+            store.nav.confirm.subject = (uint8_t)MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE;
             store.nav.compose_open = overlay == 1U;
             store.nav.keyboard_open = overlay == 1U;
 
@@ -297,7 +297,7 @@ MESH_TEST_CASE(ui_geometry_overlays_stay_inside_the_panel, unit) {
              * here is the settled frame, so each is somebody's first.
              */
             struct mesh_ui_snapshot plain = snapshot;
-            plain.nav.confirm_open = false;
+            plain.nav.confirm.open = false;
             plain.nav.compose_open = false;
             plain.nav.keyboard_open = false;
 

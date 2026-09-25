@@ -13,6 +13,7 @@
 
 #include "nav_internal.h"
 
+#include "mesh/ui/focus.h"
 #include "mesh/ui/settings.h"
 
 #include <stdio.h>
@@ -280,11 +281,6 @@ static void mesh_ui_nav_fill_save(const struct mesh_ui_nav *nav, struct mesh_ui_
     memcpy(action->edits, nav->settings_edits, sizeof action->edits);
 }
 
-static void mesh_ui_nav_confirm_close(struct mesh_ui_nav *nav) {
-    nav->confirm_open = false;
-    nav->confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_NONE;
-}
-
 /* A radio action carries the open section's pending edits for the same reason a save does:
    "Set fixed position" is a row that reads the three rows above it. The two forget rows sit in
    the same section and go through the same confirm sheet, but ask this client to drop its own
@@ -363,56 +359,41 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
 
 bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                              enum inkcell_key key, struct mesh_ui_action *action) {
-    switch (key) {
-    case INKCELL_KEY_UP:
-    case INKCELL_KEY_DOWN:
-    case INKCELL_KEY_LEFT:
-    case INKCELL_KEY_RIGHT: {
-        const uint8_t to = mesh_ui_nav_dialog_answer(store, key, nav->confirm_cursor);
-        if (to == nav->confirm_cursor) {
-            return false;
-        }
-        nav->confirm_cursor = to;
+    uint16_t subject = 0U;
+    switch (inkstand_dialog_key(&nav->confirm, store != NULL ? store->focus : NULL,
+                                (uint32_t)MESH_UI_FOCUS_DIALOG, key, &subject)) {
+    case INKSTAND_DIALOG_MOVED:
+    case INKSTAND_DIALOG_CANCELLED:
         return true;
-    }
-    case INKCELL_KEY_A:
-    case INKCELL_KEY_START:
-        if (nav->confirm_cursor == 0U) {
-            /* Two things stand behind this overlay: a section save, and an action row that
-               keeps no state and so has no edits to carry - a radio one, or one of the two
-               that ask this client to forget cached nodes. */
-            if (nav->confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_NONE) {
-                const enum mesh_ui_settings_action confirmed =
-                    (enum mesh_ui_settings_action)nav->confirm_action;
-                mesh_ui_nav_fill_settings_action(nav, confirmed, action);
-                /*
-                 * The one confirmed row that takes itself off the screen: a cleared slot is an
-                 * empty one, and an empty slot is not offered the press. So the cursor is put
-                 * back on a row that will still be there, the way the press that leaves remote
-                 * administration does.
-                 *
-                 * The cursor and *only* the cursor. Dropping the pending edits here as well
-                 * would be this layer deciding an outcome it does not know yet: whether the
-                 * write was queued at all is the app's answer, and mesh_app_save_settings()
-                 * consumes the edits on a positive result and otherwise says "edits kept". A
-                 * clear confirmed with no link would have erased nothing and thrown away the
-                 * user's typing anyway.
-                 */
-                if (confirmed == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
-                    nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
-                }
-            } else {
-                mesh_ui_nav_fill_save(nav, action);
-            }
-        }
-        mesh_ui_nav_confirm_close(nav);
-        return true;
-    case INKCELL_KEY_B:
-        mesh_ui_nav_confirm_close(nav);
-        return true;
+    case INKSTAND_DIALOG_ACCEPTED:
+        break;
     default:
         return false;
     }
+    /* Two things stand behind this overlay: a section save, and an action row that keeps no state
+       and so has no edits to carry - a radio one, or one of the two that ask this client to forget
+       cached nodes. */
+    if (subject == (uint16_t)MESH_UI_SETTINGS_ACTION_NONE) {
+        mesh_ui_nav_fill_save(nav, action);
+        return true;
+    }
+    const enum mesh_ui_settings_action confirmed = (enum mesh_ui_settings_action)subject;
+    mesh_ui_nav_fill_settings_action(nav, confirmed, action);
+    /*
+     * The one confirmed row that takes itself off the screen: a cleared slot is an empty one, and
+     * an empty slot is not offered the press. So the cursor is put back on a row that will still be
+     * there, the way the press that leaves remote administration does.
+     *
+     * The cursor and *only* the cursor. Dropping the pending edits here as well would be this layer
+     * deciding an outcome it does not know yet: whether the write was queued at all is the app's
+     * answer, and mesh_app_save_settings() consumes the edits on a positive result and otherwise
+     * says "edits kept". A clear confirmed with no link would have erased nothing and thrown away
+     * the user's typing anyway.
+     */
+    if (confirmed == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+        nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
+    }
+    return true;
 }
 
 bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav) {
@@ -475,9 +456,8 @@ bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh
         }
         if (mesh_ui_settings_section_needs_confirm(
                 (enum mesh_ui_settings_section)nav->settings_section)) {
-            nav->confirm_open = true;
-            nav->confirm_cursor = 1U; /* Cancel, so a repeated press changes nothing */
-            nav->confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_NONE;
+            /* Cancel under the cursor, so a repeated press changes nothing. */
+            inkstand_dialog_open(&nav->confirm, (uint16_t)MESH_UI_SETTINGS_ACTION_NONE);
             return true;
         }
         mesh_ui_nav_fill_save(nav, action);

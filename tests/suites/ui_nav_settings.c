@@ -567,13 +567,13 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
     }
     /* Y asks first; B cancels; Y, Up, A saves with the channel slot in the action. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
-    if (!store.nav.confirm_open || store.nav.confirm_cursor != 1U ||
+    if (!store.nav.confirm.open || store.nav.confirm.cursor != 1U ||
         action.type != MESH_UI_ACTION_NONE) {
         failure = "Y on a channel should open the confirm overlay on Cancel";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE ||
+    if (store.nav.confirm.open || action.type != MESH_UI_ACTION_NONE ||
         store.nav.settings_edit_count != 1U) {
         failure = "A on Cancel should close the overlay and keep the edits";
         goto cleanup;
@@ -581,7 +581,7 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_SAVE_SETTINGS ||
+    if (store.nav.confirm.open || action.type != MESH_UI_ACTION_SAVE_SETTINGS ||
         action.section != MESH_UI_SETTINGS_CHANNELS || action.channel != 1U ||
         action.edit_count != 1U || action.edits[0].field != MESH_UI_FIELD_CHANNEL_KEY) {
         failure = "confirming should emit the save for channel 1";
@@ -690,8 +690,8 @@ MESH_TEST_CASE(ui_nav_clear_channel, unit) {
 
     /* A asks rather than acts, and the question opens on Cancel. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (!store.nav.confirm_open || store.nav.confirm_cursor != 1U ||
-        store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL ||
+    if (!store.nav.confirm.open || store.nav.confirm.cursor != 1U ||
+        store.nav.confirm.subject != (uint8_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL ||
         action.type != MESH_UI_ACTION_NONE) {
         failure = "A on the clearing verb should open the question on Cancel";
         goto cleanup;
@@ -699,7 +699,7 @@ MESH_TEST_CASE(ui_nav_clear_channel, unit) {
     /* Onto the verb and answer. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_SAVE_SETTINGS ||
+    if (store.nav.confirm.open || action.type != MESH_UI_ACTION_SAVE_SETTINGS ||
         action.section != MESH_UI_SETTINGS_CHANNELS || action.channel != 1U ||
         action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
         failure = "confirming should emit a save of that slot carrying the clearing verb";
@@ -958,21 +958,21 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
 
     /* A opens the question on Cancel, and asking is not doing. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (!store.nav.confirm_open || store.nav.confirm_cursor != 1U ||
-        store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_REBOOT ||
+    if (!store.nav.confirm.open || store.nav.confirm.cursor != 1U ||
+        store.nav.confirm.subject != (uint8_t)MESH_UI_SETTINGS_ACTION_REBOOT ||
         action.type != MESH_UI_ACTION_NONE) {
         failure = "A on Reboot should open the confirm overlay on Cancel";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE ||
-        store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_NONE) {
+    if (store.nav.confirm.open || action.type != MESH_UI_ACTION_NONE ||
+        store.nav.confirm.subject != (uint8_t)MESH_UI_SETTINGS_ACTION_NONE) {
         failure = "A on Cancel should close the overlay without acting";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
-    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE ||
+    if (store.nav.confirm.open || action.type != MESH_UI_ACTION_NONE ||
         mesh_ui_nav_open_section(&store.nav) != (uint8_t)MESH_UI_SETTINGS_RADIO_DETAILS) {
         failure = "B should back out of the overlay and no further";
         goto cleanup;
@@ -992,7 +992,7 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_RADIO_ACTION ||
+    if (store.nav.confirm.open || action.type != MESH_UI_ACTION_RADIO_ACTION ||
         action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_REBOOT ||
         action.section != MESH_UI_SETTINGS_RADIO_DETAILS || action.edit_count != 0U) {
         failure = "confirming should emit the reboot and carry none of the Settings tab's edits";
@@ -1144,14 +1144,14 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     /* A asks first, like every other row in this section: a forgotten node comes back only
        when it speaks again. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (!store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE ||
-        store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES) {
+    if (!store.nav.confirm.open || action.type != MESH_UI_ACTION_NONE ||
+        store.nav.confirm.subject != (uint8_t)MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES) {
         failure = "A on the forget row should open the confirm overlay";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_FORGET_NODES ||
+    if (store.nav.confirm.open || action.type != MESH_UI_ACTION_FORGET_NODES ||
         action.number != 0U) {
         failure = "confirming should ask the client to drop the off-radio nodes";
         goto cleanup;
@@ -1434,7 +1434,7 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (store.nav.confirm_open) {
+    if (store.nav.confirm.open) {
         failure = "setting a position should not ask first";
         goto cleanup;
     }
@@ -1747,7 +1747,7 @@ MESH_TEST_CASE(ui_nav_ham_mode, unit) {
     }
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (!store.nav.confirm_open || action.type == MESH_UI_ACTION_RADIO_ACTION) {
+    if (!store.nav.confirm.open || action.type == MESH_UI_ACTION_RADIO_ACTION) {
         failure = "A on the ham row should open the sheet rather than act";
         goto cleanup;
     }
@@ -2095,7 +2095,7 @@ MESH_TEST_CASE(ui_nav_a_chevron_is_a_promise_the_nav_keeps, unit) {
             (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &out);
             /* Everything the nav can raise from a settings row: the question, the two code
                screens, and the keyboard the two importing rows open. */
-            const bool raised = store.nav.confirm_open || store.nav.share_open ||
+            const bool raised = store.nav.confirm.open || store.nav.share_open ||
                                 store.nav.contact_open || store.nav.keyboard_open;
             const bool promised = mesh_ui_settings_action_opens(which);
             if (raised != promised) {

@@ -3,7 +3,6 @@
 #include "mesh/map/viewport.h"
 /* For struct mesh_ui_message_view, which the transcript's filter takes by value: the nav has
    to see its definition, and the record header names nothing here, so this is not a cycle. */
-#include "inkstand/nav/toast.h"
 #include "mesh/ui/store_message.h"
 
 #include <stdbool.h>
@@ -12,6 +11,7 @@
 
 #include "inkcell/ui/key.h"
 #include "inkcell/ui/keyboard.h"
+#include "inkstand/nav/dialog.h"
 #include "inkstand/nav/toast.h"
 
 #ifdef __cplusplus
@@ -577,12 +577,10 @@ struct mesh_ui_nav {
     uint32_t settings_channel_list_cursor;
     /* The confirm overlay: "Save <section>?" for sections whose write can cut this client off
        (Bluetooth, Channels, LoRa, Security, Power), and every row in the Radio actions
-       section. Row 0 goes ahead, row 1 cancels. `confirm_action` says which of the two it is
-       standing in front of: MESH_UI_SETTINGS_ACTION_NONE is the section save, anything else is
-       that radio action. */
-    bool confirm_open;
-    uint8_t confirm_cursor;
-    uint8_t confirm_action; /* enum mesh_ui_settings_action */
+       section. See inkstand's nav/dialog.h. `confirm.subject` is an enum mesh_ui_settings_action
+       and says which of the two it is standing in front of: MESH_UI_SETTINGS_ACTION_NONE is the
+       section save, anything else is that radio action. */
+    struct inkstand_dialog confirm;
     /* Edits made in the open section and not yet saved. Y sends them as one
        MESH_UI_ACTION_SAVE_SETTINGS; B asks once (discard_armed) and discards on the second
        press. The app clears them through mesh_ui_store_settings_edits_clear() once queued. */
@@ -687,7 +685,7 @@ struct mesh_ui_nav {
      *
      * An overlay like the confirm dialog, and opened like the pairing prompt - by the app,
      * because the thing that raises it is a ClientNotification rather than a press. `verify_cursor`
-     * is the dialog's own 0-is-accept, 1-is-cancel, the same one `confirm_cursor` carries.
+     * is the dialog's own 0-is-accept, 1-is-cancel, the same one `confirm.cursor` carries.
      *
      * What it *says* is not here: the stage, the digits and the characters are in the snapshot
      * (struct mesh_ui_verification), because they are what the radio is doing rather than where

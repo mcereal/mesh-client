@@ -436,9 +436,8 @@ bool mesh_ui_nav_commit_channel_url(struct mesh_ui_nav *nav) {
     mesh_ui_nav_keyboard_close(nav);
     /* The sheet, which is where the radio first hears about any of this. Cancel by default, so
        a repeated press on Done cannot join a mesh. */
-    nav->confirm_open = true;
-    nav->confirm_cursor = 1U;
-    nav->confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS;
+    /* Cancel under the cursor, so a repeated press changes nothing. */
+    inkstand_dialog_open(&nav->confirm, (uint16_t)MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS);
     return true;
 }
 
@@ -478,9 +477,8 @@ bool mesh_ui_nav_commit_contact_url(struct mesh_ui_nav *nav) {
     mesh_ui_nav_keyboard_close(nav);
     /* Cancel by default, so a repeated press on Done cannot write a stranger's key to the
        radio. */
-    nav->confirm_open = true;
-    nav->confirm_cursor = 1U;
-    nav->confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT;
+    /* Cancel under the cursor, so a repeated press changes nothing. */
+    inkstand_dialog_open(&nav->confirm, (uint16_t)MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT);
     return true;
 }
 
