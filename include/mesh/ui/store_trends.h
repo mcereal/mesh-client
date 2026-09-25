@@ -58,6 +58,7 @@
  */
 
 #include "mesh/ui/history.h"
+#include "mesh/ui/store_journal.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -133,9 +134,9 @@ struct mesh_ui_trends_node {
  * with SIGKILL by its own deploy script.
  */
 struct mesh_ui_trends {
-    /* The directory the files live in, with no trailing slash. Empty disables the log entirely,
-       which is what a client with nowhere to write runs as. */
-    char dir[512];
+    /* The files, one per node. A disabled journal disables the log entirely, which is what a
+       client with nowhere to write runs as. */
+    struct mesh_ui_journal journal;
     /*
      * The radio these files are about.
      *
