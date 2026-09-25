@@ -846,7 +846,8 @@ static int install_radio_firmware_ble(struct mesh_app *app,
  * its bootloader from the HUD, which is where the rest of the handover lives.
  */
 static int install_radio_firmware_dfu(struct mesh_app *app,
-                                      const struct cli_firmware_fetch *fetched) {
+                                      const struct cli_firmware_fetch *fetched,
+                                      const char *radio_address) {
     char package_path[INKWELL_FETCH_PATH_MAX];
     if (mesh_firmware_fetch_image_path(&fetched->fetch, package_path, sizeof package_path) ==
         NULL) {
@@ -873,7 +874,7 @@ static int install_radio_firmware_dfu(struct mesh_app *app,
     memset(&params, 0, sizeof params);
     params.client = &client;
     params.package_path = package_path;
-    params.radio_address = app->config.preferred_ble_device;
+    params.radio_address = radio_address;
     params.arm = false;
     params.request_interval = mesh_ble_ota_request_interval;
     if (mesh_firmware_dfu_start(&dfu, &params) < 0) {
@@ -903,7 +904,8 @@ static int install_radio_firmware_dfu(struct mesh_app *app,
 }
 
 static int install_radio_firmware(struct mesh_app *app, const char *target, const char *staging,
-                                  bool use_serial, const char *serial_identifier) {
+                                  bool use_serial, const char *serial_identifier,
+                                  const char *named_ble_device) {
     static struct cli_firmware_fetch fetched;
     const int got = fetch_radio_firmware(app, &fetched, target, staging, MESH_FIRMWARE_PATH_NONE);
     if (got < 0) {
@@ -920,15 +922,17 @@ static int install_radio_firmware(struct mesh_app *app, const char *target, cons
         }
         return install_radio_firmware_ble(app, &fetched);
     }
-    if (!use_serial && app->config.preferred_ble_device[0] != '\0' &&
-        mesh_firmware_architecture_uses_nordic_dfu(fetched.fetch.manifest.architecture)) {
+    /* Only for an address named on this command line, and only where BLE can carry it. */
+    if (!use_serial && named_ble_device[0] != '\0' &&
+        mesh_firmware_architecture_takes(fetched.fetch.manifest.architecture,
+                                         MESH_FIRMWARE_PATH_BLE)) {
         /* Named over BLE: the DFU package rather than the UF2 just fetched. */
         const int again =
             fetch_radio_firmware(app, &fetched, target, staging, MESH_FIRMWARE_PATH_BLE);
         if (again < 0) {
             return again;
         }
-        return install_radio_firmware_dfu(app, &fetched);
+        return install_radio_firmware_dfu(app, &fetched, named_ble_device);
     }
     if (fetched.fetch.path != MESH_FIRMWARE_PATH_USB) {
         fprintf(stderr, "%s has no install path from here.\n", target);
@@ -1138,6 +1142,9 @@ int main(int argc, char **argv) {
     unsigned long send_channel = 0UL;
     bool send_want_ack = false;
     bool use_serial = false;
+    /* The address -p named on this command line, and only that: config.preferred_ble_device is
+       also filled from the saved preference, which is not a request for anything. */
+    char named_ble_device[INKWELL_BLE_ADDRESS_MAX] = {0};
     const char *serial_identifier = NULL;
     const char *fetch_firmware_target = NULL;
     /* /mnt/UDISK on a Brick, deliberately not the SD card: on the USB path the
@@ -1192,6 +1199,7 @@ int main(int argc, char **argv) {
             if (optarg != NULL) {
                 inkwell_str_copy(config.preferred_ble_device, sizeof config.preferred_ble_device,
                                  optarg);
+                inkwell_str_copy(named_ble_device, sizeof named_ble_device, optarg);
             }
             break;
         case 't':
@@ -1369,7 +1377,7 @@ int main(int argc, char **argv) {
          * download has finished by the time anything is connected.
          */
         result = install_radio_firmware(&app, install_firmware_target, fetch_firmware_staging,
-                                        use_serial, serial_identifier);
+                                        use_serial, serial_identifier, named_ble_device);
         mesh_app_shutdown(&app);
         return result < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
     }

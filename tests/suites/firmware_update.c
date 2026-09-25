@@ -686,15 +686,19 @@ MESH_TEST_CASE(firmware_update_holds_the_antenna_not_the_radio, unit) {
     }
 
     /* The same nRF52 over Bluetooth: its BLE image is the Nordic DFU package, and the handover
-       is the DFU bootloader rather than the ESP32's loader. */
-    if (mesh_firmware_update_start(&harness.update, &board, &release, MESH_FIRMWARE_PATH_BLE,
-                                   "F4:12:FA:3C:88:10", &hooks, update_probe_done, &probe) != 0) {
-        failure = "an nRF52 press over BLE should start";
-        goto cleanup;
-    }
-    if (harness.update.path != MESH_FIRMWARE_PATH_BLE || !harness.update.nordic_dfu ||
-        harness.update.image.bus != MESH_FIRMWARE_PATH_BLE) {
-        failure = "and should go over BLE, as Nordic DFU, fetching the BLE image";
+       is the DFU bootloader rather than the ESP32's loader - where the stack can carry it, and
+       refused before anything is fetched where it cannot. */
+    const int ble =
+        mesh_firmware_update_start(&harness.update, &board, &release, MESH_FIRMWARE_PATH_BLE,
+                                   "F4:12:FA:3C:88:10", &hooks, update_probe_done, &probe);
+    if (!mesh_firmware_nordic_dfu_available()) {
+        if (ble != -ENOTSUP) {
+            failure = "an nRF52 press over BLE is refused where the stack cannot carry DFU";
+            goto cleanup;
+        }
+    } else if (ble != 0 || harness.update.path != MESH_FIRMWARE_PATH_BLE ||
+               !harness.update.nordic_dfu || harness.update.image.bus != MESH_FIRMWARE_PATH_BLE) {
+        failure = "an nRF52 press over BLE should start as Nordic DFU, fetching the BLE image";
         goto cleanup;
     }
     mesh_firmware_update_cancel(&harness.update);

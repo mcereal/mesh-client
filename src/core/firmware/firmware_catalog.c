@@ -58,6 +58,20 @@ enum mesh_firmware_path mesh_firmware_path_for_architecture(const char *architec
     return row < 0 ? MESH_FIRMWARE_PATH_NONE : k_architectures[row].path;
 }
 
+/*
+ * Nordic DFU's data characteristic takes Write Commands and nothing else. BlueZ sends one for a
+ * characteristic that allows nothing more; inkwell's CoreBluetooth and WinRT backends always write
+ * with response, and would fail on the first packet - after START had already erased the radio's
+ * application. So on those builds an nRF52 has its USB path and no other.
+ */
+bool mesh_firmware_nordic_dfu_available(void) {
+#if defined(INKWELL_BLE_BACKEND_bluez)
+    return true;
+#else
+    return false;
+#endif
+}
+
 bool mesh_firmware_architecture_uses_nordic_dfu(const char *architecture) {
     const int row = catalog_architecture_row(architecture);
     return row >= 0 && k_architectures[row].nordic_dfu;
@@ -72,7 +86,8 @@ bool mesh_firmware_architecture_takes(const char *architecture, enum mesh_firmwa
         return false;
     }
     return k_architectures[row].path == bus ||
-           (bus == MESH_FIRMWARE_PATH_BLE && k_architectures[row].nordic_dfu);
+           (bus == MESH_FIRMWARE_PATH_BLE && k_architectures[row].nordic_dfu &&
+            mesh_firmware_nordic_dfu_available());
 }
 
 bool mesh_firmware_board_takes(const struct mesh_firmware_board *board,
@@ -82,7 +97,8 @@ bool mesh_firmware_board_takes(const struct mesh_firmware_board *board,
     return board != NULL && bus != MESH_FIRMWARE_PATH_NONE &&
            (board->path == bus ||
             (bus == MESH_FIRMWARE_PATH_BLE &&
-             mesh_firmware_architecture_uses_nordic_dfu(board->architecture)));
+             mesh_firmware_architecture_uses_nordic_dfu(board->architecture) &&
+             mesh_firmware_nordic_dfu_available()));
 }
 
 /* ---- deviceHardware ---------------------------------------------------------------------- */

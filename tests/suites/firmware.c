@@ -199,8 +199,11 @@ MESH_TEST_CASE(firmware_check_identifies_and_compares, unit) {
      * `-ota.zip` beside the UF2. A board that takes only USB is refused there, below.
      */
     mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_BLE, true);
-    if (harness.firmware.blocker != MESH_FIRMWARE_BLOCKER_NONE) {
-        failure = "an nRF52840 over BLE is blocked by nothing: it takes Nordic DFU";
+    if (harness.firmware.blocker != (mesh_firmware_nordic_dfu_available()
+                                         ? MESH_FIRMWARE_BLOCKER_NONE
+                                         : MESH_FIRMWARE_BLOCKER_WRONG_BUS)) {
+        failure = "an nRF52840 over BLE is blocked by nothing where the stack carries Nordic DFU, "
+                  "and is the wrong bus where it does not";
         goto cleanup;
     }
     /* The same board as an RP2040 would be, which has only its UF2 drive. The refusal is derived

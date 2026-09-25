@@ -218,9 +218,18 @@ MESH_TEST_CASE(dfu_package_refuses_what_the_bootloader_would, unit) {
 MESH_TEST_CASE(firmware_catalog_nrf52_takes_either_bus, unit) {
     MESH_TEST_FAIL_IF(mesh_firmware_path_for_architecture("nrf52840") != MESH_FIRMWARE_PATH_USB,
                       "an nRF52's first path is still its UF2 drive");
-    MESH_TEST_FAIL_IF(!mesh_firmware_architecture_takes("nrf52840", MESH_FIRMWARE_PATH_USB) ||
-                          !mesh_firmware_architecture_takes("nrf52840", MESH_FIRMWARE_PATH_BLE),
-                      "and it takes BLE too, through Nordic DFU");
+    MESH_TEST_FAIL_IF(!mesh_firmware_architecture_takes("nrf52840", MESH_FIRMWARE_PATH_USB),
+                      "an nRF52 always takes USB");
+    /* BLE only where the stack can send Write Commands: on CoreBluetooth and WinRT the first
+       packet would fail after START had erased the application. */
+    MESH_TEST_FAIL_IF(mesh_firmware_architecture_takes("nrf52840", MESH_FIRMWARE_PATH_BLE) !=
+                          mesh_firmware_nordic_dfu_available(),
+                      "and BLE exactly where this build's stack can carry Nordic DFU");
+#if defined(INKWELL_BLE_BACKEND_bluez)
+    MESH_TEST_FAIL_IF(!mesh_firmware_nordic_dfu_available(), "BlueZ carries it");
+#else
+    MESH_TEST_FAIL_IF(mesh_firmware_nordic_dfu_available(), "nothing else does yet");
+#endif
     MESH_TEST_FAIL_IF(!mesh_firmware_architecture_uses_nordic_dfu("nrf52840") ||
                           mesh_firmware_architecture_uses_nordic_dfu("esp32-s3"),
                       "only the nRF52 speaks Nordic DFU");

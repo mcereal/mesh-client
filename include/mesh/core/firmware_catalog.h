@@ -267,6 +267,10 @@ bool mesh_firmware_board_takes(const struct mesh_firmware_board *board,
                                enum mesh_firmware_path bus);
 
 /* An nRF52: over BLE it is sent a Nordic DFU package rather than an ESP32 app image. */
+/* Whether this build's BLE stack can carry Nordic DFU at all - BlueZ only, since the packet
+   characteristic takes Write Commands and the other backends always write with response. The
+   two `takes` answers above already fold it in. */
+bool mesh_firmware_nordic_dfu_available(void);
 bool mesh_firmware_architecture_uses_nordic_dfu(const char *architecture);
 
 /*

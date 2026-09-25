@@ -159,8 +159,9 @@ What will bite on the nRF52 path:
   at 244.
 - **The packet characteristic is write-without-response only.** BlueZ's `WriteValue` with no
   `type` option sends a Write Command for such a characteristic, which is what makes this work on
-  the Brick. inkwell's CoreBluetooth and WinRT backends always write with response, so the nRF52
-  path does not work from a Mac or a PC yet.
+  the Brick. inkwell's CoreBluetooth and WinRT backends always write with response, so on a Mac
+  or a PC `mesh_firmware_nordic_dfu_available()` is false and an nRF52 is offered USB only - the
+  first packet would fail after START had already erased the application.
 - **The application is erased before the first byte.** From START on, the radio has no firmware
   to go back to. While the bootloader stays up it waits in BLE DFU and the install retries from
   START. A stock Adafruit bootloader that *resets* with no application comes back in USB DFU
