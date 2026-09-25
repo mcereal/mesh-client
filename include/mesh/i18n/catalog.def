@@ -960,9 +960,10 @@ MESH_STR_ENTRY(NODE_VIA_MQTT,             "MQTT")
 MESH_STR_ENTRY(NODE_VIA_RF,               "RF")
 /* The two answers the routing rows have that are not a node: the packet came straight from the
    node itself, and it went out with no next hop named - which is upstream's way of saying it
-   was flooded rather than routed. */
+   was flooded rather than routed. Said as what that means for the reader, since "flood" is the
+   protocol's word: any node in earshot may carry it. */
 MESH_STR_ENTRY(NODE_RELAY_DIRECT,         "direct")
-MESH_STR_ENTRY(NODE_NEXT_HOP_FLOOD,       "flood")
+MESH_STR_ENTRY(NODE_NEXT_HOP_FLOOD,       "any relay")
 
 /* The traceroute row and the states it passes through. */
 MESH_STR_ENTRY(NODE_TRACE_ROUTE,          "Trace route")

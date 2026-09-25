@@ -441,6 +441,27 @@ static void rows_trend(struct node_rows *rows, enum mesh_ui_history_reading read
     item->trend_reading = (uint8_t)reading;
 }
 
+/*
+ * A key's base64 cut to its two ends, the way a fingerprint is usually shown. Whole, a 32-byte
+ * key is 44 characters, which runs off the value column at the Brick's scale and was clipped
+ * mid-character with nothing to say it had been - a reader comparing it with a phone saw a key
+ * that was simply different. Both ends are what a person compares by eye; the key itself is
+ * never typed back from here, and the verification ceremony has a row of its own below.
+ */
+#define NODE_KEY_END_CHARS 8U
+
+static void node_key_fingerprint(char *key) {
+    static const char k_ellipsis[] = "\xE2\x80\xA6"; /* U+2026, one glyph */
+    const size_t len = strlen(key);
+    const size_t cut = sizeof k_ellipsis - 1U;
+    if (len <= 2U * NODE_KEY_END_CHARS + cut) {
+        return;
+    }
+    memcpy(key + NODE_KEY_END_CHARS, k_ellipsis, cut);
+    memmove(key + NODE_KEY_END_CHARS + cut, key + len - NODE_KEY_END_CHARS,
+            NODE_KEY_END_CHARS + 1U);
+}
+
 static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node_summary *node) {
     rows_heading(rows, MESH_STR_NODE_HEAD_IDENTITY, INKCELL_ICON_USER);
 
@@ -486,6 +507,7 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
     if (node->public_key_len > 0U) {
         char key[MESH_UI_NODE_VALUE_MAX];
         mesh_ui_settings_key_text(node->public_key, node->public_key_len, key, sizeof key);
+        node_key_fingerprint(key);
         rows_text(rows, MESH_STR_NODE_PUBLIC_KEY, key);
     }
     /*
@@ -1513,8 +1535,13 @@ enum mesh_ui_node_press mesh_ui_node_detail_press_at(const struct mesh_ui_node_s
         items[row].trend_reading != (uint8_t)MESH_UI_HISTORY_NONE) {
         return MESH_UI_NODE_PRESS_TREND;
     }
-    return items[row].kind == MESH_UI_NODE_ROW_ACTION ? MESH_UI_NODE_PRESS_SELECT
-                                                      : MESH_UI_NODE_PRESS_NONE;
+    if (items[row].kind != MESH_UI_NODE_ROW_ACTION) {
+        return MESH_UI_NODE_PRESS_NONE;
+    }
+    /* The Actions row runs nothing itself - it opens a screen, and its chevron already says so,
+       which "select" under it did not. */
+    return items[row].action == MESH_UI_NODE_ACTION_OPEN_ACTIONS ? MESH_UI_NODE_PRESS_OPEN
+                                                                 : MESH_UI_NODE_PRESS_SELECT;
 }
 
 /* A reading with a bar takes a second line for it; every other row is one. */

@@ -278,6 +278,9 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
         case MESH_UI_NODE_PRESS_SELECT:
             command_add(bar, MESH_UI_COMMAND_SELECT, MESH_STR_ACTION_SELECT, INKCELL_BUTTON_A);
             break;
+        case MESH_UI_NODE_PRESS_OPEN:
+            command_add(bar, MESH_UI_COMMAND_SELECT, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
+            break;
         case MESH_UI_NODE_PRESS_NONE:
             break;
         }

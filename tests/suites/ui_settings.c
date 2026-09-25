@@ -2592,8 +2592,8 @@ MESH_TEST_CASE(node_detail_rssi_is_stamped, unit) {
  *   - the relay byte is the node's own - "direct", the packet came straight to us;
  *   - two nodes in the roster end in the byte - the partial id, because either name is a
  *     coin toss drawn as a measurement;
- *   - the next hop is 0 - "flood", which is upstream's NO_NEXT_HOP_PREFERENCE and is how the
- *     whole mesh worked before firmware 2.5.
+ *   - the next hop is 0 - "any relay", a flood, which is upstream's NO_NEXT_HOP_PREFERENCE and is
+ * how the whole mesh worked before firmware 2.5.
  */
 MESH_TEST_CASE(node_detail_routing_rows, unit) {
     struct mesh_ui_handshake_state roster;
@@ -2644,7 +2644,7 @@ MESH_TEST_CASE(node_detail_routing_rows, unit) {
     }
     MESH_TEST_FAIL_IF(strcmp(relay, "!..55") != 0,
                       "two nodes end in 0x55, so neither of them relayed it as far as we know");
-    MESH_TEST_FAIL_IF(strcmp(hop, "flood") != 0, "a next hop of zero is flooded, not unknown");
+    MESH_TEST_FAIL_IF(strcmp(hop, "any relay") != 0, "a next hop of zero is flooded, not unknown");
 
     /* Drop the collision and the same byte becomes a name. The next hop resolves through the
        same door, so naming the subject there proves it is one rule and not two. */
