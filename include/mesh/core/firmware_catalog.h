@@ -68,11 +68,15 @@ extern "C" {
  * into the unified OTA loader and take an image over two GATT characteristics, and the rest -
  * ESP32-C3 and C6, whose loader partition holds a build current firmware will not boot into,
  * and portduino, which is a Linux process - have no path from here at all.
+ *
+ * An nRF52840 has a second one: its bootloader also takes Nordic's DFU over BLE. So a board's
+ * `path` is its first path, and which buses it takes is mesh_firmware_board_takes() - the install
+ * goes over whichever of them the radio is connected on.
  */
 enum mesh_firmware_path {
     MESH_FIRMWARE_PATH_NONE = 0,
     MESH_FIRMWARE_PATH_USB, /* a UF2 written to the bootloader's mass storage */
-    MESH_FIRMWARE_PATH_BLE, /* the ESP32 unified OTA loader */
+    MESH_FIRMWARE_PATH_BLE, /* the ESP32 unified OTA loader, or an nRF52's DFU bootloader */
     MESH_FIRMWARE_PATH_COUNT,
 };
 
@@ -203,7 +207,8 @@ bool mesh_firmware_manifest_describes(const struct mesh_firmware_manifest *manif
  * nRF52 manifest publishes that is one. The BLE path wants the file declared `part_name`
  * `app0`, which is the running-firmware partition - deliberately not `app1`, which holds the
  * OTA loader itself and is shipped in the same zip as `mt-esp32s3-ota.bin`, and deliberately
- * not the `.factory.bin`, which is the whole flash including a fresh filesystem.
+ * not the `.factory.bin`, which is the whole flash including a fresh filesystem. An nRF52 names
+ * no partitions, and over BLE its file is the `-ota.zip` Nordic DFU package instead.
  *
  * MESH_FIRMWARE_PATH_NONE has no image by definition and returns NULL.
  */
@@ -254,6 +259,19 @@ bool mesh_firmware_platform_parse(const char *json, size_t len, const char *targ
    architectures - including ones upstream adds after this ships - are NONE, which is the answer
    that refuses rather than the one that guesses. */
 enum mesh_firmware_path mesh_firmware_path_for_architecture(const char *architecture);
+
+/* Whether `architecture` can be installed to over `bus` - its first path, or BLE for a board
+   whose bootloader also takes Nordic DFU. NONE is taken by nothing. */
+bool mesh_firmware_architecture_takes(const char *architecture, enum mesh_firmware_path bus);
+bool mesh_firmware_board_takes(const struct mesh_firmware_board *board,
+                               enum mesh_firmware_path bus);
+
+/* An nRF52: over BLE it is sent a Nordic DFU package rather than an ESP32 app image. */
+/* Whether this build's BLE stack can carry Nordic DFU at all - BlueZ only, since the packet
+   characteristic takes Write Commands and the other backends always write with response. The
+   two `takes` answers above already fold it in. */
+bool mesh_firmware_nordic_dfu_available(void);
+bool mesh_firmware_architecture_uses_nordic_dfu(const char *architecture);
 
 /*
  * Orders two Meshtastic firmware versions: <0, 0 or >0, as strcmp does.

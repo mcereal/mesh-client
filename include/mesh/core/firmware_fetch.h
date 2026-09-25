@@ -111,6 +111,7 @@ struct mesh_firmware_fetch {
     char manifest_url[MESH_FIRMWARE_URL_MAX];
     char expect_architecture[MESH_FIRMWARE_ARCH_MAX];
     char staging[INKWELL_FETCH_PATH_MAX];
+    enum mesh_firmware_path bus;
 
     /* What the documents answered. */
     char platform[MESH_FIRMWARE_ARCH_MAX];
@@ -144,12 +145,17 @@ struct mesh_firmware_fetch {
  * those two need nothing from the caller to be checkable: they are what the member's own name
  * was built from.
  *
+ * `bus` is the bus the image will go over, which picks the file: an nRF52 publishes a UF2 for
+ * USB and a DFU package for BLE. NONE takes the architecture's first path, which is what an
+ * inspection wants.
+ *
  * Returns 0, or -errno. On 0 `on_done` is called exactly once, later, from the loop.
  */
 int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct inkwell_fetch *fetcher,
                               const char *target, const char *version, const char *manifest_url,
-                              const char *expect_architecture, const char *staging_dir,
-                              mesh_firmware_fetch_done_fn on_done, void *userdata);
+                              const char *expect_architecture, enum mesh_firmware_path bus,
+                              const char *staging_dir, mesh_firmware_fetch_done_fn on_done,
+                              void *userdata);
 
 /* Drives the download's own tick. Call every loop turn. */
 void mesh_firmware_fetch_tick(struct mesh_firmware_fetch *fetch, uint64_t now_ms);

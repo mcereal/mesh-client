@@ -37,7 +37,8 @@ struct mesh_ble_meshtastic_chars {
     char logradio[INKWELL_BLE_HANDLE_MAX]; /* empty when the node does not expose it */
 };
 
-/* Every node the stack holds that advertises the Meshtastic service. */
+/* Every node the stack holds that advertises the Meshtastic service, and every bonded one whose
+   record lists only an nRF52's DFU service - which BlueZ leaves behind after a DFU install. */
 int mesh_ble_list_meshtastic(struct inkwell_ble_central *central,
                              struct inkwell_ble_device *devices, size_t capacity, size_t *count);
 

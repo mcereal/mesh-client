@@ -72,8 +72,12 @@ runs with nothing plugged in. It reads the release index, the release manifest, 
 
 The install adds the radio: an `enter_dfu_mode_request` down the serial link, then the client
 watches the USB tree for the bootloader, unmounts the drive from wherever the platform put it,
-writes the `.uf2` blocks, and waits for the reset. nRF52 and RP2040 have **no over-the-air path**
-and must be on USB; an ESP32 target goes over BLE instead, where the radio reboots into its OTA
+writes the `.uf2` blocks, and waits for the reset. From the CLI, nRF52 and RP2040 have **no
+over-the-air path** and must be on USB (the in-app install takes an nRF52 over BLE too, through
+its DFU bootloader - see [`transport.md`](transport.md#firmware-over-the-air-two-different-bootloaders).
+With `-p ADDRESS` and no `--serial`, an nRF52 target is instead finished at a DFU bootloader
+it is already sitting in, which is the recovery for an in-app install that stopped part-way);
+an ESP32 target goes over BLE instead, where the radio reboots into its OTA
 loader (a second peripheral at its address plus one) and the client streams the image to it.
 `--serial` is therefore refused for an ESP32 install instead of being silently ignored. A blank
 ESP32 still needs one factory flash before mesh-client can update it; factory flashing requires
@@ -169,6 +173,8 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_KEY_REPEAT_MS` | gap between repeats, 10–2000, default 90, halving after eight rows |
 | `MESHCLIENT_UPDATE_REPO`, `_ASSET` | where the self-updater looks |
 | `MESHCLIENT_UPDATE_ALLOW_DEV` | let a `-dev` build install what it finds |
+| `MESHCLIENT_DFU_PACKET_GAP_MS` | ms between nRF52 DFU image packets over BLE (default 10) |
+| `MESHCLIENT_FIRMWARE_REINSTALL` | offer the radio the release it already runs, to test an install path again |
 | `MESHCLIENT_LOG_LEVEL` | the level `launch.sh` starts the client at; `info` unless set. The pak used to hardcode `debug`, which is what made the log on the card grow the way it did |
 | `MESHCLIENT_LOG_FILE` | the log the client cuts back at startup, when it is not the one derived from `HOME` |
 | `MESHCLIENT_LATENCY_TRACE` | same as `--trace-latency`; see [`performance.md`](performance.md) |

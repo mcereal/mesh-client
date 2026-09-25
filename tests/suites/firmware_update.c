@@ -568,7 +568,7 @@ MESH_TEST_CASE(firmware_update_refuses_before_it_starts, unit) {
     MESH_TEST_FAIL_IF(mesh_firmware_update_init(&bare, NULL) != 0, "init should succeed");
     const struct mesh_firmware_board board = update_t114_board();
     const struct mesh_firmware_release release = update_release();
-    MESH_TEST_FAIL_IF(mesh_firmware_update_start(&bare, &board, &release, "", &hooks,
+    MESH_TEST_FAIL_IF(mesh_firmware_update_start(&bare, &board, &release, board.path, "", &hooks,
                                                  update_probe_done, &probe) != -ENOTSUP,
                       "with no fetcher the press should refuse");
     MESH_TEST_FAIL_IF(bare.state != MESH_FIRMWARE_UPDATE_FAILED ||
@@ -591,15 +591,23 @@ MESH_TEST_CASE(firmware_update_refuses_before_it_starts, unit) {
      */
     struct mesh_firmware_board pathless = board;
     pathless.path = MESH_FIRMWARE_PATH_NONE;
-    if (mesh_firmware_update_start(&harness.update, &pathless, &release, "", &hooks,
+    if (mesh_firmware_update_start(&harness.update, &pathless, &release, pathless.path, "", &hooks,
                                    update_probe_done, &probe) != -ENOTSUP) {
         failure = "a board with no path should refuse";
+        goto cleanup;
+    }
+    /* A bus the board does not take: an RP2040 has its UF2 drive and nothing over the air. */
+    struct mesh_firmware_board usb_only = board;
+    snprintf(usb_only.architecture, sizeof usb_only.architecture, "%s", "rp2040");
+    if (mesh_firmware_update_start(&harness.update, &usb_only, &release, MESH_FIRMWARE_PATH_BLE, "",
+                                   &hooks, update_probe_done, &probe) != -ENOTSUP) {
+        failure = "a USB-only board over BLE should refuse";
         goto cleanup;
     }
     /* A release that appeared in the index before its assets did, which really happens. */
     struct mesh_firmware_release assetless = release;
     assetless.manifest_url[0] = '\0';
-    if (mesh_firmware_update_start(&harness.update, &board, &assetless, "", &hooks,
+    if (mesh_firmware_update_start(&harness.update, &board, &assetless, board.path, "", &hooks,
                                    update_probe_done, &probe) != -ENOTSUP) {
         failure = "a release with no manifest should refuse";
         goto cleanup;
@@ -644,7 +652,7 @@ MESH_TEST_CASE(firmware_update_holds_the_antenna_not_the_radio, unit) {
     struct mesh_firmware_update_hooks hooks = update_hooks(&probe);
     const struct mesh_firmware_board board = update_t114_board();
     const struct mesh_firmware_release release = update_release();
-    if (mesh_firmware_update_start(&harness.update, &board, &release, "2-1:1.1", &hooks,
+    if (mesh_firmware_update_start(&harness.update, &board, &release, board.path, "2-1:1.1", &hooks,
                                    update_probe_done, &probe) != 0) {
         failure = "the press should start";
         goto cleanup;
@@ -677,6 +685,24 @@ MESH_TEST_CASE(firmware_update_holds_the_antenna_not_the_radio, unit) {
         goto cleanup;
     }
 
+    /* The same nRF52 over Bluetooth: its BLE image is the Nordic DFU package, and the handover
+       is the DFU bootloader rather than the ESP32's loader - where the stack can carry it, and
+       refused before anything is fetched where it cannot. */
+    const int ble =
+        mesh_firmware_update_start(&harness.update, &board, &release, MESH_FIRMWARE_PATH_BLE,
+                                   "F4:12:FA:3C:88:10", &hooks, update_probe_done, &probe);
+    if (!mesh_firmware_nordic_dfu_available()) {
+        if (ble != -ENOTSUP) {
+            failure = "an nRF52 press over BLE is refused where the stack cannot carry DFU";
+            goto cleanup;
+        }
+    } else if (ble != 0 || harness.update.path != MESH_FIRMWARE_PATH_BLE ||
+               !harness.update.nordic_dfu || harness.update.image.bus != MESH_FIRMWARE_PATH_BLE) {
+        failure = "an nRF52 press over BLE should start as Nordic DFU, fetching the BLE image";
+        goto cleanup;
+    }
+    mesh_firmware_update_cancel(&harness.update);
+
 cleanup:
     update_harness_down(&harness);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
@@ -706,8 +732,8 @@ MESH_TEST_CASE(firmware_update_reports_a_download_that_failed, unit) {
     struct mesh_firmware_board unbuilt = update_t114_board();
     snprintf(unbuilt.target, sizeof unbuilt.target, "%s", "not-a-real-board");
     const struct mesh_firmware_release release = update_release();
-    if (mesh_firmware_update_start(&harness.update, &unbuilt, &release, "2-1:1.1", &hooks,
-                                   update_probe_done, &probe) != 0) {
+    if (mesh_firmware_update_start(&harness.update, &unbuilt, &release, unbuilt.path, "2-1:1.1",
+                                   &hooks, update_probe_done, &probe) != 0) {
         failure = "the press should start";
         goto cleanup;
     }
@@ -742,7 +768,7 @@ MESH_TEST_CASE(firmware_update_reports_a_download_that_failed, unit) {
     }
     /* Pressing again is allowed, which is what "a failure lifts it by failing" is for. */
     const struct mesh_firmware_board board = update_t114_board();
-    if (mesh_firmware_update_start(&harness.update, &board, &release, "2-1:1.1", &hooks,
+    if (mesh_firmware_update_start(&harness.update, &board, &release, board.path, "2-1:1.1", &hooks,
                                    update_probe_done, &probe) != 0) {
         failure = "and a second press should be allowed after a failure";
         goto cleanup;
@@ -769,12 +795,12 @@ MESH_TEST_CASE(firmware_update_refuses_a_second_press, unit) {
     struct mesh_firmware_update_hooks hooks = update_hooks(&probe);
     const struct mesh_firmware_board board = update_t114_board();
     const struct mesh_firmware_release release = update_release();
-    if (mesh_firmware_update_start(&harness.update, &board, &release, "2-1:1.1", &hooks,
+    if (mesh_firmware_update_start(&harness.update, &board, &release, board.path, "2-1:1.1", &hooks,
                                    update_probe_done, &probe) != 0) {
         failure = "the press should start";
         goto cleanup;
     }
-    if (mesh_firmware_update_start(&harness.update, &board, &release, "2-1:1.1", &hooks,
+    if (mesh_firmware_update_start(&harness.update, &board, &release, board.path, "2-1:1.1", &hooks,
                                    update_probe_done, &probe) != -EBUSY) {
         failure = "a second press should be refused while the first runs";
         goto cleanup;
@@ -871,7 +897,7 @@ MESH_TEST_CASE(firmware_update_carries_the_image_into_the_handover, unit) {
     struct mesh_firmware_update_hooks hooks = update_hooks(&probe);
     const struct mesh_firmware_board board = update_t114_board();
     const struct mesh_firmware_release release = update_release();
-    if (mesh_firmware_update_start(&harness.update, &board, &release, "2-1:1.1", &hooks,
+    if (mesh_firmware_update_start(&harness.update, &board, &release, board.path, "2-1:1.1", &hooks,
                                    update_probe_done, &probe) != 0) {
         failure = "the press should start";
         goto cleanup;
@@ -944,8 +970,8 @@ MESH_TEST_CASE(firmware_update_arms_a_ble_radio_only_once_bluetooth_is_up, unit)
     board.actively_supported = true;
     board.path = MESH_FIRMWARE_PATH_BLE;
     const struct mesh_firmware_release release = update_release();
-    if (mesh_firmware_update_start(&harness.update, &board, &release, "F8:5B:1B:A5:99:C9", &hooks,
-                                   update_probe_done, &probe) != 0) {
+    if (mesh_firmware_update_start(&harness.update, &board, &release, board.path,
+                                   "F8:5B:1B:A5:99:C9", &hooks, update_probe_done, &probe) != 0) {
         failure = "the press should start";
         goto cleanup;
     }

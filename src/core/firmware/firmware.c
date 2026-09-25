@@ -2,6 +2,7 @@
 
 #include "mesh/core/firmware.h"
 
+#include "inkwell/base/env.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
@@ -138,7 +139,7 @@ static enum mesh_firmware_blocker firmware_blocker(const struct mesh_firmware *f
     if (board->path == MESH_FIRMWARE_PATH_NONE) {
         return MESH_FIRMWARE_BLOCKER_NO_PATH;
     }
-    if (board->path != firmware->bus) {
+    if (!mesh_firmware_board_takes(board, firmware->bus)) {
         return MESH_FIRMWARE_BLOCKER_WRONG_BUS;
     }
     return MESH_FIRMWARE_BLOCKER_NONE;
@@ -281,7 +282,16 @@ static void firmware_on_index(void *userdata, const struct inkwell_fetch_result 
                      firmware->release.version,
                      firmware->running[0] != '\0' ? firmware->running : "?");
 
-    if (mesh_firmware_version_compare(firmware->running, firmware->release.version) >= 0) {
+    /*
+     * MESHCLIENT_FIRMWARE_REINSTALL offers the release the radio is already running, which is
+     * how an install path is tested again once it has worked - there is no newer image to try
+     * it with. The same version and never an older one: a downgrade is a different question,
+     * with a filesystem the older firmware may not read.
+     */
+    const int compared =
+        mesh_firmware_version_compare(firmware->running, firmware->release.version);
+    if (compared > 0 ||
+        (compared == 0 && !inkwell_env_bool("FIRMWARE_REINSTALL", "firmware reinstall", false))) {
         firmware_set(firmware, MESH_FIRMWARE_UP_TO_DATE, inkcell_str(MESH_STR_FW_STATE_UP_TO_DATE));
         return;
     }

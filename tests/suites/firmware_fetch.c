@@ -200,7 +200,7 @@ MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
     if (mesh_firmware_fetch_start(
             &fetch, &fetcher, "heltec-mesh-node-t114", "2.7.26.54e0d8d",
             "https://example.invalid/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json",
-            "esp32-s3", dir, fetch_probe_done, &probe) != 0) {
+            "esp32-s3", MESH_FIRMWARE_PATH_NONE, dir, fetch_probe_done, &probe) != 0) {
         failure = "the fetch should start";
         goto cleanup;
     }
@@ -235,7 +235,7 @@ MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
     if (mesh_firmware_fetch_start(
             &fetch, &fetcher, "no-such-board", "2.7.26.54e0d8d",
             "https://example.invalid/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json", "",
-            dir, fetch_probe_done, &probe) != 0) {
+            MESH_FIRMWARE_PATH_NONE, dir, fetch_probe_done, &probe) != 0) {
         failure = "the second fetch should start";
         goto cleanup;
     }
