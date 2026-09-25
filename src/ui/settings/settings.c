@@ -125,9 +125,11 @@ static const enum inkcell_icon k_section_icons[MESH_UI_SETTINGS_SECTION_COUNT] =
     [MESH_UI_SETTINGS_EXT_NOTIFICATION] = INKCELL_ICON_EXT_NOTIFY,
     [MESH_UI_SETTINGS_TRAFFIC] = INKCELL_ICON_TRAFFIC,
     /* Two more sections answering with an icon another part of the UI owns, for the reason the
-       three above do: Radio UI *is* the radio's screen, which is what DISPLAY says, and a
-       canned message is a quick reply, which is what REPLY says. */
-    [MESH_UI_SETTINGS_RADIO_UI] = INKCELL_ICON_DISPLAY,
+       three above do. Radio UI is what gets drawn on the radio's screen - its theme, its
+       brightness, its banner - which is what THEME's palette says; it wore DISPLAY once, and
+       sat under Display in the list with the same monitor, two rows that looked like one
+       section twice. A canned message is a quick reply, which is what REPLY says. */
+    [MESH_UI_SETTINGS_RADIO_UI] = INKCELL_ICON_THEME,
     [MESH_UI_SETTINGS_CANNED] = INKCELL_ICON_REPLY,
     [MESH_UI_SETTINGS_NETWORK] = INKCELL_ICON_NETWORK,
     /* A third section answering with an icon another part of the UI owns, by the rule the two

@@ -2696,17 +2696,22 @@ MESH_TEST_CASE(node_detail_routing_rows, unit) {
     MESH_TEST_FAIL_IF(strcmp(relay, "!..01") != 0,
                       "a packet that took a hop cannot have come straight from its sender");
 
-    /* Zero hops is the firmware saying direct rather than declining to, so the row may. */
+    /* Zero hops is the firmware saying direct rather than declining to - and once the hop row
+       says "direct" itself, a relay row saying it again is the same fact twice. */
     node.hops_away = 0U;
     relay[0] = '\0';
+    char hops[MESH_UI_NODE_VALUE_MAX] = "";
     count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL, false, items,
                                       MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < count; ++i) {
         if (strcmp(items[i].label, "Relayed by") == 0) {
             snprintf(relay, sizeof relay, "%s", items[i].value);
+        } else if (strcmp(items[i].label, "Hops away") == 0) {
+            snprintf(hops, sizeof hops, "%s", items[i].value);
         }
     }
-    MESH_TEST_FAIL_IF(strcmp(relay, "direct") != 0, "zero hops agrees with the byte");
+    MESH_TEST_FAIL_IF(strcmp(hops, "direct") != 0, "zero hops is said as the word it means");
+    MESH_TEST_FAIL_IF(relay[0] != '\0', "the hop row already said direct, so no relay row does");
 
     /*
      * The collision this screen cannot see for itself. `relay_ambiguous` says the *session*
@@ -4950,5 +4955,77 @@ MESH_TEST_CASE(ui_settings_a_field_past_the_table_wraps_to_no_row, unit) {
     MESH_TEST_FAIL_IF(!mesh_ui_settings_section_has_fields(MESH_UI_SETTINGS_USER) ||
                           mesh_ui_settings_section_has_fields(wrapped_section),
                       "a section past the table should have no fields");
+    record_success(test_name);
+}
+
+/* The value on the node detail row labelled `label`, or "" when there is no such row. */
+static const char *node_detail_value(const struct mesh_ui_node_item *items, uint32_t count,
+                                     const char *label) {
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, label) == 0) {
+            return items[i].value;
+        }
+    }
+    return "";
+}
+
+/*
+ * Three rows of the node detail that used to be the radio's vocabulary rather than the reader's:
+ * the channel as a slot number, a coordinate to a metre under a Precision row saying ~360 m, and
+ * our own radio among a node's neighbours by its short name as though it were one more stranger.
+ */
+MESH_TEST_CASE(node_detail_speaks_the_readers_terms, unit) {
+    struct mesh_ui_handshake_state roster;
+    memset(&roster, 0, sizeof roster);
+    roster.has_my_info = true;
+    roster.my_info.node_num = 0x1000U;
+    roster.node_count = 2U;
+    roster.nodes[0].node_id = 0x1000U;
+    snprintf(roster.nodes[0].short_name, sizeof roster.nodes[0].short_name, "HOME");
+    roster.nodes[1].node_id = 0x2000U;
+    snprintf(roster.nodes[1].short_name, sizeof roster.nodes[1].short_name, "ALFA");
+    roster.channel_count = 2U;
+    roster.channels[0].index = 0U;
+    roster.channels[0].role = 1U;
+    snprintf(roster.channels[0].name, sizeof roster.channels[0].name, "LongFast");
+    roster.channels[1].index = 1U;
+    roster.channels[1].role = 2U; /* unnamed */
+
+    struct mesh_ui_node_summary node = roster.nodes[1];
+    node.last_heard = 1750000000U;
+    node.position.valid = true;
+    node.position.latitude_i = 476205044;
+    node.position.longitude_i = -1223429012;
+    node.position.precision_bits = 16U; /* ~360 m */
+    node.neighbors.valid = true;
+    node.neighbors.count = 1U;
+    node.neighbors.entries[0].node_id = 0x1000U;
+    node.neighbors.entries[0].snr = 11.0f;
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL,
+                                               false, items, MESH_UI_NODE_ITEMS_MAX);
+    MESH_TEST_FAIL_IF(strcmp(node_detail_value(items, count, "Channel"), "#LongFast") != 0,
+                      "the channel should be named as the conversation list names it");
+    MESH_TEST_FAIL_IF(strcmp(node_detail_value(items, count, "Latitude"), "47.621") != 0 ||
+                          strcmp(node_detail_value(items, count, "Longitude"), "-122.343") != 0,
+                      "a fix rounded to ~360 m should stop at the decimal that still means it");
+    bool says_you = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        says_you = says_you || strcmp(items[i].label, "You") == 0;
+        MESH_TEST_FAIL_IF(strcmp(items[i].label, "HOME") == 0,
+                          "our own radio is not one more stranger in the neighbour list");
+    }
+    MESH_TEST_FAIL_IF(!says_you, "the neighbour list should name our own radio as the reader");
+
+    /* An unnamed slot, and a fix whose rounding was never stated: the wire's five decimals. */
+    node.channel = 1U;
+    node.position.precision_bits = 0U;
+    count = mesh_ui_node_detail_build(&node, false, 1750000060U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    MESH_TEST_FAIL_IF(strcmp(node_detail_value(items, count, "Channel"), "#Ch1") != 0,
+                      "an unnamed secondary slot is named by its number");
+    MESH_TEST_FAIL_IF(strcmp(node_detail_value(items, count, "Latitude"), "47.62050") != 0,
+                      "with no stated rounding, the coordinate keeps the wire's precision");
     record_success(test_name);
 }

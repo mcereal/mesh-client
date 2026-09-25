@@ -340,7 +340,10 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
         .caret = true,
         .caret_back = nav->kb.caret_back,
         .lines = 2U,
-        .counter = meter,
+        /* Not over a search. A cap is worth stating where the text is going somewhere with a
+           limit - a packet, a field on the radio - and a find is only ever a few letters of a
+           name; "0/23" over it read as a budget the reader had to manage. */
+        .counter = nav->keyboard_node_query ? NULL : meter,
     };
 
     /*

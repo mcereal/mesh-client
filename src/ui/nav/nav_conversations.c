@@ -15,38 +15,17 @@
 #include "nav_internal.h"
 
 #include "mesh/core/message.h"
+#include "mesh/ui/nodes.h"
 
 #include <stdio.h>
 #include <string.h>
 
 /* ---- channels and names ------------------------------------------------------------------ */
 
-static const struct mesh_ui_channel *mesh_ui_nav_channel(const struct mesh_ui_store *store,
-                                                         uint8_t index) {
-    if (store == NULL || !store->handshake_valid) {
-        return NULL;
-    }
-    const struct mesh_ui_handshake_state *hs = &store->handshake;
-    for (uint32_t i = 0; i < hs->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
-        if (hs->channels[i].index == index && hs->channels[i].role != 0U) {
-            return &hs->channels[i];
-        }
-    }
-    return NULL;
-}
-
 void mesh_ui_nav_channel_name(const struct mesh_ui_store *store, uint8_t index, char *out,
                               size_t out_len) {
-    const struct mesh_ui_channel *channel = mesh_ui_nav_channel(store, index);
-    if (channel != NULL && channel->name[0] != '\0') {
-        snprintf(out, out_len, "#%s", channel->name);
-    } else if (index == 0U) {
-        /* An unnamed slot 0 is the default primary channel; the firmware shows the modem
-           preset name there, which we do not track. */
-        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CHANNEL_PRIMARY));
-    } else {
-        inkcell_str_format(out, out_len, MESH_STR_CHANNEL_NUMBERED, (unsigned)index);
-    }
+    mesh_ui_channel_name(store != NULL && store->handshake_valid ? &store->handshake : NULL, index,
+                         out, out_len);
 }
 
 void mesh_ui_nav_node_name(const struct mesh_ui_store *store, uint32_t node_id, char *out,

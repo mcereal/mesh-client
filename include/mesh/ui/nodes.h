@@ -308,6 +308,18 @@ void mesh_ui_node_row_facts(const struct mesh_ui_handshake_state *handshake,
                             const struct mesh_ui_node_summary *node, bool imperial, char *out,
                             size_t out_len);
 
+/*
+ * A channel slot as a reader knows it: "#LongFast" when the radio's table names it, "#Primary"
+ * for an unnamed slot 0 (the firmware shows the modem preset there, which is not tracked), and
+ * "#Ch2" otherwise. `handshake` may be NULL - no table yet - and the answer is still a name.
+ *
+ * One answer for every screen that says which channel something is on: the conversation list
+ * and a node's detail said it two ways, "#LongFast" over the conversation and "Channel 0" on
+ * the node heard in it.
+ */
+void mesh_ui_channel_name(const struct mesh_ui_handshake_state *handshake, uint8_t index, char *out,
+                          size_t out_len);
+
 #ifdef __cplusplus
 }
 #endif
