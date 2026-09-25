@@ -303,7 +303,9 @@ static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
 static const char *fetch_download_detail(enum inkwell_zip_fetch_error error) {
     switch (error) {
     case INKWELL_ZIP_FETCH_ERROR_NETWORK:
-        return "the server stopped answering; try again";
+        /* A lost connection, a silent server and an HTTP error all land here - so nothing that
+           is only true of one of them. */
+        return "the release host did not deliver it; try again";
     case INKWELL_ZIP_FETCH_ERROR_STAGING:
         return "the download could not be saved";
     case INKWELL_ZIP_FETCH_ERROR_NOT_A_ZIP:
