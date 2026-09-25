@@ -168,7 +168,7 @@ enum mesh_ui_setting_consumer {
 /* One edited setting. `field` is an enum mesh_ui_setting_field (settings.h); NONE marks an
    empty slot. Toggles and enums use `number`, numbers use `number`, text uses `text`. */
 struct mesh_ui_setting_edit {
-    uint8_t field;
+    uint16_t field;
     uint32_t number;
     char text[MESH_UI_SETTING_TEXT_MAX];
 };
@@ -653,7 +653,7 @@ struct mesh_ui_nav {
     bool keyboard_contact_url;
     /* When the keyboard edits a setting rather than the Compose draft: the field it is for
        (NONE for Compose) and the Compose draft parked while it is open. */
-    uint8_t keyboard_field;
+    uint16_t keyboard_field;
     char draft_saved[MESH_UI_DRAFT_MAX];
     /* BLE pairing prompt. The keyboard is retargeted for it the same way a setting's text
        retargets it, except that this one is opened by the app rather than by a key press:
@@ -683,7 +683,7 @@ struct mesh_ui_nav {
        parked a compose draft loses that one: there is a single parking slot, and the text in
        front of the user is the one worth keeping.) */
     bool keyboard_displaced;
-    uint8_t keyboard_field_displaced;
+    uint16_t keyboard_field_displaced;
     /*
      * The help screen over whatever is under it: what this screen is for, and what its rows
      * mean (src/ui/tables/help.c, docs/help.md).

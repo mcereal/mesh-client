@@ -712,7 +712,7 @@ edits: a page has no fields, and a Reboot pressed there carries none of them.
 
 ### A settings row that is a verb
 
-`MESH_UI_SETTING_ACTION` is a row that *does* something, and it is drawn as one rather than as a
+`INKSTAND_FORM_ACTION` is a row that *does* something, and it is drawn as one rather than as a
 setting whose value happens to be an instruction. Three tables answer for it and the renderer
 reads all three:
 

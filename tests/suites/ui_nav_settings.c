@@ -426,7 +426,7 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
     if (mesh_ui_settings_channel_at_row(&store.settings, NULL, 3U) != -1 ||
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
                                MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
-        item.kind != MESH_UI_SETTING_ACTION ||
+        item.kind != INKSTAND_FORM_ACTION ||
         item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS) {
         failure = "the import row should be an action row that is not a channel slot";
         goto cleanup;
@@ -456,7 +456,7 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
        last row is the muted toggle: nothing on it offers the press. */
     if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U,
                                channel_rows - 1U, &item) ||
-        item.kind != MESH_UI_SETTING_ACTION || !mesh_ui_settings_item_is_verb(&item) ||
+        item.kind != INKSTAND_FORM_ACTION || !mesh_ui_settings_item_is_verb(&item) ||
         item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL ||
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 2U,
                                channel_rows - 2U, &item) ||
@@ -472,7 +472,7 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
         if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 0U,
                                   row, &item) &&
             item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL &&
-            item.kind == MESH_UI_SETTING_ACTION) {
+            item.kind == INKSTAND_FORM_ACTION) {
             failure = "the primary slot should not offer the clearing verb";
             goto cleanup;
         }
@@ -483,7 +483,7 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != channel_rows ||
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, 2U,
                                &item) ||
-        item.field != MESH_UI_FIELD_CHANNEL_KEY || item.kind != MESH_UI_SETTING_KEY ||
+        item.field != MESH_UI_FIELD_CHANNEL_KEY || item.kind != INKSTAND_FORM_KEY ||
         strcmp(item.text, "oKGio6SlpqeoqaqrrK2urw==") != 0 ||
         strstr(item.value, "oKGio6Sl...") == NULL || strstr(item.value, "AES-128") == NULL ||
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, 5U,
@@ -674,7 +674,7 @@ MESH_TEST_CASE(ui_nav_clear_channel, unit) {
     struct mesh_ui_settings_item item;
     if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U,
                                store.nav.cursor[MESH_UI_SCREEN_SETTINGS], &item) ||
-        item.kind != MESH_UI_SETTING_ACTION ||
+        item.kind != INKSTAND_FORM_ACTION ||
         item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
         failure = "the cursor should reach the clearing verb";
         goto cleanup;
@@ -781,7 +781,7 @@ MESH_TEST_CASE(ui_settings_clear_row_follows_every_cleared_field, unit) {
         struct mesh_ui_settings_item item;
         if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, row,
                                   &item) &&
-            item.kind == MESH_UI_SETTING_ACTION &&
+            item.kind == INKSTAND_FORM_ACTION &&
             item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
             found = true;
         }
@@ -829,7 +829,7 @@ MESH_TEST_CASE(ui_settings_clear_row_follows_every_cleared_field, unit) {
             struct mesh_ui_settings_item item;
             if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, row,
                                       &item) &&
-                item.kind == MESH_UI_SETTING_ACTION &&
+                item.kind == INKSTAND_FORM_ACTION &&
                 item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
                 found = true;
             }
@@ -851,7 +851,7 @@ MESH_TEST_CASE(ui_settings_clear_row_follows_every_cleared_field, unit) {
         struct mesh_ui_settings_item item;
         if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, row,
                                   &item) &&
-            item.kind == MESH_UI_SETTING_ACTION &&
+            item.kind == INKSTAND_FORM_ACTION &&
             item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
             found = true;
         }
@@ -874,7 +874,7 @@ static uint32_t settings_row_of(const struct mesh_ui_store *store,
                                    MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
             break;
         }
-        if ((item.kind == MESH_UI_SETTING_ACTION || item.kind == MESH_UI_SETTING_ACTION_OFF) &&
+        if ((item.kind == INKSTAND_FORM_ACTION || item.kind == INKSTAND_FORM_ACTION_OFF) &&
             item.field == MESH_UI_FIELD_NONE && item.number == (uint32_t)verb) {
             return row;
         }
@@ -929,7 +929,7 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
         !mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 0U,
                                &item) ||
-        item.kind != MESH_UI_SETTING_HEADING) {
+        item.kind != INKSTAND_FORM_HEADING) {
         failure = "the node lists should open under their first heading";
         goto cleanup;
     }
@@ -986,7 +986,7 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
      * the rows above it, and a Reboot pressed on another tab carrying half-typed coordinates
      * would be a write nobody made.
      */
-    store.nav.settings_edits[0].field = (uint8_t)MESH_UI_FIELD_POSITION_SMART;
+    store.nav.settings_edits[0].field = (uint16_t)MESH_UI_FIELD_POSITION_SMART;
     store.nav.settings_edits[0].number = 1U;
     store.nav.settings_edit_count = 1U;
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
@@ -1025,7 +1025,7 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL,
                                reboot + 1U, &item) ||
-        item.kind != MESH_UI_SETTING_ACTION_OFF || strcmp(item.value, "not supported") != 0) {
+        item.kind != INKSTAND_FORM_ACTION_OFF || strcmp(item.value, "not supported") != 0) {
         failure = "Shutdown should be a withdrawn verb on a board that cannot shut down";
         goto cleanup;
     }
@@ -1071,7 +1071,7 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 3U,
                                &item) ||
-        strcmp(item.label, "Forget off-radio") != 0 || item.kind != MESH_UI_SETTING_ACTION_OFF ||
+        strcmp(item.label, "Forget off-radio") != 0 || item.kind != INKSTAND_FORM_ACTION_OFF ||
         strcmp(item.value, "nothing to drop") != 0) {
         failure = "with nothing off-radio the first forget row should be a withdrawn verb";
         goto cleanup;
@@ -1079,7 +1079,7 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 4U,
                                &item) ||
-        strcmp(item.label, "Forget all cached") != 0 || item.kind != MESH_UI_SETTING_ACTION_OFF ||
+        strcmp(item.label, "Forget all cached") != 0 || item.kind != INKSTAND_FORM_ACTION_OFF ||
         strcmp(item.value, "nothing to drop") != 0) {
         failure = "an empty forget count should not draw as a press";
         goto cleanup;
@@ -1098,7 +1098,7 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 3U,
                                &item) ||
-        item.kind != MESH_UI_SETTING_ACTION || strcmp(item.value, "2 nodes") != 0 ||
+        item.kind != INKSTAND_FORM_ACTION || strcmp(item.value, "2 nodes") != 0 ||
         item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES) {
         failure = "the row should say how many nodes it would forget";
         goto cleanup;
@@ -1116,7 +1116,7 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 3U,
                                &item) ||
-        item.kind != MESH_UI_SETTING_ACTION_OFF || strcmp(item.value, "nothing to drop") != 0) {
+        item.kind != INKSTAND_FORM_ACTION_OFF || strcmp(item.value, "nothing to drop") != 0) {
         failure = "a roster of pinned orphans should offer no press at all";
         goto cleanup;
     }
@@ -1192,14 +1192,14 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 1U,
                                &item) ||
-        item.kind != MESH_UI_SETTING_ACTION_OFF || strcmp(item.value, "not connected") != 0) {
+        item.kind != INKSTAND_FORM_ACTION_OFF || strcmp(item.value, "not connected") != 0) {
         failure = "the reset should say why it cannot be pressed with no link";
         goto cleanup;
     }
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_NODE_LISTS, MESH_UI_SETTINGS_NO_CHANNEL, 3U,
                                &item) ||
-        item.kind != MESH_UI_SETTING_ACTION) {
+        item.kind != INKSTAND_FORM_ACTION) {
         failure = "forgetting cached nodes needs no radio";
         goto cleanup;
     }
@@ -1376,12 +1376,12 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
         }
         if (strcmp(item.label, "Fixed position") == 0) {
             fixed_row = i;
-            if (item.kind != MESH_UI_SETTING_TOGGLE || item.field != MESH_UI_FIELD_NONE) {
+            if (item.kind != INKSTAND_FORM_TOGGLE || item.field != MESH_UI_FIELD_NONE) {
                 failure = "Fixed position should be shown, not offered";
                 goto cleanup;
             }
         }
-        if (item.kind == MESH_UI_SETTING_ACTION &&
+        if (item.kind == INKSTAND_FORM_ACTION &&
             item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION) {
             set_row = i;
         }
@@ -1396,7 +1396,7 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
                                   MESH_UI_SETTINGS_POSITION, MESH_UI_SETTINGS_NO_CHANNEL, i,
                                   &item) &&
             item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION &&
-            item.kind == MESH_UI_SETTING_ACTION) {
+            item.kind == INKSTAND_FORM_ACTION) {
             failure = "Clear fixed position should not be offered when it is off";
             goto cleanup;
         }
@@ -1418,7 +1418,7 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open ||
-        store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_POSITION_LATITUDE) {
+        store.nav.keyboard_field != (uint16_t)MESH_UI_FIELD_POSITION_LATITUDE) {
         failure = "A on the latitude row should open the keyboard on it";
         goto cleanup;
     }
@@ -1621,11 +1621,11 @@ MESH_TEST_CASE(ui_settings_actions_need_a_live_link, unit) {
                 goto cleanup;
             }
             const enum mesh_ui_settings_action which = (enum mesh_ui_settings_action)item.number;
-            if (item.kind == MESH_UI_SETTING_ACTION && item.field == MESH_UI_FIELD_NONE) {
+            if (item.kind == INKSTAND_FORM_ACTION && item.field == MESH_UI_FIELD_NONE) {
                 radio_pressable += mesh_ui_settings_action_is_radio(which) ? 1U : 0U;
                 forget_pressable += mesh_ui_settings_action_is_forget(which) ? 1U : 0U;
             }
-            if (item.kind == MESH_UI_SETTING_ACTION_OFF &&
+            if (item.kind == INKSTAND_FORM_ACTION_OFF &&
                 strcmp(item.value, inkcell_str(MESH_STR_SETTINGS_NOT_CONNECTED)) == 0) {
                 ++not_connected;
             }
@@ -1645,7 +1645,7 @@ MESH_TEST_CASE(ui_settings_actions_need_a_live_link, unit) {
             struct mesh_ui_settings_item item;
             if (mesh_ui_settings_item(&store.settings, &live, NULL, 0U, page,
                                       MESH_UI_SETTINGS_NO_CHANNEL, row, &item) &&
-                item.kind == MESH_UI_SETTING_ACTION && item.field == MESH_UI_FIELD_NONE &&
+                item.kind == INKSTAND_FORM_ACTION && item.field == MESH_UI_FIELD_NONE &&
                 mesh_ui_settings_action_is_radio((enum mesh_ui_settings_action)item.number)) {
                 ++live_radio_pressable;
             }
@@ -1710,7 +1710,7 @@ MESH_TEST_CASE(ui_nav_ham_mode, unit) {
         if (item.field == MESH_UI_FIELD_LORA_HAM_CALL_SIGN) {
             call_sign_row = i;
         }
-        if (item.kind == MESH_UI_SETTING_ACTION &&
+        if (item.kind == INKSTAND_FORM_ACTION &&
             item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_SET_HAM_MODE) {
             ham_row = i;
         }
@@ -1729,7 +1729,7 @@ MESH_TEST_CASE(ui_nav_ham_mode, unit) {
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open ||
-        store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_LORA_HAM_CALL_SIGN) {
+        store.nav.keyboard_field != (uint16_t)MESH_UI_FIELD_LORA_HAM_CALL_SIGN) {
         failure = "A on the call sign row should open the keyboard on it";
         goto cleanup;
     }
@@ -1936,7 +1936,7 @@ MESH_TEST_CASE(ui_nav_settings_shoulders_walk_the_cards, unit) {
             if (mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                       MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL,
                                       after, &item) &&
-                item.kind == MESH_UI_SETTING_HEADING) {
+                item.kind == INKSTAND_FORM_HEADING) {
                 failure = "a card jump parked the cursor on a group title";
                 break;
             }
@@ -2083,7 +2083,7 @@ MESH_TEST_CASE(ui_nav_a_chevron_is_a_promise_the_nav_keeps, unit) {
             }
             /* Only a verb the renderer would draw a chevron for. A channel slot and a module
                row are ACTION too and open a list, which is what their kind means there. */
-            if (item.kind != MESH_UI_SETTING_ACTION || !mesh_ui_settings_item_is_verb(&item) ||
+            if (item.kind != INKSTAND_FORM_ACTION || !mesh_ui_settings_item_is_verb(&item) ||
                 !mesh_test_settings_cursor_to(&store, row)) {
                 mesh_ui_store_shutdown(&store);
                 continue;
@@ -2168,7 +2168,7 @@ MESH_TEST_CASE(ui_nav_radio_pages_stay_on_the_radio_in_hand, unit) {
     struct mesh_ui_settings_item item;
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-        item.kind != MESH_UI_SETTING_HEADING ||
+        item.kind != INKSTAND_FORM_HEADING ||
         settings_row_of(&store, MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_ACTION_REBOOT) >=
             MESH_UI_SETTINGS_ITEMS_MAX ||
         settings_row_of(&store, MESH_UI_SETTINGS_ACTIONS,
@@ -2205,7 +2205,7 @@ MESH_TEST_CASE(ui_nav_radio_pages_stay_on_the_radio_in_hand, unit) {
         failure = "Settings > User should open on a remote target";
         goto cleanup;
     }
-    store.nav.settings_edits[0].field = (uint8_t)MESH_UI_FIELD_USER_LICENSED;
+    store.nav.settings_edits[0].field = (uint16_t)MESH_UI_FIELD_USER_LICENSED;
     store.nav.settings_edits[0].number = 1U;
     store.nav.settings_edit_count = 1U;
     if (!mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_RADIO_DETAILS) ||
@@ -2241,7 +2241,7 @@ MESH_TEST_CASE(ui_nav_radio_pages_stay_on_the_radio_in_hand, unit) {
 
     /* And B on a page is the page's: with an edit waiting on the Settings tab it goes back to
        the cards rather than arming a discard of somebody else's typing. */
-    store.nav.settings_edits[0].field = (uint8_t)MESH_UI_FIELD_POSITION_SMART;
+    store.nav.settings_edits[0].field = (uint16_t)MESH_UI_FIELD_POSITION_SMART;
     store.nav.settings_edits[0].number = 1U;
     store.nav.settings_edit_count = 1U;
     if (!mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_NODE_LISTS)) {

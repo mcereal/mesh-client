@@ -509,7 +509,7 @@ static uint32_t user_action_row(const struct mesh_ui_store *store,
                                NULL, 0U, MESH_UI_SETTINGS_USER, MESH_UI_SETTINGS_NO_CHANNEL, items,
                                (uint32_t)(sizeof items / sizeof items[0]));
     for (uint32_t i = 0; i < count; ++i) {
-        if (items[i].kind == MESH_UI_SETTING_ACTION && items[i].number == (uint32_t)which) {
+        if (items[i].kind == INKSTAND_FORM_ACTION && items[i].number == (uint32_t)which) {
             return i;
         }
     }

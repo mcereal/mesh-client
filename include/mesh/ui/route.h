@@ -100,7 +100,7 @@ struct mesh_ui_route {
     uint8_t level;  /* enum mesh_ui_route_level */
     /* The channel slot, settings section or keyboard field this level names; 0 when it names
        none. Read in `level`'s terms and meaningless outside them. */
-    uint8_t slot;
+    uint16_t slot;
     /* The node this level is about, 0 when it is about none. */
     uint32_t subject;
 };

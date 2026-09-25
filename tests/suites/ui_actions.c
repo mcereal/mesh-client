@@ -305,7 +305,7 @@ MESH_TEST_CASE(actions_overlays_win_over_the_screen, unit) {
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_START) != MESH_STR_ACTION_SEND,
                       "START should send a message being composed");
 
-    snapshot.nav.keyboard_field = (uint8_t)MESH_UI_FIELD_USER_LONG_NAME;
+    snapshot.nav.keyboard_field = (uint16_t)MESH_UI_FIELD_USER_LONG_NAME;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_START) != MESH_STR_ACTION_DONE,
                       "START should finish a settings field rather than send it");

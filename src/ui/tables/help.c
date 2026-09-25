@@ -589,7 +589,7 @@ uint32_t mesh_ui_help_entry_for_row(const struct mesh_ui_settings *settings,
     uint32_t entry = 1U;
     uint32_t landing = 0U;
     for (uint32_t i = 0U; i <= row; ++i) {
-        if (items[i].kind == MESH_UI_SETTING_HEADING) {
+        if (items[i].kind == INKSTAND_FORM_HEADING) {
             landing = 0U;
         } else if (help_item_note(&items[i]) != INKCELL_STR_NONE) {
             landing = entry;

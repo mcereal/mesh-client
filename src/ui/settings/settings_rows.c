@@ -81,7 +81,7 @@ struct item_list {
  * module's section title.
  */
 static struct mesh_ui_settings_item *item_add_named(struct item_list *list, const char *label,
-                                                    enum mesh_ui_setting_kind kind) {
+                                                    enum inkstand_form_kind kind) {
     if (list->count >= MESH_UI_SETTINGS_ITEMS_MAX) {
         return NULL;
     }
@@ -93,11 +93,11 @@ static struct mesh_ui_settings_item *item_add_named(struct item_list *list, cons
 }
 
 static struct mesh_ui_settings_item *item_add(struct item_list *list, inkcell_str_id label,
-                                              enum mesh_ui_setting_kind kind) {
+                                              enum inkstand_form_kind kind) {
     return item_add_named(list, inkcell_str(label), kind);
 }
 
-static void item_text(struct item_list *list, inkcell_str_id label, enum mesh_ui_setting_kind kind,
+static void item_text(struct item_list *list, inkcell_str_id label, enum inkstand_form_kind kind,
                       const char *value) {
     struct mesh_ui_settings_item *item = item_add(list, label, kind);
     if (item != NULL) {
@@ -106,7 +106,7 @@ static void item_text(struct item_list *list, inkcell_str_id label, enum mesh_ui
 }
 
 /* The common case: both halves of the row are catalog entries. */
-static void item_str(struct item_list *list, inkcell_str_id label, enum mesh_ui_setting_kind kind,
+static void item_str(struct item_list *list, inkcell_str_id label, enum inkstand_form_kind kind,
                      inkcell_str_id value) {
     item_text(list, label, kind, inkcell_str(value));
 }
@@ -115,7 +115,7 @@ static void item_str(struct item_list *list, inkcell_str_id label, enum mesh_ui_
    an editable toggle sets it: it is what a renderer drawing a switch rather than the words
    reads, and a read-only row that left it at 0 would draw every such row off. */
 static void item_toggle(struct item_list *list, inkcell_str_id label, bool value) {
-    struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_TOGGLE);
+    struct mesh_ui_settings_item *item = item_add(list, label, INKSTAND_FORM_TOGGLE);
     if (item == NULL) {
         return;
     }
@@ -125,15 +125,15 @@ static void item_toggle(struct item_list *list, inkcell_str_id label, bool value
 }
 
 /*
- * A read-only quantity with a level: `permille` is 0..1000, or MESH_UI_METER_UNKNOWN for work
+ * A read-only quantity with a level: `permille` is 0..1000, or INKSTAND_FORM_METER_UNKNOWN for work
  * whose extent nobody can know.
  *
  * The words go in the value column as they would on any other read-only row, so a backend that
- * draws no bar shows a complete fact rather than a blank - see MESH_UI_SETTING_METER.
+ * draws no bar shows a complete fact rather than a blank - see INKSTAND_FORM_METER.
  */
 static void item_meter(struct item_list *list, inkcell_str_id label, const char *value,
                        uint32_t permille) {
-    struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_METER);
+    struct mesh_ui_settings_item *item = item_add(list, label, INKSTAND_FORM_METER);
     if (item == NULL) {
         return;
     }
@@ -162,7 +162,7 @@ static void item_meter(struct item_list *list, inkcell_str_id label, const char 
  * and the ones that did not. `ui_settings_row_icons_are_all_or_nothing` holds it.
  */
 static void item_heading(struct item_list *list, inkcell_str_id label) {
-    item_add(list, label, MESH_UI_SETTING_HEADING);
+    item_add(list, label, INKSTAND_FORM_HEADING);
 }
 
 /* "30s", "5m", "2h"; `zero` says what 0 means for this field ("off", "default"). */
@@ -232,7 +232,7 @@ static struct mesh_ui_settings_item *item_field(struct item_list *list,
                                                 enum mesh_ui_setting_field field, uint32_t number,
                                                 const char *text) {
     const struct field_spec *spec = field_spec(field);
-    struct mesh_ui_settings_item *item = item_add(list, spec->label, spec->kind);
+    struct mesh_ui_settings_item *item = item_add(list, spec->form.label, spec->form.kind);
     if (item == NULL) {
         return NULL;
     }
@@ -245,18 +245,18 @@ static struct mesh_ui_settings_item *item_field(struct item_list *list,
         text = edit->text;
     }
     item->number = number;
-    switch (spec->kind) {
+    switch (spec->form.kind) {
     /* A flag says "on" and "off" in the value column exactly as a toggle does. The two differ
        in the control drawn beside the words, which is the backend's choice to make. */
-    case MESH_UI_SETTING_TOGGLE:
-    case MESH_UI_SETTING_FLAG:
+    case INKSTAND_FORM_TOGGLE:
+    case INKSTAND_FORM_FLAG:
         snprintf(item->value, sizeof item->value, "%s",
                  inkcell_str(number != 0U ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF));
         break;
-    case MESH_UI_SETTING_ENUM:
+    case INKSTAND_FORM_ENUM:
         snprintf(item->value, sizeof item->value, "%s", mesh_ui_settings_enum_name(field, number));
         break;
-    case MESH_UI_SETTING_NUMBER:
+    case INKSTAND_FORM_NUMBER:
         /* A zero_label, where the field sets one, wins over the formatter: it is the field
            table's way of saying what 0 means for this row, and a formatter that also had an
            opinion silently overrode it - three Traffic management rows read "default" under a
@@ -271,7 +271,7 @@ static struct mesh_ui_settings_item *item_field(struct item_list *list,
                                                                 : MESH_STR_VALUE_ZERO);
         }
         break;
-    case MESH_UI_SETTING_TEXT:
+    case INKSTAND_FORM_TEXT:
         snprintf(item->text, sizeof item->text, "%s", text != NULL ? text : "");
         if (item->text[0] == '\0') {
             snprintf(item->value, sizeof item->value, "%s",
@@ -341,7 +341,7 @@ static void item_record_group(struct item_list *list, enum mesh_ui_setting_field
     for (uint32_t i = 0; i < count; ++i) {
         if (i % fields_per_record == 0U) {
             inkcell_str_format(label, sizeof label, title, (unsigned)(i / fields_per_record + 1U));
-            item_add_named(list, label, MESH_UI_SETTING_HEADING);
+            item_add_named(list, label, INKSTAND_FORM_HEADING);
         }
         struct mesh_ui_settings_item *row =
             item_field(list, mesh_ui_settings_group_field(group, i), values[i], NULL);
@@ -361,14 +361,14 @@ static void item_key_field(struct item_list *list, enum mesh_ui_setting_field fi
        offered channel is a ChannelSettings and its key is named in the same words. */
     const bool aes =
         (field == MESH_UI_FIELD_CHANNEL_KEY || field == MESH_UI_FIELD_BEACON_OFFER_KEY);
-    struct mesh_ui_settings_item *item = item_add(list, spec->label, spec->kind);
+    struct mesh_ui_settings_item *item = item_add(list, spec->form.label, spec->form.kind);
     if (item == NULL) {
         return;
     }
     item->field = field;
     /* A KEY row's set is the field table's and never moves; it is on the row for the same
        reason an enum's is, which is that Left and Right read the row rather than the table. */
-    item->choices = spec->choices;
+    item->choices = spec->form.choices;
     mesh_ui_settings_key_text(key, len, item->text, sizeof item->text);
     const struct mesh_ui_setting_edit *edit =
         mesh_ui_settings_find_edit(list->edits, list->edit_count, field);
@@ -414,7 +414,7 @@ static void item_key_field(struct item_list *list, enum mesh_ui_setting_field fi
 /* Keys are shown as a short fingerprint: enough to compare against the phone app's view,
    not enough to leak the key to someone reading over your shoulder. */
 static void item_key(struct item_list *list, inkcell_str_id label, const uint8_t *key, size_t len) {
-    struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_KEY);
+    struct mesh_ui_settings_item *item = item_add(list, label, INKSTAND_FORM_KEY);
     if (item == NULL) {
         return;
     }
@@ -454,7 +454,7 @@ static void item_key(struct item_list *list, inkcell_str_id label, const uint8_t
  */
 static void item_action_named(struct item_list *list, const char *label, const char *value,
                               enum mesh_ui_settings_action action) {
-    struct mesh_ui_settings_item *item = item_add_named(list, label, MESH_UI_SETTING_ACTION);
+    struct mesh_ui_settings_item *item = item_add_named(list, label, INKSTAND_FORM_ACTION);
     if (item == NULL) {
         return;
     }
@@ -476,7 +476,7 @@ static void item_action_named(struct item_list *list, const char *label, const c
 }
 
 /*
- * The same verb, withdrawn, and why - the shape MESH_UI_SETTING_ACTION_OFF is for.
+ * The same verb, withdrawn, and why - the shape INKSTAND_FORM_ACTION_OFF is for.
  *
  * It keeps the verb's symbol and loses its weight: a row that cannot be pressed is not a
  * dangerous row, it is an absent one, so the disc goes quiet rather than staying red. What it
@@ -486,7 +486,7 @@ static void item_action_named(struct item_list *list, const char *label, const c
  */
 static void item_action_off_named(struct item_list *list, const char *label, const char *reason,
                                   enum mesh_ui_settings_action action) {
-    struct mesh_ui_settings_item *item = item_add_named(list, label, MESH_UI_SETTING_ACTION_OFF);
+    struct mesh_ui_settings_item *item = item_add_named(list, label, INKSTAND_FORM_ACTION_OFF);
     if (item != NULL) {
         inkwell_str_copy(item->value, sizeof item->value, reason);
         item->number = (uint32_t)action;
@@ -564,14 +564,14 @@ static void item_radio_action(struct item_list *list, inkcell_str_id label,
  */
 static void build_about(const struct mesh_ui_settings *s, struct item_list *list) {
     const struct mesh_ui_client_info *client = &s->client;
-    item_text(list, MESH_STR_ABOUT_VERSION, MESH_UI_SETTING_INFO,
+    item_text(list, MESH_STR_ABOUT_VERSION, INKSTAND_FORM_INFO,
               client->version[0] != '\0' ? client->version
                                          : inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT));
     if (client->backend[0] != '\0') {
-        item_text(list, MESH_STR_ABOUT_UI_BACKEND, MESH_UI_SETTING_INFO, client->backend);
+        item_text(list, MESH_STR_ABOUT_UI_BACKEND, INKSTAND_FORM_INFO, client->backend);
     }
     if (client->data_dir[0] != '\0') {
-        item_text(list, MESH_STR_ABOUT_DATA, MESH_UI_SETTING_INFO, client->data_dir);
+        item_text(list, MESH_STR_ABOUT_DATA, INKSTAND_FORM_INFO, client->data_dir);
     }
 
     /*
@@ -611,14 +611,13 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
         if (slash != NULL && slash[1] != '\0') {
             name = slash + 1;
         }
-        item_text(list, MESH_STR_ABOUT_CRASH_REPORT, MESH_UI_SETTING_INFO, name);
+        item_text(list, MESH_STR_ABOUT_CRASH_REPORT, INKSTAND_FORM_INFO, name);
         item_verb(list, MESH_STR_ABOUT_CRASH_DISCARD, MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT);
     }
     /* Keep each language's own name visible so users can always find their way back. */
     if (client->language_name[0] != '\0') {
         if (client->language_from_env) {
-            item_text(list, MESH_STR_ABOUT_LANGUAGE_ENV, MESH_UI_SETTING_INFO,
-                      client->language_name);
+            item_text(list, MESH_STR_ABOUT_LANGUAGE_ENV, INKSTAND_FORM_INFO, client->language_name);
         } else {
             item_action(list, MESH_STR_ABOUT_LANGUAGE, client->language_name,
                         MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE);
@@ -641,14 +640,14 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
                cells at the device scale, so "High contrast (environment)" clipped to "High
                contrast (env" - a note that reads as a bug. The label column has room for the
                note whatever the theme is called, and the value stays the plain name. */
-            item_text(list, MESH_STR_ABOUT_THEME_ENV, MESH_UI_SETTING_INFO, name);
+            item_text(list, MESH_STR_ABOUT_THEME_ENV, INKSTAND_FORM_INFO, name);
         } else {
             item_action(list, MESH_STR_ABOUT_THEME, name, MESH_UI_SETTINGS_ACTION_CYCLE_THEME);
         }
     }
 
     if (!client->update_supported) {
-        item_text(list, MESH_STR_ABOUT_UPDATES, MESH_UI_SETTING_INFO,
+        item_text(list, MESH_STR_ABOUT_UPDATES, INKSTAND_FORM_INFO,
                   client->update_message[0] != '\0'
                       ? client->update_message
                       : inkcell_str(MESH_STR_ABOUT_UPDATES_UNAVAILABLE));
@@ -668,7 +667,7 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
                                     ? client->update_channel
                                     : inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
     if (client->update_busy) {
-        item_text(list, MESH_STR_ABOUT_UPDATE_CHANNEL, MESH_UI_SETTING_INFO, channel);
+        item_text(list, MESH_STR_ABOUT_UPDATE_CHANNEL, INKSTAND_FORM_INFO, channel);
     } else {
         item_action(list, MESH_STR_ABOUT_UPDATE_CHANNEL, channel,
                     MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL);
@@ -685,10 +684,10 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
         if (client->update_allow_dev_from_env) {
             /* Held on by MESHCLIENT_UPDATE_ALLOW_DEV. Shown as a fact rather than a switch,
                because a toggle that sprang back would look broken. */
-            item_str(list, MESH_STR_ABOUT_DEV_UPDATES, MESH_UI_SETTING_INFO,
+            item_str(list, MESH_STR_ABOUT_DEV_UPDATES, INKSTAND_FORM_INFO,
                      MESH_STR_ABOUT_DEV_UPDATES_ENV);
         } else if (client->update_busy) {
-            item_str(list, MESH_STR_ABOUT_DEV_UPDATES, MESH_UI_SETTING_INFO,
+            item_str(list, MESH_STR_ABOUT_DEV_UPDATES, INKSTAND_FORM_INFO,
                      client->update_allow_dev ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF);
         } else {
             item_action(
@@ -699,7 +698,7 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
     }
 
     const enum mesh_update_state state = (enum mesh_update_state)client->update_state;
-    item_text(list, MESH_STR_ABOUT_UPDATE_STATUS, MESH_UI_SETTING_INFO,
+    item_text(list, MESH_STR_ABOUT_UPDATE_STATUS, INKSTAND_FORM_INFO,
               client->update_message[0] != '\0' ? client->update_message
                                                 : mesh_update_state_name(state));
 
@@ -716,7 +715,7 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
      */
     if (client->update_busy) {
         char working[MESH_UI_SETTINGS_VALUE_MAX];
-        uint32_t level = MESH_UI_METER_UNKNOWN;
+        uint32_t level = INKSTAND_FORM_METER_UNKNOWN;
         if (client->update_progress_known) {
             level = client->update_progress;
             inkcell_str_format(working, sizeof working, MESH_STR_ABOUT_WORKING_PERCENT,
@@ -731,7 +730,7 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
         return;
     }
     if (state == MESH_UPDATE_READY) {
-        item_str(list, MESH_STR_ABOUT_INSTALLED, MESH_UI_SETTING_INFO,
+        item_str(list, MESH_STR_ABOUT_INSTALLED, INKSTAND_FORM_INFO,
                  MESH_STR_ABOUT_INSTALLED_RELAUNCH);
         return;
     }
@@ -748,7 +747,7 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
     } else if (!client->update_can_install) {
         /* Nothing here will offer an install, so say so once - and name the row that changes
            it, rather than leaving the user hunting for one that is never coming. */
-        item_str(list, MESH_STR_ABOUT_INSTALLING, MESH_UI_SETTING_INFO, MESH_STR_ABOUT_TURN_ON_DEV);
+        item_str(list, MESH_STR_ABOUT_INSTALLING, INKSTAND_FORM_INFO, MESH_STR_ABOUT_TURN_ON_DEV);
     }
 }
 
@@ -786,12 +785,12 @@ static void build_connection(const struct mesh_ui_connection_status *conn, struc
     if (conn->has_wifi) {
         item_heading(list, MESH_STR_HEAD_CONN_WIFI);
         item_toggle(list, MESH_STR_CONN_CONNECTED, conn->wifi_connected);
-        item_text(list, MESH_STR_CONN_NETWORK, MESH_UI_SETTING_INFO,
+        item_text(list, MESH_STR_CONN_NETWORK, INKSTAND_FORM_INFO,
                   conn->wifi_ssid[0] != '\0' ? conn->wifi_ssid : inkcell_str(MESH_STR_COMMON_NONE));
         format_ipv4(conn->wifi_ip, buffer, sizeof buffer);
-        item_text(list, MESH_STR_CONN_IP, MESH_UI_SETTING_INFO, buffer);
+        item_text(list, MESH_STR_CONN_IP, INKSTAND_FORM_INFO, buffer);
         inkcell_str_format(buffer, sizeof buffer, MESH_STR_VALUE_DBM, (int)conn->wifi_rssi);
-        item_text(list, MESH_STR_CONN_SIGNAL, MESH_UI_SETTING_INFO, buffer);
+        item_text(list, MESH_STR_CONN_SIGNAL, INKSTAND_FORM_INFO, buffer);
         item_toggle(list, MESH_STR_CONN_MQTT, conn->wifi_mqtt);
         item_toggle(list, MESH_STR_CONN_SYSLOG, conn->wifi_syslog);
     }
@@ -799,7 +798,7 @@ static void build_connection(const struct mesh_ui_connection_status *conn, struc
         item_heading(list, MESH_STR_HEAD_CONN_ETHERNET);
         item_toggle(list, MESH_STR_CONN_CONNECTED, conn->ethernet_connected);
         format_ipv4(conn->ethernet_ip, buffer, sizeof buffer);
-        item_text(list, MESH_STR_CONN_IP, MESH_UI_SETTING_INFO, buffer);
+        item_text(list, MESH_STR_CONN_IP, INKSTAND_FORM_INFO, buffer);
         item_toggle(list, MESH_STR_CONN_MQTT, conn->ethernet_mqtt);
         item_toggle(list, MESH_STR_CONN_SYSLOG, conn->ethernet_syslog);
     }
@@ -811,17 +810,17 @@ static void build_connection(const struct mesh_ui_connection_status *conn, struc
         if (conn->bluetooth_pin != 0U) {
             inkcell_str_format(buffer, sizeof buffer, MESH_STR_VALUE_PLAIN,
                                (unsigned)conn->bluetooth_pin);
-            item_text(list, MESH_STR_CONN_PAIRING_PIN, MESH_UI_SETTING_INFO, buffer);
+            item_text(list, MESH_STR_CONN_PAIRING_PIN, INKSTAND_FORM_INFO, buffer);
         }
         inkcell_str_format(buffer, sizeof buffer, MESH_STR_VALUE_DBM, (int)conn->bluetooth_rssi);
-        item_text(list, MESH_STR_CONN_SIGNAL, MESH_UI_SETTING_INFO, buffer);
+        item_text(list, MESH_STR_CONN_SIGNAL, INKSTAND_FORM_INFO, buffer);
     }
     if (conn->has_serial) {
         item_heading(list, MESH_STR_HEAD_CONN_SERIAL);
         item_toggle(list, MESH_STR_CONN_CONNECTED, conn->serial_connected);
         inkcell_str_format(buffer, sizeof buffer, MESH_STR_VALUE_PLAIN,
                            (unsigned)conn->serial_baud);
-        item_text(list, MESH_STR_CONN_BAUD, MESH_UI_SETTING_INFO, buffer);
+        item_text(list, MESH_STR_CONN_BAUD, INKSTAND_FORM_INFO, buffer);
     }
 }
 
@@ -835,7 +834,7 @@ static void build_connection(const struct mesh_ui_connection_status *conn, struc
  *
  * A meter rather than a plain row, and only two of the states carry a level: `firmware_update.c`
  * answers 0 for the steps that have no fraction, and a bar drawn at 0% through a forty-second
- * wait for a bootloader is a bar that says the work stalled. MESH_UI_METER_UNKNOWN is the
+ * wait for a bootloader is a bar that says the work stalled. INKSTAND_FORM_METER_UNKNOWN is the
  * honest reading there - the same one About's own check row uses for a reply with no length.
  */
 static bool build_radio_firmware_running(const struct mesh_ui_settings *s, struct item_list *list) {
@@ -846,7 +845,7 @@ static bool build_radio_firmware_running(const struct mesh_ui_settings *s, struc
     }
 
     char value[MESH_UI_SETTINGS_VALUE_MAX];
-    uint32_t level = MESH_UI_METER_UNKNOWN;
+    uint32_t level = INKSTAND_FORM_METER_UNKNOWN;
     if (s->fw_update_progress > 0U) {
         level = (uint32_t)s->fw_update_progress * 10U;
         snprintf(value, sizeof value, "%s %u%%", mesh_firmware_update_state_name(state),
@@ -858,7 +857,7 @@ static bool build_radio_firmware_running(const struct mesh_ui_settings *s, struc
     /* What is being installed, so the one row that is left still names the release. The
        version is a version and is not translated. */
     if (s->fw_latest[0] != '\0') {
-        item_text(list, MESH_STR_FW_NEWER, MESH_UI_SETTING_INFO, s->fw_latest);
+        item_text(list, MESH_STR_FW_NEWER, INKSTAND_FORM_INFO, s->fw_latest);
     }
     return true;
 }
@@ -886,8 +885,7 @@ static bool build_radio_firmware_running(const struct mesh_ui_settings *s, struc
 static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_list *list) {
     if (!s->fw_supported) {
         /* A build with no TLS. Said once rather than offering a press that cannot run. */
-        item_str(list, MESH_STR_FW_LATEST, MESH_UI_SETTING_INFO,
-                 MESH_STR_ABOUT_UPDATES_UNAVAILABLE);
+        item_str(list, MESH_STR_FW_LATEST, INKSTAND_FORM_INFO, MESH_STR_ABOUT_UPDATES_UNAVAILABLE);
         return;
     }
     if (build_radio_firmware_running(s, list)) {
@@ -902,10 +900,10 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
      * in flight, and a row that refuses is worse than one that never invited the press.
      */
     if (s->fw_busy) {
-        item_text(list, MESH_STR_FW_CHANNEL, MESH_UI_SETTING_INFO, s->fw_channel);
+        item_text(list, MESH_STR_FW_CHANNEL, INKSTAND_FORM_INFO, s->fw_channel);
         item_meter(list, MESH_STR_FW_LATEST,
                    mesh_firmware_state_name((enum mesh_firmware_state)s->fw_state),
-                   MESH_UI_METER_UNKNOWN);
+                   INKSTAND_FORM_METER_UNKNOWN);
         return;
     }
     item_action(list, MESH_STR_FW_CHANNEL, s->fw_channel,
@@ -917,7 +915,7 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
      * state's own word stands in - which is also why the press below is offered whatever state
      * this is in: a check is worth repeating, and a failed one is worth retrying.
      */
-    item_text(list, newer ? MESH_STR_FW_NEWER : MESH_STR_FW_LATEST, MESH_UI_SETTING_INFO,
+    item_text(list, newer ? MESH_STR_FW_NEWER : MESH_STR_FW_LATEST, INKSTAND_FORM_INFO,
               s->fw_message[0] != '\0'
                   ? s->fw_message
                   : mesh_firmware_state_name((enum mesh_firmware_state)s->fw_state));
@@ -950,7 +948,7 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
         if (s->fw_blocker_reason[0] == '\0') {
             return;
         }
-        item_text(list, MESH_STR_FW_INSTALLING, MESH_UI_SETTING_INFO, s->fw_blocker_reason);
+        item_text(list, MESH_STR_FW_INSTALLING, INKSTAND_FORM_INFO, s->fw_blocker_reason);
         return;
     }
     /*
@@ -962,13 +960,13 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
      * something, its own words; those stay untranslated, like a log line.
      */
     if (s->fw_update_state == (uint8_t)MESH_FIRMWARE_UPDATE_FAILED) {
-        item_text(list, MESH_STR_FW_INSTALLING, MESH_UI_SETTING_INFO,
+        item_text(list, MESH_STR_FW_INSTALLING, INKSTAND_FORM_INFO,
                   s->fw_update_detail[0] != '\0'
                       ? s->fw_update_detail
                       : mesh_firmware_update_error_name(
                             (enum mesh_firmware_update_error)s->fw_update_error));
     } else if (s->fw_update_state == (uint8_t)MESH_FIRMWARE_UPDATE_DONE) {
-        item_text(list, MESH_STR_FW_INSTALLING, MESH_UI_SETTING_INFO,
+        item_text(list, MESH_STR_FW_INSTALLING, INKSTAND_FORM_INFO,
                   mesh_firmware_update_state_name(MESH_FIRMWARE_UPDATE_DONE));
     }
     /*
@@ -996,7 +994,7 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
      */
     if (s->admin_dest != 0U) {
         item_heading(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD);
-        item_text(list, MESH_STR_RADIO_ADMIN_REMOTE_NODE, MESH_UI_SETTING_INFO, s->admin_dest_name);
+        item_text(list, MESH_STR_RADIO_ADMIN_REMOTE_NODE, INKSTAND_FORM_INFO, s->admin_dest_name);
         item_verb(list, MESH_STR_RADIO_ADMIN_REMOTE_RETURN, MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL);
     }
     /* Whether the firmware group below belongs on this screen at all. It is about the radio on
@@ -1007,10 +1005,10 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
        cable or a BLE link, never a mesh. */
     const bool link_firmware = (s->admin_dest == 0U);
     if (s->has_metadata) {
-        item_text(list, MESH_STR_RADIO_FIRMWARE, MESH_UI_SETTING_INFO,
+        item_text(list, MESH_STR_RADIO_FIRMWARE, INKSTAND_FORM_INFO,
                   s->firmware_version[0] != '\0' ? s->firmware_version
                                                  : inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT));
-        item_text(list, MESH_STR_RADIO_HARDWARE, MESH_UI_SETTING_INFO,
+        item_text(list, MESH_STR_RADIO_HARDWARE, INKSTAND_FORM_INFO,
                   /* The board upstream's hardware list identified, when a check has run: it is
                      the name that decides which image this radio takes, and "Heltec Mesh Node
                      T114" says more than the HardwareModel enum's own spelling of it. Falls
@@ -1034,13 +1032,13 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
      */
     if (s->admin_dest != 0U) {
         inkcell_str_format(buffer, sizeof buffer, MESH_STR_NODE_VAL_USER_ID_HEX, s->admin_dest);
-        item_text(list, MESH_STR_RADIO_NODE_NUMBER, MESH_UI_SETTING_INFO, buffer);
+        item_text(list, MESH_STR_RADIO_NODE_NUMBER, INKSTAND_FORM_INFO, buffer);
     } else if (hs != NULL && hs->has_my_info) {
         inkcell_str_format(buffer, sizeof buffer, MESH_STR_NODE_VAL_USER_ID_HEX,
                            hs->my_info.node_num);
-        item_text(list, MESH_STR_RADIO_NODE_NUMBER, MESH_UI_SETTING_INFO, buffer);
+        item_text(list, MESH_STR_RADIO_NODE_NUMBER, INKSTAND_FORM_INFO, buffer);
         inkcell_str_format(buffer, sizeof buffer, MESH_STR_VALUE_PLAIN, hs->my_info.reboot_count);
-        item_text(list, MESH_STR_RADIO_REBOOTS, MESH_UI_SETTING_INFO, buffer);
+        item_text(list, MESH_STR_RADIO_REBOOTS, INKSTAND_FORM_INFO, buffer);
     }
     if (s->has_metadata) {
         snprintf(buffer, sizeof buffer, "%s%s%s%s",
@@ -1048,7 +1046,7 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
                  s->has_wifi ? inkcell_str(MESH_STR_RADIO_CAP_WIFI) : "",
                  s->has_ethernet ? inkcell_str(MESH_STR_RADIO_CAP_ETHERNET) : "",
                  s->has_pkc ? inkcell_str(MESH_STR_RADIO_CAP_PKC) : "");
-        item_text(list, MESH_STR_RADIO_CAPABILITIES, MESH_UI_SETTING_INFO,
+        item_text(list, MESH_STR_RADIO_CAPABILITIES, INKSTAND_FORM_INFO,
                   buffer[0] != '\0' ? buffer : inkcell_str(MESH_STR_RADIO_CAP_NONE));
         item_toggle(list, MESH_STR_RADIO_CAN_SHUT_DOWN, s->can_shutdown);
         /* DeviceMetadata.has_xeddsa: the firmware either compiled packet signature verification
@@ -1067,7 +1065,7 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
                  inkcell_str(s->admin_busy ? MESH_STR_RADIO_ADMIN_WAITING
                                            : MESH_STR_RADIO_ADMIN_NO_REPLY));
     }
-    item_text(list, MESH_STR_RADIO_ADMIN_SESSION, MESH_UI_SETTING_INFO, buffer);
+    item_text(list, MESH_STR_RADIO_ADMIN_SESSION, INKSTAND_FORM_INFO, buffer);
     build_connection(&s->connection, list);
 }
 
@@ -1303,26 +1301,26 @@ static void build_bluetooth(const struct mesh_ui_settings *s, struct item_list *
 static void build_network(const struct mesh_ui_settings *s, struct item_list *list) {
     char buffer[48];
     item_toggle(list, MESH_STR_NETWORK_WIFI, s->wifi_enabled);
-    item_text(list, MESH_STR_NETWORK_SSID, MESH_UI_SETTING_INFO,
+    item_text(list, MESH_STR_NETWORK_SSID, INKSTAND_FORM_INFO,
               s->wifi_ssid[0] != '\0' ? s->wifi_ssid : inkcell_str(MESH_STR_COMMON_NONE));
     item_toggle(list, MESH_STR_NETWORK_ETHERNET, s->eth_enabled);
     item_toggle(list, MESH_STR_NETWORK_IPV6, s->ipv6_enabled);
-    item_str(list, MESH_STR_NETWORK_ADDRESS, MESH_UI_SETTING_INFO,
+    item_str(list, MESH_STR_NETWORK_ADDRESS, INKSTAND_FORM_INFO,
              s->address_mode == 1U ? MESH_STR_ENUM_ADDRESS_STATIC : MESH_STR_ENUM_ADDRESS_DHCP);
     if (s->address_mode == 1U) {
         item_heading(list, MESH_STR_HEAD_NETWORK_STATIC);
         format_ipv4(s->ipv4_ip, buffer, sizeof buffer);
-        item_text(list, MESH_STR_CONN_IP, MESH_UI_SETTING_INFO, buffer);
+        item_text(list, MESH_STR_CONN_IP, INKSTAND_FORM_INFO, buffer);
         format_ipv4(s->ipv4_gateway, buffer, sizeof buffer);
-        item_text(list, MESH_STR_NETWORK_GATEWAY, MESH_UI_SETTING_INFO, buffer);
+        item_text(list, MESH_STR_NETWORK_GATEWAY, INKSTAND_FORM_INFO, buffer);
         format_ipv4(s->ipv4_subnet, buffer, sizeof buffer);
-        item_text(list, MESH_STR_NETWORK_SUBNET, MESH_UI_SETTING_INFO, buffer);
+        item_text(list, MESH_STR_NETWORK_SUBNET, INKSTAND_FORM_INFO, buffer);
         format_ipv4(s->ipv4_dns, buffer, sizeof buffer);
-        item_text(list, MESH_STR_NETWORK_DNS, MESH_UI_SETTING_INFO, buffer);
+        item_text(list, MESH_STR_NETWORK_DNS, INKSTAND_FORM_INFO, buffer);
     }
-    item_text(list, MESH_STR_NETWORK_NTP, MESH_UI_SETTING_INFO,
+    item_text(list, MESH_STR_NETWORK_NTP, INKSTAND_FORM_INFO,
               s->ntp_server[0] != '\0' ? s->ntp_server : inkcell_str(MESH_STR_NETWORK_NTP_DEFAULT));
-    item_text(list, MESH_STR_NETWORK_SYSLOG, MESH_UI_SETTING_INFO,
+    item_text(list, MESH_STR_NETWORK_SYSLOG, INKSTAND_FORM_INFO,
               s->rsyslog_server[0] != '\0' ? s->rsyslog_server : inkcell_str(MESH_STR_COMMON_NONE));
     item_toggle(list, MESH_STR_NETWORK_UDP_BROADCAST,
                 (s->enabled_protocols & NETWORK_PROTOCOL_UDP_BROADCAST) != 0U);
@@ -1381,8 +1379,7 @@ static void build_channels(const struct mesh_ui_settings *s,
             } else {
                 channel_label(channel->index, channel->name, label, sizeof label);
             }
-            struct mesh_ui_settings_item *item =
-                item_add_named(list, label, MESH_UI_SETTING_ACTION);
+            struct mesh_ui_settings_item *item = item_add_named(list, label, INKSTAND_FORM_ACTION);
             if (item == NULL) {
                 continue;
             }
@@ -1401,7 +1398,7 @@ static void build_channels(const struct mesh_ui_settings *s,
                 continue;
             }
             channel_label(channel->index, channel->name, label, sizeof label);
-            struct mesh_ui_settings_item *item = item_add_named(list, label, MESH_UI_SETTING_INFO);
+            struct mesh_ui_settings_item *item = item_add_named(list, label, INKSTAND_FORM_INFO);
             if (item != NULL) {
                 channel_summary(channel->role, channel->psk_len, item->value, sizeof item->value);
                 item->number = channel->index;
@@ -1409,7 +1406,7 @@ static void build_channels(const struct mesh_ui_settings *s,
         }
     }
     if (list->count == 0U) {
-        item_str(list, MESH_STR_SETTINGS_CHANNELS_ROW, MESH_UI_SETTING_INFO,
+        item_str(list, MESH_STR_SETTINGS_CHANNELS_ROW, INKSTAND_FORM_INFO,
                  MESH_STR_CHANNELS_NONE_KNOWN);
     }
 
@@ -1445,7 +1442,7 @@ static void build_channel(const struct mesh_ui_settings *s, uint8_t slot, struct
     const struct mesh_ui_channel_detail *channel = &s->channels[slot];
     item_field(list, MESH_UI_FIELD_CHANNEL_NAME, 0U, channel->name);
     if (channel->role == 1U) {
-        item_str(list, MESH_STR_SETTINGS_ROLE_ROW, MESH_UI_SETTING_INFO,
+        item_str(list, MESH_STR_SETTINGS_ROLE_ROW, INKSTAND_FORM_INFO,
                  MESH_STR_ENUM_CHANNEL_PRIMARY);
     } else {
         item_field(list, MESH_UI_FIELD_CHANNEL_ROLE, channel->role == 2U ? 1U : 0U, NULL);
@@ -1485,7 +1482,7 @@ int mesh_ui_settings_channel_at_row(const struct mesh_ui_settings *settings,
     if (settings == NULL || !settings->has_channels ||
         !mesh_ui_settings_item(settings, handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
                                MESH_UI_SETTINGS_NO_CHANNEL, row, &item) ||
-        item.kind != MESH_UI_SETTING_ACTION) {
+        item.kind != INKSTAND_FORM_ACTION) {
         return -1;
     }
     /* The two sharing rows at the foot of the list are ACTION rows too, and carry an
@@ -1594,7 +1591,7 @@ static void build_radio_ui(const struct mesh_ui_settings *s, struct item_list *l
     item_field(list, MESH_UI_FIELD_UI_BANNER, s->ui_banner_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_UI_RING_TONE, s->ui_ring_tone_id, NULL);
     item_heading(list, MESH_STR_HEAD_LOCKS);
-    item_text(list, MESH_STR_SETTINGS_UI_LANGUAGE, MESH_UI_SETTING_INFO,
+    item_text(list, MESH_STR_SETTINGS_UI_LANGUAGE, INKSTAND_FORM_INFO,
               mesh_radio_language_name(s->ui_language));
     item_toggle(list, MESH_STR_SETTINGS_UI_SCREEN_LOCK, s->ui_screen_lock);
     item_toggle(list, MESH_STR_SETTINGS_UI_SETTINGS_LOCK, s->ui_settings_lock);
@@ -1620,7 +1617,7 @@ static void build_canned(const struct mesh_ui_settings *s, struct item_list *lis
         char value[MESH_UI_SETTINGS_VALUE_MAX];
         inkcell_str_format(value, sizeof value, MESH_STR_SETTINGS_CANNED_KEPT_N,
                            (unsigned)(held - MESH_UI_CANNED_SLOTS));
-        item_text(list, MESH_STR_SETTINGS_CANNED_KEPT, MESH_UI_SETTING_INFO, value);
+        item_text(list, MESH_STR_SETTINGS_CANNED_KEPT, INKSTAND_FORM_INFO, value);
     }
 }
 
@@ -1630,7 +1627,7 @@ static void build_modules(const struct mesh_ui_settings *s,
     for (uint32_t i = 0; i < count; ++i) {
         const enum mesh_ui_settings_section section = mesh_ui_settings_module_at(i);
         struct mesh_ui_settings_item *item =
-            item_add_named(list, mesh_ui_settings_section_name(section), MESH_UI_SETTING_ACTION);
+            item_add_named(list, mesh_ui_settings_section_name(section), INKSTAND_FORM_ACTION);
         if (item == NULL) {
             continue;
         }
@@ -1824,10 +1821,9 @@ static void build_store_forward(const struct mesh_ui_settings *s,
        heard yet" is the answer to why the press is about to take half a minute - the client
        goes looking with a broadcast ping when it knows no router. */
     if (sf->router == 0U) {
-        item_str(list, MESH_STR_SF_ROUTER, MESH_UI_SETTING_INFO, MESH_STR_SF_ROUTER_NONE);
+        item_str(list, MESH_STR_SF_ROUTER, INKSTAND_FORM_INFO, MESH_STR_SF_ROUTER_NONE);
     } else {
-        struct mesh_ui_settings_item *item =
-            item_add(list, MESH_STR_SF_ROUTER, MESH_UI_SETTING_INFO);
+        struct mesh_ui_settings_item *item = item_add(list, MESH_STR_SF_ROUTER, INKSTAND_FORM_INFO);
         if (item != NULL) {
             if (sf->router_secondary) {
                 inkcell_str_format(item->value, sizeof item->value, MESH_STR_SF_ROUTER_SECONDARY,
@@ -1846,7 +1842,7 @@ static void build_store_forward(const struct mesh_ui_settings *s,
      */
     if (running) {
         struct mesh_ui_settings_item *item =
-            item_add(list, MESH_STR_SF_REQUEST, MESH_UI_SETTING_INFO);
+            item_add(list, MESH_STR_SF_REQUEST, INKSTAND_FORM_INFO);
         if (item != NULL) {
             store_forward_progress(sf, item->value, sizeof item->value);
         }
@@ -1859,7 +1855,7 @@ static void build_store_forward(const struct mesh_ui_settings *s,
        unconditionally - before the first press it would be a heading over a blank value. */
     if (!running && sf->state != (uint8_t)MESH_STORE_FORWARD_IDLE) {
         struct mesh_ui_settings_item *item =
-            item_add(list, MESH_STR_SF_LAST_REQUEST, MESH_UI_SETTING_INFO);
+            item_add(list, MESH_STR_SF_LAST_REQUEST, INKSTAND_FORM_INFO);
         if (item != NULL) {
             store_forward_progress(sf, item->value, sizeof item->value);
         }
@@ -1869,7 +1865,7 @@ static void build_store_forward(const struct mesh_ui_settings *s,
        row that would act on the difference, and a request costs the mesh a round trip. */
     if (sf->has_stats) {
         struct mesh_ui_settings_item *item =
-            item_add(list, MESH_STR_SF_ROUTER_HOLDS, MESH_UI_SETTING_INFO);
+            item_add(list, MESH_STR_SF_ROUTER_HOLDS, INKSTAND_FORM_INFO);
         if (item != NULL) {
             inkcell_str_format(item->value, sizeof item->value, MESH_STR_SF_HOLDS_COUNT,
                                sf->messages_saved, sf->messages_max);
@@ -1937,7 +1933,7 @@ static void build_neighbor_info(const struct mesh_ui_settings *s, struct item_li
 static void build_range_test(const struct mesh_ui_settings *s, struct item_list *list) {
     item_field(list, MESH_UI_FIELD_RANGE_TEST_ENABLED, s->range_test_enabled ? 1U : 0U, NULL);
     item_heading(list, MESH_STR_HEAD_TRANSMITTER);
-    item_str(list, MESH_STR_NOTE_TEST_PACKETS, MESH_UI_SETTING_INFO,
+    item_str(list, MESH_STR_NOTE_TEST_PACKETS, INKSTAND_FORM_INFO,
              MESH_STR_NOTE_TEST_PACKETS_VALUE);
     item_field(list, MESH_UI_FIELD_RANGE_TEST_SENDER, s->range_test_sender, NULL);
     /* ESP32-only in the firmware; shown anyway, because the radio ignoring a flag is quieter
@@ -2038,7 +2034,7 @@ static void build_ext_notification(const struct mesh_ui_settings *s, struct item
      */
     if (s->has_ringtone) {
         item_heading(list, MESH_STR_HEAD_RINGTONE);
-        item_text(list, MESH_STR_SETTINGS_RINGTONE_ROW, MESH_UI_SETTING_INFO,
+        item_text(list, MESH_STR_SETTINGS_RINGTONE_ROW, INKSTAND_FORM_INFO,
                   s->ringtone[0] != '\0' ? s->ringtone : inkcell_str(MESH_STR_COMMON_NONE));
     }
 }
@@ -2050,7 +2046,7 @@ static void build_ext_notification(const struct mesh_ui_settings *s, struct item
  * than leaving a reader to wonder where the switch is.
  */
 static void build_traffic(const struct mesh_ui_settings *s, struct item_list *list) {
-    item_str(list, MESH_STR_NOTE_EACH_LIMIT, MESH_UI_SETTING_INFO, MESH_STR_NOTE_EACH_LIMIT_VALUE);
+    item_str(list, MESH_STR_NOTE_EACH_LIMIT, INKSTAND_FORM_INFO, MESH_STR_NOTE_EACH_LIMIT_VALUE);
     item_field(list, MESH_UI_FIELD_TRAFFIC_POSITION_INTERVAL, s->traffic_position_min_interval_secs,
                NULL);
     item_field(list, MESH_UI_FIELD_TRAFFIC_NODEINFO_HOPS, s->traffic_nodeinfo_max_hops, NULL);
@@ -2242,7 +2238,7 @@ static void build_backup_verbs(bool connected, struct item_list *list) {
    remote-facing list opens with. */
 static void build_remote_head(const struct mesh_ui_settings *s, struct item_list *list) {
     item_heading(list, MESH_STR_RADIO_ADMIN_REMOTE_HEAD);
-    item_text(list, MESH_STR_RADIO_ADMIN_REMOTE_NODE, MESH_UI_SETTING_INFO, s->admin_dest_name);
+    item_text(list, MESH_STR_RADIO_ADMIN_REMOTE_NODE, INKSTAND_FORM_INFO, s->admin_dest_name);
 }
 
 /*
@@ -2437,7 +2433,7 @@ bool mesh_ui_settings_section_has_verbs(const struct mesh_ui_settings *settings,
     struct item_list list;
     build_section(settings, handshake, NULL, 0U, section, channel, &list);
     for (uint32_t i = 0; i < list.count; ++i) {
-        if (list.items[i].kind == MESH_UI_SETTING_ACTION) {
+        if (list.items[i].kind == INKSTAND_FORM_ACTION) {
             return true;
         }
     }

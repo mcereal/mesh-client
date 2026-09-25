@@ -13,6 +13,7 @@
 #include "inkcell/ui/icon.h"
 #include "inkcell/ui/theme.h"
 
+#include "inkstand/form/field.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store_handshake.h"
@@ -171,76 +172,6 @@ enum mesh_ui_settings_section mesh_ui_settings_module_at(uint32_t row);
 /* True for a section that lives under Modules rather than at the top level. */
 bool mesh_ui_settings_section_is_module(enum mesh_ui_settings_section section);
 
-enum mesh_ui_setting_kind {
-    MESH_UI_SETTING_INFO = 0, /* read-only fact */
-    MESH_UI_SETTING_TOGGLE,
-    /*
-     * A boolean that is one *bit* of a larger field, rather than a field of its own.
-     *
-     * Edited exactly as a toggle is - Left, Right and A flip it, and it carries 0 or 1 in
-     * `number` like any other - so the nav, the edit list and the save need no new case. What
-     * is different is the two ends: the row builder reads its bit out of the word its group
-     * names, and the write builder sets or clears that bit in the same word rather than
-     * assigning the whole of it.
-     *
-     * A kind of its own and not a flag on the spec, because the *drawing* differs and the
-     * drawing is what a kind is for. A switch is a boolean that acts: flick it and the thing
-     * it names is on. A flag is a boolean that is part of a set - one of the ten things a
-     * position packet may carry - and the set is only readable as a set. That is the checkbox,
-     * and inkcell/ui/widgets.h has said since the control was built that a square is "any of these"
-     * where a circle is "one of these".
-     *
-     * The CLI backend draws the same "on"/"off" it draws for a toggle, because the difference
-     * is a picture rather than a fact.
-     */
-    MESH_UI_SETTING_FLAG,
-    MESH_UI_SETTING_ENUM,
-    MESH_UI_SETTING_TEXT,
-    MESH_UI_SETTING_NUMBER,
-    MESH_UI_SETTING_KEY,
-    MESH_UI_SETTING_ACTION,
-    /*
-     * A verb that cannot be pressed right now, and why - "not connected", "not supported",
-     * "nothing to drop".
-     *
-     * Every one of these used to be MESH_UI_SETTING_INFO, which was right about the *nav* and
-     * wrong about the row: A does nothing on either, but an INFO row is a stated fact and this
-     * is an offer that is currently withdrawn. A section whose rows change shape when the link
-     * drops moves the cursor out from under the reader - which is the rule item_radio_action()
-     * was written for - and collapsing a verb to a fact changed its shape in every way but its
-     * row count. Drawn as the verb it is: the same symbol in the same column, dimmed, with the
-     * reason against the trailing edge instead of the chevron.
-     *
-     * Not pressable, and that is the whole reason it is a kind of its own rather than a flag on
-     * ACTION. The nav answers A by looking for MESH_UI_SETTING_ACTION, so a withdrawn verb is
-     * refused by construction; spelled as `action + disabled` it would be refused only by
-     * everywhere that remembered to ask.
-     *
-     * The CLI backend draws it exactly as INFO, because there the difference was never visible:
-     * a label, and the reason in the value column.
-     */
-    MESH_UI_SETTING_ACTION_OFF,
-    /* A group title inside a long section: dimmed, no value column, and A on it does nothing.
-       The same row mesh_ui_node_item has drawn since the node detail existed. A heading is
-       never added or removed by an edit - a row count that moves under the cursor mid-edit
-       moves the cursor, which is the rule the LoRa trio is always listed for. */
-    MESH_UI_SETTING_HEADING,
-    /*
-     * A read-only quantity whose *level* is the point: how far an update has downloaded, how
-     * much of something is used up. `number` is permille, or MESH_UI_METER_UNKNOWN when work is
-     * happening whose extent cannot be known.
-     *
-     * `value` is still filled in with the same fact in words, and that is deliberate rather than
-     * redundant: a backend that cannot draw a bar - the CLI one - shows the row as an ordinary
-     * fact and loses nothing. A kind is a description of the content, and it stays a description
-     * of the content even when only one backend can act on it.
-     */
-    MESH_UI_SETTING_METER,
-};
-
-/* MESH_UI_SETTING_METER: the `number` for a step that is running with no fraction to report. */
-#define MESH_UI_METER_UNKNOWN UINT32_MAX
-
 /* Editable settings. Each is one protobuf field; app.c turns an edit back into the protobuf
    (mesh_app_apply_setting_edit) and this module knows how to show and step it. */
 enum mesh_ui_setting_field {
@@ -286,7 +217,7 @@ enum mesh_ui_setting_field {
      * PositionConfig.position_flags: what a position packet carries, as ten bits of one
      * uint32 rather than ten fields.
      *
-     * Ten rows of kind MESH_UI_SETTING_FLAG, each naming its own bit, because the wire being
+     * Ten rows of kind INKSTAND_FORM_FLAG, each naming its own bit, because the wire being
      * one word is not a reason for the screen to be one row: "send the fix time" is a setting
      * a person has an opinion about and `0x0281` is not. The field table carries the mask
      * (see struct field_spec), so a bit upstream adds later is a row here rather than a
@@ -570,7 +501,7 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_COUNT,
 };
 
-/* What an ACTION row does when A is pressed. Rows of kind MESH_UI_SETTING_ACTION carry one in
+/* What an ACTION row does when A is pressed. Rows of kind INKSTAND_FORM_ACTION carry one in
    `number`, so the nav can raise the right action without knowing what the section means. */
 enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_NONE = 0,
@@ -841,7 +772,7 @@ enum mesh_ui_psk_choice {
 struct mesh_ui_settings_item {
     char label[MESH_UI_SETTINGS_LABEL_MAX];
     char value[MESH_UI_SETTINGS_VALUE_MAX];
-    enum mesh_ui_setting_kind kind;
+    enum inkstand_form_kind kind;
     enum mesh_ui_setting_field field;    /* NONE: read-only */
     bool dirty;                          /* value shown is a pending edit */
     uint32_t number;                     /* toggle 0/1, enum index, raw number, or key choice */
@@ -924,7 +855,7 @@ struct mesh_ui_settings_item {
      */
     bool verb;
     /*
-     * A is what steps this row's own value: it is a setting wearing MESH_UI_SETTING_ACTION's
+     * A is what steps this row's own value: it is a setting wearing INKSTAND_FORM_ACTION's
      * clothes, not a verb.
      *
      * Five rows say it - Language, Theme, the client's update channel, the dev-updates switch
@@ -955,7 +886,7 @@ struct mesh_ui_settings_item {
  * decide whether a row gets a tonal disc and drops its value column, and two backends working
  * it out for themselves is how they come to disagree.
  *
- * It is a stored flag rather than a kind because MESH_UI_SETTING_ACTION is doing two jobs, and
+ * It is a stored flag rather than a kind because INKSTAND_FORM_ACTION is doing two jobs, and
  * separating them is a change to the nav rather than to the drawing. A channel row and a module
  * row are ACTION too - the nav answers all three with A, which is what the kind is for there -
  * and mesh_ui_settings_channel_at_row() tells a slot from a share row by reading `number`
@@ -1125,7 +1056,7 @@ const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field);
    of text - the help topic is the one, and holding ids there is what lets a test read it with no
    locale in force. */
 inkcell_str_id mesh_ui_settings_field_label_id(enum mesh_ui_setting_field field);
-enum mesh_ui_setting_kind mesh_ui_settings_field_kind(enum mesh_ui_setting_field field);
+enum inkstand_form_kind mesh_ui_settings_field_kind(enum mesh_ui_setting_field field);
 enum mesh_ui_settings_section mesh_ui_settings_field_section(enum mesh_ui_setting_field field);
 /*
  * What one setting does, as a catalog id, or INKCELL_STR_NONE for a row whose label is already the

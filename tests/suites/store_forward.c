@@ -839,7 +839,7 @@ MESH_TEST_CASE(store_forward_rows_say_who_would_answer, unit) {
     MESH_TEST_FAIL_IF(router == NULL || strcmp(router->value, "none heard yet") != 0,
                       "with no router the row should say so");
     const struct mesh_ui_settings_item *ask = sf_row(items, count, "Get missed messages");
-    MESH_TEST_FAIL_IF(ask == NULL || ask->kind != MESH_UI_SETTING_ACTION ||
+    MESH_TEST_FAIL_IF(ask == NULL || ask->kind != INKSTAND_FORM_ACTION ||
                           ask->number != MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY,
                       "the request row should be a pressable action");
     /* Nothing has been asked for, so there is nothing for a "last request" row to report. */
@@ -852,7 +852,7 @@ MESH_TEST_CASE(store_forward_rows_say_who_would_answer, unit) {
        and its place in the column, and only the offer is withdrawn. */
     count = sf_rows(&sf, false, items, (uint32_t)(sizeof items / sizeof items[0]));
     ask = sf_row(items, count, "Get missed messages");
-    MESH_TEST_FAIL_IF(ask == NULL || ask->kind != MESH_UI_SETTING_ACTION_OFF ||
+    MESH_TEST_FAIL_IF(ask == NULL || ask->kind != INKSTAND_FORM_ACTION_OFF ||
                           !mesh_ui_settings_item_is_verb(ask) ||
                           strcmp(ask->value, "not connected") != 0,
                       "without a link the request row should be the same verb, withdrawn");
@@ -884,7 +884,7 @@ MESH_TEST_CASE(store_forward_rows_say_what_the_request_did, unit) {
     sf.received = 4U;
     uint32_t count = sf_rows(&sf, true, items, (uint32_t)(sizeof items / sizeof items[0]));
     const struct mesh_ui_settings_item *ask = sf_row(items, count, "Get missed messages");
-    MESH_TEST_FAIL_IF(ask == NULL || ask->kind != MESH_UI_SETTING_INFO ||
+    MESH_TEST_FAIL_IF(ask == NULL || ask->kind != INKSTAND_FORM_INFO ||
                           strcmp(ask->value, "4 of 30") != 0,
                       "a running replay should be reported on the row that started it");
 
@@ -897,8 +897,7 @@ MESH_TEST_CASE(store_forward_rows_say_what_the_request_did, unit) {
     MESH_TEST_FAIL_IF(last == NULL || strcmp(last->value, "3 new of 30") != 0,
                       "a finished replay should count what was added and what arrived");
     MESH_TEST_FAIL_IF(sf_row(items, count, "Get missed messages") == NULL ||
-                          sf_row(items, count, "Get missed messages")->kind !=
-                              MESH_UI_SETTING_ACTION,
+                          sf_row(items, count, "Get missed messages")->kind != INKSTAND_FORM_ACTION,
                       "a finished request should leave the row pressable again");
 
     /* A window of four hours replayed at a client that was off for ten minutes is mostly

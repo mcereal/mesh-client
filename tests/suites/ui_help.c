@@ -386,7 +386,7 @@ MESH_TEST_CASE(help_opens_where_the_cursor_was, unit) {
         /* A heading is where "the paragraphs above this row" stops, which is the rule
            help_stops_at_a_subheading holds for Telemetry - LoRa grew headings of its own with
            the advanced group, so the rule applies one section further along. */
-        if (items[row].kind == MESH_UI_SETTING_HEADING) {
+        if (items[row].kind == INKSTAND_FORM_HEADING) {
             expected = 0U;
         } else if (note != INKCELL_STR_NONE) {
             expected = entry;
@@ -394,7 +394,7 @@ MESH_TEST_CASE(help_opens_where_the_cursor_was, unit) {
             saw_a_field_note = true;
         }
 
-        if (items[row].kind == MESH_UI_SETTING_HEADING) {
+        if (items[row].kind == INKSTAND_FORM_HEADING) {
             continue; /* a row the cursor steps over cannot be asked from */
         }
         /* Put the cursor on `row`, by finding it rather than by counting presses: a heading is
@@ -454,7 +454,7 @@ MESH_TEST_CASE(help_opens_on_the_overview_across_a_subheading, unit) {
     bool note_in_an_earlier_group = false;
     bool checked_after_the_group = false;
     for (uint32_t row = 0; row < rows; ++row) {
-        if (items[row].kind == MESH_UI_SETTING_HEADING) {
+        if (items[row].kind == INKSTAND_FORM_HEADING) {
             note_in_an_earlier_group = note_in_an_earlier_group || seen_note;
             seen_note = false;
             continue;
@@ -1088,35 +1088,30 @@ MESH_TEST_CASE(help_counts_a_group_by_its_rows, unit) {
         uint8_t kinds[6];
         uint32_t want;
     } cases[] = {
-        {"three plain rows",
-         3U,
-         {MESH_UI_SETTING_INFO, MESH_UI_SETTING_INFO, MESH_UI_SETTING_INFO},
-         1U},
+        {"three plain rows", 3U, {INKSTAND_FORM_INFO, INKSTAND_FORM_INFO, INKSTAND_FORM_INFO}, 1U},
         {"a heading over one group",
          3U,
-         {MESH_UI_SETTING_HEADING, MESH_UI_SETTING_INFO, MESH_UI_SETTING_INFO},
+         {INKSTAND_FORM_HEADING, INKSTAND_FORM_INFO, INKSTAND_FORM_INFO},
          1U},
         {"two named groups",
          4U,
-         {MESH_UI_SETTING_HEADING, MESH_UI_SETTING_INFO, MESH_UI_SETTING_HEADING,
-          MESH_UI_SETTING_INFO},
+         {INKSTAND_FORM_HEADING, INKSTAND_FORM_INFO, INKSTAND_FORM_HEADING, INKSTAND_FORM_INFO},
          2U},
         {"an unnamed group then a named one",
          3U,
-         {MESH_UI_SETTING_INFO, MESH_UI_SETTING_HEADING, MESH_UI_SETTING_INFO},
+         {INKSTAND_FORM_INFO, INKSTAND_FORM_HEADING, INKSTAND_FORM_INFO},
          2U},
         {"a heading with nothing under it",
          4U,
-         {MESH_UI_SETTING_INFO, MESH_UI_SETTING_HEADING, MESH_UI_SETTING_HEADING,
-          MESH_UI_SETTING_INFO},
+         {INKSTAND_FORM_INFO, INKSTAND_FORM_HEADING, INKSTAND_FORM_HEADING, INKSTAND_FORM_INFO},
          2U},
-        {"nothing but headings", 2U, {MESH_UI_SETTING_HEADING, MESH_UI_SETTING_HEADING}, 0U},
+        {"nothing but headings", 2U, {INKSTAND_FORM_HEADING, INKSTAND_FORM_HEADING}, 0U},
     };
 
     for (size_t c = 0; c < sizeof cases / sizeof cases[0] && failure == NULL; ++c) {
         for (uint32_t r = 0; r < cases[c].count; ++r) {
             memset(&items[r], 0, sizeof items[r]);
-            items[r].kind = (enum mesh_ui_setting_kind)cases[c].kinds[r];
+            items[r].kind = (enum inkstand_form_kind)cases[c].kinds[r];
         }
         const uint32_t got = mesh_ui_settings_section_groups(items, cases[c].count);
         if (got != cases[c].want) {
