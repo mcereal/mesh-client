@@ -167,6 +167,12 @@ enum mesh_ui_settings_section {
 uint32_t mesh_ui_settings_root_count(const struct mesh_ui_settings *settings);
 enum mesh_ui_settings_section mesh_ui_settings_root_at(const struct mesh_ui_settings *settings,
                                                        uint32_t row);
+/*
+ * Whether section-list row `row` is the heading that opens the radio's sections rather than a
+ * section. root_at() answers MESH_UI_SETTINGS_SECTION_COUNT for it, which every per-section table
+ * already answers "none" for; the nav skips it the way it skips a section's own headings.
+ */
+bool mesh_ui_settings_root_is_heading(const struct mesh_ui_settings *settings, uint32_t row);
 uint32_t mesh_ui_settings_module_count(void);
 enum mesh_ui_settings_section mesh_ui_settings_module_at(uint32_t row);
 /* True for a section that lives under Modules rather than at the top level. */

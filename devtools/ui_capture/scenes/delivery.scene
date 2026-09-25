@@ -28,8 +28,8 @@ message out ALFA Bring the spare antenna
 ack failed 35
 hold 900
 
-# The cursor over each of them: a selected bubble is a different fill with an accent bar laid
-# outside it, and the marks have to stay legible against both.
+# The cursor over each of them: a selected bubble is a different fill with a ring laid around
+# it, and the marks have to stay legible against both.
 key a
 hold 400
 key up 2

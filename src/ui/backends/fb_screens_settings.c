@@ -288,6 +288,22 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
             }
             cards[r] = card;
         }
+    } else if (!section_open) {
+        /*
+         * The section list is two subjects: About is this client, and every row under the
+         * heading changes the radio. The heading is a row of the model (mesh_ui_settings_root_at())
+         * so the nav skips it as it skips a section's own; here it only breaks the cards.
+         */
+        uint8_t card = 0U;
+        any_cards = true;
+        for (uint32_t r = 0; r < count; ++r) {
+            if (mesh_ui_settings_root_is_heading(settings, r)) {
+                cards[r] = INKCELL_FB_LIST_NO_CARD;
+                card = (uint8_t)(card + 1U);
+                continue;
+            }
+            cards[r] = card;
+        }
     }
     /*
      * Which rows lead with a symbol, for everything that is not a verb.
@@ -774,6 +790,13 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
             };
             inkcell_fb_list_item(state, &list, i, &row);
         } else {
+            if (mesh_ui_settings_root_is_heading(settings, i)) {
+                inkcell_fb_list_subheader_icon(
+                    state, &list, i, inkcell_str(MESH_STR_SETTINGS_GROUP_RADIO),
+                    (struct inkcell_fb_leading){.kind = INKCELL_FB_LEADING_ICON,
+                                                .icon = INKCELL_ICON_NONE});
+                continue;
+            }
             const enum mesh_ui_settings_section section_row = mesh_ui_settings_root_at(settings, i);
             const enum mesh_ui_settings_availability available =
                 mesh_ui_settings_section_availability(settings, handshake, section_row);

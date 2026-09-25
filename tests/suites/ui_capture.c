@@ -2399,7 +2399,7 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
     snapshot->messages.count = 5U;
 
     /* Every delivery state, and under the cursor as well as at rest - the selected fill is a
-       different colour and the accent bar is laid outside it. */
+       different colour and the focus ring is laid around it. */
     static const uint8_t acks[] = {MESH_MESSAGE_ACK_NONE, MESH_MESSAGE_ACK_PENDING,
                                    MESH_MESSAGE_ACK_DELIVERED, MESH_MESSAGE_ACK_FAILED};
     /* The longest reason the catalog carries, which is what a bubble has least room for. */
@@ -2412,8 +2412,8 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
              scale += INKCELL_SCALE(1)) {
             for (size_t a = 0; a < sizeof acks / sizeof acks[0] && failure == NULL; ++a) {
                 /* Cursor 0 is on the only bubble there is; anything past it is the same
-                   transcript at rest. Both, because the cursor changes the fill and lays an
-                   accent bar outside it. */
+                   transcript at rest. Both, because the cursor changes the fill and lays a
+                   ring around it. */
                 for (uint32_t cursor = 0U; cursor < 2U && failure == NULL; ++cursor) {
                     const bool selected = (cursor == 0U);
                     message->ack = acks[a];
@@ -2447,16 +2447,18 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
                     const uint32_t fill = rgb_key(paint.fill);
                     const struct inkcell_rgb bg_rgb = inkcell_theme_color(theme, INKCELL_COLOR_BG);
                     const uint32_t bg = rgb_key(bg_rgb);
+                    /* The cursor's ring, laid under the fill and a scale wide all round it. */
+                    const uint32_t ring =
+                        rgb_key(inkcell_theme_color(theme, INKCELL_COLOR_PRIMARY));
 
                     /*
                      * The bubble's span on every row first, then the containment check against
                      * it - two passes rather than one, because a row's own span is not the
                      * whole of what the bubble reaches on that row.
                      *
-                     * The accent bar is laid along the *outside* of the fill, and "outside" at
-                     * a corner points diagonally: where the edge is turning, the bar on the row
+                     * A rounded fill's edge turns across rows: where it is turning, the row
                      * above reaches further across than this row's fill does, and a check that
-                     * measured only this row would read the bar's own corner as ink that
+                     * measured only this row would read the bubble's own corner as ink that
                      * escaped. So a row is allowed the widest of itself and its two
                      * neighbours, which is what "along the edge, including where it turns"
                      * means in pixels.
@@ -2471,11 +2473,21 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
                         failure = "row span allocation failed";
                         break;
                     }
+                    /* The ring's own extent: under the cursor it is the bubble's outer edge, and
+                       its corners are blends of three colours no span of the fill can model. */
+                    uint32_t ring_x0 = width, ring_x1 = 0U, ring_y0 = height, ring_y1 = 0U;
                     for (uint32_t y = 0; y < height; ++y) {
                         const uint8_t *row = pixels + (size_t)y * stride;
                         uint32_t left = width, right = 0U;
                         for (uint32_t x = 0; x < width; ++x) {
-                            if (pixel_key(row + (size_t)x * 4U) != fill) {
+                            const uint32_t key = pixel_key(row + (size_t)x * 4U);
+                            if (selected && key == ring) {
+                                ring_x0 = x < ring_x0 ? x : ring_x0;
+                                ring_x1 = x > ring_x1 ? x : ring_x1;
+                                ring_y0 = y < ring_y0 ? y : ring_y0;
+                                ring_y1 = y > ring_y1 ? y : ring_y1;
+                            }
+                            if (key != fill) {
                                 continue;
                             }
                             if (x < left) {
@@ -2509,16 +2521,13 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
                                 }
                             }
                         }
-                        /* The cursor's accent is laid under the fill and shows on the outer
-                           edge only, by one scale - so that much either side is the bubble too,
-                           not something that escaped it. Plus the one pixel the bar's own
-                           anti-aliased edge takes, which is the bar fading into the ground
-                           rather than anything of the bubble's reaching past it. */
-                        const uint32_t bar = selected ? (uint32_t)scale + 1U : 0U;
-                        left = left > bar ? left - bar : 0U;
-                        right += bar;
                         for (uint32_t x = 0; x < width; ++x) {
                             if (x >= left && x <= right) {
+                                continue;
+                            }
+                            /* Inside the ring, anti-aliased edge included, is inside the bubble. */
+                            if (selected && ring_x0 <= ring_x1 && x + 1U >= ring_x0 &&
+                                x <= ring_x1 + 1U && y + 1U >= ring_y0 && y <= ring_y1 + 1U) {
                                 continue;
                             }
                             const uint8_t *px = row + (size_t)x * 4U;

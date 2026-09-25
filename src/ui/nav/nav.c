@@ -1073,6 +1073,9 @@ bool mesh_ui_nav_row_is_heading(const struct mesh_ui_nav *nav, const struct mesh
             mesh_ui_nav_section_items(nav, store, true, items, MESH_UI_SETTINGS_ITEMS_MAX);
         return row < count && items[row].kind == INKSTAND_FORM_HEADING;
     }
+    if (nav->screen == MESH_UI_SCREEN_SETTINGS) {
+        return mesh_ui_settings_root_is_heading(&store->settings, row);
+    }
     return false;
 }
 
@@ -2036,7 +2039,8 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         if (nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
             return mesh_ui_nav_section_press(nav, store, action);
         }
-        if (cursor >= mesh_ui_settings_root_count(&store->settings)) {
+        if (cursor >= mesh_ui_settings_root_count(&store->settings) ||
+            mesh_ui_settings_root_is_heading(&store->settings, cursor)) {
             return false;
         }
         nav->settings_list_cursor = cursor;

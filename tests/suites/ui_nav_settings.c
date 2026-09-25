@@ -2161,7 +2161,8 @@ MESH_TEST_CASE(ui_nav_radio_pages_stay_on_the_radio_in_hand, unit) {
     snprintf(settings.admin_dest_name, sizeof settings.admin_dest_name, "%s", "Hill repeater");
     mesh_ui_store_set_settings(&store, &settings);
     if (mesh_ui_settings_root_count(&store.settings) != local_rows + 2U ||
-        mesh_ui_settings_root_at(&store.settings, 1U) != MESH_UI_SETTINGS_RADIO) {
+        !mesh_ui_settings_root_is_heading(&store.settings, 1U) ||
+        mesh_ui_settings_root_at(&store.settings, 2U) != MESH_UI_SETTINGS_RADIO) {
         failure = "a remote target should list About radio and Radio actions on the Settings tab";
         goto cleanup;
     }
@@ -2252,6 +2253,52 @@ MESH_TEST_CASE(ui_nav_radio_pages_stay_on_the_radio_in_hand, unit) {
     if (!mesh_ui_nav_status_showing(&store.nav) || store.nav.settings_discard_armed ||
         store.nav.settings_edit_count != 1U) {
         failure = "B on a page should leave it and leave the Settings tab's edits alone";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The section list's "Radio settings" heading is a row the cursor never stands on: Down from
+ * About lands on the first radio section, Up from there lands back on About, and A on the
+ * heading's index opens nothing - which is the whole of why it can be a row at all.
+ */
+MESH_TEST_CASE(ui_nav_settings_root_steps_over_its_heading, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    uint32_t *const cursor = &store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+    if (*cursor != 0U || mesh_ui_settings_root_at(&store.settings, 0U) != MESH_UI_SETTINGS_ABOUT ||
+        !mesh_ui_settings_root_is_heading(&store.settings, 1U)) {
+        failure = "the list should open on About with the radio's heading under it";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    if (*cursor != 2U || mesh_ui_settings_root_is_heading(&store.settings, *cursor)) {
+        failure = "Down from About should step over the heading onto a section";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    if (*cursor != 0U) {
+        failure = "Up should step back over the heading onto About";
+        goto cleanup;
+    }
+    *cursor = 1U;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+        failure = "A on the heading should open nothing";
         goto cleanup;
     }
 

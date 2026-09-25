@@ -440,8 +440,16 @@ bool mesh_ui_settings_section_icons_rows(enum mesh_ui_settings_section section) 
  * settings at all". It is thirteen rows, which fits the Brick's screen without scrolling -
  * that is the point of Modules being one row rather than seventeen.
  */
+/* Not a section: the heading row that opens the radio's card. See
+ * mesh_ui_settings_root_is_heading(). */
+#define ROOT_HEADING MESH_UI_SETTINGS_SECTION_COUNT
+
 static const enum mesh_ui_settings_section k_root[] = {
     MESH_UI_SETTINGS_ABOUT,
+    /* Everything above this is the client and everything below it is the radio. They shared one
+       column until the heading, and the client's own theme and text size read as one more radio
+       setting there. About stays the unnamed card at the top, so row 0 is still a section. */
+    ROOT_HEADING,
     MESH_UI_SETTINGS_RADIO,
     MESH_UI_SETTINGS_USER,
     MESH_UI_SETTINGS_DEVICE,
@@ -510,6 +518,11 @@ enum mesh_ui_settings_section mesh_ui_settings_root_at(const struct mesh_ui_sett
         }
     }
     return MESH_UI_SETTINGS_ABOUT;
+}
+
+bool mesh_ui_settings_root_is_heading(const struct mesh_ui_settings *settings, uint32_t row) {
+    return row < mesh_ui_settings_root_count(settings) &&
+           mesh_ui_settings_root_at(settings, row) == ROOT_HEADING;
 }
 
 uint32_t mesh_ui_settings_module_count(void) { return (uint32_t)INKWELL_ARRAY_LEN(k_modules); }

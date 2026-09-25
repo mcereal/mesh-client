@@ -292,6 +292,7 @@ enum mesh_ui_node_press {
     MESH_UI_NODE_PRESS_NONE = 0, /* a fact; A is not named */
     MESH_UI_NODE_PRESS_SELECT,   /* an action row: A runs its verb */
     MESH_UI_NODE_PRESS_TREND,    /* a reading the client has watched: A opens its chart */
+    MESH_UI_NODE_PRESS_OPEN,     /* the row that opens the sheet of verbs: A opens it */
 };
 
 /*

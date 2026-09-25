@@ -915,7 +915,10 @@ MESH_TEST_CASE(ui_node_detail_press_matches_the_row, unit) {
             &handshake.nodes[0], false, NULL, &handshake, &store.history, row);
         switch (items[row].kind) {
         case MESH_UI_NODE_ROW_ACTION:
-            MESH_TEST_FAIL_IF(press != MESH_UI_NODE_PRESS_SELECT, "an action row runs its verb");
+            MESH_TEST_FAIL_IF(press != (items[row].action == MESH_UI_NODE_ACTION_OPEN_ACTIONS
+                                            ? MESH_UI_NODE_PRESS_OPEN
+                                            : MESH_UI_NODE_PRESS_SELECT),
+                              "an action row runs its verb, and the Actions row opens its sheet");
             selects += 1U;
             break;
         case MESH_UI_NODE_ROW_METER:
