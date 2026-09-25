@@ -57,6 +57,7 @@
  * See mesh_ui_trends_restore() and mesh_ui_history_restore_node_reset().
  */
 
+#include "inkstand/persist/journal.h"
 #include "mesh/ui/history.h"
 
 #include <stdbool.h>
@@ -133,9 +134,9 @@ struct mesh_ui_trends_node {
  * with SIGKILL by its own deploy script.
  */
 struct mesh_ui_trends {
-    /* The directory the files live in, with no trailing slash. Empty disables the log entirely,
-       which is what a client with nowhere to write runs as. */
-    char dir[512];
+    /* The files, one per node. A disabled journal disables the log entirely, which is what a
+       client with nowhere to write runs as. */
+    struct inkstand_journal journal;
     /*
      * The radio these files are about.
      *

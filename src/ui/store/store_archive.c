@@ -19,7 +19,6 @@
 
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
-#include "mesh/utils/file.h"
 
 #include "store_internal.h"
 
@@ -29,13 +28,18 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 /* ---- naming a conversation ----------------------------------------------------------------- */
 
+/* What every file here ends in. */
+#define MESH_UI_ARCHIVE_SUFFIX ".log"
+
+/* The longest subject name archive_subject() writes: `n` and eight hex digits. */
+#define MESH_UI_ARCHIVE_SUBJECT_LEN 16U
+
 /*
- * One conversation's file, as `<dir>/c07.log` or `<dir>/n1a2b3c4d.log`.
+ * One conversation's subject in the journal, as `c07` or `n1a2b3c4d` - so its file is
+ * `<dir>/c07.log` or `<dir>/n1a2b3c4d.log`.
  *
  * The two prefixes rather than one name space, because a channel index and a node number are
  * different kinds of number that would otherwise collide at the low end: channel 1 and node 1
@@ -43,21 +47,21 @@
  * every other surface in this client and in the firmware spells one.
  *
  * Nothing user-supplied reaches the name - a channel index is a uint8_t and a node number a
- * uint32_t, both printed by us - so there is no path traversal to defend against here, and no
- * escaping either.
+ * uint32_t, both printed by us - so there is no escaping to do, and the journal refuses a name
+ * that could climb out of its directory besides.
  */
-static bool archive_path(const struct mesh_ui_archive *archive, uint8_t kind, uint32_t node,
-                         uint8_t channel, char *out, size_t out_len) {
-    if (archive == NULL || archive->dir[0] == '\0' || out == NULL) {
+static bool archive_subject(const struct mesh_ui_archive *archive, uint8_t kind, uint32_t node,
+                            uint8_t channel, char *out, size_t out_len) {
+    if (archive == NULL || !inkstand_journal_enabled(&archive->journal) || out == NULL) {
         return false;
     }
     int written;
     switch ((enum mesh_ui_conversation_kind)kind) {
     case MESH_UI_CONVERSATION_CHANNEL:
-        written = snprintf(out, out_len, "%s/c%02x.log", archive->dir, (unsigned)channel);
+        written = snprintf(out, out_len, "c%02x", (unsigned)channel);
         break;
     case MESH_UI_CONVERSATION_DIRECT:
-        written = snprintf(out, out_len, "%s/n%08x.log", archive->dir, node);
+        written = snprintf(out, out_len, "n%08x", node);
         break;
     /* Neither names a conversation - one is a view over all of them and the other is a button -
        so neither has a file, exactly as neither can be deleted. */
@@ -175,50 +179,40 @@ static bool archive_writable(const struct mesh_ui_message *message) {
 
 /*
  * Every record in one file, newest last, folded into a caller's buffer that holds the newest
- * `capacity` of them.
- *
- * A ring rather than a seek to the tail: the file is capped, a record is five short lines, and
- * a single forward pass with a fixed destination has no offset arithmetic to get wrong on a
- * file whose last record may be a torn write. `dropped` counts what the ring overwrote, which
- * is what lets the transcript say there is more behind the top of it.
+ * `capacity` of them - the journal's ring, which is where the argument for a ring over a seek to
+ * the tail now lives. A record here is five short lines, so the reader's own part is assembling
+ * them and recognising a message it already holds. `dropped` is what lets the transcript say
+ * there is more behind the top of it.
  *
  * The capacity is the caller's because the two readers want different amounts of the same file:
  * the thread screen wants what it can draw (MESH_UI_MAX_THREAD_MESSAGES) and compaction wants
- * what the file is allowed to keep (MESH_UI_ARCHIVE_MAX_MESSAGES). A reader fixed to the
- * smaller of those would have made every compaction a truncation to the window.
+ * what the file is allowed to keep (MESH_UI_ARCHIVE_MAX_MESSAGES).
  */
 struct archive_reader {
-    struct mesh_ui_message *entries;
-    uint32_t capacity;
-    uint32_t dropped;
-    /* Where the next record goes while the buffer is still filling, then the oldest slot. */
-    uint32_t next;
-    bool wrapped;
+    struct inkstand_journal_ring ring;
     /* The record being assembled, and the index its msg[] line carried. */
     struct mesh_ui_message current;
     uint32_t current_index;
     bool current_open;
 };
 
-/* The buffer in transcript order, unwound from the ring. Returns how many records it holds. */
-static uint32_t archive_reader_finish(struct archive_reader *reader);
-
-/* An id already in the buffer, or `capacity` when there is none. A linear scan over at most a
-   few hundred `uint32_t`, run once per record: the alternative is an index kept in step with a
-   ring that overwrites its own oldest slot, for a file read at most once per thread the reader
+/* An id already in the buffer, or NULL when there is none. A linear scan over at most a few
+   hundred records, run once per record: the alternative is an index kept in step with a ring
+   that overwrites its own oldest slot, for a file read at most once per thread the reader
    opens. */
-static uint32_t archive_buffer_find(const struct archive_reader *reader,
-                                    const struct mesh_ui_message *message) {
+static struct mesh_ui_message *archive_buffer_find(const struct archive_reader *reader,
+                                                   const struct mesh_ui_message *message) {
     if (message->packet_id == 0U) {
-        return reader->capacity;
+        return NULL;
     }
-    const uint32_t held = reader->wrapped ? reader->capacity : reader->next;
+    const uint32_t held = inkstand_journal_ring_held(&reader->ring);
     for (uint32_t i = 0; i < held; ++i) {
-        if (archive_same_message(&reader->entries[i], message)) {
-            return i;
+        struct mesh_ui_message *entry = inkstand_journal_ring_at(&reader->ring, i);
+        if (archive_same_message(entry, message)) {
+            return entry;
         }
     }
-    return reader->capacity;
+    return NULL;
 }
 
 /* Close whatever record is open and put it in the buffer. */
@@ -235,22 +229,14 @@ static void archive_reader_commit(struct archive_reader *reader) {
      * seen; its position does not, because where the conversation reached it is where it
      * happened.
      */
-    const uint32_t seen = archive_buffer_find(reader, &reader->current);
-    if (seen < reader->capacity) {
-        reader->entries[seen] = reader->current;
+    struct mesh_ui_message *seen = archive_buffer_find(reader, &reader->current);
+    if (seen != NULL) {
+        *seen = reader->current;
         return;
     }
-
-    /* Counted before the slot is taken, not after the ring wraps: the record that *fills* the
-       last slot has pushed nothing out, and counting on the wrap itself made the buffer claim
-       one dropped message the moment it was merely full. */
-    if (reader->wrapped) {
-        reader->dropped++;
-    }
-    reader->entries[reader->next] = reader->current;
-    reader->next = (reader->next + 1U) % reader->capacity;
-    if (reader->next == 0U) {
-        reader->wrapped = true;
+    struct mesh_ui_message *slot = inkstand_journal_ring_push(&reader->ring);
+    if (slot != NULL) {
+        *slot = reader->current;
     }
 }
 
@@ -283,42 +269,8 @@ static void archive_reader_line(struct archive_reader *reader, const char *key, 
     (void)mesh_ui_store_read_message_line(&reader->current, id, value);
 }
 
-static uint32_t archive_reader_finish(struct archive_reader *reader) {
-    archive_reader_commit(reader);
-
-    if (!reader->wrapped) {
-        return reader->next;
-    }
-
-    /*
-     * The ring is full and `next` points at its oldest entry, so the buffer has to be rotated
-     * left by that much to read oldest-first. Done as three reversals rather than with a
-     * scratch copy, because a copy is another `capacity` messages of stack in a function whose
-     * caller is already holding that many.
-     */
-    struct mesh_ui_message *entries = reader->entries;
-    const uint32_t n = reader->capacity;
-    const uint32_t k = reader->next;
-    for (uint32_t lo = 0U, hi = k; lo + 1U < hi; ++lo, --hi) {
-        const struct mesh_ui_message tmp = entries[lo];
-        entries[lo] = entries[hi - 1U];
-        entries[hi - 1U] = tmp;
-    }
-    for (uint32_t lo = k, hi = n; lo + 1U < hi; ++lo, --hi) {
-        const struct mesh_ui_message tmp = entries[lo];
-        entries[lo] = entries[hi - 1U];
-        entries[hi - 1U] = tmp;
-    }
-    for (uint32_t lo = 0U, hi = n; lo + 1U < hi; ++lo, --hi) {
-        const struct mesh_ui_message tmp = entries[lo];
-        entries[lo] = entries[hi - 1U];
-        entries[hi - 1U] = tmp;
-    }
-    return n;
-}
-
 /*
- * One pass over a conversation's file into `out`.
+ * One pass over a conversation's file into `entries`.
  *
  * The line loop is store_file.c's, deliberately: same length, same split on the first '=', same
  * unescape, same tolerance of a comment or a blank. Returns -ENOENT when there is no such file,
@@ -328,31 +280,26 @@ static void archive_read_line(void *context, const char *key, char *value) {
     archive_reader_line(context, key, value);
 }
 
-static int archive_read_file(const char *path, struct mesh_ui_message *entries, uint32_t capacity,
+static int archive_read_file(const struct mesh_ui_archive *archive, const char *subject,
+                             struct mesh_ui_message *entries, uint32_t capacity,
                              uint32_t *out_count, uint32_t *out_dropped) {
     if (entries == NULL || capacity == 0U || out_count == NULL) {
         return -EINVAL;
     }
-    FILE *file = fopen(path, "r");
-    if (file == NULL) {
-        return -errno;
-    }
-
     struct archive_reader reader;
     memset(&reader, 0, sizeof reader);
-    reader.entries = entries;
-    reader.capacity = capacity;
+    inkstand_journal_ring_init(&reader.ring, entries, sizeof *entries, capacity);
 
     char line[MESH_UI_ARCHIVE_LINE_MAX];
-    const int result = inkwell_record_read(file, line, sizeof line, archive_read_line, &reader);
-
-    fclose(file);
+    const int result = inkstand_journal_read(&archive->journal, subject, line, sizeof line,
+                                             archive_read_line, &reader);
     if (result != 0) {
         return result;
     }
-    *out_count = archive_reader_finish(&reader);
+    archive_reader_commit(&reader);
+    *out_count = inkstand_journal_ring_finish(&reader.ring);
     if (out_dropped != NULL) {
-        *out_dropped = reader.dropped;
+        *out_dropped = reader.ring.dropped;
     }
     return 0;
 }
@@ -360,13 +307,12 @@ static int archive_read_file(const char *path, struct mesh_ui_message *entries, 
 /* ---- writing a file ------------------------------------------------------------------------- */
 
 /*
- * Replaces a conversation's file with `messages`, through a temporary beside it.
+ * Replaces a conversation's file with `messages`, through the journal's temporary.
  *
- * A rename() on the same directory is atomic, so the file a reader opens is either the old
- * transcript or the new one. The handshake cache next door is written the same way now, and for
- * the same reason: the argument that it was only "a snapshot the next publish rebuilds" held
- * for every section of it except the roster, which is the one record of the nodes a radio has
- * evicted and which no publish can rebuild.
+ * The file a reader opens is either the old transcript or the new one. The handshake cache next
+ * door is written the same way now, and for the same reason: the argument that it was only "a
+ * snapshot the next publish rebuilds" held for every section of it except the roster, which is
+ * the one record of the nodes a radio has evicted and which no publish can rebuild.
  */
 struct archive_rewrite_context {
     const struct mesh_ui_message *messages;
@@ -380,20 +326,18 @@ static void archive_write_replacement(FILE *file, void *context) {
     }
 }
 
-static int archive_rewrite(const char *path, const struct mesh_ui_message *messages,
-                           uint32_t count) {
-    char temp[sizeof(((struct mesh_ui_archive *)0)->dir) + 64];
+static int archive_rewrite(const struct mesh_ui_archive *archive, const char *subject,
+                           const struct mesh_ui_message *messages, uint32_t count) {
     struct archive_rewrite_context context = {messages, count};
-    return inkwell_record_replace(path, temp, sizeof temp, archive_write_replacement, &context,
-                                  false);
+    return inkstand_journal_replace(&archive->journal, subject, archive_write_replacement,
+                                    &context);
 }
 
 /*
- * Cuts a conversation's file back to its newest records when it has outgrown the cap.
- *
- * Checked on append off the file's size, which is one stat() rather than a read: the read only
- * happens on the append that actually trips the threshold, which for a conversation of ordinary
- * traffic is once every few thousand messages.
+ * Cuts a conversation's file back to its newest records, once an append has found it over the
+ * cap. The size is the journal's, read off the stream the append wrote through: the read below
+ * only happens on the append that actually trips the threshold, which for a conversation of
+ * ordinary traffic is once every few thousand messages.
  *
  * The buffer is MESH_UI_ARCHIVE_MAX_MESSAGES rather than the window the thread screen reads,
  * which is the point - compacting into the window would make every compaction a truncation of
@@ -401,23 +345,19 @@ static int archive_rewrite(const char *path, const struct mesh_ui_message *messa
  * the length of one rewrite, as store_file.c holds a whole cache for the length of one load:
  * the client is single-threaded with the main thread's stack under it.
  */
-static void archive_compact(const char *path) {
-    struct stat info;
-    if (stat(path, &info) != 0 || info.st_size <= (off_t)MESH_UI_ARCHIVE_FILE_MAX_BYTES) {
-        return;
-    }
-
+static void archive_compact(const struct mesh_ui_archive *archive, const char *subject) {
     struct mesh_ui_message keep[MESH_UI_ARCHIVE_MAX_MESSAGES];
     uint32_t count = 0U;
-    if (archive_read_file(path, keep, MESH_UI_ARCHIVE_MAX_MESSAGES, &count, NULL) != 0) {
+    if (archive_read_file(archive, subject, keep, MESH_UI_ARCHIVE_MAX_MESSAGES, &count, NULL) !=
+        0) {
         return;
     }
-    const int result = archive_rewrite(path, keep, count);
+    const int result = archive_rewrite(archive, subject, keep, count);
     if (result != 0) {
-        inkwell_log_warn("ui", "Could not compact message archive %s: %d", path, result);
+        inkwell_log_warn("ui", "Could not compact message archive %s: %d", subject, result);
         return;
     }
-    inkwell_log_info("ui", "Compacted message archive %s to %u messages", path, (unsigned)count);
+    inkwell_log_info("ui", "Compacted message archive %s to %u messages", subject, (unsigned)count);
 }
 
 /* Appends whole records to a conversation's file, creating it if it is not there. */
@@ -427,7 +367,8 @@ struct archive_append_context {
     uint32_t count;
 };
 
-static void archive_write_append(FILE *file, void *context) {
+static void archive_write_append(FILE *file, bool resumed, void *context) {
+    (void)resumed; /* a message carries its own time; nothing here is measured from the last */
     struct archive_append_context *records = context;
     for (uint32_t i = 0; i < records->count; ++i) {
         mesh_ui_store_write_message(file, records->archive->next_index, records->messages[i]);
@@ -435,17 +376,21 @@ static void archive_write_append(FILE *file, void *context) {
     }
 }
 
-static int archive_append_records(struct mesh_ui_archive *archive, const char *path,
+static int archive_append_records(struct mesh_ui_archive *archive, const char *subject,
                                   const struct mesh_ui_message *const *messages, uint32_t count) {
     if (count == 0U) {
         return 0;
     }
     struct archive_append_context context = {archive, messages, count};
-    const int result = inkwell_record_append(path, archive_write_append, &context);
+    bool over_cap = false;
+    const int result = inkstand_journal_append(&archive->journal, subject, archive_write_append,
+                                               &context, &over_cap);
     if (result != 0) {
         return result;
     }
-    archive_compact(path);
+    if (over_cap) {
+        archive_compact(archive, subject);
+    }
     return (int)count;
 }
 
@@ -456,22 +401,12 @@ int mesh_ui_archive_init(struct mesh_ui_archive *archive, const char *dir) {
         return -EINVAL;
     }
     memset(archive, 0, sizeof *archive);
-    if (dir == NULL || dir[0] == '\0') {
-        return -EINVAL;
+    const int result = inkstand_journal_init(&archive->journal, dir, MESH_UI_ARCHIVE_SUFFIX,
+                                             MESH_UI_ARCHIVE_FILE_MAX_BYTES);
+    if (result != 0 && result != -EINVAL) {
+        inkwell_log_warn("ui", "Message archive unavailable at %s: %d", dir, result);
     }
-    const int failed = mesh_file_mkdir(dir);
-    if (failed < 0 && failed != -EEXIST) {
-        inkwell_log_warn("ui", "Message archive unavailable at %s: %d", dir, failed);
-        return failed;
-    }
-    inkwell_str_copy(archive->dir, sizeof archive->dir, dir);
-    /* Truncation would put the files somewhere other than where the caller asked, so it
-       disables the archive rather than writing to a shortened path. */
-    if (strcmp(archive->dir, dir) != 0) {
-        archive->dir[0] = '\0';
-        return -ENAMETOOLONG;
-    }
-    return 0;
+    return result;
 }
 
 /*
@@ -485,7 +420,7 @@ int mesh_ui_archive_append(struct mesh_ui_archive *archive,
     if (archive == NULL || list == NULL) {
         return -EINVAL;
     }
-    if (archive->dir[0] == '\0') {
+    if (!inkstand_journal_enabled(&archive->journal)) {
         return 0;
     }
 
@@ -509,8 +444,8 @@ int mesh_ui_archive_append(struct mesh_ui_archive *archive,
         uint8_t channel = 0U;
         archive_conversation_of(first, &kind, &node, &channel);
 
-        char path[sizeof archive->dir + 32];
-        if (!archive_path(archive, kind, node, channel, path, sizeof path)) {
+        char subject[MESH_UI_ARCHIVE_SUBJECT_LEN];
+        if (!archive_subject(archive, kind, node, channel, subject, sizeof subject)) {
             taken[i] = true;
             continue;
         }
@@ -537,9 +472,9 @@ int mesh_ui_archive_append(struct mesh_ui_archive *archive,
             taken[j] = true;
         }
 
-        const int result = archive_append_records(archive, path, batch, batch_count);
+        const int result = archive_append_records(archive, subject, batch, batch_count);
         if (result < 0) {
-            inkwell_log_warn("ui", "Could not append to message archive %s: %d", path, result);
+            inkwell_log_warn("ui", "Could not append to message archive %s: %d", subject, result);
             continue;
         }
         /* Remembered only once the records are on the card, so a failed write is retried on the
@@ -586,7 +521,7 @@ int mesh_ui_archive_seed(struct mesh_ui_archive *archive, const struct mesh_ui_m
     if (archive == NULL || list == NULL) {
         return -EINVAL;
     }
-    if (archive->dir[0] == '\0') {
+    if (!inkstand_journal_enabled(&archive->journal)) {
         return 0;
     }
 
@@ -611,13 +546,13 @@ int mesh_ui_archive_seed(struct mesh_ui_archive *archive, const struct mesh_ui_m
         }
         archive_mark_seen(archive, kind, node, channel);
 
-        char path[sizeof archive->dir + 32];
-        if (!archive_path(archive, kind, node, channel, path, sizeof path)) {
+        char subject[MESH_UI_ARCHIVE_SUBJECT_LEN];
+        if (!archive_subject(archive, kind, node, channel, subject, sizeof subject)) {
             continue;
         }
         /* A conversation that already has a file has a transcript at least as good as this one,
            and rewriting it with the cache's 64 would be throwing history away to save it. */
-        if (access(path, F_OK) == 0) {
+        if (inkstand_journal_exists(&archive->journal, subject)) {
             continue;
         }
 
@@ -639,9 +574,9 @@ int mesh_ui_archive_seed(struct mesh_ui_archive *archive, const struct mesh_ui_m
             continue;
         }
 
-        const int result = archive_rewrite(path, batch, batch_count);
+        const int result = archive_rewrite(archive, subject, batch, batch_count);
         if (result != 0) {
-            inkwell_log_warn("ui", "Could not seed message archive %s: %d", path, result);
+            inkwell_log_warn("ui", "Could not seed message archive %s: %d", subject, result);
             continue;
         }
         /* Seeded records are on the card now, so the append path must not write them again. */
@@ -664,16 +599,16 @@ int mesh_ui_archive_load_thread(const struct mesh_ui_archive *archive, uint8_t k
     out->node = node;
     out->channel = channel;
 
-    char path[sizeof archive->dir + 32];
-    if (!archive_path(archive, kind, node, channel, path, sizeof path)) {
+    char subject[MESH_UI_ARCHIVE_SUBJECT_LEN];
+    if (!archive_subject(archive, kind, node, channel, subject, sizeof subject)) {
         /* No file is possible for this conversation - it is the all-traffic view or the "New
            message" row, or the archive is disabled. An empty window, and `valid` left false so
            the transcript falls back to the flat list rather than drawing nothing. */
         return 0;
     }
 
-    const int result = archive_read_file(path, out->entries, MESH_UI_MAX_THREAD_MESSAGES,
-                                         &out->count, &out->dropped);
+    const int result = archive_read_file(archive, subject, out->entries,
+                                         MESH_UI_MAX_THREAD_MESSAGES, &out->count, &out->dropped);
     if (result == -ENOENT) {
         /* A conversation nobody has said anything in yet. Valid and empty, so the window is the
            authority for it rather than the flat list - which for a brand new conversation holds
@@ -697,14 +632,11 @@ int mesh_ui_archive_forget_conversation(struct mesh_ui_archive *archive, uint8_t
     if (archive == NULL) {
         return -EINVAL;
     }
-    char path[sizeof archive->dir + 32];
-    if (!archive_path(archive, kind, node, channel, path, sizeof path)) {
+    char subject[MESH_UI_ARCHIVE_SUBJECT_LEN];
+    if (!archive_subject(archive, kind, node, channel, subject, sizeof subject)) {
         return 0;
     }
-    if (unlink(path) != 0 && errno != ENOENT) {
-        return -errno;
-    }
-    return 0;
+    return inkstand_journal_forget(&archive->journal, subject);
 }
 
 /*
@@ -721,7 +653,6 @@ int mesh_ui_archive_forget_conversation(struct mesh_ui_archive *archive, uint8_t
  * record has no meta to come.
  */
 struct archive_filter {
-    FILE *out;
     uint32_t target;
     /* The msg[] line, verbatim, waiting for its verdict. */
     char pending[MESH_UI_ARCHIVE_LINE_MAX];
@@ -734,7 +665,7 @@ struct archive_filter {
 };
 
 /* Write the held msg[] line, or drop it, and settle the record either way. */
-static void archive_filter_settle(struct archive_filter *filter, bool is_reaction,
+static void archive_filter_settle(struct archive_filter *filter, FILE *out, bool is_reaction,
                                   uint32_t reply_id) {
     if (!filter->pending_held) {
         return;
@@ -746,8 +677,8 @@ static void archive_filter_settle(struct archive_filter *filter, bool is_reactio
         filter->dropped_records++;
         return;
     }
-    fputs(filter->pending, filter->out);
-    fputc('\n', filter->out);
+    fputs(filter->pending, out);
+    fputc('\n', out);
 }
 
 /*
@@ -757,14 +688,17 @@ static void archive_filter_settle(struct archive_filter *filter, bool is_reactio
  * this code never had a reason to decode would be a second spelling of the format, and the
  * whole point of sharing store_keys.h is that there is only one.
  */
-static void archive_filter_line(struct archive_filter *filter, const char *raw, char *work) {
+static void archive_filter_line(void *context, const char *raw, FILE *out) {
+    struct archive_filter *filter = context;
+    char work[MESH_UI_ARCHIVE_LINE_MAX];
+    inkwell_str_copy(work, sizeof work, raw);
     char *equals = strchr(work, '=');
     if (equals == NULL) {
         /* Not a key line at all - a comment, a blank, something hand-added. It belongs to
            nobody, so it is copied rather than attached to whatever record is open. */
-        archive_filter_settle(filter, false, 0U);
-        fputs(raw, filter->out);
-        fputc('\n', filter->out);
+        archive_filter_settle(filter, out, false, 0U);
+        fputs(raw, out);
+        fputc('\n', out);
         return;
     }
     *equals = '\0';
@@ -778,15 +712,15 @@ static void archive_filter_line(struct archive_filter *filter, const char *raw, 
     if (id == MESH_UI_STORE_KEY_MSG) {
         /* A msg[] line always begins a record, so whatever was open is settled on what is known
            about it - which for a record with no msg_meta[] is its packet id alone. */
-        archive_filter_settle(filter, false, 0U);
+        archive_filter_settle(filter, out, false, 0U);
         struct mesh_ui_message opened;
         memset(&opened, 0, sizeof opened);
         if (!mesh_ui_store_read_message_line(&opened, id, value)) {
             /* A torn or hand-edited line opens no record. Kept: this is a delete of one named
                message, not a tidy-up of the file. */
             filter->dropping = false;
-            fputs(raw, filter->out);
-            fputc('\n', filter->out);
+            fputs(raw, out);
+            fputc('\n', out);
             return;
         }
         inkwell_str_copy(filter->pending, sizeof filter->pending, raw);
@@ -801,22 +735,29 @@ static void archive_filter_line(struct archive_filter *filter, const char *raw, 
         struct mesh_ui_message meta;
         memset(&meta, 0, sizeof meta);
         (void)mesh_ui_store_read_message_line(&meta, id, value);
-        archive_filter_settle(filter, meta.is_reaction, meta.reply_id);
+        archive_filter_settle(filter, out, meta.is_reaction, meta.reply_id);
         if (filter->dropping) {
             return;
         }
-        fputs(raw, filter->out);
-        fputc('\n', filter->out);
+        fputs(raw, out);
+        fputc('\n', out);
         return;
     }
 
     /* Any other line: the record it belongs to is settled by now. */
-    archive_filter_settle(filter, false, 0U);
+    archive_filter_settle(filter, out, false, 0U);
     if (mesh_ui_store_key_is_message(id) && filter->dropping) {
         return;
     }
-    fputs(raw, filter->out);
-    fputc('\n', filter->out);
+    fputs(raw, out);
+    fputc('\n', out);
+}
+
+/* The end of the file settles the last record on its packet id alone. */
+static uint32_t archive_filter_end(void *context, FILE *out) {
+    struct archive_filter *filter = context;
+    archive_filter_settle(filter, out, false, 0U);
+    return filter->dropped_records;
 }
 
 int mesh_ui_archive_forget_message(struct mesh_ui_archive *archive, uint8_t kind, uint32_t node,
@@ -824,62 +765,21 @@ int mesh_ui_archive_forget_message(struct mesh_ui_archive *archive, uint8_t kind
     if (archive == NULL || packet_id == 0U) {
         return -EINVAL;
     }
-    char path[sizeof archive->dir + 32];
-    if (!archive_path(archive, kind, node, channel, path, sizeof path)) {
+    char subject[MESH_UI_ARCHIVE_SUBJECT_LEN];
+    if (!archive_subject(archive, kind, node, channel, subject, sizeof subject)) {
         return 0;
-    }
-
-    FILE *source = fopen(path, "r");
-    if (source == NULL) {
-        return (errno == ENOENT) ? 0 : -errno;
-    }
-
-    char temp[sizeof archive->dir + 64];
-    const int named = snprintf(temp, sizeof temp, "%s.tmp", path);
-    if (named <= 0 || named >= (int)sizeof temp) {
-        fclose(source);
-        return -ENAMETOOLONG;
-    }
-    FILE *out = fopen(temp, "w");
-    if (out == NULL) {
-        const int failed = -errno;
-        fclose(source);
-        return failed;
     }
 
     struct archive_filter filter;
     memset(&filter, 0, sizeof filter);
-    filter.out = out;
     filter.target = packet_id;
 
-    char raw[MESH_UI_ARCHIVE_LINE_MAX];
-    char work[MESH_UI_ARCHIVE_LINE_MAX];
-    while (fgets(raw, sizeof raw, source) != NULL) {
-        raw[strcspn(raw, "\r\n")] = '\0';
-        inkwell_str_copy(work, sizeof work, raw);
-        archive_filter_line(&filter, raw, work);
-    }
-    archive_filter_settle(&filter, false, 0U);
-
-    int result = ferror(source) || ferror(out) ? -EIO : 0;
-    fclose(source);
-    if (fclose(out) != 0) {
-        result = -errno;
-    }
-    if (result != 0) {
-        (void)unlink(temp);
-        return result;
-    }
-
-    if (filter.dropped_records == 0U) {
-        /* Nothing to say, so nothing is replaced: a delete that found its message somewhere else
-           must not rewrite this file at all. */
-        (void)unlink(temp);
-        return 0;
-    }
-    if (rename(temp, path) != 0) {
-        result = -errno;
-        (void)unlink(temp);
+    /* A delete that found its message somewhere else leaves this file exactly as it was: the
+       journal replaces it only when the filter says it dropped something. */
+    char line[MESH_UI_ARCHIVE_LINE_MAX];
+    const int result = inkstand_journal_filter(&archive->journal, subject, line, sizeof line,
+                                               archive_filter_line, archive_filter_end, &filter);
+    if (result <= 0) {
         return result;
     }
 
@@ -890,5 +790,5 @@ int mesh_ui_archive_forget_message(struct mesh_ui_archive *archive, uint8_t kind
             memset(&archive->recent[i], 0, sizeof archive->recent[i]);
         }
     }
-    return (int)filter.dropped_records;
+    return result;
 }
