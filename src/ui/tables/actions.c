@@ -1064,6 +1064,30 @@ static bool command_is_primary(enum mesh_ui_command_id id) {
            id == MESH_UI_COMMAND_PAIR || id == MESH_UI_COMMAND_DONE;
 }
 
+/*
+ * Whether `id`, on this screen's list, is about the row under the d-pad's cursor - which a
+ * pointer never moves, since it opens a row by clicking it, and which starts on a row that is
+ * not a node or a conversation, where these do nothing. A heading button whose subject the
+ * reader cannot see does nothing or does it to somebody else, so these stay off the heading;
+ * the row's own right-click menu carries every one of them. A delete already armed stays: the
+ * reader armed it on a row they chose.
+ */
+static bool command_is_cursor_row(const struct mesh_ui_nav *nav, const struct mesh_ui_route *active,
+                                  enum mesh_ui_command_id id) {
+    if (active->level != MESH_UI_ROUTE_LIST) {
+        return false;
+    }
+    switch (nav->screen) {
+    case MESH_UI_SCREEN_NODES:
+        return id == MESH_UI_COMMAND_PIN || id == MESH_UI_COMMAND_WRITE;
+    case MESH_UI_SCREEN_MESSAGES:
+        return id == MESH_UI_COMMAND_DELETE || id == MESH_UI_COMMAND_MUTE ||
+               id == MESH_UI_COMMAND_UNMUTE;
+    default:
+        return false;
+    }
+}
+
 size_t mesh_ui_actions_heading(const struct mesh_ui_snapshot *snapshot,
                                struct mesh_ui_heading_action *out, size_t max) {
     if (out == NULL || max == 0U) {
@@ -1084,7 +1108,8 @@ size_t mesh_ui_actions_heading(const struct mesh_ui_snapshot *snapshot,
         const struct mesh_ui_command *command = &commands.items[i];
         const enum inkcell_icon icon = mesh_ui_command_icon(command->id);
         if (icon == INKCELL_ICON_NONE || command->id == MESH_UI_COMMAND_HELP ||
-            (typing && command->id == MESH_UI_COMMAND_DELETE)) {
+            (typing && command->id == MESH_UI_COMMAND_DELETE) ||
+            command_is_cursor_row(&snapshot->nav, &active, command->id)) {
             continue;
         }
         /* The same verb offered twice - a row's A and a screen's Y both saying "New" - is one

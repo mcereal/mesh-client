@@ -823,8 +823,8 @@ MESH_TEST_CASE(actions_devices_ask_the_row_under_the_cursor, unit) {
  * less what a pointer already has somewhere better.
  *
  * The conversation list is the case with every kind of verb on it: a row's own A (the row is
- * clicked), a creation verb (the pill), a destructive one, a verb that names the row (mute), help
- * and the tabs.
+ * clicked), a creation verb (the pill), the row verbs that act on the cursor's row (delete, mute -
+ * a pointer never moves that cursor, so they are the right-click menu's), help and the tabs.
  */
 MESH_TEST_CASE(actions_heading_is_what_a_pointer_has_nowhere_else, unit) {
     struct mesh_ui_snapshot snapshot;
@@ -832,19 +832,20 @@ MESH_TEST_CASE(actions_heading_is_what_a_pointer_has_nowhere_else, unit) {
     struct mesh_ui_heading_action verbs[MESH_UI_HEADING_ACTIONS_MAX];
     const size_t count = mesh_ui_actions_heading(&snapshot, verbs, MESH_UI_HEADING_ACTIONS_MAX);
 
-    MESH_TEST_FAIL_IF(count < 3U, "the conversation list should offer new, delete and help");
+    MESH_TEST_FAIL_IF(count != 2U, "the conversation list should offer new and help");
     for (size_t i = 0U; i < count; ++i) {
         MESH_TEST_FAIL_IF(verbs[i].id == MESH_UI_COMMAND_OPEN ||
                               verbs[i].id == MESH_UI_COMMAND_TABS,
                           "a row's own A and the tabs are clicked, not offered in the heading");
+        MESH_TEST_FAIL_IF(verbs[i].id == MESH_UI_COMMAND_DELETE ||
+                              verbs[i].id == MESH_UI_COMMAND_MUTE ||
+                              verbs[i].id == MESH_UI_COMMAND_UNMUTE,
+                          "a verb about the cursor's row belongs to the row's menu");
         MESH_TEST_FAIL_IF(verbs[i].icon == INKCELL_ICON_NONE,
                           "every heading verb should be drawn with a symbol");
     }
     MESH_TEST_FAIL_IF(verbs[0].id != MESH_UI_COMMAND_NEW || !verbs[0].primary,
                       "New should lead the heading, as the verb the list is for");
-    MESH_TEST_FAIL_IF(verbs[1].id != MESH_UI_COMMAND_DELETE || !verbs[1].destructive ||
-                          verbs[1].primary,
-                      "Delete should follow, marked as the verb that throws something away");
     MESH_TEST_FAIL_IF(verbs[count - 1U].id != MESH_UI_COMMAND_HELP || verbs[count - 1U].primary,
                       "help should close the heading and never be its pill");
 
@@ -853,6 +854,15 @@ MESH_TEST_CASE(actions_heading_is_what_a_pointer_has_nowhere_else, unit) {
     MESH_TEST_FAIL_IF(two != 2U || verbs[0].id != MESH_UI_COMMAND_NEW ||
                           verbs[1].id != MESH_UI_COMMAND_HELP,
                       "a short heading should give up its last verb before its help");
+
+    /* A delete armed from the row's menu is about the row the reader chose, so it is offered -
+       marked as the verb that throws something away. */
+    snapshot.nav.messages_delete_armed = true;
+    const size_t armed = mesh_ui_actions_heading(&snapshot, verbs, MESH_UI_HEADING_ACTIONS_MAX);
+    MESH_TEST_FAIL_IF(armed < 1U || verbs[0].id != MESH_UI_COMMAND_CONFIRM_DELETE ||
+                          !verbs[0].destructive || verbs[0].primary,
+                      "an armed delete should be offered, marked destructive");
+    snapshot.nav.messages_delete_armed = false;
 
     MESH_TEST_FAIL_IF(mesh_ui_command_icon(MESH_UI_COMMAND_BACK) != INKCELL_ICON_NONE ||
                           mesh_ui_command_icon(MESH_UI_COMMAND_MOVE) != INKCELL_ICON_NONE ||
