@@ -301,6 +301,11 @@ bool mesh_ui_trends_note_radio(struct mesh_ui_trends *trends, uint32_t roster_ow
     if (dropped > 0) {
         inkwell_log_info("ui", "Dropped %d trend log(s) for the radio that was swapped out",
                          dropped);
+    } else if (dropped < 0) {
+        /* A file the wipe could not remove still holds the old radio's readings, and a node of
+           the same number on the new mesh would restore them. Said, because nothing else will. */
+        inkwell_log_warn("ui", "Could not drop the trend logs of the radio swapped out: %d",
+                         dropped);
     }
     return true;
 }
