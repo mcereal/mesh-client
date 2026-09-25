@@ -1369,7 +1369,7 @@ MESH_TEST_CASE(ui_nav_passkey_prompt, unit) {
     }
     mesh_ui_store_close_passkey_prompt(&store);
     if (!store.nav.keyboard_open ||
-        store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_USER_LONG_NAME ||
+        store.nav.keyboard_field != (uint16_t)MESH_UI_FIELD_USER_LONG_NAME ||
         strcmp(store.nav.draft, "Base Camp") != 0) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "the displaced keyboard should come back");
@@ -1392,7 +1392,7 @@ MESH_TEST_CASE(ui_nav_passkey_prompt, unit) {
     }
     mesh_ui_store_close_passkey_prompt(&store);
     if (!store.nav.keyboard_open || store.nav.keyboard_passkey ||
-        store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_NONE ||
+        store.nav.keyboard_field != (uint16_t)MESH_UI_FIELD_NONE ||
         store.nav.screen != MESH_UI_SCREEN_MESSAGES || strcmp(store.nav.draft, "on my w") != 0) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "a displaced message keyboard should come back with its draft");

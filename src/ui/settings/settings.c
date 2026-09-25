@@ -2736,7 +2736,7 @@ mesh_ui_settings_find_edit(const struct mesh_ui_setting_edit *edits, size_t edit
         return NULL;
     }
     for (size_t i = 0; i < edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
-        if (edits[i].field == (uint8_t)field) {
+        if (edits[i].field == (uint16_t)field) {
             return &edits[i];
         }
     }

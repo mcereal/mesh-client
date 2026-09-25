@@ -986,7 +986,7 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
      * the rows above it, and a Reboot pressed on another tab carrying half-typed coordinates
      * would be a write nobody made.
      */
-    store.nav.settings_edits[0].field = (uint8_t)MESH_UI_FIELD_POSITION_SMART;
+    store.nav.settings_edits[0].field = (uint16_t)MESH_UI_FIELD_POSITION_SMART;
     store.nav.settings_edits[0].number = 1U;
     store.nav.settings_edit_count = 1U;
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
@@ -1418,7 +1418,7 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open ||
-        store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_POSITION_LATITUDE) {
+        store.nav.keyboard_field != (uint16_t)MESH_UI_FIELD_POSITION_LATITUDE) {
         failure = "A on the latitude row should open the keyboard on it";
         goto cleanup;
     }
@@ -1729,7 +1729,7 @@ MESH_TEST_CASE(ui_nav_ham_mode, unit) {
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open ||
-        store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_LORA_HAM_CALL_SIGN) {
+        store.nav.keyboard_field != (uint16_t)MESH_UI_FIELD_LORA_HAM_CALL_SIGN) {
         failure = "A on the call sign row should open the keyboard on it";
         goto cleanup;
     }
@@ -2205,7 +2205,7 @@ MESH_TEST_CASE(ui_nav_radio_pages_stay_on_the_radio_in_hand, unit) {
         failure = "Settings > User should open on a remote target";
         goto cleanup;
     }
-    store.nav.settings_edits[0].field = (uint8_t)MESH_UI_FIELD_USER_LICENSED;
+    store.nav.settings_edits[0].field = (uint16_t)MESH_UI_FIELD_USER_LICENSED;
     store.nav.settings_edits[0].number = 1U;
     store.nav.settings_edit_count = 1U;
     if (!mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_RADIO_DETAILS) ||
@@ -2241,7 +2241,7 @@ MESH_TEST_CASE(ui_nav_radio_pages_stay_on_the_radio_in_hand, unit) {
 
     /* And B on a page is the page's: with an edit waiting on the Settings tab it goes back to
        the cards rather than arming a discard of somebody else's typing. */
-    store.nav.settings_edits[0].field = (uint8_t)MESH_UI_FIELD_POSITION_SMART;
+    store.nav.settings_edits[0].field = (uint16_t)MESH_UI_FIELD_POSITION_SMART;
     store.nav.settings_edits[0].number = 1U;
     store.nav.settings_edit_count = 1U;
     if (!mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_NODE_LISTS)) {

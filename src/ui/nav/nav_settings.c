@@ -80,7 +80,7 @@ bool mesh_ui_nav_close_radio_page(struct mesh_ui_nav *nav) {
 
 static void mesh_ui_nav_edit_remove(struct mesh_ui_nav *nav, enum mesh_ui_setting_field field) {
     for (uint8_t i = 0; i < nav->settings_edit_count; ++i) {
-        if (nav->settings_edits[i].field != (uint8_t)field) {
+        if (nav->settings_edits[i].field != (uint16_t)field) {
             continue;
         }
         for (uint8_t j = i; j + 1U < nav->settings_edit_count; ++j) {
@@ -125,7 +125,7 @@ static bool mesh_ui_nav_edit_set(struct mesh_ui_nav *nav, const struct mesh_ui_s
     }
     struct mesh_ui_setting_edit *slot = NULL;
     for (uint8_t i = 0; i < nav->settings_edit_count; ++i) {
-        if (nav->settings_edits[i].field == (uint8_t)field) {
+        if (nav->settings_edits[i].field == (uint16_t)field) {
             slot = &nav->settings_edits[i];
             break;
         }
@@ -137,7 +137,7 @@ static bool mesh_ui_nav_edit_set(struct mesh_ui_nav *nav, const struct mesh_ui_s
         slot = &nav->settings_edits[nav->settings_edit_count++];
     }
     memset(slot, 0, sizeof *slot);
-    slot->field = (uint8_t)field;
+    slot->field = (uint16_t)field;
     slot->number = number;
     if (text != NULL) {
         snprintf(slot->text, sizeof slot->text, "%s", text);
@@ -156,7 +156,7 @@ static void mesh_ui_nav_open_field_keyboard(struct mesh_ui_nav *nav,
                                             const struct mesh_ui_settings_item *item) {
     snprintf(nav->draft_saved, sizeof nav->draft_saved, "%s", nav->draft);
     snprintf(nav->draft, sizeof nav->draft, "%s", item->text);
-    nav->keyboard_field = (uint8_t)item->field;
+    nav->keyboard_field = (uint16_t)item->field;
     nav->keyboard_open = true;
     inkcell_keyboard_reset(&nav->kb);
 }
