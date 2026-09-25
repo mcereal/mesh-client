@@ -778,6 +778,18 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
         return;
     }
     if (active.level == MESH_UI_ROUTE_CONFIRM) {
+        /*
+         * A answers with whichever button has the ring, so the keycap says which answer that is.
+         * The dialog opens on Cancel, and a bar reading "A confirm" over a ring on Cancel told the
+         * user the opposite of what the press would do - on the screens where a press costs the
+         * most. With A already saying "cancel", a B saying it too is the same word twice.
+         */
+        if (nav->confirm.cursor == INKSTAND_DIALOG_CANCEL) {
+            command_add(out, MESH_UI_COMMAND_CANCEL, MESH_STR_ACTION_CANCEL, INKCELL_BUTTON_A);
+            command_add(out, MESH_UI_COMMAND_CHOOSE, MESH_STR_ACTION_CHOOSE,
+                        INKCELL_BUTTON_UP_DOWN);
+            return;
+        }
         command_add(out, MESH_UI_COMMAND_CONFIRM, MESH_STR_ACTION_CONFIRM, INKCELL_BUTTON_A);
         command_add(out, MESH_UI_COMMAND_CANCEL, MESH_STR_ACTION_CANCEL, INKCELL_BUTTON_B);
         command_add(out, MESH_UI_COMMAND_CHOOSE, MESH_STR_ACTION_CHOOSE, INKCELL_BUTTON_UP_DOWN);
