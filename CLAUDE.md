@@ -234,7 +234,7 @@ publish and read back when that node's detail screen is opened. Both logs stand 
 | Radio firmware | `src/core/firmware/` - `firmware*.c`, `uf2.c`, `esp_image.c`, `src/transport/*/{usb_msc,ble_ota,ble_hci}.c` - the *other* binary |
 | UI | `src/ui/` - see the group map below; **`fb` is the device UI** |
 | UI toolkit | `third_party/inkcell/` - theme, fonts, glyphs, layout, widgets, the fb and SDL backends, input |
-| App framework | `third_party/inkstand/` - the plumbing any app on this stack would write again; today the frame scheduler under `controller.c`, the control socket `make ui-drive` talks to (`inkstand/app/control.h`), the scene runner under `ui_capture`, the cache's key table and field reader, the journal both logs on the card stand on, and the recently-used list under `preferences.c`'s radios and devices (`inkstand/persist/`). Its `docs/extraction.md` is the map of what comes down next |
+| App framework | `third_party/inkstand/` - the plumbing any app on this stack would write again; today the frame scheduler under `controller.c`, the control socket `make ui-drive` talks to (`inkstand/app/control.h`), the scene runner under `ui_capture`, the cache's key table and field reader, the journal both logs on the card stand on, the recently-used list under `preferences.c`'s radios and devices (`inkstand/persist/`), and the text codec under `settings_codec.c` (`inkstand/form/codec.h`). Its `docs/extraction.md` is the map of what comes down next |
 | UI components | inkcell's `include/inkcell/ui/widgets/*.h` (button, chrome, list, item, bubble, card, control, meter, overlay); `inkcell/ui/widgets.h` is the umbrella, `inkcell/ui/fb_draw.h` the toolkit under it |
 | This client behind the frame | `src/ui/backends/fb_app.c` - the renderer inkcell calls, the move it cannot work out, the theme it is told |
 | Tables the UI reads | `src/ui/tables/` - `actions.c` (button verbs), `status.c` (card verbs), `help.c`, `devices.c`, `nodes.c`, `delivery.c`, `trust.c`, `chrome.c`, `trend.c` (the airtime chart; the frame around it is inkcell's), `duration.c`, `units.c` (metric/imperial lengths) |
@@ -254,7 +254,7 @@ its include path - see the flat-header rule above.
 |---|---|
 | `src/ui/store/` | the records and the three files on the card, plus `history.c` and `preferences.c` |
 | `src/ui/nav/` | where the reader is and what a press does: `nav*.c`, `route.c`, `controller.c` (over inkstand's frame scheduler) |
-| `src/ui/settings/` | the settings model: fields, rows, the codec |
+| `src/ui/settings/` | the settings model: fields, rows, and `settings_codec.c` - this client's spellings (a coordinate, a node number, a key) over inkstand's `form/codec.h` |
 | `src/ui/tables/` | the vocabulary tables a screen names rather than spells out, including `mqtt.c`, which is what a broker failure and a connection state are *called* |
 | `src/ui/views/` | per-screen view models - what a screen says, not how it is drawn |
 | `src/ui/backends/` | the renderers. **`fb` is the device UI**; `MESHCLIENT_UI_BACKEND=sdl` presents the same frames in a window on a dev host, and every file here is shared by both |
