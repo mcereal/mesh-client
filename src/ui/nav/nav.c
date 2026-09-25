@@ -361,8 +361,8 @@ static const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct m
         return NULL;
     }
     struct mesh_ui_node_view view;
-    mesh_ui_node_view_build(&store->handshake, (enum mesh_ui_node_filter)nav->node_filter,
-                            (enum mesh_ui_node_sort)nav->node_sort, &view);
+    mesh_ui_node_view_build_query(&store->handshake, (enum mesh_ui_node_filter)nav->node_filter,
+                                  nav->node_query, (enum mesh_ui_node_sort)nav->node_sort, &view);
     return mesh_ui_node_view_at(&store->handshake, &view, cursor - MESH_UI_NODES_LEAD_ROWS);
 }
 
@@ -715,10 +715,11 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
             if (nodes == 0U) {
                 return 0U;
             }
-            return mesh_ui_node_filter_count(&store->handshake,
-                                             nav == NULL
-                                                 ? MESH_UI_NODE_FILTER_ALL
-                                                 : (enum mesh_ui_node_filter)nav->node_filter) +
+            return mesh_ui_node_query_count(&store->handshake,
+                                            nav == NULL
+                                                ? MESH_UI_NODE_FILTER_ALL
+                                                : (enum mesh_ui_node_filter)nav->node_filter,
+                                            nav == NULL ? NULL : nav->node_query) +
                    MESH_UI_NODES_LEAD_ROWS;
         }
         /*
@@ -1923,6 +1924,10 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             if (mesh_ui_nav_nodes_control_step(nav, cursor, INKCELL_KEY_A)) {
                 return true;
             }
+            if (cursor == MESH_UI_NODES_FIND_ROW) {
+                mesh_ui_nav_open_node_query_keyboard(nav);
+                return true;
+            }
             if (cursor == MESH_UI_NODES_WAYPOINTS_ROW) {
                 /* The places, one level in. Never refused: the list always ends in its "New
                    waypoint here" row, so there is something to stand on even on a mesh that has
@@ -2711,6 +2716,18 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
                 }
             }
             return changed;
+        }
+        if (nav->screen == MESH_UI_SCREEN_NODES && !mesh_ui_nav_waypoints_showing(nav) &&
+            !nav->node_detail_open && !nav->map_open &&
+            nav->cursor[nav->screen] == MESH_UI_NODES_FIND_ROW) {
+            /* The Find row's X is its clear, and only while there is something to clear: the
+               bar names it then and not otherwise. The cursor stays on the row - it is above
+               every row a query renumbers. */
+            if (nav->node_query[0] == '\0') {
+                return changed;
+            }
+            nav->node_query[0] = '\0';
+            return true;
         }
         if (nav->screen == MESH_UI_SCREEN_NODES && !mesh_ui_nav_waypoints_showing(nav)) {
             /* The one-press version of the detail's "Pinned to top" row, from either level -

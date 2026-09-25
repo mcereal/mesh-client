@@ -9,7 +9,7 @@ scene demo
 nofix
 
 tab nodes
-key down 3
+key down 4
 key a
 hold 1400
 

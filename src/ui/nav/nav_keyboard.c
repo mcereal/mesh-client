@@ -105,7 +105,7 @@ bool mesh_ui_nav_kb_submit_finishes(const struct mesh_ui_nav *nav) {
     }
     return nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
            nav->keyboard_network || nav->keyboard_verify || nav->keyboard_channel_url ||
-           nav->keyboard_contact_url;
+           nav->keyboard_contact_url || nav->keyboard_node_query;
 }
 
 struct inkcell_keyboard_layout mesh_ui_nav_kb_layout(const struct mesh_ui_nav *nav) {
@@ -147,6 +147,9 @@ size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
            it is refused where it is typed instead. */
         return MESH_UI_WAYPOINT_NAME_MAX - 1U;
     }
+    if (nav->keyboard_node_query) {
+        return MESH_UI_NODE_QUERY_MAX - 1U;
+    }
     if (nav->keyboard_network) {
         /* The transport's own limit on a target, which is a full bracketed v6 literal with a
            port on it. A longer one is refused by mesh_tcp_target_split() after the typing, so
@@ -187,8 +190,9 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
                drop the user somewhere they were not. */
             if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
                 nav->screen = MESH_UI_SCREEN_SETTINGS;
-            } else if (nav->keyboard_waypoint) {
-                /* The places list and the node detail that raise it are both the Nodes tab. */
+            } else if (nav->keyboard_waypoint || nav->keyboard_node_query) {
+                /* The places list and the node detail that raise it are both the Nodes tab,
+                   and so is the Find row. */
                 nav->screen = MESH_UI_SCREEN_NODES;
             } else if (nav->keyboard_network) {
                 /* Survives the prompt untouched, exactly as `keyboard_waypoint` does - and it
@@ -231,6 +235,14 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         /* Back to the User list the add row is on, the way the channel link goes back to the
            Channels list. */
         nav->screen = MESH_UI_SCREEN_SETTINGS;
+        return;
+    }
+    if (nav->keyboard_node_query) {
+        nav->keyboard_node_query = false;
+        snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
+        nav->draft_saved[0] = '\0';
+        /* Back on the Find row it was raised from, which a query cannot renumber. */
+        nav->screen = MESH_UI_SCREEN_NODES;
         return;
     }
     if (nav->keyboard_waypoint) {
@@ -395,6 +407,38 @@ static bool mesh_ui_nav_cancel_passkey(struct mesh_ui_nav *nav, struct mesh_ui_a
     return true;
 }
 
+void mesh_ui_nav_open_node_query_keyboard(struct mesh_ui_nav *nav) {
+    if (nav == NULL) {
+        return;
+    }
+    /* The Compose draft into the one parking slot, and the query as it stands to edit: a
+       search is refined far more often than it is started over. */
+    snprintf(nav->draft_saved, sizeof nav->draft_saved, "%s", nav->draft);
+    snprintf(nav->draft, sizeof nav->draft, "%s", nav->node_query);
+    nav->keyboard_node_query = true;
+    nav->keyboard_contact_url = false;
+    nav->keyboard_channel_url = false;
+    nav->keyboard_network = false;
+    nav->keyboard_waypoint = false;
+    nav->keyboard_field = MESH_UI_FIELD_NONE;
+    nav->keyboard_open = true;
+    nav->compose_open = false;
+    inkcell_keyboard_reset(&nav->kb);
+    nav->screen = MESH_UI_SCREEN_NODES;
+}
+
+/* Done on the Find keyboard: the text becomes the query, and the list's cursor goes to the
+   Find row - a row above everything the new query renumbers, so it cannot land on a node the
+   reader never saw. */
+static bool mesh_ui_nav_commit_node_query(struct mesh_ui_nav *nav) {
+    char query[MESH_UI_NODE_QUERY_MAX];
+    inkwell_str_copy(query, sizeof query, nav->draft);
+    mesh_ui_nav_keyboard_close(nav);
+    inkwell_str_copy(nav->node_query, sizeof nav->node_query, query);
+    nav->cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FIND_ROW;
+    return true;
+}
+
 void mesh_ui_nav_open_channel_url_keyboard(struct mesh_ui_nav *nav) {
     if (nav == NULL) {
         return;
@@ -483,7 +527,7 @@ bool mesh_ui_nav_commit_contact_url(struct mesh_ui_nav *nav) {
 }
 
 /*
- * The text is finished: whichever of the eight jobs this keyboard was opened for decides what
+ * The text is finished: whichever of the nine jobs this keyboard was opened for decides what
  * that means.
  *
  * One function for the submit key and for START, because they are one press to the user and
@@ -509,6 +553,9 @@ static bool mesh_ui_nav_keyboard_submit(struct mesh_ui_nav *nav, const struct me
     }
     if (nav->keyboard_contact_url) {
         return mesh_ui_nav_commit_contact_url(nav);
+    }
+    if (nav->keyboard_node_query) {
+        return mesh_ui_nav_commit_node_query(nav);
     }
     return nav->keyboard_waypoint ? mesh_ui_nav_commit_waypoint(nav, action)
                                   : mesh_ui_nav_send_draft(nav, action);

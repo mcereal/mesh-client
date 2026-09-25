@@ -27,10 +27,11 @@ struct mesh_ui_node_summary;
  * Why a filter exists at all. The roster deliberately outlives the connection and the radio's
  * NodeDB evicts, so this list is the one screen in the client that grows without bound - a busy
  * mesh publishes the best 128 of 256 and the reader is looking for one of them. Sorting cannot
- * answer that (the list is already ranked, and a rank is what put the node they want at 94), and
- * a search needs the on-screen keyboard for a name the reader may not know how to spell. What
- * they do know is which *kind* of node they are after, and there are only ever two kinds worth
- * asking for: the ones they chose to keep, and the ones that are actually in earshot.
+ * answer that (the list is already ranked, and a rank is what put the node they want at 94). What
+ * a reader always knows is which *kind* of node they are after, and there are only ever two kinds
+ * worth asking for: the ones they chose to keep, and the ones that are actually in earshot. When
+ * they know a piece of the name too, the Find row narrows further - see
+ * mesh_ui_node_query_matches().
  *
  * So the set is deliberately three and closed. Every candidate for a fourth failed the same
  * test - a filter has to be a question a reader arrives with, not a column the client happens to
@@ -98,6 +99,21 @@ bool mesh_ui_node_filter_matches(const struct mesh_ui_handshake_state *handshake
 uint32_t mesh_ui_node_filter_count(const struct mesh_ui_handshake_state *handshake,
                                    enum mesh_ui_node_filter filter);
 
+/*
+ * The Find row's text, and whether a node answers to it.
+ *
+ * A piece of the long name, the short name or the `!1234abcd` id, with ASCII case folded -
+ * what somebody looking for a node remembers of it, typed a character at a time on a d-pad, so
+ * a part is as good as the whole. NULL or "" is no query, and matches every node: the Find row
+ * narrows what the filter kept, it never stands in for it.
+ */
+bool mesh_ui_node_query_matches(const struct mesh_ui_node_summary *node, const char *query);
+
+/* The filter and the query together: how many rows the list has under both. The count every
+   reader of the list's length asks while a query is set, so the cursor and the rows agree. */
+uint32_t mesh_ui_node_query_count(const struct mesh_ui_handshake_state *handshake,
+                                  enum mesh_ui_node_filter filter, const char *query);
+
 /* The next filter along, wrapping. What A on the filter row does - the settings enum row's step,
    and the reason the chips need no second key. */
 enum mesh_ui_node_filter mesh_ui_node_filter_step(enum mesh_ui_node_filter filter, int delta);
@@ -125,10 +141,10 @@ inkcell_str_id mesh_ui_node_filter_label(enum mesh_ui_node_filter filter);
  * three chips cannot be taught to: "near me" is not a kind of node, it is an ordering of all of
  * them, and a fourth chip for it would have to pick a radius the client has no business picking.
  *
- * Name is the second, and it is the answer to the search this client is not going to have. The
- * note above rules a search out because a name you cannot spell cannot be typed on a d-pad -
- * which is an objection to *typing*, not to looking. A to Z puts a name you would know on sight
- * at a place you can scroll to, and costs no keyboard and no on-screen row.
+ * Name is the second. A to Z puts a name you would know on sight at a place you can scroll to,
+ * and costs no keyboard - which is what the reader who cannot spell it needs. The Find row is
+ * for the one who can type a piece of it: a fragment of the long name, the short name or the id
+ * is enough, and the keyboard's caret makes a typo a fix rather than a retype.
  *
  * All of it is a lens on the published roster and not on the mesh. mesh_app_node_rank() cuts the
  * roster to MESH_UI_MAX_HANDSHAKE_NODES before any of this runs, so "nearest" means nearest of
@@ -227,6 +243,10 @@ struct mesh_ui_node_view {
 void mesh_ui_node_view_build(const struct mesh_ui_handshake_state *handshake,
                              enum mesh_ui_node_filter filter, enum mesh_ui_node_sort sort,
                              struct mesh_ui_node_view *out);
+/* The same, keeping only the rows `query` also matches - see mesh_ui_node_query_matches(). */
+void mesh_ui_node_view_build_query(const struct mesh_ui_handshake_state *handshake,
+                                   enum mesh_ui_node_filter filter, const char *query,
+                                   enum mesh_ui_node_sort sort, struct mesh_ui_node_view *out);
 
 /*
  * The `index`-th row of a built view, or NULL past the end.

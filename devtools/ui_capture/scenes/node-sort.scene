@@ -53,7 +53,7 @@ hold 2000
 
 # The rows under it are still rows. The cursor walks off both controls into them and A opens the
 # node the row drew, which is the half that would look right while being wrong.
-key down 4
+key down 5
 hold 1200
 key a
 hold 1800

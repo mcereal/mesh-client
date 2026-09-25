@@ -21,7 +21,7 @@ tab nodes
 
 # Foxtrot Mobile: satellites, and a fix the node dated itself. Its detail has no Precision row,
 # so Fix is one row earlier than Alfa's, which is the difference this scene is about.
-key down 10
+key down 11
 key a
 key down 28
 hold 1500

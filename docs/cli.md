@@ -239,8 +239,10 @@ draft of up to 63 bytes that is not already on the list, while the list has fewe
 list is then written to `canned.txt`, built-in replies included, so it is the file from then on.
 
 **Nodes** is the contact list; A opens a node's detail, where rows appear only for what the node
-has actually reported. Above the nodes are the filter, the sort, the *Map* and the *Waypoints*
-row, which opens the shared places (and the row that marks a new one here); B goes back. **Radio** opens on the link, mesh and radio cards; the Link card's
+has actually reported. Above the nodes are the filter, the sort, *Find* - A types a piece of a
+name, short name or `!id` and the list keeps only the nodes that match; X clears it - the *Map* and
+the *Waypoints* row, which opens the shared places (and the row that marks a new one here); B goes
+back. **Radio** opens on the link, mesh and radio cards; the Link card's
 *devices* button opens the device list, which shows USB ports first (no pairing, so they sort to
 the top), then BLE advertisers; A connects and bonds, X disconnects and holds auto-connect off, Y
 twice forgets a bond, B goes back to the cards. The Mesh card's *nodes* button opens the node

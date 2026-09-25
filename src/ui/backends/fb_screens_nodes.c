@@ -560,7 +560,7 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
      * and the node mesh_ui_nav_node_at_row() opens are the same node by construction.
      */
     struct mesh_ui_node_view view_rows;
-    mesh_ui_node_view_build(hs, filter, sort, &view_rows);
+    mesh_ui_node_view_build_query(hs, filter, nav->node_query, sort, &view_rows);
     const uint32_t count = view_rows.count;
     char title[96];
     /* Counted from the rows this screen is about to draw, so the two numbers are always in the
@@ -650,7 +650,10 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
      */
     uint8_t node_heights[MESH_UI_MAX_HANDSHAKE_NODES + MESH_UI_NODES_LEAD_ROWS + 1U];
     for (uint32_t r = 0; r < rows && r < (uint32_t)(sizeof node_heights); ++r) {
-        node_heights[r] = (r == MESH_UI_NODES_FILTER_ROW || r == MESH_UI_NODES_SORT_ROW) ? 1U : 2U;
+        /* The lead rows are one step each - the map and the places included, whose count sits in
+           the value column rather than on a line of its own: five rows of controls are the top
+           of a list whose nodes are what the reader came for. */
+        node_heights[r] = r < MESH_UI_NODES_LEAD_ROWS ? 1U : 2U;
     }
     /* With a node open - which is only drawn beside it, on a split frame - the tab's cursor
        indexes the detail's rows, and the list's own place is the open node's row, found by
@@ -691,10 +694,12 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
      * One label column for both rows, measured from the longer of the two words, so the group
      * reads as one block rather than as two rows that happen to adjoin.
      */
-    const char *const control_labels[] = {inkcell_str(MESH_STR_NODES_FILTER_ROW),
-                                          inkcell_str(MESH_STR_NODES_SORT_ROW)};
-    const size_t control_label_cols =
-        inkcell_fb_field_label_cols_fit(state, layout, control_labels, 2U);
+    const char *const control_labels[] = {
+        inkcell_str(MESH_STR_NODES_FILTER_ROW), inkcell_str(MESH_STR_NODES_SORT_ROW),
+        inkcell_str(MESH_STR_NODES_FIND_ROW), inkcell_str(MESH_STR_MAP_ROW),
+        inkcell_str(MESH_STR_TAB_WAYPOINTS)};
+    const size_t control_label_cols = inkcell_fb_field_label_cols_fit(
+        state, layout, control_labels, sizeof control_labels / sizeof control_labels[0]);
     /*
      * The filter gets the whole set and the sort gets the chosen word, and that split is a
      * measurement rather than a preference - it is INKCELL_FB_SEGMENTED_MAX, stated once in the
@@ -759,6 +764,9 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
     while (inkcell_fb_list_next(&list, &i)) {
         if (i == MESH_UI_NODES_FILTER_ROW) {
             const struct inkcell_fb_list_item filter_row = {
+                /* An empty icon slot on each control row, so every label and value on the
+                   screen starts in the column the map's and the places' do. */
+                .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_NONE},
                 .label = inkcell_str(MESH_STR_NODES_FILTER_ROW),
                 .label_cols = control_label_cols,
                 /* No value column: the set is the value, and the word for the chosen one is
@@ -776,6 +784,7 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
         }
         if (i == MESH_UI_NODES_SORT_ROW) {
             const struct inkcell_fb_list_item sort_row = {
+                .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_NONE},
                 .label = inkcell_str(MESH_STR_NODES_SORT_ROW),
                 .label_cols = control_label_cols,
                 /* Five orders is too many for a segmented button, so this row is the word -
@@ -790,24 +799,42 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
             inkcell_fb_list_item(state, &list, i, &sort_row);
             continue;
         }
+        if (i == MESH_UI_NODES_FIND_ROW) {
+            const struct inkcell_fb_list_item find_row = {
+                .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_NONE},
+                .label = inkcell_str(MESH_STR_NODES_FIND_ROW),
+                .label_cols = control_label_cols,
+                /* The pencil: a press opens a keyboard for this row, which is that mark's one
+                   meaning. The value is what was typed and nothing while nothing is - a word
+                   standing in for it would read as a query. */
+                .marker_icon = INKCELL_ICON_EDIT,
+                .value = nav->node_query,
+            };
+            inkcell_fb_list_item(state, &list, i, &find_row);
+            continue;
+        }
         if (nothing_matched && i > MESH_UI_NODES_WAYPOINTS_ROW) {
             /* The row that is not a row: what the filter did, where the nodes would be. Dim
                because it is not something to press - the same tone the map row takes when it
-               has nothing to open. */
-            inkcell_fb_list_row(state, &list, i, inkcell_str(MESH_STR_NODES_FILTER_NONE),
+               has nothing to open. A query says so in its own words, since the chip may well
+               be on All. */
+            inkcell_fb_list_row(state, &list, i,
+                                inkcell_str(nav->node_query[0] != '\0'
+                                                ? MESH_STR_NODES_FIND_NONE
+                                                : MESH_STR_NODES_FILTER_NONE),
                                 INKCELL_TONE_DIM);
             continue;
         }
         if (i == MESH_UI_NODES_MAP_ROW) {
             const struct inkcell_fb_list_item map_row = {
                 .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_MAP},
-                .text = inkcell_str(MESH_STR_MAP_ROW),
+                .label = inkcell_str(MESH_STR_MAP_ROW),
+                .label_cols = control_label_cols,
                 /* Dim when there is nothing to put on it, for the reason the "New message" row
                    is dim: it is a button among things, and one that cannot be pressed. */
                 .tone = markers.count > 0U ? INKCELL_TONE_NORMAL : INKCELL_TONE_DIM,
                 .trailing = {.kind = INKCELL_FB_TRAILING_ICON, .icon = INKCELL_ICON_CHEVRON},
-                .supporting = map_line,
-                .supporting_quiet = true,
+                .value = map_line,
             };
             inkcell_fb_list_item(state, &list, i, &map_row);
             continue;
@@ -817,10 +844,10 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
                makes a place, so there is always something to press it for. */
             const struct inkcell_fb_list_item places_row = {
                 .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_POSITION},
-                .text = inkcell_str(MESH_STR_TAB_WAYPOINTS),
+                .label = inkcell_str(MESH_STR_TAB_WAYPOINTS),
+                .label_cols = control_label_cols,
                 .trailing = {.kind = INKCELL_FB_TRAILING_ICON, .icon = INKCELL_ICON_CHEVRON},
-                .supporting = places_line,
-                .supporting_quiet = true,
+                .value = places_line,
             };
             inkcell_fb_list_item(state, &list, i, &places_row);
             continue;

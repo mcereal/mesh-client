@@ -225,7 +225,7 @@ publish and read back when that node's detail screen is opened. Both logs stand 
 | Admin protocol | `src/core/session/radio_settings.c` - `AdminMessage` get/set queue, passkeys, NodeDB verbs |
 | Messaging | `src/core/session/message.c`, `store_forward.c`, `waypoint.c` |
 | Key trust | `src/core/session/key_verification.c` - the out-of-band ceremony behind the padlock; `add_contact` lives in `radio_settings.c` |
-| Keyboard | the grid, the ring and the edits are inkcell's (`inkcell/ui/keyboard.h`); `src/ui/nav/nav_keyboard.c` is the seven jobs it is opened for and this client's emoji pages |
+| Keyboard | the grid, the ring and the edits are inkcell's (`inkcell/ui/keyboard.h`); `src/ui/nav/nav_keyboard.c` is the jobs it is opened for and this client's emoji pages |
 | Channel sharing | `src/proto/channel_url.c` (the `meshtastic.org/e/#` link), `src/core/session/channel_share.c` (the radio's table either way), inkcell's `src/utils/qr.c` (the code), `src/ui/views/channel_share.c` (what the two screens say) |
 | Contact sharing | `src/proto/contact_url.c` (the `meshtastic.org/v/#` link), `src/core/session/contact_share.c` (this radio's record out, a stranger's in), `src/ui/views/contact_share.c` (what the two screens say); the wrapper both links share is `src/proto/link_url.h` |
 | App glue | `src/app/*.c` - the composition root: lifecycle/link, `_actions`, `_publish`, `_settings` |

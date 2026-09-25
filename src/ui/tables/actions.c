@@ -309,7 +309,8 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
         return;
     }
     /*
-     * The list, whose first three rows are the filter, the sort and the map rather than nodes -
+     * The list, whose first five rows are the filter, the sort, the find, the map and the places
+     * rather than nodes -
      * so X and Y are named for presses that do nothing there. They are named anyway, and
      * deliberately: they are true of every other row on the screen, and a bar that shed two
      * keycaps as the cursor passed over the top rows would be describing the row rather than the
@@ -317,8 +318,8 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
      * different verbs; here there is one verb per key and three rows that happen not to take two
      * of them.
      *
-     * The two control rows are the exception, and it is the Waypoints list's exception rather
-     * than a new one: the top two rows genuinely offer a different press from the rest of the
+     * The control rows are the exception, and it is the Waypoints list's exception rather
+     * than a new one: the top three rows genuinely offer a different press from the rest of the
      * list, and naming "open" over a row that filters would be the bar describing something
      * else. That is the line between the two rules. A keycap whose verb changes is named per
      * row; a keycap that simply has nothing to do on one row keeps the list's word for it.
@@ -339,10 +340,19 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
         command_add(bar, MESH_UI_COMMAND_FILTER, MESH_STR_ACTION_FILTER, INKCELL_BUTTON_LEFT_RIGHT);
     } else if (nodes_cursor == MESH_UI_NODES_SORT_ROW) {
         command_add(bar, MESH_UI_COMMAND_SORT, MESH_STR_ACTION_SORT, INKCELL_BUTTON_LEFT_RIGHT);
+    } else if (nodes_cursor == MESH_UI_NODES_FIND_ROW) {
+        command_add(bar, MESH_UI_COMMAND_FIND, MESH_STR_ACTION_FIND, INKCELL_BUTTON_A);
     } else {
         command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
     }
-    command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
+    /* The Find row's X is a different verb while there is a query - it clears it - so it is
+       named for the row then, by the line above. With nothing typed it has nothing to do, and
+       keeps the list's word like the map row does. */
+    if (nodes_cursor == MESH_UI_NODES_FIND_ROW && nav->node_query[0] != '\0') {
+        command_add(bar, MESH_UI_COMMAND_CLEAR, MESH_STR_ACTION_CLEAR, INKCELL_BUTTON_X);
+    } else {
+        command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
+    }
     command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);
     commands_add_help(snapshot, bar);
     commands_add_tabs(bar);
@@ -839,7 +849,7 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
            "send" over a link that goes to a radio setting rather than to anybody. */
         if (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
             nav->keyboard_network || nav->keyboard_verify || nav->keyboard_channel_url ||
-            nav->keyboard_contact_url) {
+            nav->keyboard_contact_url || nav->keyboard_node_query) {
             command_add(out, MESH_UI_COMMAND_DONE, MESH_STR_ACTION_DONE, INKCELL_BUTTON_START);
         } else {
             command_add(out, MESH_UI_COMMAND_SEND, MESH_STR_ACTION_SEND, INKCELL_BUTTON_START);

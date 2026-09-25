@@ -19,7 +19,7 @@ tab nodes
 # The Nodes list has four rows before its first node - the filter row, the sort row, the Map and
 # Waypoints (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
 # four. Echo Repeater is seeds[5] and row 9.
-key down 9
+key down 10
 key a
 hold 1200
 

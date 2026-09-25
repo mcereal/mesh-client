@@ -143,6 +143,8 @@ MESH_STR_ENTRY(ACTION_ZOOM_OUT,           "wider")
 MESH_STR_ENTRY(ACTION_FIT,                "fit all")
 /* Put the highlighted character into the draft - what A does on the on-screen keyboard. */
 MESH_STR_ENTRY(ACTION_TYPE,               "type")
+MESH_STR_ENTRY(ACTION_FIND,               "find")
+MESH_STR_ENTRY(ACTION_CLEAR,              "clear")
 MESH_STR_ENTRY(ACTION_PAIR,               "pair")
 MESH_STR_ENTRY(ACTION_DELETE,             "delete")
 /* The keyboard's own: the case layer, a space, and "I have finished typing". */
@@ -441,6 +443,11 @@ MESH_STR_ENTRY(NODES_FILTER_NONE,         "No nodes match this filter")
    a label and a word rather than a second strip. "Default" is the order the list has always been
    in - ourselves, then pins, then the people you talk to - and it is deliberately not named
    after any one of those, because it is all of them. */
+/* The row under the sort: a piece of a name, typed, narrowing what the filter kept. The value
+   is what was typed. */
+MESH_STR_ENTRY(NODES_FIND_ROW,            "Find")
+MESH_STR_ENTRY(NODES_FIND_PROMPT,         "Find a node")
+MESH_STR_ENTRY(NODES_FIND_NONE,           "No node matches what you typed")
 MESH_STR_ENTRY(NODES_SORT_ROW,            "Sort")
 MESH_STR_ENTRY(NODES_SORT_DEFAULT,        "Default")
 MESH_STR_ENTRY(NODES_SORT_HEARD,          "Recent")

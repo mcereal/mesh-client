@@ -14,6 +14,7 @@
 
 #include "mesh/geo/vector.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <strings.h> /* strcasecmp, which is here rather than in string.h */
 
@@ -93,6 +94,47 @@ uint32_t mesh_ui_node_filter_count(const struct mesh_ui_handshake_state *handsha
     uint32_t kept = 0U;
     for (uint32_t i = 0; i < count; ++i) {
         if (mesh_ui_node_filter_matches(handshake, &handshake->nodes[i], filter)) {
+            ++kept;
+        }
+    }
+    return kept;
+}
+
+/* `needle` somewhere in `hay`, ASCII case folded. */
+static bool node_text_contains(const char *hay, const char *needle) {
+    const size_t want = strlen(needle);
+    for (const char *at = hay; *at != '\0'; ++at) {
+        if (strncasecmp(at, needle, want) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool mesh_ui_node_query_matches(const struct mesh_ui_node_summary *node, const char *query) {
+    if (query == NULL || query[0] == '\0') {
+        return true;
+    }
+    if (node == NULL) {
+        return false;
+    }
+    char id[16];
+    snprintf(id, sizeof id, "!%08x", (unsigned)node->node_id);
+    return node_text_contains(node->long_name, query) ||
+           node_text_contains(node->short_name, query) || node_text_contains(id, query);
+}
+
+uint32_t mesh_ui_node_query_count(const struct mesh_ui_handshake_state *handshake,
+                                  enum mesh_ui_node_filter filter, const char *query) {
+    if (query == NULL || query[0] == '\0') {
+        return mesh_ui_node_filter_count(handshake, filter);
+    }
+    const uint32_t count = node_list_count(handshake);
+    uint32_t kept = 0U;
+    for (uint32_t i = 0; i < count; ++i) {
+        const struct mesh_ui_node_summary *node = &handshake->nodes[i];
+        if (mesh_ui_node_filter_matches(handshake, node, filter) &&
+            mesh_ui_node_query_matches(node, query)) {
             ++kept;
         }
     }
@@ -218,6 +260,12 @@ bool mesh_ui_node_sort_available(const struct mesh_ui_handshake_state *handshake
 void mesh_ui_node_view_build(const struct mesh_ui_handshake_state *handshake,
                              enum mesh_ui_node_filter filter, enum mesh_ui_node_sort sort,
                              struct mesh_ui_node_view *out) {
+    mesh_ui_node_view_build_query(handshake, filter, NULL, sort, out);
+}
+
+void mesh_ui_node_view_build_query(const struct mesh_ui_handshake_state *handshake,
+                                   enum mesh_ui_node_filter filter, const char *query,
+                                   enum mesh_ui_node_sort sort, struct mesh_ui_node_view *out) {
     if (out == NULL) {
         return;
     }
@@ -243,7 +291,8 @@ void mesh_ui_node_view_build(const struct mesh_ui_handshake_state *handshake,
     uint32_t count = 0U;
     for (uint32_t i = 0; i < held; ++i) {
         const struct mesh_ui_node_summary *node = &handshake->nodes[i];
-        if (!mesh_ui_node_filter_matches(handshake, node, filter)) {
+        if (!mesh_ui_node_filter_matches(handshake, node, filter) ||
+            !mesh_ui_node_query_matches(node, query)) {
             continue;
         }
         struct node_key *key = &keys[count++];

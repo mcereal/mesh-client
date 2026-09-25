@@ -18,7 +18,7 @@ tab nodes
 
 # Echo Repeater, traced first. Right walks the detail a card at a time, and the two route cards
 # are the first groups after the verbs: the way out, the way back, and when it was measured.
-key down 9
+key down 10
 key a
 hold 1200
 key right

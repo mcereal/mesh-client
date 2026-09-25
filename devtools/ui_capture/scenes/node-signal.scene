@@ -30,7 +30,7 @@ delay 220
 # (see `node_detail_node` on struct mesh_ui_nav). A scene that counted rows afterwards would be
 # counting a list that had reordered itself seven times.
 tab nodes
-key down 9
+key down 10
 key a
 hold 400
 
