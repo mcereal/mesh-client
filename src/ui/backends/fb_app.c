@@ -42,6 +42,21 @@ static void fb_app_render(struct inkcell_draw_state *state, const void *snapshot
     (void)inkcell_fb_state_set_theme_by_id(state, snapshot->settings.client.theme);
 
     /*
+     * And the text size, a whole glyph step either side of the theme's own. After the theme,
+     * because a theme switch brings that theme's scale with it. A scale somebody pinned -
+     * MESHCLIENT_FB_SCALE, or a capture's `scale` line - is kept, which is also what keeps
+     * every capture drawing at the size its scene asked for.
+     */
+    if (!state->scale_pinned) {
+        const int wanted = inkcell_theme_clamp_scale(
+            state->theme, (int)state->theme->metrics.scale +
+                              (int)snapshot->settings.client.text_size * INKCELL_SCALE(1));
+        if (wanted != state->scale) {
+            inkcell_fb_state_set_theme(state, state->theme, wanted);
+        }
+    }
+
+    /*
      * The move, worked out here because the comparison is about this client's places.
      *
      * First sight adopts, the rule the animation table follows for an id it has not seen: a

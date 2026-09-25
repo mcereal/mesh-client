@@ -519,6 +519,9 @@ enum mesh_ui_settings_action {
        when MESHCLIENT_THEME is holding the choice. */
     MESH_UI_SETTINGS_ACTION_CYCLE_THEME,
     MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE,
+    /* Steps the text size - standard, large, small - and saves it. Local, like the theme. Not
+       emitted when MESHCLIENT_FB_SCALE is holding the size. */
+    MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE,
     /* About's crash-report row. Local, and offered only when there is a report to discard. */
     MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT,
     /* Radio actions. Every one of these goes through the confirm overlay, so A on the row
@@ -741,6 +744,9 @@ bool mesh_ui_settings_action_opens(enum mesh_ui_settings_action action);
  * See struct mesh_ui_settings_item::cycle for what the answer is spent on.
  */
 bool mesh_ui_settings_action_is_cycle(enum mesh_ui_settings_action action);
+
+/* The word for a text size (MESH_UI_TEXT_SIZE_*, ui/preferences.h); anything else is standard. */
+inkcell_str_id mesh_ui_text_size_name(int8_t size);
 /* True for the two that install firmware on the radio. They are a radio action in every sense
    that matters and in none that this client's plumbing recognises: nothing goes through the
    admin queue that the app does not send itself, and what comes back is a bus rather than a

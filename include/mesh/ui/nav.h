@@ -843,6 +843,8 @@ enum mesh_ui_action_type {
        through the client info in the next snapshot. */
     MESH_UI_ACTION_CYCLE_THEME,
     MESH_UI_ACTION_CYCLE_LANGUAGE,
+    /* Steps the text size and remembers it, on the theme's terms. */
+    MESH_UI_ACTION_CYCLE_TEXT_SIZE,
     /* Throw away the crash report a previous run left on the card. Purely local, like the theme
        and the language beside it - there is no radio behind About - and it is what the crash
        banner resolves by: a notice with nowhere to go is the one thing the banner table refuses

@@ -88,6 +88,11 @@ struct mesh_ui_client_info {
     /* MESHCLIENT_THEME is holding it. The row then says so instead of offering a press that
        the environment would override on the next frame. */
     bool theme_from_env;
+    /* The text size (MESH_UI_TEXT_SIZE_*, ui/preferences.h), riding here for the theme's reason:
+       a backend draws what the snapshot says. `text_size_from_env` is MESHCLIENT_FB_SCALE
+       pinning the glyph scale outright, which a backend then keeps. */
+    int8_t text_size;
+    bool text_size_from_env;
     /* enum mesh_update_state (mesh/updater.h), carried as a byte so this header does not
        have to pull the updater in. */
     uint8_t update_state;

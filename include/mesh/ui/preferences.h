@@ -72,6 +72,10 @@ struct mesh_ui_preferences {
        reads as - the default theme then applies, exactly as before. Stored by name rather
        than by index so reordering the theme table cannot move somebody onto another one. */
     char theme[16];
+    /* How far the body text sits from the theme's own size, in whole glyph steps: -1 small,
+       0 standard, +1 large (MESH_UI_TEXT_SIZE_*). 0 is what a file written before the setting
+       existed reads as. Written by name, for the reason update_channel is. */
+    int8_t text_size;
     /* Locale id, e.g. "es". Empty follows the system language. */
     char language[16];
     /*
@@ -89,6 +93,10 @@ struct mesh_ui_preferences {
        variable, which on a handheld means having a computer and an ssh session to hand. */
     bool update_allow_dev;
 };
+
+#define MESH_UI_TEXT_SIZE_SMALL (-1)
+#define MESH_UI_TEXT_SIZE_STANDARD 0
+#define MESH_UI_TEXT_SIZE_LARGE 1
 
 int mesh_ui_preferences_default_path(char *buffer, size_t buffer_len);
 int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path);

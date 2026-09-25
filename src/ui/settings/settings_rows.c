@@ -644,6 +644,14 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
         } else {
             item_action(list, MESH_STR_ABOUT_THEME, name, MESH_UI_SETTINGS_ACTION_CYCLE_THEME);
         }
+        /* Beside the theme and on its terms: the screen is its own preview. */
+        const char *const size = inkcell_str(mesh_ui_text_size_name(client->text_size));
+        if (client->text_size_from_env) {
+            item_text(list, MESH_STR_ABOUT_TEXT_SIZE_ENV, INKSTAND_FORM_INFO, size);
+        } else {
+            item_action(list, MESH_STR_ABOUT_TEXT_SIZE, size,
+                        MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE);
+        }
     }
 
     if (!client->update_supported) {

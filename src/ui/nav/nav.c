@@ -1790,6 +1790,8 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
                 action->type = MESH_UI_ACTION_CYCLE_LANGUAGE;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
                 action->type = MESH_UI_ACTION_CYCLE_THEME;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE) {
+                action->type = MESH_UI_ACTION_CYCLE_TEXT_SIZE;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT) {
                 action->type = MESH_UI_ACTION_DISCARD_CRASH_REPORT;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE) {

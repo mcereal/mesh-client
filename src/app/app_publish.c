@@ -9,6 +9,7 @@
  * dirty flags and the ranking cut rather than a full rebuild each time.
  */
 
+#include "inkwell/base/env.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
@@ -1032,6 +1033,8 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     dst->language_from_env = inkcell_i18n_is_overridden();
     snprintf(dst->language_name, sizeof dst->language_name, "%s", inkcell_i18n_locale()->name);
     dst->theme_from_env = app->ui_theme_from_env;
+    dst->text_size = app->ui_preferences.text_size;
+    dst->text_size_from_env = inkwell_env_get("FB_SCALE") != NULL;
 
     const struct mesh_updater *updater = &app->updater;
     dst->update_state = (uint8_t)updater->state;

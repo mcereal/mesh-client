@@ -2016,9 +2016,9 @@ MESH_TEST_CASE(ui_settings_about, unit) {
     /*
      * While a child is running none of the *update* actions are offered, so a second press
      * cannot stack one. Scoped to those four rather than to every action in the section: the
-     * theme row is also an action and is unaffected by a download - it touches nothing the
-     * updater owns - and taking a working control away for an unrelated reason would be its
-     * own bug.
+     * theme and text-size rows are also actions and are unaffected by a download - neither
+     * touches anything the updater owns - and taking a working control away for an unrelated
+     * reason would be its own bug.
      */
     settings.client.update_state = (uint8_t)MESH_UPDATE_DOWNLOADING;
     settings.client.update_busy = true;
@@ -2028,7 +2028,8 @@ MESH_TEST_CASE(ui_settings_about, unit) {
         if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
             item.kind == INKSTAND_FORM_ACTION &&
-            item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
+            item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME &&
+            item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE) {
             failure = "a busy updater should offer no update actions";
             goto cleanup;
         }
