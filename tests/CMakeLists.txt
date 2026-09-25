@@ -36,6 +36,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/crash.c
     suites/firmware.c
     suites/firmware_catalog.c
+    suites/firmware_dfu.c
     suites/firmware_fetch.c
     suites/firmware_install.c
     suites/firmware_ota.c

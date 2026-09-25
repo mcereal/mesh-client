@@ -194,13 +194,29 @@ MESH_TEST_CASE(firmware_check_identifies_and_compares, unit) {
     }
 
     /*
-     * Unplug it and put it on Bluetooth. The check does not run again and the answer changes
-     * anyway, because the refusal is derived from the board and the bus rather than recorded
-     * when the documents landed.
+     * Unplug it and put it on Bluetooth. The check does not run again, and an nRF52840 is
+     * blocked by nothing there either: its bootloader also takes Nordic DFU over BLE, from the
+     * `-ota.zip` beside the UF2. A board that takes only USB is refused there, below.
      */
     mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_BLE, true);
-    if (harness.firmware.blocker != MESH_FIRMWARE_BLOCKER_WRONG_BUS) {
-        failure = "the same board over BLE is the wrong-bus refusal";
+    if (harness.firmware.blocker != MESH_FIRMWARE_BLOCKER_NONE) {
+        failure = "an nRF52840 over BLE is blocked by nothing: it takes Nordic DFU";
+        goto cleanup;
+    }
+    /* The same board as an RP2040 would be, which has only its UF2 drive. The refusal is derived
+       from the board and the bus rather than recorded when the documents landed. */
+    char architecture[sizeof harness.firmware.boards.entries[0].architecture];
+    snprintf(architecture, sizeof architecture, "%s",
+             harness.firmware.boards.entries[0].architecture);
+    snprintf(harness.firmware.boards.entries[0].architecture,
+             sizeof harness.firmware.boards.entries[0].architecture, "%s", "rp2040");
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB, true);
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_BLE, true);
+    const enum mesh_firmware_blocker usb_only = harness.firmware.blocker;
+    snprintf(harness.firmware.boards.entries[0].architecture,
+             sizeof harness.firmware.boards.entries[0].architecture, "%s", architecture);
+    if (usb_only != MESH_FIRMWARE_BLOCKER_WRONG_BUS) {
+        failure = "a USB-only board over BLE is the wrong-bus refusal";
         goto cleanup;
     }
     if (harness.firmware.state != MESH_FIRMWARE_AVAILABLE) {

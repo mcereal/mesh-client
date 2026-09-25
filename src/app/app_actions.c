@@ -1718,8 +1718,9 @@ static bool firmware_resume_install(struct mesh_app *app, uint64_t now) {
         .request_interval = mesh_app_firmware_interval,
         .userdata = app,
     };
-    const int resumed = mesh_firmware_update_start(&app->firmware_update, &board, &release, where,
-                                                   &resume, mesh_app_firmware_update_done, app);
+    const int resumed = mesh_firmware_update_start(&app->firmware_update, &board, &release,
+                                                   app->firmware_update.path, where, &resume,
+                                                   mesh_app_firmware_update_done, app);
     if (resumed == 0) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE,
                            release.version);
@@ -1764,7 +1765,7 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
      */
     const enum mesh_firmware_path agreed =
         action->number == 1U ? MESH_FIRMWARE_PATH_BLE : MESH_FIRMWARE_PATH_USB;
-    if (board->path != agreed || app->firmware.bus != agreed) {
+    if (!mesh_firmware_board_takes(board, agreed) || app->firmware.bus != agreed) {
         mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
         inkwell_log_warn("ui",
                          "Refusing a firmware install: the sheet said %s and the radio is "
@@ -1802,8 +1803,8 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
     app->firmware_notification_seq = seen != NULL ? seen->seq : 0U;
     const struct mesh_firmware_update_hooks hooks = mesh_app_firmware_hooks(app);
     const int result = mesh_firmware_update_start(
-        &app->firmware_update, board, &app->firmware.release, where != NULL ? where : "", &hooks,
-        mesh_app_firmware_update_done, app);
+        &app->firmware_update, board, &app->firmware.release, agreed, where != NULL ? where : "",
+        &hooks, mesh_app_firmware_update_done, app);
     if (result == 0) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE,
                            app->firmware.release.version);

@@ -195,10 +195,19 @@ static void fetch_read_manifest(struct mesh_firmware_fetch *fetch) {
         return;
     }
     /* With no expectation the manifest is taken at its word, which is what an inspection
-       wants; the install path always states one. */
-    fetch->path = mesh_firmware_path_for_architecture(fetch->expect_architecture[0] != '\0'
-                                                          ? fetch->expect_architecture
-                                                          : fetch->manifest.architecture);
+       wants; the install path always states one - and the bus, which it has to be one this
+       architecture takes. */
+    const char *const architecture = fetch->expect_architecture[0] != '\0'
+                                         ? fetch->expect_architecture
+                                         : fetch->manifest.architecture;
+    fetch->path = fetch->bus != MESH_FIRMWARE_PATH_NONE
+                      ? fetch->bus
+                      : mesh_firmware_path_for_architecture(architecture);
+    if (!mesh_firmware_architecture_takes(architecture, fetch->path)) {
+        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_NO_IMAGE,
+                   "this board cannot be installed to over this bus");
+        return;
+    }
 
     const struct mesh_firmware_image *const image =
         mesh_firmware_manifest_image(&fetch->manifest, fetch->path);
@@ -232,7 +241,8 @@ static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
     if (fetch->path != MESH_FIRMWARE_PATH_USB) {
         /* An ESP32 app image is a blob with a one-byte magic and nothing that names the board
            it is for. Phase 4 checks it by handing the loader a hash and being refused; there
-           is nothing to read here. */
+           is nothing to read here. An nRF52's DFU package is checked by the install that
+           opens it, against the CRC16 its own init packet carries. */
         fetch_finish(fetch, MESH_FIRMWARE_FETCH_READY, MESH_FIRMWARE_FETCH_ERROR_NONE, "");
         return;
     }
@@ -304,8 +314,9 @@ static void fetch_on_download(void *userdata, const struct inkwell_zip_fetch *do
 
 int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct inkwell_fetch *fetcher,
                               const char *target, const char *version, const char *manifest_url,
-                              const char *expect_architecture, const char *staging_dir,
-                              mesh_firmware_fetch_done_fn on_done, void *userdata) {
+                              const char *expect_architecture, enum mesh_firmware_path bus,
+                              const char *staging_dir, mesh_firmware_fetch_done_fn on_done,
+                              void *userdata) {
     if (fetch == NULL || fetcher == NULL || target == NULL || version == NULL ||
         manifest_url == NULL || staging_dir == NULL || target[0] == '\0' || version[0] == '\0' ||
         manifest_url[0] == '\0' || staging_dir[0] == '\0') {
@@ -326,6 +337,7 @@ int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct inkwell_
     inkwell_str_copy(fetch->expect_architecture, sizeof fetch->expect_architecture,
                      expect_architecture != NULL ? expect_architecture : "");
     inkwell_str_copy(fetch->staging, sizeof fetch->staging, staging_dir);
+    fetch->bus = bus;
     fetch->on_done = on_done;
     fetch->userdata = userdata;
     fetch->state = MESH_FIRMWARE_FETCH_RESOLVING;

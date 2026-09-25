@@ -37,6 +37,7 @@
 #include "inkwell/ble/central.h"
 #include "inkwell/net/fetch.h"
 #include "mesh/core/firmware_catalog.h"
+#include "mesh/core/firmware_dfu.h"
 #include "mesh/core/firmware_fetch.h"
 #include "mesh/core/firmware_install.h"
 #include "mesh/core/firmware_ota.h"
@@ -149,7 +150,9 @@ struct mesh_firmware_update;
 struct mesh_firmware_update_hooks {
     /* USB: enter_dfu_mode_request down the serial link. */
     mesh_firmware_install_arm_fn arm_usb;
-    /* BLE: ota_request carrying the image's SHA-256. */
+    /* BLE: ota_request carrying the image's SHA-256. An nRF52 is sent into its bootloader
+       over GATT by the install itself and never calls this - but NULL still means what it
+       means on an ESP32, a radio already in its loader, and a resume passes none. */
     mesh_firmware_ota_arm_fn arm_ble;
     /* True when a radio is connected and has said what it is - i.e. when arming could work. */
     bool (*radio_ready)(void *userdata);
@@ -186,6 +189,9 @@ struct mesh_firmware_update {
     struct mesh_firmware_release release;
     uint32_t hw_model;
     enum mesh_firmware_path path;
+    /* Over BLE, an nRF52: a DFU package to its bootloader rather than an app to the ESP32's
+       loader. */
+    bool nordic_dfu;
     char staging[INKWELL_FETCH_PATH_MAX];
     /*
      * Where the radio is, in the terms its own bus uses: the serial transport's **id** on the
@@ -203,6 +209,8 @@ struct mesh_firmware_update {
     struct mesh_firmware_fetch image;
     struct mesh_firmware_install usb;
     struct mesh_firmware_ota ble;
+    /* The BLE path's other half: an nRF52's DFU bootloader rather than an ESP32's loader. */
+    struct mesh_firmware_dfu dfu;
     /* The install's own D-Bus connection, opened when the BLE handover starts and closed with
        it. `bluez_open` rather than testing the struct, which has no idle spelling. */
     struct inkwell_ble_central central;
@@ -240,7 +248,8 @@ bool mesh_firmware_update_available(const struct mesh_firmware_update *update);
 bool mesh_firmware_update_can_resume(const struct mesh_firmware_update *update);
 
 /*
- * Starts the whole thing for `board` at `release`.
+ * Starts the whole thing for `board` at `release`, over `bus` - one the board takes, which is
+ * the bus the radio is connected on: an nRF52 is a UF2 on USB and a DFU package over BLE.
  *
  * `board` is what the check identified - the single board, never one of several candidates, for
  * the reason mesh_firmware_board() answers NULL when it is ambiguous. `where` is the serial
@@ -255,7 +264,8 @@ bool mesh_firmware_update_can_resume(const struct mesh_firmware_update *update);
  */
 int mesh_firmware_update_start(struct mesh_firmware_update *update,
                                const struct mesh_firmware_board *board,
-                               const struct mesh_firmware_release *release, const char *where,
+                               const struct mesh_firmware_release *release,
+                               enum mesh_firmware_path bus, const char *where,
                                const struct mesh_firmware_update_hooks *hooks,
                                mesh_firmware_update_done_fn on_done, void *userdata);
 
@@ -299,9 +309,10 @@ bool mesh_firmware_update_holds_the_antenna(const struct mesh_firmware_update *u
 bool mesh_firmware_update_holds_the_radio(const struct mesh_firmware_update *update);
 
 /*
- * True when this job has left the radio in the ESP32 OTA loader: off the mesh, advertising the
- * loader's service, waiting for an image with the hash it was given. There is no way back out
- * of it except finishing, which is what the banner says and why the banner exists.
+ * True when this job has left the radio in the ESP32 OTA loader - off the mesh, advertising the
+ * loader's service, waiting for an image with the hash it was given - or an nRF52 in its DFU
+ * bootloader with its application erased. There is no way back out of either except finishing,
+ * which is what the banner says and why the banner exists.
  *
  * Always false on the USB path, and that absence is the feature: an interrupted write leaves a
  * bootloader any computer can talk to.

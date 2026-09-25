@@ -325,6 +325,8 @@ struct cli_firmware_fetch {
      * its loader on 2026-09-17.
      */
     enum mesh_firmware_channel channel;
+    /* The bus the image is for; NONE takes the board's first path. */
+    enum mesh_firmware_path bus;
     const char *target;
     const char *staging;
     bool resolved;
@@ -359,8 +361,8 @@ static void cli_firmware_index(void *userdata, const struct inkwell_fetch_result
     printf("Newest %s: %s\n", mesh_firmware_channel_name(run->channel), run->release.version);
     run->resolved = true;
     if (mesh_firmware_fetch_start(&run->fetch, run->fetcher, run->target, run->release.version,
-                                  run->release.manifest_url, "", run->staging, cli_firmware_done,
-                                  run) != 0) {
+                                  run->release.manifest_url, "", run->bus, run->staging,
+                                  cli_firmware_done, run) != 0) {
         fprintf(stderr, "Could not start the fetch.\n");
         run->finished = true;
     }
@@ -372,11 +374,13 @@ static void cli_firmware_index(void *userdata, const struct inkwell_fetch_result
  * copied out at the end would be reading one whose machine points at a dead frame.
  */
 static int fetch_radio_firmware(struct mesh_app *app, struct cli_firmware_fetch *run,
-                                const char *target, const char *staging) {
+                                const char *target, const char *staging,
+                                enum mesh_firmware_path bus) {
     if (run == NULL) {
         return -EINVAL;
     }
     memset(run, 0, sizeof *run);
+    run->bus = bus;
     /* The updater's fetcher: it is idle, since nothing else runs in this mode. */
     run->fetcher = &app->updater.fetch;
     run->channel = app->firmware.channel;
@@ -836,10 +840,72 @@ static int install_radio_firmware_ble(struct mesh_app *app,
     return ok ? 0 : -EIO;
 }
 
+/*
+ * An nRF52 already in its DFU bootloader, finished over BLE: the recovery for an in-app install
+ * that ended with the application erased. Only the resume - a radio still running is sent into
+ * its bootloader from the HUD, which is where the rest of the handover lives.
+ */
+static int install_radio_firmware_dfu(struct mesh_app *app,
+                                      const struct cli_firmware_fetch *fetched) {
+    char package_path[INKWELL_FETCH_PATH_MAX];
+    if (mesh_firmware_fetch_image_path(&fetched->fetch, package_path, sizeof package_path) ==
+        NULL) {
+        fprintf(stderr, "The package was fetched and then could not be found.\n");
+        return -EIO;
+    }
+    static struct inkwell_ble_central client;
+    int result = inkwell_ble_open_private(&client);
+    if (result == 0) {
+        (void)inkwell_ble_attach_loop(&client, &app->loop);
+        for (int turn = 0; turn < 250 && inkwell_ble_check_ready(&client) < 0; ++turn) {
+            (void)inkwell_loop_run(&app->loop, 20);
+        }
+        char adapter[MESH_FIRMWARE_OTA_PATH_MAX];
+        result = inkwell_ble_find_adapter(&client, adapter, sizeof adapter);
+    }
+    if (result < 0) {
+        fprintf(stderr, "Could not reach Bluetooth for the install: %d\n", result);
+        inkwell_ble_close(&client);
+        return result;
+    }
+    static struct mesh_firmware_dfu dfu;
+    struct mesh_firmware_dfu_params params;
+    memset(&params, 0, sizeof params);
+    params.client = &client;
+    params.package_path = package_path;
+    params.radio_address = app->config.preferred_ble_device;
+    params.arm = false;
+    params.request_interval = mesh_ble_ota_request_interval;
+    if (mesh_firmware_dfu_start(&dfu, &params) < 0) {
+        fprintf(stderr, "The package was refused: %s\n", mesh_firmware_dfu_error_name(dfu.error));
+        inkwell_ble_close(&client);
+        return -EINVAL;
+    }
+    printf("Resuming at the DFU bootloader of %s\n", params.radio_address);
+    unsigned shown = 101U;
+    while (mesh_firmware_dfu_busy(&dfu)) {
+        (void)inkwell_loop_run(&app->loop, 20);
+        (void)inkwell_ble_process(&client);
+        mesh_firmware_dfu_tick(&dfu, inkwell_time_monotonic_ms());
+        const unsigned progress = mesh_firmware_dfu_progress(&dfu);
+        if (progress / 10U != shown / 10U) {
+            shown = progress;
+            printf("%s %u%%\n", mesh_firmware_dfu_state_name(dfu.state), progress);
+            fflush(stdout);
+        }
+    }
+    const bool ok = dfu.state == MESH_FIRMWARE_DFU_DONE;
+    printf("%s%s%s\n", ok ? "Installed" : mesh_firmware_dfu_error_name(dfu.error),
+           dfu.reason[0] != '\0' ? ": " : "", dfu.reason);
+    mesh_firmware_dfu_cancel(&dfu);
+    inkwell_ble_close(&client);
+    return ok ? 0 : -EIO;
+}
+
 static int install_radio_firmware(struct mesh_app *app, const char *target, const char *staging,
                                   bool use_serial, const char *serial_identifier) {
     static struct cli_firmware_fetch fetched;
-    const int got = fetch_radio_firmware(app, &fetched, target, staging);
+    const int got = fetch_radio_firmware(app, &fetched, target, staging, MESH_FIRMWARE_PATH_NONE);
     if (got < 0) {
         return got;
     }
@@ -853,6 +919,16 @@ static int install_radio_firmware(struct mesh_app *app, const char *target, cons
             return -ENOTSUP;
         }
         return install_radio_firmware_ble(app, &fetched);
+    }
+    if (!use_serial && app->config.preferred_ble_device[0] != '\0' &&
+        mesh_firmware_architecture_uses_nordic_dfu(fetched.fetch.manifest.architecture)) {
+        /* Named over BLE: the DFU package rather than the UF2 just fetched. */
+        const int again =
+            fetch_radio_firmware(app, &fetched, target, staging, MESH_FIRMWARE_PATH_BLE);
+        if (again < 0) {
+            return again;
+        }
+        return install_radio_firmware_dfu(app, &fetched);
     }
     if (fetched.fetch.path != MESH_FIRMWARE_PATH_USB) {
         fprintf(stderr, "%s has no install path from here.\n", target);
@@ -1303,7 +1379,8 @@ int main(int argc, char **argv) {
            shape phase 3 will want - the radio link goes *down* for a download, because the
            Brick's Wi-Fi and its Bluetooth are one part behind one antenna. */
         static struct cli_firmware_fetch run;
-        result = fetch_radio_firmware(&app, &run, fetch_firmware_target, fetch_firmware_staging);
+        result = fetch_radio_firmware(&app, &run, fetch_firmware_target, fetch_firmware_staging,
+                                      MESH_FIRMWARE_PATH_NONE);
         mesh_app_shutdown(&app);
         return result < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
     }

@@ -136,6 +136,48 @@ them — which is how a bond spans several event-loop turns without blocking.
 `mesh_ble_transport_forget` is `Adapter1.RemoveDevice` — the fix when a node's PIN changed under a
 bond BlueZ still believes in.
 
+### Firmware over the air: two different bootloaders
+
+An install over Bluetooth talks to one of two things, chosen by the board's architecture
+(`mesh_firmware_architecture_uses_nordic_dfu()`), and they share nothing but the bus:
+
+- **ESP32**: the unified OTA loader (`ble_ota.c`, `firmware_ota.c`). The radio is armed with an
+  `ota_request` admin verb, and the loader is a *second peripheral* at the radio's address plus
+  one.
+- **nRF52**: the Adafruit bootloader's Nordic **Legacy** DFU (`ble_dfu.c`, `firmware_dfu.c`),
+  fed the `-ota.zip` beside the UF2. It is armed by a GATT write to the running firmware's own
+  `BLEDfu` control point (`1531`), not by an admin verb. That write needs the authenticated bond,
+  so a radio paired without its PIN refuses it. The radio then hands its bond to the bootloader,
+  which comes up **at the radio's own address** and advertises only to us. So it is connected to
+  directly rather than scanned for. An unbonded bootloader moves to plus one, and is looked for
+  there too.
+
+What will bite on the nRF52 path:
+
+- **Data writes are whole words.** The bootloader answers a packet whose length is not a multiple
+  of four with NOT_SUPPORTED. `mesh_ble_dfu_packet_for_mtu()` floors `mtu - 3` to four and caps it
+  at 244.
+- **The packet characteristic is write-without-response only.** BlueZ's `WriteValue` with no
+  `type` option sends a Write Command for such a characteristic, which is what makes this work on
+  the Brick. inkwell's CoreBluetooth and WinRT backends always write with response, so the nRF52
+  path does not work from a Mac or a PC yet.
+- **The application is erased before the first byte.** From START on, the radio has no firmware
+  to go back to. While the bootloader stays up it waits in BLE DFU and the install retries from
+  START. A stock Adafruit bootloader that *resets* with no application comes back in USB DFU
+  only, and then it takes a cable.
+- **Image packets are paced, not sent on BlueZ's answer.** BlueZ answers a Write Command once it
+  has queued it, so writing the next packet from that answer is a burst, and a stock bootloader
+  answers ten of them with OPERATION_FAILED. A timer on the loop releases one packet every
+  `MESHCLIENT_DFU_PACKET_GAP_MS` (10 ms by default). With the receipt wait after every ten, a
+  T1000-E took about 7 minutes at ~1.2 KB/s.
+- **START answered INVALID_STATE is a stale session** from a broken transfer, not a bad image.
+  Nothing clears it over BLE: RESET does, but on a stock bootloader with no application that
+  brings it back in USB DFU only. So the install stops and names USB instead.
+- **BlueZ keeps the bootloader's services on the radio's record.** The bootloader shares the
+  radio's address and bond, so its GATT discovery replaces the Meshtastic service on that one
+  record. `mesh_ble_list_meshtastic()` also lists a *bonded* device that shows only `1530`, or
+  auto-connect never reaches for the radio again.
+
 ## Serial (USB)
 
 `src/proto/stream_framing.c` parses `0x94 0xC3 len_hi len_lo` plus one raw protobuf, 512-byte cap.

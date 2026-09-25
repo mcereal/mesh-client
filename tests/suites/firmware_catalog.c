@@ -263,10 +263,15 @@ MESH_TEST_CASE(firmware_catalog_reads_an_nrf52_manifest, unit) {
     MESH_TEST_FAIL_IF(image->part[0] != '\0',
                       "and no file here carries a part_name, which is the whole point");
 
-    /* The refusal that matters: asking an nRF52 manifest for an app0 partition finds nothing,
-       rather than falling back to something that looks close. */
-    MESH_TEST_FAIL_IF(mesh_firmware_manifest_image(&manifest, MESH_FIRMWARE_PATH_BLE) != NULL,
-                      "there is no BLE image in an nRF52 manifest");
+    /* Over BLE an nRF52 has no app0 partition to name, and its image is the Nordic DFU
+       package instead - never the UF2, the .hex or the .elf beside it. */
+    const struct mesh_firmware_image *const package =
+        mesh_firmware_manifest_image(&manifest, MESH_FIRMWARE_PATH_BLE);
+    MESH_TEST_FAIL_IF(
+        package == NULL ||
+            strcmp(package->name, "firmware-heltec-mesh-node-t114-2.7.26.54e0d8d-ota.zip") != 0,
+        "an nRF52's BLE image is its -ota.zip");
+    MESH_TEST_FAIL_IF(package->bytes != 734689ULL, "and its length is the manifest's");
     MESH_TEST_FAIL_IF(mesh_firmware_manifest_image(&manifest, MESH_FIRMWARE_PATH_NONE) != NULL,
                       "and no image at all when there is no path");
     record_success(test_name);

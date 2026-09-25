@@ -267,6 +267,53 @@ static void update_ble_done(void *userdata, const struct mesh_firmware_ota *ota)
                   ota->reason[0] != '\0' ? ota->reason : mesh_firmware_ota_error_name(ota->error));
 }
 
+static enum mesh_firmware_update_state update_state_of_dfu(enum mesh_firmware_dfu_state state) {
+    switch (state) {
+    case MESH_FIRMWARE_DFU_ARMING:
+        return MESH_FIRMWARE_UPDATE_ARMING;
+    case MESH_FIRMWARE_DFU_WAITING:
+    case MESH_FIRMWARE_DFU_CONNECTING:
+        return MESH_FIRMWARE_UPDATE_WAITING;
+    case MESH_FIRMWARE_DFU_SENDING:
+        return MESH_FIRMWARE_UPDATE_WRITING;
+    case MESH_FIRMWARE_DFU_RESTARTING:
+        return MESH_FIRMWARE_UPDATE_RESTARTING;
+    case MESH_FIRMWARE_DFU_DONE:
+        return MESH_FIRMWARE_UPDATE_DONE;
+    case MESH_FIRMWARE_DFU_IDLE:
+    case MESH_FIRMWARE_DFU_FAILED:
+    case MESH_FIRMWARE_DFU_STATE_COUNT:
+    default:
+        return MESH_FIRMWARE_UPDATE_FAILED;
+    }
+}
+
+static enum mesh_firmware_update_error update_error_of_dfu(enum mesh_firmware_dfu_error error) {
+    switch (error) {
+    case MESH_FIRMWARE_DFU_ERROR_UNAVAILABLE:
+        return MESH_FIRMWARE_UPDATE_ERROR_UNAVAILABLE;
+    case MESH_FIRMWARE_DFU_ERROR_WRONG_IMAGE:
+        return MESH_FIRMWARE_UPDATE_ERROR_WRONG_IMAGE;
+    /* The trigger refused or ignored, with the radio still running its firmware. */
+    case MESH_FIRMWARE_DFU_ERROR_REFUSED:
+        return MESH_FIRMWARE_UPDATE_ERROR_REFUSED;
+    default:
+        return MESH_FIRMWARE_UPDATE_ERROR_HANDOVER;
+    }
+}
+
+static void update_dfu_done(void *userdata, const struct mesh_firmware_dfu *dfu) {
+    struct mesh_firmware_update *const update = (struct mesh_firmware_update *)userdata;
+    /* The connection goes back before anybody is told, for update_ble_done()'s reason. */
+    update_close_bluez(update);
+    if (dfu->state == MESH_FIRMWARE_DFU_DONE) {
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NONE, update->release.version);
+        return;
+    }
+    update_finish(update, update_error_of_dfu(dfu->error),
+                  dfu->reason[0] != '\0' ? dfu->reason : mesh_firmware_dfu_error_name(dfu->error));
+}
+
 static void update_begin_usb(struct mesh_firmware_update *update, const char *image_path) {
     const uint32_t family = mesh_uf2_family_for_architecture(update->board.architecture);
     const int started = mesh_firmware_install_start(
@@ -309,6 +356,30 @@ static void update_begin_ble(struct mesh_firmware_update *update, const char *im
         update_close_bluez(update);
         update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_HANDOVER,
                       inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_ADAPTER));
+        return;
+    }
+
+    if (update->nordic_dfu) {
+        struct mesh_firmware_dfu_params dfu;
+        memset(&dfu, 0, sizeof dfu);
+        dfu.client = &update->central;
+        dfu.package_path = image_path;
+        dfu.radio_address = update->where;
+        /* Armed by GATT rather than by the hook, but a resume passes no hook either way. */
+        dfu.arm = update->hooks.arm_ble != NULL;
+        dfu.request_interval = update->hooks.request_interval;
+        dfu.on_done = update_dfu_done;
+        dfu.userdata = update;
+        if (mesh_firmware_dfu_start(&update->dfu, &dfu) < 0) {
+            const enum mesh_firmware_update_error error = update_error_of_dfu(update->dfu.error);
+            update_close_bluez(update);
+            update_finish(update, error,
+                          update->dfu.reason[0] != '\0'
+                              ? update->dfu.reason
+                              : mesh_firmware_dfu_error_name(update->dfu.error));
+            return;
+        }
+        update_set(update, update_state_of_dfu(update->dfu.state), NULL);
         return;
     }
 
@@ -427,7 +498,8 @@ bool mesh_firmware_update_available(const struct mesh_firmware_update *update) {
 
 int mesh_firmware_update_start(struct mesh_firmware_update *update,
                                const struct mesh_firmware_board *board,
-                               const struct mesh_firmware_release *release, const char *where,
+                               const struct mesh_firmware_release *release,
+                               enum mesh_firmware_path bus, const char *where,
                                const struct mesh_firmware_update_hooks *hooks,
                                mesh_firmware_update_done_fn on_done, void *userdata) {
     if (update == NULL || board == NULL || release == NULL || hooks == NULL) {
@@ -451,7 +523,7 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
      */
     if (!mesh_firmware_update_available(update) || release->version[0] == '\0' ||
         release->manifest_url[0] == '\0' || board->target[0] == '\0' ||
-        board->path == MESH_FIRMWARE_PATH_NONE) {
+        !mesh_firmware_board_takes(board, bus)) {
         update->error = MESH_FIRMWARE_UPDATE_ERROR_UNAVAILABLE;
         update_set(update, MESH_FIRMWARE_UPDATE_FAILED,
                    inkcell_str(MESH_STR_FW_UPDATE_ERR_UNAVAILABLE));
@@ -459,7 +531,9 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
     }
 
     update->board = *board;
-    update->path = board->path;
+    update->path = bus;
+    update->nordic_dfu = bus == MESH_FIRMWARE_PATH_BLE &&
+                         mesh_firmware_architecture_uses_nordic_dfu(board->architecture);
     update->hw_model = board->hw_model;
     update->release = *release;
     inkwell_str_copy(update->where, sizeof update->where, where != NULL ? where : "");
@@ -470,20 +544,22 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
 
     const int started = mesh_firmware_fetch_start(
         &update->image, &update->fetch, board->target, release->version, release->manifest_url,
-        board->architecture, update->staging, update_image_done, update);
+        board->architecture, bus, update->staging, update_image_done, update);
     if (started < 0) {
         update->error = update_error_of_fetch(update->image.error);
         update_set(update, MESH_FIRMWARE_UPDATE_FAILED, update->image.message);
         return started;
     }
     inkwell_log_info("firmware-update", "Installing %s %s over %s", board->target, release->version,
-                     update->path == MESH_FIRMWARE_PATH_USB ? "USB" : "BLE");
+                     update->path == MESH_FIRMWARE_PATH_USB
+                         ? "USB"
+                         : (update->nordic_dfu ? "BLE (Nordic DFU)" : "BLE"));
     update_set(update, MESH_FIRMWARE_UPDATE_RESOLVING, release->version);
     return 0;
 }
 
 void mesh_firmware_update_radio_said(struct mesh_firmware_update *update, const char *text) {
-    if (update == NULL || update->path != MESH_FIRMWARE_PATH_BLE) {
+    if (update == NULL || update->path != MESH_FIRMWARE_PATH_BLE || update->nordic_dfu) {
         return;
     }
     mesh_firmware_ota_radio_said(&update->ble, text);
@@ -496,6 +572,7 @@ void mesh_firmware_update_cancel(struct mesh_firmware_update *update) {
     mesh_firmware_fetch_cancel(&update->image);
     mesh_firmware_install_cancel(&update->usb);
     mesh_firmware_ota_cancel(&update->ble);
+    mesh_firmware_dfu_cancel(&update->dfu);
     update_close_bluez(update);
     if (mesh_firmware_update_busy(update)) {
         update->error = MESH_FIRMWARE_UPDATE_ERROR_HANDOVER;
@@ -582,6 +659,14 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
         if (update->bluez_open) {
             (void)inkwell_ble_process(&update->central);
         }
+        if (update->nordic_dfu) {
+            mesh_firmware_dfu_tick(&update->dfu, now_ms);
+            if (mesh_firmware_dfu_busy(&update->dfu)) {
+                update_set(update, update_state_of_dfu(update->dfu.state), NULL);
+            }
+            update_release_link_when_armed(update);
+            break;
+        }
         mesh_firmware_ota_tick(&update->ble, now_ms);
         if (mesh_firmware_ota_busy(&update->ble)) {
             update_set(update, update_state_of_ota(update->ble.state), NULL);
@@ -630,11 +715,13 @@ bool mesh_firmware_update_holds_the_radio(const struct mesh_firmware_update *upd
         return false;
     }
     return mesh_firmware_install_holds_the_radio(&update->usb) ||
-           mesh_firmware_ota_holds_the_radio(&update->ble);
+           mesh_firmware_ota_holds_the_radio(&update->ble) ||
+           mesh_firmware_dfu_holds_the_radio(&update->dfu);
 }
 
 bool mesh_firmware_update_radio_in_loader(const struct mesh_firmware_update *update) {
-    return update != NULL && mesh_firmware_ota_radio_in_loader(&update->ble);
+    return update != NULL && (mesh_firmware_ota_radio_in_loader(&update->ble) ||
+                              mesh_firmware_dfu_radio_in_loader(&update->dfu));
 }
 
 bool mesh_firmware_update_can_resume(const struct mesh_firmware_update *update) {
@@ -650,8 +737,11 @@ unsigned mesh_firmware_update_progress(const struct mesh_firmware_update *update
     case MESH_FIRMWARE_UPDATE_DOWNLOADING:
         return mesh_firmware_fetch_progress(&update->image);
     case MESH_FIRMWARE_UPDATE_WRITING:
-        return update->path == MESH_FIRMWARE_PATH_USB ? mesh_firmware_install_progress(&update->usb)
-                                                      : mesh_firmware_ota_progress(&update->ble);
+        if (update->path == MESH_FIRMWARE_PATH_USB) {
+            return mesh_firmware_install_progress(&update->usb);
+        }
+        return update->nordic_dfu ? mesh_firmware_dfu_progress(&update->dfu)
+                                  : mesh_firmware_ota_progress(&update->ble);
     default:
         return 0U;
     }

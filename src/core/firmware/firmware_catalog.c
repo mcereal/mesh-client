@@ -22,32 +22,67 @@
 static const struct {
     const char *architecture;
     enum mesh_firmware_path path;
+    /* The board's bootloader also takes Nordic's DFU over BLE, from the `-ota.zip` beside the
+       UF2 - so the board can be updated from either bus, and BLE is its second path. */
+    bool nordic_dfu;
 } k_architectures[] = {
-    {"nrf52840", MESH_FIRMWARE_PATH_USB},
-    {"rp2040", MESH_FIRMWARE_PATH_USB},
-    {"rp2350", MESH_FIRMWARE_PATH_USB},
-    {"esp32", MESH_FIRMWARE_PATH_BLE},
-    {"esp32-s3", MESH_FIRMWARE_PATH_BLE},
+    {"nrf52840", MESH_FIRMWARE_PATH_USB, true},
+    {"rp2040", MESH_FIRMWARE_PATH_USB, false},
+    {"rp2350", MESH_FIRMWARE_PATH_USB, false},
+    {"esp32", MESH_FIRMWARE_PATH_BLE, false},
+    {"esp32-s3", MESH_FIRMWARE_PATH_BLE, false},
     /* Named rather than left to fall through, because these are the ones somebody will come
        back to: their loader partition holds the pre-unified `bleota-c3.bin`, and current
        firmware refuses to boot into it. Not "we cannot speak that protocol" - the radio will
        not go there. */
-    {"esp32-c3", MESH_FIRMWARE_PATH_NONE},
-    {"esp32-c6", MESH_FIRMWARE_PATH_NONE},
+    {"esp32-c3", MESH_FIRMWARE_PATH_NONE, false},
+    {"esp32-c6", MESH_FIRMWARE_PATH_NONE, false},
     /* A Linux process pretending to be a radio. It updates the way any program does. */
-    {"portduino", MESH_FIRMWARE_PATH_NONE},
+    {"portduino", MESH_FIRMWARE_PATH_NONE, false},
 };
 
-enum mesh_firmware_path mesh_firmware_path_for_architecture(const char *architecture) {
+static int catalog_architecture_row(const char *architecture) {
     if (architecture == NULL || architecture[0] == '\0') {
-        return MESH_FIRMWARE_PATH_NONE;
+        return -1;
     }
     for (size_t i = 0; i < sizeof k_architectures / sizeof k_architectures[0]; ++i) {
         if (strcmp(k_architectures[i].architecture, architecture) == 0) {
-            return k_architectures[i].path;
+            return (int)i;
         }
     }
-    return MESH_FIRMWARE_PATH_NONE;
+    return -1;
+}
+
+enum mesh_firmware_path mesh_firmware_path_for_architecture(const char *architecture) {
+    const int row = catalog_architecture_row(architecture);
+    return row < 0 ? MESH_FIRMWARE_PATH_NONE : k_architectures[row].path;
+}
+
+bool mesh_firmware_architecture_uses_nordic_dfu(const char *architecture) {
+    const int row = catalog_architecture_row(architecture);
+    return row >= 0 && k_architectures[row].nordic_dfu;
+}
+
+bool mesh_firmware_architecture_takes(const char *architecture, enum mesh_firmware_path bus) {
+    if (bus == MESH_FIRMWARE_PATH_NONE) {
+        return false;
+    }
+    const int row = catalog_architecture_row(architecture);
+    if (row < 0) {
+        return false;
+    }
+    return k_architectures[row].path == bus ||
+           (bus == MESH_FIRMWARE_PATH_BLE && k_architectures[row].nordic_dfu);
+}
+
+bool mesh_firmware_board_takes(const struct mesh_firmware_board *board,
+                               enum mesh_firmware_path bus) {
+    /* The board's own first path rather than the architecture's again: it is the parsed answer,
+       and the one every other reader of `path` already trusts. */
+    return board != NULL && bus != MESH_FIRMWARE_PATH_NONE &&
+           (board->path == bus ||
+            (bus == MESH_FIRMWARE_PATH_BLE &&
+             mesh_firmware_architecture_uses_nordic_dfu(board->architecture)));
 }
 
 /* ---- deviceHardware ---------------------------------------------------------------------- */
@@ -421,15 +456,25 @@ mesh_firmware_manifest_image(const struct mesh_firmware_manifest *manifest,
     for (uint8_t i = 0; i < manifest->count; ++i) {
         const struct mesh_firmware_image *const file = &manifest->files[i];
         if (path == MESH_FIRMWARE_PATH_USB) {
-            /* The bootloader takes a UF2 and nothing else, and an nRF52 manifest publishes
-               exactly one. The `-ota.zip` beside it is the Nordic DFU package, which is a
-               different protocol over a different bus and is not this path's file. */
+            /* The bootloader's drive takes a UF2 and nothing else, and an nRF52 manifest
+               publishes exactly one. The `-ota.zip` beside it is the Nordic DFU package, which
+               is the BLE path's file. */
             if (catalog_name_ends_with(file->name, ".uf2")) {
                 return file;
             }
         } else if (path == MESH_FIRMWARE_PATH_BLE) {
             if (strcmp(file->part, "app0") == 0) {
                 return file;
+            }
+        }
+    }
+    /* An nRF52 names no partitions, so no file above was `app0`: over BLE its image is the
+       Nordic DFU package, and there is exactly one. An ESP32 publishes no `-ota.zip` - its
+       loader is `mt-*-ota.bin` - so this never finds one for a board the rule above serves. */
+    if (path == MESH_FIRMWARE_PATH_BLE) {
+        for (uint8_t i = 0; i < manifest->count; ++i) {
+            if (catalog_name_ends_with(manifest->files[i].name, "-ota.zip")) {
+                return &manifest->files[i];
             }
         }
     }
