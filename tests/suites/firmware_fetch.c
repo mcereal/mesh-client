@@ -266,4 +266,85 @@ cleanup:
     record_success(test_name);
 }
 
+/* A release host whose CDN refuses every ranged read, which zip_fetch counts as the network. */
+static void download_serve_no_ranges(void *userdata, const struct https_fixture_request *request,
+                                     struct https_fixture_conn *conn) {
+    if (request->ranged) {
+        https_fixture_reply(conn, 503, NULL, NULL, 0U);
+        return;
+    }
+    download_serve(userdata, request, conn);
+}
+
+/*
+ * A failed download already reads "download failed" on the toast, so the message under it says
+ * what the category cannot. It used to be "the download failed", which put the same words on
+ * the screen twice and nothing about a server that had stopped answering.
+ */
+MESH_TEST_CASE(firmware_fetch_says_why_a_download_failed, unit) {
+    char dir[] = "/tmp/meshclient_fwdl_XXXXXX";
+    MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "could not create a temporary directory");
+
+    const char *failure = NULL;
+    struct https_fixture server;
+    memset(&server, 0, sizeof server);
+    struct inkwell_loop loop;
+    struct inkwell_fetch fetcher;
+    struct mesh_firmware_fetch fetch;
+    struct fetch_probe probe;
+    bool loop_up = false;
+    bool fetch_up = false;
+
+    if (inkwell_loop_init(&loop) != 0) {
+        failure = "event loop init failed";
+        goto cleanup;
+    }
+    loop_up = true;
+    if (inkwell_fetch_init(&fetcher, &loop) != 0) {
+        failure = "fetch init failed";
+        goto cleanup;
+    }
+    fetch_up = true;
+    if (!https_fixture_start(&server, download_serve_no_ranges, NULL)) {
+        failure = "could not stand up the fake CDN";
+        goto cleanup;
+    }
+    https_fixture_attach(&server, &fetcher);
+
+    memset(&probe, 0, sizeof probe);
+    memset(&fetch, 0, sizeof fetch);
+    if (mesh_firmware_fetch_start(
+            &fetch, &fetcher, "heltec-mesh-node-t114", "2.7.26.54e0d8d",
+            "https://example.invalid/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json", "",
+            MESH_FIRMWARE_PATH_NONE, dir, fetch_probe_done, &probe) != 0) {
+        failure = "the fetch should start";
+        goto cleanup;
+    }
+    if (!fetch_wait_done(&loop, &fetcher, &fetch, &probe)) {
+        failure = "it should have finished";
+        goto cleanup;
+    }
+    if (fetch.state != MESH_FIRMWARE_FETCH_FAILED ||
+        fetch.error != MESH_FIRMWARE_FETCH_ERROR_DOWNLOAD) {
+        failure = "a CDN refusing every range is a failed download";
+        goto cleanup;
+    }
+    if (fetch.message[0] == '\0' || strstr(fetch.message, "download failed") != NULL) {
+        failure = "the message should say why, not repeat the category";
+        goto cleanup;
+    }
+
+cleanup:
+    if (fetch_up) {
+        inkwell_fetch_shutdown(&fetcher);
+    }
+    if (loop_up) {
+        inkwell_loop_shutdown(&loop);
+    }
+    https_fixture_stop(&server);
+    download_clean_dir(dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 #endif /* INKWELL_HAVE_TLS */

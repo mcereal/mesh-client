@@ -13,9 +13,9 @@
    memory rather than staged, because nothing downstream wants it as a file. */
 #define FETCH_DOCUMENT_TIMEOUT_MS 20000U
 
-/* Per-step deadlines for the range reads. The image is half a megabyte over a handheld's Wi-Fi
-   and was measured at 1.8-3.0 s on a Brick; the rest are a few kilobytes each and a round
-   trip. */
+/* Per-step deadlines for the range reads. The image is 0.5-1.5 MB compressed (an esp32s3 one
+   is the large end) and lands in a few seconds over a Brick's Wi-Fi; the rest are a few
+   kilobytes each and a round trip. */
 #define FETCH_STEP_TIMEOUT_MS 20000U
 #define FETCH_IMAGE_TIMEOUT_MS 120000U
 
@@ -293,14 +293,35 @@ static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
     fetch_finish(fetch, MESH_FIRMWARE_FETCH_READY, MESH_FIRMWARE_FETCH_ERROR_NONE, "");
 }
 
+/* What went wrong under "download failed", which is what the toast already says - so this is
+   the part a reader could not have guessed, never the category again. */
+static const char *fetch_download_detail(enum inkwell_zip_fetch_error error) {
+    switch (error) {
+    case INKWELL_ZIP_FETCH_ERROR_NETWORK:
+        return "the server stopped answering; try again";
+    case INKWELL_ZIP_FETCH_ERROR_STAGING:
+        return "the download could not be saved";
+    case INKWELL_ZIP_FETCH_ERROR_NOT_A_ZIP:
+        return "the release is not a zip";
+    case INKWELL_ZIP_FETCH_ERROR_NO_MEMBER:
+        return "the release zip has no such file";
+    case INKWELL_ZIP_FETCH_ERROR_UNSUPPORTED:
+        return "the release zip is in a form this client cannot read";
+    case INKWELL_ZIP_FETCH_ERROR_INFLATE:
+        return "the image arrived damaged; try again";
+    case INKWELL_ZIP_FETCH_ERROR_NONE:
+    case INKWELL_ZIP_FETCH_ERROR_COUNT:
+    default:
+        return "";
+    }
+}
+
 static void fetch_on_download(void *userdata, const struct inkwell_zip_fetch *download) {
     struct mesh_firmware_fetch *const fetch = (struct mesh_firmware_fetch *)userdata;
     if (download->state != INKWELL_ZIP_FETCH_READY) {
         fetch->download_error = download->error;
         fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOWNLOAD,
-                   download->error == INKWELL_ZIP_FETCH_ERROR_NO_MEMBER
-                       ? "the release zip has no such file"
-                       : "the download failed");
+                   fetch_download_detail(download->error));
         return;
     }
     if (fetch->state == MESH_FIRMWARE_FETCH_ASKING) {
