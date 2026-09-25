@@ -161,3 +161,43 @@ MESH_TEST_CASE(ble_transport_pair_cancel, unit) {
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * "Wrong PIN" is an answer about digits somebody typed. BlueZ says AuthenticationCanceled for a
+ * bond that never got as far as asking - a Brick whose controller had stopped carrying data
+ * showed "wrong PIN" for a pairing no PIN was ever entered into - so without a PIN sent the
+ * failure is just a pairing that failed.
+ */
+static bool pair_failure_says(const char *address, bool requests_passkey, const char *expected) {
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, address, "NodeRefused", -55);
+    rig.devices[0].paired = false;
+    rig.mock.pair_result = -EACCES;
+    rig.mock.pair_requests_passkey = requests_passkey;
+
+    bool says = false;
+    struct mesh_transport *const ble = rig.ble;
+    if (mesh_test_ble_rig_start(&rig) == 0) {
+        mesh_ble_transport_refresh_devices(ble);
+        (void)mesh_ble_transport_connect_and_pair(ble, rig.devices[0].address);
+        if (requests_passkey) {
+            (void)mesh_ble_transport_submit_passkey(ble, 123456U);
+        }
+        for (int turn = 0; turn < 4 && mesh_ble_transport_is_pairing(ble); ++turn) {
+            ble->ops->tick(ble);
+        }
+        char error[256] = {0};
+        says = !mesh_ble_transport_is_pairing(ble) && ble->ops->take_error != NULL &&
+               ble->ops->take_error(ble, error, sizeof error) && strstr(error, expected) != NULL;
+    }
+    mesh_test_ble_rig_close(&rig);
+    return says;
+}
+
+MESH_TEST_CASE(ble_transport_wrong_pin_only_after_a_pin_was_sent, unit) {
+    MESH_TEST_FAIL_IF(!pair_failure_says("AA:BB:CC:DD:EE:1F", false, "pairing failed"),
+                      "a refused bond with no PIN typed should say the pairing failed");
+    MESH_TEST_FAIL_IF(!pair_failure_says("AA:BB:CC:DD:EE:20", true, "wrong PIN"),
+                      "a refused bond after a PIN was typed should say the PIN was wrong");
+    record_success(test_name);
+}

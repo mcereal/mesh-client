@@ -177,6 +177,8 @@ struct mesh_ble_transport_state {
     /* Set when we refused a PIN request ourselves, so the failure that follows is reported as
        "needs a human" rather than as a wrong PIN. */
     bool pair_refused_pin;
+    /* Set once the user's digits have gone to BlueZ: only then is a refused bond a wrong PIN. */
+    bool pair_sent_pin;
     /* A node that asked an unattended bond for a PIN. Auto-connect stops trying to bond it -
        it can only ever fail, and each attempt is a failed pairing at the node - until the user
        connects to it from the Devices tab. */
@@ -1794,9 +1796,9 @@ static int mesh_ble_begin_pair(struct mesh_ble_transport_state *state, const cha
     state->pair_then_connect = then_connect;
     state->pair_attended = attended;
     state->pair_refused_pin = false;
+    state->pair_sent_pin = false;
     state->pair_started_ms = inkwell_time_monotonic_ms();
     snprintf(state->pairing_address, sizeof(state->pairing_address), "%s", address);
-    inkwell_log_info("ble", "Pairing with %s", address);
     /* With the mock (and with a node that needs no PIN) this can already be done. */
     mesh_ble_poll_pairing(state);
     return 0;
@@ -1885,8 +1887,9 @@ static void mesh_ble_poll_pairing(struct mesh_ble_transport_state *state) {
         } else {
             mesh_ble_set_error(state, MESH_STR_LINK_DETAIL,
                                mesh_ble_short_label(state->pairing_address),
-                               inkcell_str(pair_result == -EACCES ? MESH_STR_LINK_FAIL_WRONG_PIN
-                                                                  : MESH_STR_LINK_FAIL_PAIRING));
+                               inkcell_str(pair_result == -EACCES && state->pair_sent_pin
+                                               ? MESH_STR_LINK_FAIL_WRONG_PIN
+                                               : MESH_STR_LINK_FAIL_PAIRING));
         }
         inkwell_ble_pair_cancel(&state->central);
         mesh_ble_end_pairing(state);
@@ -1899,6 +1902,11 @@ static void mesh_ble_poll_pairing(struct mesh_ble_transport_state *state) {
         inkwell_log_debug("ble", "Could not mark %s trusted (%d)", state->pairing_address, trusted);
     }
     inkwell_log_info("ble", "Paired with %s", state->pairing_address);
+    /* The bond was made over a link of its own, which the kernel still holds for a moment - and
+       which would read as the last link stranded, and reset a controller mid-connection. */
+    if (strcmp(state->released_address, state->pairing_address) == 0) {
+        state->released_address[0] = '\0';
+    }
 
     char address[sizeof(state->pairing_address)];
     snprintf(address, sizeof(address), "%s", state->pairing_address);
@@ -2028,6 +2036,7 @@ int mesh_ble_transport_submit_passkey(struct mesh_transport *transport, uint32_t
     }
     int result = inkwell_ble_agent_submit_passkey(&state->central, passkey);
     if (result == 0) {
+        state->pair_sent_pin = true;
         /* BlueZ can take several seconds from here; the clock restarts now that it is its turn
            to work again. */
         state->pair_started_ms = inkwell_time_monotonic_ms();

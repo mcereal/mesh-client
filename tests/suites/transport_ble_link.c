@@ -1159,6 +1159,62 @@ cleanup:
     record_success(test_name);
 }
 
+/*
+ * A bond made after a link ended is a link to the same radio, and the kernel holding it is the
+ * pairing's own connection rather than the old one stranded. Resetting the controller over it
+ * took down the Brick's Xradio data path until a power cycle: every connect after it came up and
+ * encrypted and then never carried an ATT packet, so the radio just re-bonded after a firmware
+ * update could not be reached at all.
+ */
+MESH_TEST_CASE(ble_transport_does_not_reset_over_the_link_a_pairing_made, unit) {
+    const char *failure = NULL;
+
+    setenv("MESHCLIENT_BLE_RELEASE_WAIT_MS", "300", 1);
+    unsigned resets = 0U;
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:1E", "NodeRebonded", -50);
+    rig.mock.link_held_queries = 1000U; /* the pairing's link, up for as long as it is asked */
+    rig.mock.reset_adapter_calls = &resets;
+    struct mesh_transport *const ble = rig.ble;
+
+    if (mesh_test_ble_rig_start(&rig) != 0 || mesh_test_ble_rig_connect(&rig) != 0) {
+        failure = "first connect failed";
+        goto cleanup;
+    }
+    for (int turn = 0; turn < 4 && mesh_ble_transport_connected_address(ble) == NULL; ++turn) {
+        ble->ops->tick(ble);
+    }
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        failure = "disconnect failed";
+        goto cleanup;
+    }
+    /* The bond is dropped and the release wait runs out before the radio is paired again. */
+    rig.devices[0].paired = false;
+    mesh_ble_transport_refresh_devices(ble);
+    test_sleep_ms(350U);
+    if (mesh_ble_transport_connect(ble, rig.devices[0].address) != 0) {
+        failure = "a connect to the unbonded radio should pair first";
+        goto cleanup;
+    }
+    for (int turn = 0; turn < 6 && mesh_ble_transport_connected_address(ble) == NULL; ++turn) {
+        ble->ops->tick(ble);
+    }
+    if (resets != 0U) {
+        failure = "the link a pairing made should not be taken for a stranded one";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "the connect after pairing should go out";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_test_ble_rig_close(&rig);
+    unsetenv("MESHCLIENT_BLE_RELEASE_WAIT_MS");
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 /* The same stranded link met the other way round: no link came before this one in this process,
    and the Connect itself answers "already in progress" for a radio the kernel says it holds. */
 MESH_TEST_CASE(ble_transport_resets_when_connect_finds_a_stranded_link, unit) {
