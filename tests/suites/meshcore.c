@@ -866,6 +866,18 @@ MESH_TEST_CASE(meshcore_reboot_syncs_again, unit) {
     MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_DEVICE_QUERY,
                       "the silence that follows starts the handshake over");
     MESH_TEST_FAIL_IF(mesh_protocol_silent(&protocol), "and is not counted against the link");
+    /* But a handshake the link will not take leaves nothing to time out, so the link is
+       called silent at once rather than left unsynced. */
+    feed(&protocol, k_device_info, sizeof k_device_info);
+    while (g_meshcore.queue_count > 0U) {
+        feed_code(&protocol, MESH_MESHCORE_RESP_ERR);
+    }
+    MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != 1, "a second reboot is queued");
+    wire.refuse = true;
+    mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    MESH_TEST_FAIL_IF(!mesh_protocol_silent(&protocol), "a refused handshake drops the link");
+    wire.refuse = false;
+    g_meshcore.timeouts = 0U;
 
     /* A reboot the link refuses outright was never asked for. */
     feed(&protocol, k_device_info, sizeof k_device_info);

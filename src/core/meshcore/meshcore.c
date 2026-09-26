@@ -982,7 +982,13 @@ static void mesh_meshcore_tick(void *self, uint64_t now_ms) {
            it resets - nothing else would notice, so the conversation starts over by itself. */
         if (cmd == MESH_MESHCORE_CMD_REBOOT) {
             inkwell_log_info("meshcore", "Radio rebooted; syncing again");
-            (void)mesh_meshcore_begin(meshcore);
+            const int result = mesh_meshcore_begin(meshcore);
+            if (result < 0) {
+                /* Nothing is on its way to time out, so nothing would ever notice: call the
+                   link silent now and let it be dropped and reconnected. */
+                inkwell_log_warn("meshcore", "Handshake after reboot not sent (%d)", result);
+                meshcore->timeouts = 2U;
+            }
             return;
         }
         inkwell_log_warn("meshcore", "Command %u unanswered after %u ms", (unsigned)cmd,
