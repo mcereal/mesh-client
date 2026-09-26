@@ -989,9 +989,11 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
                 /* The sender's stamp is its own clock, not when we heard it. A node still on
                    the roster keeps its heard time; one brought back is heard as of now, the
                    radio's lastmod for it too, so it keeps its place among the recently heard
-                   rather than sinking to the bottom of a full roster. */
+                   rather than sinking to the bottom of a full roster. A contact from a link
+                   carries no stamp, and was never heard at all. */
+                const bool heard = contact.last_advert != 0U;
                 contact.last_advert = 0U;
-                contact.lastmod = was == NULL ? mesh_meshcore_clock_now(meshcore) : 0U;
+                contact.lastmod = was == NULL && heard ? mesh_meshcore_clock_now(meshcore) : 0U;
                 mesh_meshcore_store_contact(meshcore, &contact, false);
             }
         } else if (cmd == MESH_MESHCORE_CMD_REMOVE_CONTACT && request != NULL &&
@@ -1447,6 +1449,40 @@ int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id) 
     contact.flags = 0U;
     contact.out_path_len = MESH_MESHCORE_PATH_NONE;
     memset(contact.out_path, 0, sizeof contact.out_path);
+    uint8_t frame[MESH_MESHCORE_MAX_FRAME];
+    const int result = mesh_meshcore_enqueue(
+        meshcore, frame, mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U);
+    return result < 0 ? result : 1;
+}
+
+int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
+                                 const uint8_t key[MESH_MESHCORE_PUBKEY_LEN], const char *name,
+                                 uint8_t adv_type) {
+    if (meshcore == NULL || key == NULL || adv_type < MESH_MESHCORE_ADV_CHAT ||
+        adv_type > MESH_MESHCORE_ADV_SENSOR) {
+        return -EINVAL;
+    }
+    if (!mesh_meshcore_ready(meshcore)) {
+        return -ENOTCONN;
+    }
+    if (meshcore->has_self &&
+        memcmp(key, meshcore->self.public_key, MESH_MESHCORE_PUBKEY_LEN) == 0) {
+        return -EINVAL;
+    }
+    const uint32_t known = mesh_meshcore_find_prefix(meshcore, key, MESH_MESHCORE_PUBKEY_LEN);
+    const struct mesh_node_summary *node =
+        known != 0U ? mesh_meshcore_roster_node(meshcore, known) : NULL;
+    if (node != NULL && node->in_nodedb) {
+        return -EEXIST;
+    }
+    struct mesh_meshcore_contact contact;
+    memset(&contact, 0, sizeof contact);
+    memcpy(contact.public_key, key, MESH_MESHCORE_PUBKEY_LEN);
+    contact.type = adv_type;
+    contact.out_path_len = MESH_MESHCORE_PATH_NONE;
+    if (name != NULL) {
+        inkwell_str_copy(contact.name, sizeof contact.name, name);
+    }
     uint8_t frame[MESH_MESHCORE_MAX_FRAME];
     const int result = mesh_meshcore_enqueue(
         meshcore, frame, mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U);

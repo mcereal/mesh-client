@@ -1143,6 +1143,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONTACT_TITLE] = "Mi código de contacto",
     [MESH_STR_CONTACT_SUMMARY] =
         "%s (%s). Escanéalo con la app de Meshtastic para añadir esta radio.",
+    [MESH_STR_CONTACT_SUMMARY_MESHCORE] =
+        "%s (%s). Escanéalo con la app de MeshCore para añadir esta radio.",
     [MESH_STR_CONTACT_NOTHING] =
         "Nada que mostrar todavía: esta radio no ha enviado su nombre y su clave.",
     [MESH_STR_CONTACT_NO_CODE] =
@@ -1382,6 +1384,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "de esta radio y la radio se reiniciará; los nodos de los canales antiguos ya no podrán "
         "alcanzarla.",
     [MESH_STR_CONFIRM_TITLE_ADD_CONTACT] = "¿Añadir a %s?",
+    [MESH_STR_CONFIRM_TEXT_ADD_CONTACT_MESHCORE] =
+        "El nodo %s entra en los contactos de esta radio por su clave pública, aún sin ruta: "
+        "el primer mensaje hacia él se inunda, y su próximo anuncio completa el resto.",
     [MESH_STR_CONFIRM_TEXT_ADD_CONTACT] =
         "El nodo %s entra en los contactos de esta radio con su clave pública, así que los "
         "mensajes hacia él pueden cifrarse antes de haberlo oído nunca. La clave no queda "
@@ -1521,7 +1526,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_IMPORT_QUEUED_OTHER] = "Uniéndose: escribiendo %u canales",
     [MESH_STR_TOAST_IMPORT_FAILED] = "No se pudieron escribir los canales en la radio",
     [MESH_STR_TOAST_IMPORT_NO_CHANGE] = "Esta radio ya está en esos canales",
-    [MESH_STR_TOAST_CONTACT_LINK_INVALID] = "No es un enlace de contacto de Meshtastic",
+    [MESH_STR_TOAST_CONTACT_LINK_INVALID] = "No es un enlace de contacto",
+    [MESH_STR_TOAST_CONTACT_LINK_OTHER] = "Ese enlace es para otro tipo de radio",
+    [MESH_STR_TOAST_CONTACT_EXISTS] = "%.20s ya es un contacto",
     [MESH_STR_TOAST_CONTACT_LINK_QUEUED] = "%s enviado a los contactos de la radio",
     [MESH_STR_TOAST_CONTACT_LINK_IS_SELF] = "Ese código es el de esta misma radio",
     [MESH_STR_TOAST_CONTACT_LINK_FAILED] = "No se pudo enviar el contacto a la radio",

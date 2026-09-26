@@ -25,6 +25,7 @@
 #include "mesh/core/contact_share.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/contact_url.h"
+#include "mesh/proto/meshcore_url.h"
 #include "mesh/ui/contact_share.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
@@ -726,5 +727,100 @@ MESH_TEST_CASE(contact_link_names_a_node_with_no_name, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_contact_link_valid(NULL), "NULL is a link");
     MESH_TEST_FAIL_IF(mesh_ui_contact_link_name("not a link", name, sizeof name),
                       "a name came out of something that is not a link");
+    record_success(test_name);
+}
+
+/* MeshCore's link is the MeshCore app's QR text: a name, a whole key in hex and a node kind. */
+MESH_TEST_CASE(meshcore_contact_url_round_trips, unit) {
+    struct mesh_meshcore_contact_link link;
+    memset(&link, 0, sizeof link);
+    memcpy(link.public_key, k_key, sizeof link.public_key);
+    snprintf(link.name, sizeof link.name, "%s", "Base camp & co");
+    link.type = 2U;
+    char url[MESH_MESHCORE_CONTACT_URL_MAX];
+    const size_t n = mesh_meshcore_contact_url_encode(&link, url, sizeof url);
+    MESH_TEST_FAIL_IF(n == 0U ||
+                          strncmp(url, "meshcore://contact/add?name=Base+camp+%26+co&", 44U) != 0,
+                      "the name is written as the app writes it");
+    struct mesh_meshcore_contact_link back;
+    MESH_TEST_FAIL_IF(!mesh_meshcore_contact_url_decode(url, &back) ||
+                          memcmp(back.public_key, k_key, 32U) != 0 ||
+                          strcmp(back.name, "Base camp & co") != 0 || back.type != 2U,
+                      "and reads back whole");
+
+    /* The longest name, every byte escaped, still fits the store's buffer. */
+    memset(link.name, '/', MESH_MESHCORE_URL_NAME_LEN);
+    link.name[MESH_MESHCORE_URL_NAME_LEN] = '\0';
+    char longest[MESH_UI_CONTACT_URL_MAX];
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_url_encode(&link, longest, sizeof longest) == 0U ||
+                          !mesh_meshcore_contact_url_decode(longest, &back) ||
+                          strcmp(back.name, link.name) != 0,
+                      "a 32-byte name of escapes round-trips in the store's buffer");
+    link.type = 5U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_url_encode(&link, url, sizeof url) != 0U ||
+                          url[0] != '\0',
+                      "a kind the apps do not have is not written");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(meshcore_contact_url_decode_is_strict, unit) {
+    static const char k_hex[] = "9cd8fcf22a47333b591d96a2b848b73f457b1bb1a3ea2453a885f9e5787765b1";
+    char text[300];
+    struct mesh_meshcore_contact_link link;
+    snprintf(text, sizeof text, "meshcore://contact/add?name=Example+Contact&public_key=%s&type=1",
+             k_hex);
+    MESH_TEST_FAIL_IF(!mesh_meshcore_contact_url_decode(text, &link) || link.type != 1U ||
+                          strcmp(link.name, "Example Contact") != 0 ||
+                          link.public_key[0] != 0x9cU || link.public_key[31] != 0xb1U,
+                      "the firmware docs' own example reads");
+    snprintf(text, sizeof text, "MESHCORE://contact/add?type=3&public_key=%s", k_hex);
+    MESH_TEST_FAIL_IF(!mesh_meshcore_contact_url_decode(text, &link) || link.type != 3U ||
+                          link.name[0] != '\0',
+                      "any order, any case of scheme, and no name");
+    snprintf(text, sizeof text, "meshcore://contact/add?public_key=%s&type=1&region_scope=x",
+             k_hex);
+    MESH_TEST_FAIL_IF(!mesh_meshcore_contact_url_decode(text, &link),
+                      "a parameter this client does not know is skipped");
+    const char *bad[] = {
+        "meshcore://channel/add?name=Public&secret=8b3387e9c5cdea6ac9e5edbaa115cd72",
+        "meshcore://contact/add?name=x&type=1",
+        "meshcore://contact/add?public_key=9cd8&type=1",
+        "https://meshtastic.org/v/#abc",
+        "",
+    };
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; ++i) {
+        MESH_TEST_FAIL_IF(mesh_meshcore_contact_url_decode(bad[i], &link),
+                          "a non-contact link read");
+    }
+    snprintf(text, sizeof text, "meshcore://contact/add?public_key=%s&type=9", k_hex);
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_url_decode(text, &link), "a kind outside 1-4 read");
+    snprintf(text, sizeof text, "meshcore://contact/add?name=%%zz&public_key=%s&type=1", k_hex);
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_url_decode(text, &link), "a broken escape read");
+    snprintf(text, sizeof text, "meshcore://contact/add?name=a%%00b&public_key=%s&type=1", k_hex);
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_url_decode(text, &link), "an escaped NUL read");
+    record_success(test_name);
+}
+
+/* The screens read either app's link: the summary names which app scans it, the sheet the key. */
+MESH_TEST_CASE(contact_link_views_read_a_meshcore_link, unit) {
+    const char *link = "meshcore://contact/add?name=Bob&public_key="
+                       "a1b2c3d4e5f60000000000000000000000000000000000000000000000000000&type=1";
+    char summary[200];
+    MESH_TEST_FAIL_IF(!mesh_ui_contact_share_summary(link, summary, sizeof summary) ||
+                          strstr(summary, "Bob") == NULL ||
+                          strstr(summary, "a1b2c3d4e5f6") == NULL ||
+                          strstr(summary, "MeshCore") == NULL,
+                      "the summary names the node, its key's head and the MeshCore app");
+    char headline[80];
+    char body[400];
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_contact_import_sheet(link, headline, sizeof headline, body, sizeof body) ||
+            strstr(headline, "Bob") == NULL || strstr(body, "a1b2c3d4e5f6") == NULL,
+        "the add sheet names it by name and by key");
+    char name[40];
+    MESH_TEST_FAIL_IF(!mesh_ui_contact_link_valid(link) ||
+                          !mesh_ui_contact_link_name(link, name, sizeof name) ||
+                          strcmp(name, "Bob") != 0,
+                      "and it is a link, with a name");
     record_success(test_name);
 }

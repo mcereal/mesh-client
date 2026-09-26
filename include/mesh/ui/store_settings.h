@@ -348,7 +348,7 @@ enum mesh_ui_feature {
     MESH_UI_FEATURE_KEY_VERIFICATION = 1U << 5,
     /* A channel as a link and a QR code, both ways. */
     MESH_UI_FEATURE_CHANNEL_LINKS = 1U << 6,
-    /* A contact as a link, both ways, and putting a heard node back on the radio. */
+    /* A contact as a link, both ways: this radio's to show, and a stranger's to add. */
     MESH_UI_FEATURE_CONTACT_LINKS = 1U << 7,
     /* The Modules list: ModuleConfig and canned messages. */
     MESH_UI_FEATURE_MODULES = 1U << 8,

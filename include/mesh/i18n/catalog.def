@@ -2259,6 +2259,7 @@ MESH_STR_ENTRY(CONTACT_TITLE,             "My contact code")
 /* Under the code: whose it is, then what to do with it. The name and number are there so
    somebody showing the code can see at a glance that it is their own radio's. */
 MESH_STR_ENTRY(CONTACT_SUMMARY,           "%s (%s). Scan it with the Meshtastic app to add this radio.")
+MESH_STR_ENTRY(CONTACT_SUMMARY_MESHCORE,  "%s (%s). Scan it with the MeshCore app to add this radio.")
 /* The owner reply has not landed, or landed with no public key - a radio with PKC turned off. */
 MESH_STR_ENTRY(CONTACT_NOTHING,           "Nothing to show yet: this radio has not sent its name and key.")
 /* A contact link too long for the largest code this client draws. Not reachable with a 256-bit
@@ -2530,6 +2531,7 @@ MESH_STR_PLURAL_ENTRY(CONFIRM_TEXT_IMPORT, "The link carries %u channel and this
    the part of a link a person can read and the part they were told to look for; the paragraph
    says the one thing adding a contact does *not* do, which is vouch for it. */
 MESH_STR_ENTRY(CONFIRM_TITLE_ADD_CONTACT, "Add %s?")
+MESH_STR_ENTRY(CONFIRM_TEXT_ADD_CONTACT_MESHCORE, "Node %s goes into this radio's contacts by its public key, with no route yet: the first message to it floods, and its next advert fills in the rest.")
 MESH_STR_ENTRY(CONFIRM_TEXT_ADD_CONTACT,  "Node %s goes into this radio's contacts with its public key, so messages to it can be encrypted before it has ever been heard. The key is not marked as verified: that still takes the spoken ceremony.")
 
 /* ---- transport status ------------------------------------------------------------------------- */
@@ -2828,7 +2830,9 @@ MESH_STR_ENTRY(TOAST_IMPORT_NO_CHANGE,    "This radio is already on those channe
  * "Sent" rather than "added" is kept from that block, and for its reason - the radio's database
  * may be full, and what settles it is the node's next NodeInfo rather than this request's ack.
  */
-MESH_STR_ENTRY(TOAST_CONTACT_LINK_INVALID, "Not a Meshtastic contact link")
+MESH_STR_ENTRY(TOAST_CONTACT_LINK_INVALID, "Not a contact link")
+MESH_STR_ENTRY(TOAST_CONTACT_LINK_OTHER,  "That link is for another kind of radio")
+MESH_STR_ENTRY(TOAST_CONTACT_EXISTS,      "%.20s is already a contact")
 MESH_STR_ENTRY(TOAST_CONTACT_LINK_QUEUED, "Sent %s to the radio's contacts")
 MESH_STR_ENTRY(TOAST_CONTACT_LINK_IS_SELF, "That code is this radio's own")
 MESH_STR_ENTRY(TOAST_CONTACT_LINK_FAILED, "Could not send the contact to the radio")

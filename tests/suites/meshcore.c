@@ -1197,6 +1197,47 @@ MESH_TEST_CASE(meshcore_favorite_rewrites_the_radios_record, unit) {
     record_success(test_name);
 }
 
+/* A contact link names a node by key alone: it is added with no route and no stamp, and joins
+   the roster - never heard - on the radio's OK. */
+MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    uint8_t key[MESH_MESHCORE_PUBKEY_LEN];
+    for (size_t i = 0; i < sizeof key; ++i) {
+        key[i] = (uint8_t)(0xC0U + i);
+    }
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, key, "Dave", 9U) != -EINVAL,
+                      "a kind outside the four is refused");
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, g_meshcore.self.public_key, "Me",
+                                                   MESH_MESHCORE_ADV_CHAT) != -EINVAL,
+                      "this radio is not a contact of its own");
+    uint8_t alice[MESH_MESHCORE_PUBKEY_LEN];
+    for (size_t i = 0; i < sizeof alice; ++i) {
+        alice[i] = (uint8_t)(0x40U + i);
+    }
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, alice, "Alice",
+                                                   MESH_MESHCORE_ADV_CHAT) != -EEXIST,
+                      "a contact's record, route and all, is not written over from a link");
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_import_contact(&g_meshcore, key, "Dave", MESH_MESHCORE_ADV_ROOM) != 1,
+        "a stranger's link is asked");
+    const uint8_t *frame = wire.frames[before];
+    MESH_TEST_FAIL_IF(wire.count != before + 1U ||
+                          frame[0] != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT || frame[1] != 0xC0U ||
+                          frame[33] != MESH_MESHCORE_ADV_ROOM ||
+                          frame[35] != MESH_MESHCORE_PATH_NONE ||
+                          memcmp(frame + 100, "Dave", 5U) != 0 || frame_u32(frame + 132) != 0U,
+                      "by key, kind and name, with no route and no stamp");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    const struct mesh_node_summary *dave = model_node(0xC0C1C2C3U);
+    MESH_TEST_FAIL_IF(dave == NULL || !dave->in_nodedb || strcmp(dave->long_name, "Dave") != 0,
+                      "the OK puts it on the roster, a contact");
+    MESH_TEST_FAIL_IF(dave->last_heard != 0U, "and never heard: a link is not a transmission");
+    record_success(test_name);
+}
+
 /* An advert is SEND_SELF_ADVERT with 1 to flood it and 0 for the nodes in earshot. */
 MESH_TEST_CASE(meshcore_advert_is_flooded_or_not, unit) {
     struct mesh_protocol protocol;

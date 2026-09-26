@@ -99,8 +99,10 @@ MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
                       "MeshCore is published under its own name");
     MESH_TEST_FAIL_IF((lacks & MESH_UI_FEATURE_WAYPOINTS) == 0U ||
                           (lacks & MESH_UI_FEATURE_REMOTE_ADMIN) == 0U ||
-                          (lacks & MESH_UI_FEATURE_CONTACT_LINKS) == 0U,
-                      "MeshCore lacks waypoints, Meshtastic's admin and its links");
+                          (lacks & MESH_UI_FEATURE_CHANNEL_LINKS) == 0U,
+                      "MeshCore lacks waypoints, Meshtastic's admin and its channel links");
+    MESH_TEST_FAIL_IF((lacks & MESH_UI_FEATURE_CONTACT_LINKS) != 0U,
+                      "and shares contacts in its own app's link");
 
     const struct mesh_protocol none = {NULL, NULL};
     mesh_ui_protocol_features(&none, &id, &lacks);
@@ -496,6 +498,37 @@ static size_t section_fields(const struct mesh_ui_settings *settings,
         fields[n++] = (uint16_t)items[i].field;
     }
     return n;
+}
+
+/* MeshCore shares a contact in its own app's link: Share once there is a link, Add once the
+   radio has answered - no Meshtastic admin channel is waited on. */
+MESH_TEST_CASE(ui_protocol_meshcore_offers_contact_links, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.has_owner = true;
+    settings.protocol = (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
+    static const struct mesh_protocol_ops k_meshcore = {.name = "meshcore"};
+    static int meshcore_self;
+    const struct mesh_protocol protocol = {&k_meshcore, &meshcore_self};
+    mesh_ui_protocol_features(&protocol, NULL, &settings.protocol_lacks);
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    MESH_TEST_FAIL_IF(section_offers(&settings, &handshake, MESH_UI_SETTINGS_USER,
+                                     MESH_UI_SETTINGS_ACTION_SHARE_CONTACT) ||
+                          section_offers(&settings, &handshake, MESH_UI_SETTINGS_USER,
+                                         MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT),
+                      "nothing to share or add before the radio has answered");
+    settings.has_meshcore_other = true;
+    snprintf(settings.contact_url, sizeof settings.contact_url, "%s",
+             "meshcore://contact/add?name=MPBC&public_key="
+             "ef490a40000000000000000000000000000000000000000000000000000000000&type=1");
+    MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_USER,
+                                      MESH_UI_SETTINGS_ACTION_SHARE_CONTACT) ||
+                          !section_offers(&settings, &handshake, MESH_UI_SETTINGS_USER,
+                                          MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT),
+                      "then this radio's link to show, and a stranger's to add");
+    record_success(test_name);
 }
 
 /*
