@@ -220,9 +220,9 @@ publish and read back when that node's detail screen is opened. Both logs stand 
 | Area | Where |
 |---|---|
 | Event loop | inkwell's `src/runtime/loop.c` (`inkwell/runtime/loop.h`) - epoll (kqueue on a Mac), 32 fd sources, **no threads** |
-| Transports | `src/transport/` - registry, BLE (Meshtastic's GATT contract over inkwell's `inkwell/ble/central.h`, which is BlueZ on Linux), serial, TCP; `stream_link.c` is the half serial and TCP share, and is now the frame parser and the protocol over inkwell's `inkwell/net/stream.h`. A link records `struct inkwell_net_failure` and `take_error()` is where it becomes words - see [`docs/transport.md`](docs/transport.md#how-a-failure-reaches-the-user) |
+| Transports | `src/transport/` - registry, BLE (the protocol's GATT profile, `mesh/proto/ble_profile.h`, over inkwell's `inkwell/ble/central.h`, which is BlueZ on Linux), serial, TCP; `stream_link.c` is the half serial and TCP share, and is now the frame parser and the protocol over inkwell's `inkwell/net/stream.h`. A link records `struct inkwell_net_failure` and `take_error()` is where it becomes words - see [`docs/transport.md`](docs/transport.md#how-a-failure-reaches-the-user) |
 | Session | `src/core/session/session.c` - handshake, node roster, channels, message log, packet ids |
-| Protocol seam | `include/mesh/core/protocol.h` (`src/core/protocol/protocol.c`) - the eight calls a link makes; `mesh_session_protocol()` is Meshtastic's table. A link reaches its conversation only through the table; the Meshtastic session a transport embeds is its standalone fallback - see [`docs/protocols.md`](docs/protocols.md) |
+| Protocol seam | `include/mesh/core/protocol.h` (`src/core/protocol/protocol.c`) - the eight calls a link makes, and the stream framing and BLE profile it makes them over; `mesh_session_protocol()` is Meshtastic's table. A link reaches its conversation only through the table; the Meshtastic session a transport embeds is its standalone fallback - see [`docs/protocols.md`](docs/protocols.md) |
 | Admin protocol | `src/core/session/radio_settings.c` - `AdminMessage` get/set queue, passkeys, NodeDB verbs |
 | Messaging | `src/core/session/message.c`, `store_forward.c`, `waypoint.c` |
 | Key trust | `src/core/session/key_verification.c` - the out-of-band ceremony behind the padlock; `add_contact` lives in `radio_settings.c` |
@@ -321,8 +321,10 @@ works and what will bite, not what each step of building it turned out to cost.
 The few that bite soonest:
 
 - **No threads.** Everything is the one epoll loop.
-- **BLE is not Nordic UART** and carries no length framing: one bare protobuf per GATT
-  write/read. Framing is a *stream* concern - serial and TCP - in `src/proto/stream_framing.c`.
+- **Meshtastic's BLE is not Nordic UART** and carries no length framing: one bare protobuf per
+  GATT write/read. Framing is a *stream* concern - serial and TCP - in `src/proto/stream_framing.c`;
+  which characteristics a link uses, and whether it reads or is notified, is the protocol's
+  `struct mesh_ble_profile` (`src/proto/ble_profile.c`).
 - **A QR code is black on white on every theme.** Several scanners will not read an inverted
   one, so `INKCELL_COLOR_CODE`/`_GROUND` are the one pair in `theme.c` that does not vary. There
   is no *decoder* and there will not be one: the Brick has no camera, so a link arriving is

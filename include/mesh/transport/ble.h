@@ -18,6 +18,11 @@ const struct inkwell_ble_device *mesh_ble_transport_devices(struct mesh_transpor
 size_t mesh_ble_transport_get_devices(struct mesh_transport *transport,
                                       struct inkwell_ble_device *out, size_t capacity);
 size_t mesh_ble_transport_refresh_devices(struct mesh_transport *transport);
+/* The GATT profile `address` was found advertising in the last listing - which protocol that
+   radio speaks - or NULL when it is not in the listing. The link itself connects under the
+   bound protocol's profile, not this one; this is what lets a caller choose the protocol. */
+const struct mesh_ble_profile *mesh_ble_transport_device_profile(struct mesh_transport *transport,
+                                                                 const char *address);
 /*
  * What the last scan heard, for the stretch the scan is held down.
  *
@@ -85,7 +90,7 @@ struct mesh_ble_transport_stats {
 };
 
 struct mesh_ble_transport_stats mesh_ble_transport_stats(struct mesh_transport *transport);
-/* Queue one ToRadio protobuf (raw, unframed) for the connected node. */
+/* Queue one frame (raw, unframed) for the connected radio, as one GATT write. */
 int mesh_ble_transport_send_packet(struct mesh_transport *transport, const uint8_t *packet,
                                    size_t len);
 const char *mesh_ble_transport_connected_address(struct mesh_transport *transport);

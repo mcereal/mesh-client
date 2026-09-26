@@ -102,6 +102,7 @@ add_library(meshclient_core
     src/transport/serial/serial_transport.c
     src/transport/serial/serial_usb.c
     src/transport/tcp/tcp_transport.c
+    src/proto/ble_profile.c
     src/proto/channel_url.c
     src/proto/contact_url.c
     src/proto/mqtt_topic.c

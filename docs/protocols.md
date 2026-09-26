@@ -32,8 +32,24 @@ the protocol's and not the port's, because one USB serial device speaks whicheve
 firmware does. A framing whose largest frame does not fit `MESH_STREAM_PARSER_CAPACITY` is
 refused when it is bound, so a link cannot overrun its parser.
 
-`tests/suites/protocol.c` drives the stream link with a fake protocol and a fake framing. Those
-are the cases that fail if a link goes back to calling Meshtastic by name.
+The same goes for BLE: `ble_profile` points at a `struct mesh_ble_profile`
+(`include/mesh/proto/ble_profile.h`) - the service to scan for, the characteristic to write, the
+one to subscribe to, and what a notification on it means:
+
+| `inbound` | A notification is | Who uses it |
+|---|---|---|
+| `MESH_BLE_INBOUND_PULL` | a doorbell; the link reads `read_uuid` until a read comes back empty | Meshtastic (FromNum, then FromRadio) |
+| `MESH_BLE_INBOUND_NOTIFY` | the frame itself; nothing is read | the Nordic UART shape, which is MeshCore's |
+
+The BLE link connects under the bound protocol's profile. Its scan looks for every profile in
+`mesh_ble_known_profiles[]` (and the bound protocol's, if that is not one of them) and tags each
+radio with the one it was found under; `mesh_ble_transport_device_profile()` is that tag, and is
+what an app will choose a protocol by. A radio advertising two known profiles keeps the first in
+that array. A profile whose `max_frame` exceeds `MESH_BLE_MAX_PACKET_SIZE` is refused on connect.
+
+`tests/suites/protocol.c` drives the stream link with a fake protocol and a fake framing, and the
+BLE link with a fake Nordic-UART-shaped profile. Those are the cases that fail if a link goes
+back to calling Meshtastic by name.
 
 ## What is still Meshtastic's
 
@@ -42,7 +58,7 @@ Meshtastic, and each is where a second protocol has work to do:
 
 | Where | What assumes Meshtastic |
 |---|---|
-| `src/transport/ble/ble_gatt.c`, `ble_transport.c` | The GATT profile (service and characteristic UUIDs) and the inbound model: FromNum notifies, then the link reads FromRadio until it is empty. A protocol that simply notifies each frame needs a second read path here |
+| `src/transport/ble/ble_transport.c` | The words: a radio that does not expose the profile's characteristics is reported as "not Meshtastic", and the pairing prompt talks about a node's PIN |
 | `src/transport/serial/` | The USB probe that tells a radio from a bootloader |
 | `src/core/session/` | All of it. It is the Meshtastic conversation, and its structs carry nanopb types |
 | `src/app/app_publish.c`, `app_actions.c`, `app_settings.c` | Translating between the session and the UI store, and between a UI action and a session call. This is where a second protocol's publish and dispatch would sit beside Meshtastic's |
@@ -59,7 +75,8 @@ For reference when a second protocol arrives. Checked against MeshCore's
 `examples/companion_radio/` source; re-check it before building on any of it.
 
 - **BLE** is the Nordic UART Service (`6E400001-…`, RX `…0002`, TX `…0003`). One frame per
-  write or notify, no length prefix, and inbound frames are notified directly rather than read.
+  write or notify, no length prefix, and inbound frames are notified directly rather than read:
+  a `MESH_BLE_INBOUND_NOTIFY` profile, which `tests/suites/protocol.c` already drives.
 - **Serial and TCP** frame as `'<'` (app to radio) or `'>'` (radio to app), then a 16-bit
   little-endian length, then the frame. As a `struct mesh_stream_framing`, it has no
   `wake_byte`.

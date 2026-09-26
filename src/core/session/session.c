@@ -3283,6 +3283,7 @@ static int mesh_session_protocol_keepalive(void *self) {
 static const struct mesh_protocol_ops k_meshtastic_protocol = {
     .name = "meshtastic",
     .stream_framing = &mesh_stream_framing_meshtastic,
+    .ble_profile = &mesh_ble_profile_meshtastic,
     .attach = mesh_session_protocol_attach,
     .detach = mesh_session_protocol_detach,
     .begin = mesh_session_protocol_begin,

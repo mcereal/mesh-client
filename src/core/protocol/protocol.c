@@ -8,12 +8,16 @@ bool mesh_protocol_bound(const struct mesh_protocol *protocol) {
 
 const char *mesh_protocol_name(const struct mesh_protocol *protocol) {
     return mesh_protocol_bound(protocol) && protocol->ops->name != NULL ? protocol->ops->name
-                                                                         : "none";
+                                                                        : "none";
 }
 
-const struct mesh_stream_framing *mesh_protocol_stream_framing(
-    const struct mesh_protocol *protocol) {
+const struct mesh_stream_framing *
+mesh_protocol_stream_framing(const struct mesh_protocol *protocol) {
     return mesh_protocol_bound(protocol) ? protocol->ops->stream_framing : NULL;
+}
+
+const struct mesh_ble_profile *mesh_protocol_ble_profile(const struct mesh_protocol *protocol) {
+    return mesh_protocol_bound(protocol) ? protocol->ops->ble_profile : NULL;
 }
 
 void mesh_protocol_attach(const struct mesh_protocol *protocol, mesh_protocol_send_fn send,
@@ -36,8 +40,7 @@ int mesh_protocol_begin(const struct mesh_protocol *protocol) {
     return protocol->ops->begin(protocol->self);
 }
 
-void mesh_protocol_receive(const struct mesh_protocol *protocol, const uint8_t *frame,
-                           size_t len) {
+void mesh_protocol_receive(const struct mesh_protocol *protocol, const uint8_t *frame, size_t len) {
     if (mesh_protocol_bound(protocol) && protocol->ops->receive != NULL) {
         protocol->ops->receive(protocol->self, frame, len);
     }
