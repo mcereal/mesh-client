@@ -894,7 +894,11 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             record[0] = MESH_MESHCORE_RESP_CONTACT;
             struct mesh_meshcore_contact contact;
             if (mesh_meshcore_decode_contact(record, (size_t)request->len + 4U, &contact) == 0) {
-                contact.last_advert = 0U; /* the sender's clock: not when we heard it */
+                /* Heard as of now, which is the radio's lastmod for it too - not the sender's
+                   stamp, which is its own clock. A node brought back keeps its place among the
+                   recently heard rather than sinking to the bottom of a full roster. */
+                contact.last_advert = 0U;
+                contact.lastmod = inkwell_time_wall_credible_s();
                 mesh_meshcore_store_contact(meshcore, &contact, false);
                 inkwell_log_info(
                     "meshcore", "Added contact 0x%08x",
