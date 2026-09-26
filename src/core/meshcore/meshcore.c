@@ -1200,7 +1200,9 @@ int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_i
     if (meshcore == NULL || node_id == 0U || node_id == meshcore->self_node) {
         return -EINVAL;
     }
-    if (meshcore->send == NULL) {
+    /* Not until the handshake is through: the roster outlives a reconnect, so before then it
+       can be another radio's list, and this would delete that radio's contact from this one. */
+    if (!mesh_meshcore_ready(meshcore)) {
         return -ENOTCONN;
     }
     const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, node_id);

@@ -374,8 +374,9 @@ size_t mesh_meshcore_text_max(const struct mesh_meshcore *meshcore, uint32_t des
 /*
  * Sends `text` to `dest` - a node, or MESH_MESSAGE_BROADCAST_ADDR for channel `channel` - and
  * logs it in the model as ours. Returns the log entry's id through `out_packet_id` and 0, or
- * -ENOTCONN without a link, -ENOENT for a node whose key the roster does not hold, -EMSGSIZE for
- * text past mesh_meshcore_text_max(), -ENOBUFS when the command queue is full.
+ * -ENOTCONN until the handshake has named the radio, -ENOENT for a node whose key the roster does
+ * not hold, -EMSGSIZE for text past mesh_meshcore_text_max(), -ENOBUFS when the command queue is
+ * full.
  */
 int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8_t channel,
                             const char *text, uint32_t *out_packet_id);
@@ -385,8 +386,8 @@ int mesh_meshcore_send_advert(struct mesh_meshcore *meshcore, bool flood);
  * Asks the radio to take a contact off its list; the roster drops it once the radio says OK,
  * and keeps it if the radio refuses or never answers. It returns on its own once the node next
  * adverts, if the radio adds contacts by itself. 1 when asked; -EINVAL for 0 or this radio,
- * -ENOTCONN without a link, -ENOENT for a node that is not one of the radio's contacts,
- * -ENOBUFS when the command queue is full.
+ * -ENOTCONN until the handshake has named the radio, -ENOENT for a node that is not one of the
+ * radio's contacts, -ENOBUFS when the command queue is full.
  */
 int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_id);
 

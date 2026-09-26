@@ -1462,8 +1462,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_REFRESH_IN_PROGRESS] = "Recarga ya en curso",
     [MESH_STR_TOAST_REFRESH_FAILED] = "Falló la recarga (%d)",
     [MESH_STR_TOAST_REBOOTING] = "Reiniciando; se reconectará pronto",
-    [MESH_STR_TOAST_ADVERT_NEARBY] = "Anuncio enviado a nodos cercanos",
-    [MESH_STR_TOAST_ADVERT_FLOOD] = "Anuncio difundido por toda la malla",
+    [MESH_STR_TOAST_ADVERT_NEARBY] = "Se pidió a la radio anunciarse cerca",
+    [MESH_STR_TOAST_ADVERT_FLOOD] = "Se pidió a la radio difundir un anuncio",
     [MESH_STR_TOAST_SHUTTING_DOWN] = "Apagando; enciéndelo a mano",
     [MESH_STR_TOAST_NODEDB_RESET] =
         "Base de radio restablecida; lista del Brick conservada (bórrala abajo)",

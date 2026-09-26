@@ -854,6 +854,10 @@ MESH_TEST_CASE(meshcore_remove_contact_takes_it_off_both_lists, unit) {
                       "this radio is not a contact of its own");
     MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, 0x12345678U) != -ENOENT,
                       "a node the roster does not hold has no key to name");
+    g_meshcore.phase = MESH_MESHCORE_CHANNELS;
+    MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, 0x40414243U) != -ENOTCONN,
+                      "the roster may be the last radio's until the handshake is through");
+    g_meshcore.phase = MESH_MESHCORE_READY;
     struct mesh_node_summary *alice = mesh_session_model_node(g_meshcore.model, 0x40414243U, false);
     MESH_TEST_FAIL_IF(alice == NULL, "Alice is on the roster");
     alice->in_nodedb = false;
