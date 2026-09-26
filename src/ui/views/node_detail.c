@@ -5,6 +5,7 @@
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/duration.h"
+#include "mesh/ui/nodes.h"
 
 /* session.h for the traceroute state enum: the UI struct carries it as a byte so store.h
    stays plain, but this file already pulls nanopb in through radio_settings.h, so naming the
@@ -653,11 +654,17 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
          * distinction the hop row itself is careful about - so it leaves the shortcut standing.
          */
         const bool relayed = node->has_hops_away && node->hops_away > 0U;
+        const bool direct_said = node->has_hops_away && node->hops_away == 0U;
         if ((uint8_t)(node->node_id & 0xFFU) == node->relay_node && !relayed) {
             /* A state rather than a name, because "direct" is a fact about the path and the
-               reader is scanning this column for node names. */
-            rows_state(rows, MESH_STR_NODE_RELAYED_BY, inkcell_str(MESH_STR_NODE_RELAY_DIRECT),
-                       INKCELL_TONE_SUCCESS);
+               reader is scanning this column for node names.
+               Unless the hop row above already said it: two rows reading "direct" in a row is
+               the same fact twice, and "Relayed by: direct" is the clumsier of the two. The row
+               stays when the firmware gave no hop count, because then it is the only one. */
+            if (!direct_said) {
+                rows_state(rows, MESH_STR_NODE_RELAYED_BY, inkcell_str(MESH_STR_NODE_RELAY_DIRECT),
+                           INKCELL_TONE_SUCCESS);
+            }
         } else {
             char relay[MESH_UI_NODE_VALUE_MAX];
             /* Struck off when we know the packet travelled: whatever carried it, it was not
@@ -735,7 +742,12 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
                 rows_trend(rows, MESH_UI_HISTORY_RSSI);
             }
         }
-        if (node->has_hops_away) {
+        if (node->has_hops_away && node->hops_away == 0U) {
+            /* "0" is a count of nothing; the reader's question is whether it came straight
+               here, and this is the yes. Words rather than a capsule, like the counts it stands
+               in for - see node_detail_states_are_chips. */
+            rows_text(rows, MESH_STR_NODE_HOPS_AWAY, inkcell_str(MESH_STR_NODE_RELAY_DIRECT));
+        } else if (node->has_hops_away) {
             rows_info(rows, MESH_STR_NODE_HOPS_AWAY, MESH_STR_NODE_VAL_NUMBER,
                       (unsigned)node->hops_away);
         } else {
@@ -746,7 +758,11 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
            them would put a card boundary through the middle of it. */
         node_rows_route(rows, node, roster);
     }
-    rows_info(rows, MESH_STR_NODE_CHANNEL, MESH_STR_NODE_VAL_NUMBER, (unsigned)node->channel);
+    /* The slot by the name the conversation list gives it. As a bare index it read "0", which
+       is the radio's numbering and not a thing anybody calls a channel. */
+    char channel[MESH_UI_NODE_VALUE_MAX];
+    mesh_ui_channel_name(roster, node->channel, channel, sizeof channel);
+    rows_text(rows, MESH_STR_NODE_CHANNEL, channel);
     /*
      * And the qualifier on everything above it: whether this node reached us across the air or
      * through somebody's MQTT bridge. Two answers, and the second one quietly invalidates the
@@ -814,6 +830,37 @@ static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_su
     rows_text(rows, MESH_STR_NODE_REPORTED, age);
 }
 
+/*
+ * How many decimals of a degree the sender's rounding leaves worth printing.
+ *
+ * Fixed-point 1e-7 degrees on the wire, and five decimals is about a metre, which is finer than
+ * anything a LoRa node reports - so five is the most this ever says, and what it says when the
+ * sender stated no rounding (0) or none at all (32). A node that rounded its fix to ~360 m printed
+ * "47.62050" over a Precision row saying "~360 m", which is the coordinate claiming a metre in
+ * the one place the reader cannot see the row that takes it back.
+ *
+ * The footprint is worked out from the bit count rather than read from the settings table,
+ * because the table is the ten values the radio's own setting offers and a sender may use any:
+ * keeping `bits` of the 32-bit coordinate leaves steps of 2^(32 - bits) units of 1e-7 degrees,
+ * and half a step either side of a degree of latitude's ~111 km is the "~360 m" the table says
+ * for 16. A decimal is then printed while its step is no coarser than that footprint: one digit
+ * more than the rounding strictly supports rather than one fewer, because a digit too many is
+ * noise and a digit too few moves the point.
+ */
+static int node_degree_decimals(uint8_t precision_bits) {
+    if (precision_bits == 0U || precision_bits >= 32U) {
+        return 5; /* not said, or not rounded: the wire's own figure */
+    }
+    const uint64_t metres = (111000ULL << (31U - precision_bits)) / 10000000ULL;
+    uint64_t step = 111000U;
+    int decimals = 0;
+    while (decimals < 5 && step > metres) {
+        step /= 10U;
+        ++decimals;
+    }
+    return decimals;
+}
+
 static void node_rows_position(struct node_rows *rows, const struct mesh_ui_node_summary *node,
                                uint32_t now) {
     const struct mesh_ui_node_position *position = &node->position;
@@ -822,11 +869,10 @@ static void node_rows_position(struct node_rows *rows, const struct mesh_ui_node
     }
     rows_heading(rows, MESH_STR_NODE_HEAD_POSITION, INKCELL_ICON_POSITION);
 
-    /* Fixed-point 1e-7 degrees on the wire; five decimals is about a metre, which is finer
-       than anything a LoRa node reports. */
-    rows_info(rows, MESH_STR_NODE_LATITUDE, MESH_STR_NODE_VAL_DEGREES,
+    const int decimals = node_degree_decimals(position->precision_bits);
+    rows_info(rows, MESH_STR_NODE_LATITUDE, MESH_STR_NODE_VAL_DEGREES_ROUNDED, decimals,
               (double)position->latitude_i / 1e7);
-    rows_info(rows, MESH_STR_NODE_LONGITUDE, MESH_STR_NODE_VAL_DEGREES,
+    rows_info(rows, MESH_STR_NODE_LONGITUDE, MESH_STR_NODE_VAL_DEGREES_ROUNDED, decimals,
               (double)position->longitude_i / 1e7);
     if (position->has_altitude) {
         char altitude[24];
@@ -840,10 +886,10 @@ static void node_rows_position(struct node_rows *rows, const struct mesh_ui_node
     }
     /* A bit count is not a fact about the world. The sender rounded its coordinates off by
        this many bits, and the phone apps' distance for each step is the honest way to say how
-       much - so the row reads "~360 m" and the five decimals above it are read as the rounded
-       number they are. 0 here means the node never set the field, not "off": an unrounded fix
-       and one whose precision we were not told apart are the same to us, and neither claims a
-       footprint it cannot support. */
+       much - so the row reads "~360 m", and the coordinates above it stop at the decimal that
+       footprint still supports (node_degree_decimals()). 0 here means the node never set the field,
+       not "off": an unrounded fix and one whose precision we were not told apart are the same to
+       us, and neither claims a footprint it cannot support. */
     if (position->precision_bits > 0U) {
         char precision[24];
         mesh_ui_settings_format_precision((uint32_t)position->precision_bits, rows->imperial,
@@ -1074,6 +1120,14 @@ static void node_rows_host(struct node_rows *rows, const struct mesh_ui_node_sum
  */
 static void node_rows_neighbor_name(const struct mesh_ui_handshake_state *roster, uint32_t node_id,
                                     char *out, size_t out_len) {
+    /* Our own radio by what it is to the reader rather than by its short name: "HOME 11 dB" in
+       a list of strangers reads as one more of them, and whether this node can hear *us* is
+       the row a reader opened the list to find. */
+    if (roster != NULL && roster->has_my_info && roster->my_info.node_num != 0U &&
+        node_id == roster->my_info.node_num) {
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_NODE_NEIGHBOUR_SELF));
+        return;
+    }
     if (roster != NULL) {
         const uint32_t count = roster->node_count > MESH_UI_MAX_HANDSHAKE_NODES
                                    ? MESH_UI_MAX_HANDSHAKE_NODES

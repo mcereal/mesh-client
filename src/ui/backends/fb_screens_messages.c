@@ -705,20 +705,30 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
         inkcell_fb_title_count(title, sizeof title, convo, count, messages.dropped);
     } else if (messages.dropped > 0U) {
         inkcell_str_format(title, sizeof title, MESH_STR_THREAD_TITLE_OLDER, convo,
-                           inkcell_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
-                                           ? MESH_STR_THREAD_KIND_CHANNEL
-                                           : MESH_STR_THREAD_KIND_DIRECT),
                            (unsigned)messages.dropped);
     } else {
-        inkcell_str_format(title, sizeof title, MESH_STR_THREAD_TITLE, convo,
-                           inkcell_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
-                                           ? MESH_STR_THREAD_KIND_CHANNEL
-                                           : MESH_STR_THREAD_KIND_DIRECT));
+        snprintf(title, sizeof title, "%s", convo);
     }
-    /* No overline. Which kind of conversation this is stays in the title, because a channel's
-       name already starts with a '#' and every bubble under it is tagged - so a trail would be
-       spending a body row of transcript to repeat what two other things on the frame say. */
-    fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
+    /*
+     * No overline, and the kind of conversation is the badge rather than a word in the title.
+     * A channel's name already starts with a '#' and every bubble under it is tagged, so a trail
+     * would be spending a body row of transcript to repeat what two other things on the frame
+     * say. Set after the name with two spaces it read "#Trail  channel": a gap that looks like a
+     * typo in a proportional face, and a word that looks like part of the name. The capsule is
+     * the node detail's "heard 1m ago" slot, and it is quiet there for the same reason.
+     */
+    const char *kind = NULL;
+    if (!nav->inbox) {
+        kind = inkcell_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
+                               ? MESH_STR_THREAD_KIND_CHANNEL
+                               : MESH_STR_THREAD_KIND_DIRECT);
+    }
+    fb_draw_app_bar(state, layout,
+                    &(const struct inkcell_fb_app_bar){
+                        .title = title,
+                        .badge = kind,
+                        .badge_family = INKCELL_FAMILY_SECONDARY,
+                    });
 
     if (count == 0U) {
         inkcell_fb_draw_empty(

@@ -506,3 +506,28 @@ void mesh_ui_node_row_facts(const struct mesh_ui_handshake_state *handshake,
         node_fact_append(out, out_len, fact);
     }
 }
+
+void mesh_ui_channel_name(const struct mesh_ui_handshake_state *handshake, uint8_t index, char *out,
+                          size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    const struct mesh_ui_channel *channel = NULL;
+    if (handshake != NULL) {
+        for (uint32_t i = 0; i < handshake->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
+            if (handshake->channels[i].index == index && handshake->channels[i].role != 0U) {
+                channel = &handshake->channels[i];
+                break;
+            }
+        }
+    }
+    if (channel != NULL && channel->name[0] != '\0') {
+        snprintf(out, out_len, "#%s", channel->name);
+    } else if (index == 0U) {
+        /* An unnamed slot 0 is the default primary channel; the firmware shows the modem
+           preset name there, which we do not track. */
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CHANNEL_PRIMARY));
+    } else {
+        inkcell_str_format(out, out_len, MESH_STR_CHANNEL_NUMBERED, (unsigned)index);
+    }
+}

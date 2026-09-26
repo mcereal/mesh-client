@@ -116,6 +116,9 @@ MESH_TEST_CASE(commands_are_the_source_of_the_legacy_action_bar, unit) {
        translated label after the table is built. */
     actions_snapshot(&snapshot);
     snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    /* A roster to stand on: with none the list is the empty state and has no filter row. */
+    snapshot.handshake_valid = true;
+    snapshot.handshake.node_count = 1U;
     snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
     mesh_ui_commands_for(&snapshot, &commands);
     MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_LEFT_RIGHT) !=
@@ -669,6 +672,7 @@ MESH_TEST_CASE(actions_the_chart_offers_only_the_way_out, unit) {
        this about the one part of the list where A is deliberately not named. */
     snapshot.nav.screen = MESH_UI_SCREEN_NODES;
     snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_LEAD_ROWS;
+    snapshot.handshake.node_count = 1U; /* a list, not the empty state */
     mesh_ui_actions_for(&snapshot, &bar);
     bool names_a_node_press = false;
     for (size_t i = 0; i < bar.count; ++i) {
@@ -896,5 +900,82 @@ MESH_TEST_CASE(actions_heading_leaves_the_keyboard_delete_to_backspace, unit) {
         send = send || verbs[i].id == MESH_UI_COMMAND_SEND;
     }
     MESH_TEST_FAIL_IF(!send, "the message keyboard's heading should still offer send");
+    record_success(test_name);
+}
+
+/*
+ * About names A for the row under the cursor, because A means three things there: it steps a
+ * setting (Theme), runs a verb (a check for updates), and does nothing on a fact (Version). One
+ * "A run" for the section read as a promise over the Version row that the press did not keep.
+ */
+MESH_TEST_CASE(actions_about_names_a_for_the_row, unit) {
+    struct mesh_ui_snapshot snapshot;
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    snapshot.nav.settings_section = MESH_UI_SETTINGS_ABOUT;
+    snprintf(snapshot.settings.client.version, sizeof snapshot.settings.client.version, "1.0.0");
+    snprintf(snapshot.settings.client.theme_name, sizeof snapshot.settings.client.theme_name,
+             "Dark");
+
+    /* Row 0 is Version, a fact. */
+    struct inkcell_action_bar bar;
+    snapshot.nav.cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != INKCELL_STR_NONE,
+                      "A does nothing on the Version row, so the bar should not name it");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_B) != MESH_STR_ACTION_BACK,
+                      "the way out is named on every row");
+
+    /* Row 1 is Theme, which A steps. */
+    snapshot.nav.cursor[MESH_UI_SCREEN_SETTINGS] = 1U;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_EDIT,
+                      "A steps the theme, which is an edit rather than a verb");
+    record_success(test_name);
+}
+
+/*
+ * The Nodes tab with nothing to list. There is no filter row and no node, so the d-pad, the pin
+ * and the write have nothing under them; with no radio, A goes to connect one.
+ */
+MESH_TEST_CASE(actions_empty_nodes_offer_only_the_way_forward, unit) {
+    struct mesh_ui_snapshot snapshot;
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
+
+    struct mesh_ui_command_set commands;
+    mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_A) != MESH_UI_COMMAND_CONNECT,
+                      "with no radio, A should connect one");
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_LEFT_RIGHT) !=
+                              MESH_UI_COMMAND_NONE ||
+                          command_for_button(&commands, INKCELL_BUTTON_X) != MESH_UI_COMMAND_NONE ||
+                          command_for_button(&commands, INKCELL_BUTTON_Y) != MESH_UI_COMMAND_NONE,
+                      "an empty list has nothing to filter, pin or write to");
+
+    /* A radio still sending its roster: nothing to connect, and still nothing to press. */
+    snapshot.handshake_valid = true;
+    mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_A) != MESH_UI_COMMAND_NONE,
+                      "waiting for a roster, A has nothing to do");
+    record_success(test_name);
+}
+
+/* The map pans on all four directions, so the keycap is all four. */
+MESH_TEST_CASE(actions_map_pans_on_the_whole_d_pad, unit) {
+    struct mesh_ui_snapshot snapshot;
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot.nav.map_open = true;
+    snapshot.handshake_valid = true;
+    snapshot.handshake.node_count = 1U;
+
+    struct mesh_ui_command_set commands;
+    mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_DPAD) != MESH_UI_COMMAND_PAN,
+                      "the map's pan should be named on the four-way keycap");
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_UP_DOWN) != MESH_UI_COMMAND_NONE,
+                      "and not on half of it");
     record_success(test_name);
 }

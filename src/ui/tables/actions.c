@@ -180,7 +180,7 @@ static void actions_map(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_
     /* Late, so it is among the first to go on a narrow panel - the four presses above are the
        ones that leave the screen or change what is on it, and this one names a gesture a reader
        discovers by trying it. */
-    command_add(bar, MESH_UI_COMMAND_PAN, MESH_STR_ACTION_PAN, INKCELL_BUTTON_UP_DOWN);
+    command_add(bar, MESH_UI_COMMAND_PAN, MESH_STR_ACTION_PAN, INKCELL_BUTTON_DPAD);
     commands_add_help(snapshot, bar);
     commands_add_tabs(bar);
 }
@@ -340,6 +340,21 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
      * and sit one above the other, so the bar is the only thing on the frame that says which of
      * them the press is about to move.
      */
+    /*
+     * No list at all: fb_render_node_list() draws the empty state over no rows, so the filter,
+     * the pin and the write have nothing under them, and Left and Right are the tab switch
+     * rather than the filter (mesh_ui_nav_nodes_list_showing()). With no radio, A is the way
+     * out - it lands on the device list, which is what the sentence on the screen asks for.
+     * Waiting for a roster the radio is already sending, it has nothing to do either.
+     */
+    if (snapshot != NULL && (!snapshot->handshake_valid || snapshot->handshake.node_count == 0U)) {
+        if (!snapshot->handshake_valid) {
+            command_add(bar, MESH_UI_COMMAND_CONNECT, MESH_STR_ACTION_CONNECT, INKCELL_BUTTON_A);
+        }
+        commands_add_help(snapshot, bar);
+        commands_add_tabs(bar);
+        return;
+    }
     const uint32_t nodes_cursor = nav->cursor[MESH_UI_SCREEN_NODES];
     if (nodes_cursor == MESH_UI_NODES_FILTER_ROW) {
         command_add(bar, MESH_UI_COMMAND_FILTER, MESH_STR_ACTION_FILTER, INKCELL_BUTTON_LEFT_RIGHT);
@@ -537,10 +552,29 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
         commands_add_tabs(bar);
         return;
     }
-    /* Rows that are verbs, not values: nothing here is editable and nothing here came from the
-       radio, so neither the edit keys nor the refresh mean anything. */
+    /*
+     * About: nothing here came from the radio, so neither the edit keys nor the refresh mean
+     * anything - and A means three different things by row, so the bar asks the row.
+     *
+     * It was one "A run" for the whole section while the section was verbs. It is now mostly
+     * facts (Version, Data) and settings that A steps (Language, Theme, Text size), and "run"
+     * over the Version row named a press that did nothing there. A cycle row says "edit", as a
+     * field row does; a verb says "run"; a fact says nothing about A at all.
+     */
     if (nav->settings_section == MESH_UI_SETTINGS_ABOUT) {
-        command_add(bar, MESH_UI_COMMAND_RUN, MESH_STR_ACTION_RUN, INKCELL_BUTTON_A);
+        struct mesh_ui_settings_item item;
+        if (snapshot != NULL &&
+            mesh_ui_settings_item(&snapshot->settings,
+                                  snapshot->handshake_valid ? &snapshot->handshake : NULL, NULL, 0U,
+                                  MESH_UI_SETTINGS_ABOUT, MESH_UI_SETTINGS_NO_CHANNEL,
+                                  nav->cursor[nav->screen], &item) &&
+            item.kind == INKSTAND_FORM_ACTION) {
+            if (item.cycle) {
+                command_add(bar, MESH_UI_COMMAND_EDIT, MESH_STR_ACTION_EDIT, INKCELL_BUTTON_A);
+            } else {
+                command_add(bar, MESH_UI_COMMAND_RUN, MESH_STR_ACTION_RUN, INKCELL_BUTTON_A);
+            }
+        }
         command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
         commands_add_help(snapshot, bar);
         commands_add_tabs(bar);

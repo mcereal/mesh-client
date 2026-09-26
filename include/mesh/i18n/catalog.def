@@ -284,10 +284,10 @@ MESH_STR_ENTRY(MESSAGES_UNREAD_OVERFLOW,  "99+")
 /* A thread with nothing in it. The first is the shared inbox, the second one conversation. */
 MESH_STR_ENTRY(THREAD_EMPTY_INBOX,        "No messages yet. B goes back to the list.")
 MESH_STR_ENTRY(THREAD_EMPTY,              "Nothing here yet. Y writes one, B goes back.")
-/* A thread's title: the conversation, then whether it is a channel or one node, then how many
-   older messages have been dropped from the ring. */
-MESH_STR_ENTRY(THREAD_TITLE,              "%s  %s")
-MESH_STR_ENTRY(THREAD_TITLE_OLDER,        "%s  %s  (+%u older)")
+/* A thread's title when older messages have been dropped from the ring: the conversation, then
+   how many. Whether it is a channel or one node is the badge beside the title - the two words
+   below. */
+MESH_STR_ENTRY(THREAD_TITLE_OLDER,        "%s (+%u older)")
 MESH_STR_ENTRY(THREAD_KIND_CHANNEL,       "channel")
 MESH_STR_ENTRY(THREAD_KIND_DIRECT,        "direct")
 /* The line across the transcript where the reader stopped last time, drawn in the same slot the
@@ -944,6 +944,8 @@ MESH_STR_ENTRY(NODE_LOAD,                 "Load")
 /* The row standing in for a neighbour list that came back empty. */
 MESH_STR_ENTRY(NODE_NEIGHBOURS_NONE,      "None")
 MESH_STR_ENTRY(NODE_HEARS_NO_ONE,         "hears no one")
+/* Our own radio in a node's neighbour list, or among the nodes that hear it. */
+MESH_STR_ENTRY(NODE_NEIGHBOUR_SELF,       "You")
 MESH_STR_ENTRY(NODE_AND_MORE,             "and more")
 MESH_STR_ENTRY(NODE_NOT_SHOWN,            "%u not shown")
 /* A node we have only ever seen mentioned by others: its name is made up from its number. */
@@ -1088,6 +1090,8 @@ MESH_STR_ENTRY(NODE_VAL_MILLIAMPS,        "%.0f mA")
 MESH_STR_ENTRY(NODE_VAL_MILLIAMPS_FINE,   "%.1f mA")
 MESH_STR_ENTRY(NODE_VAL_VOLTS_MILLIAMPS,  "%.2f V, %.0f mA")
 MESH_STR_ENTRY(NODE_VAL_DEGREES,          "%.5f")
+/* The same, to as many decimals as the sender's rounding leaves meaningful. */
+MESH_STR_ENTRY(NODE_VAL_DEGREES_ROUNDED,  "%.*f")
 /* Celsius first because the radio reports Celsius; the Fahrenheit conversion follows it. */
 MESH_STR_ENTRY(NODE_VAL_TEMPERATURE,      "%.1f C (%.1f F)")
 MESH_STR_ENTRY(NODE_VAL_PRESSURE,         "%.1f hPa")
