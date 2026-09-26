@@ -1070,6 +1070,58 @@ MESH_TEST_CASE(meshcore_heard_adverts_keep_the_newest, unit) {
     record_success(test_name);
 }
 
+/* A favourite is bit 0 of a contact's flags, and an update replaces the whole record: the
+       radio's record is read first and written back with that bit alone changed, route and all. */
+MESH_TEST_CASE(meshcore_favorite_rewrites_the_radios_record, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const uint32_t alice = 0x40414243U;
+    MESH_TEST_FAIL_IF(model_node(alice) == NULL || model_node(alice)->is_favorite,
+                      "Alice is a contact, and no favourite");
+    size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_set_favorite(&g_meshcore, alice, true) != 1 ||
+                          wire.count != before + 1U ||
+                          wire.frames[before][0] != MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY ||
+                          wire.frames[before][1] != 0x40,
+                      "pinning reads the radio's record first");
+    uint8_t record[160];
+    const size_t record_len = build_contact(record, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice",
+                                            MESH_MESHCORE_ADV_CHAT, 2U, 1700000300U);
+    record[34] = 0x04U; /* a permission bit above the favourite, left as it is */
+    record[36] = 0xAAU;
+    record[37] = 0xBBU;
+    before = wire.count;
+    feed(&protocol, record, record_len);
+    const uint8_t *frame = wire.frames[before];
+    MESH_TEST_FAIL_IF(
+        wire.count != before + 1U || frame[0] != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT ||
+            frame[34] != (0x04U | MESH_MESHCORE_CONTACT_FAVORITE) || frame[35] != 2U ||
+            frame[36] != 0xAAU || frame[37] != 0xBBU || memcmp(frame + 100, "Alice", 6U) != 0,
+        "and writes it back whole with the favourite bit set");
+    MESH_TEST_FAIL_IF(model_node(alice)->is_favorite, "not pinned until the radio agrees");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(!model_node(alice)->is_favorite || !model_node(alice)->in_nodedb,
+                      "the OK pins it, and it stays a contact");
+    MESH_TEST_FAIL_IF(mesh_meshcore_set_favorite(&g_meshcore, alice, true) != 0,
+                      "pinning a pinned contact asks nothing");
+
+    MESH_TEST_FAIL_IF(mesh_meshcore_set_favorite(&g_meshcore, alice, false) != 1,
+                      "unpinning is asked");
+    feed_code(&protocol, MESH_MESHCORE_RESP_ERR);
+    MESH_TEST_FAIL_IF(
+        !model_node(alice)->is_favorite || g_meshcore.favorite_pending,
+        "a radio that no longer has the contact leaves the flag, and nothing waiting");
+
+    uint8_t advert[160];
+    const size_t advert_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x60, "Bob",
+                                            MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000100U);
+    feed(&protocol, advert, advert_len);
+    MESH_TEST_FAIL_IF(mesh_meshcore_set_favorite(&g_meshcore, 0x60616263U, true) != -ENOENT,
+                      "a heard node is no contact to pin");
+    record_success(test_name);
+}
+
 /* An advert is SEND_SELF_ADVERT with 1 to flood it and 0 for the nodes in earshot. */
 MESH_TEST_CASE(meshcore_advert_is_flooded_or_not, unit) {
     struct mesh_protocol protocol;

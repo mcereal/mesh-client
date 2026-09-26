@@ -340,7 +340,7 @@ enum mesh_ui_feature {
     MESH_UI_FEATURE_TRACEROUTE = 1U << 1,
     /* Asking a node for its name, position or telemetry now. */
     MESH_UI_FEATURE_NODE_REQUESTS = 1U << 2,
-    /* Pin, mute and ignore: flags the radio keeps per node. */
+    /* Mute and ignore: flags the radio keeps per node. Pinning is MESH_UI_FEATURE_NODE_PIN. */
     MESH_UI_FEATURE_NODE_FLAGS = 1U << 3,
     /* Configuring another node's radio over the mesh. */
     MESH_UI_FEATURE_REMOTE_ADMIN = 1U << 4,
@@ -368,10 +368,13 @@ enum mesh_ui_feature {
     MESH_UI_FEATURE_NODE_REMOVE = 1U << 13,
     /* Putting a node the radio does not carry onto its list, from the key we hold. */
     MESH_UI_FEATURE_NODE_ADD = 1U << 14,
+    /* Pinning a node: on every node its radio lists where NODE_FLAGS is had too, and otherwise
+       on a contact the radio carries by its whole key (MeshCore's favourite). */
+    MESH_UI_FEATURE_NODE_PIN = 1U << 15,
 };
 
 /* Every bit above: what a protocol with none of Meshtastic's verbs lacks. */
-#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_ADD << 1) - 1U))
+#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_PIN << 1) - 1U))
 
 /*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so the

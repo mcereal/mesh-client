@@ -103,7 +103,8 @@ int mesh_meshcore_decode_contact(const uint8_t *frame, size_t len,
     out->type = frame[i++];
     out->flags = frame[i++];
     out->out_path_len = frame[i++];
-    i += MESH_MESHCORE_PATH_MAX; /* the route itself; the hop count above is all a screen shows */
+    memcpy(out->out_path, frame + i, MESH_MESHCORE_PATH_MAX);
+    i += MESH_MESHCORE_PATH_MAX;
     mesh_meshcore_copy_str(out->name, sizeof out->name, frame + i, MESH_MESHCORE_NAME_LEN);
     i += MESH_MESHCORE_NAME_LEN;
     out->last_advert = mesh_meshcore_u32(frame + i);
@@ -406,7 +407,8 @@ int mesh_meshcore_encode_contact(const struct mesh_meshcore_contact *contact, ui
     out[i++] = contact->type;
     out[i++] = contact->flags;
     out[i++] = contact->out_path_len;
-    i += MESH_MESHCORE_PATH_MAX; /* no route carried: the radio learns one */
+    memcpy(out + i, contact->out_path, MESH_MESHCORE_PATH_MAX);
+    i += MESH_MESHCORE_PATH_MAX;
     const size_t name_len = strnlen(contact->name, MESH_MESHCORE_NAME_LEN);
     memcpy(out + i, contact->name, name_len);
     i += MESH_MESHCORE_NAME_LEN;

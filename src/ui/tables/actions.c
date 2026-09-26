@@ -323,7 +323,9 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
          */
         command_add(bar, MESH_UI_COMMAND_GROUPS, MESH_STR_ACTION_GROUPS, INKCELL_BUTTON_LEFT_RIGHT);
         if (snapshot == NULL ||
-            mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_NODE_FLAGS)) {
+            mesh_ui_node_pinnable(
+                mesh_ui_node_detail_find(&snapshot->handshake, snapshot->nav.node_detail_node),
+                snapshot->settings.protocol_lacks)) {
             command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
         }
         command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);
@@ -396,7 +398,7 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
     if (nodes_cursor == MESH_UI_NODES_FIND_ROW && nav->node_query[0] != '\0') {
         command_add(bar, MESH_UI_COMMAND_CLEAR, MESH_STR_ACTION_CLEAR, INKCELL_BUTTON_X);
     } else if (snapshot == NULL ||
-               mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_NODE_FLAGS)) {
+               mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_NODE_PIN)) {
         command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
     }
     command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);

@@ -2849,6 +2849,8 @@ MESH_STR_ENTRY(TOAST_WAYPOINT_FAILED,     "Waypoint failed (%d)")
 
 MESH_STR_ENTRY(TOAST_PINNED,              "Pinned %.20s")
 MESH_STR_ENTRY(TOAST_UNPINNED,            "Unpinned %.20s")
+MESH_STR_ENTRY(TOAST_PINNING,             "Asked the radio to pin %.14s")
+MESH_STR_ENTRY(TOAST_UNPINNING,           "Asked the radio to unpin %.14s")
 MESH_STR_ENTRY(TOAST_ALREADY_PINNED,      "%.20s is already pinned")
 MESH_STR_ENTRY(TOAST_ALREADY_UNPINNED,    "%.20s is already unpinned")
 MESH_STR_ENTRY(TOAST_PIN_FAILED,          "Pin failed (%d)")
