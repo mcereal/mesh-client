@@ -63,8 +63,7 @@ static void fb_devices_network_row(struct inkcell_draw_state *state, struct inkc
     const struct inkcell_fb_list_item row = {
         .leading = {.kind = INKCELL_FB_LEADING_AVATAR,
                     .icon = INKCELL_ICON_LINK,
-                    .tint = index,
-                    .role = INKCELL_COLOR_COUNT},
+                    .role = INKCELL_COLOR_TEXT_DIM},
         /* The address itself is the name once there is one, exactly as it is on the row
            discovery publishes for a live network link: a host has no advertisement coming, so
            what it is reachable at is what it is called. */
@@ -239,7 +238,9 @@ void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_sn
 
         /* The disc states its fill rather than taking a tint: a device list is four rows about
            one question - which of these am I on - and six hues would be answering a question
-           nobody asked. Connected is the good tone, armed to be forgotten is the bad one.
+           nobody asked. Connected is the good tone, armed to be forgotten is the bad one, and
+           every other row is the dim ink - a per-row tint here painted a resting radio in the
+           same green as the connected one, the one colour on this screen with a meaning.
            What it carries is the transport, not initials: the name is already the next thing
            on the row, and which bus a radio is on is the one fact about it the words do not
            repeat. */
@@ -248,10 +249,9 @@ void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_sn
                 {
                     .kind = INKCELL_FB_LEADING_AVATAR,
                     .icon = fb_device_icon(device),
-                    .tint = i,
                     .role = device->connected ? INKCELL_COLOR_SUCCESS
                             : armed           ? INKCELL_COLOR_ERROR
-                                              : INKCELL_COLOR_COUNT,
+                                              : INKCELL_COLOR_TEXT_DIM,
                 },
             .text = name,
             .tone = tone,

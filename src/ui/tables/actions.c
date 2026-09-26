@@ -122,8 +122,15 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
 
     /* The all-traffic thread is a transcript of everything, not a conversation with anybody, so
        there is nobody for a reply to go to. That is the whole of the difference. */
+    /* A, X and the triggers all act on a bubble, and a thread nothing has arrived in yet has
+       none: its bar is the verbs that still do something there - write, leave, help. The nav
+       is asked the same question the press asks, so the two cannot disagree. */
+    const bool has_bubble =
+        mesh_ui_nav_message_at_cursor(nav, mesh_ui_snapshot_message_view(snapshot)) != NULL;
     if (nav->inbox) {
-        command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
+        if (has_bubble) {
+            command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
+        }
         command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
         commands_add_help(snapshot, bar);
         commands_add_tabs(bar);
@@ -131,8 +138,10 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
     }
     /* Three verbs about three different things, which is why they are three keys: A answers
        the bubble under the cursor, X puts an emoji on it, and Y writes to the conversation. */
-    command_add(bar, MESH_UI_COMMAND_REPLY, MESH_STR_ACTION_REPLY, INKCELL_BUTTON_A);
-    command_add(bar, MESH_UI_COMMAND_REACT, MESH_STR_ACTION_REACT, INKCELL_BUTTON_X);
+    if (has_bubble) {
+        command_add(bar, MESH_UI_COMMAND_REPLY, MESH_STR_ACTION_REPLY, INKCELL_BUTTON_A);
+        command_add(bar, MESH_UI_COMMAND_REACT, MESH_STR_ACTION_REACT, INKCELL_BUTTON_X);
+    }
     command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);
     command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
     /*
@@ -151,8 +160,10 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
     /* The triggers walk the transcript's two landmarks: the first unread bubble (then the
        oldest), and the newest. See mesh_ui_nav_thread_jump(). After help, so a narrow panel
        drops this before the screen that explains it. */
-    command_add(bar, MESH_UI_COMMAND_THREAD_JUMP, MESH_STR_ACTION_THREAD_JUMP,
-                INKCELL_BUTTON_TRIGGERS);
+    if (has_bubble) {
+        command_add(bar, MESH_UI_COMMAND_THREAD_JUMP, MESH_STR_ACTION_THREAD_JUMP,
+                    INKCELL_BUTTON_TRIGGERS);
+    }
     commands_add_tabs(bar);
 }
 
@@ -850,10 +861,20 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
         return;
     }
     if (active.level == MESH_UI_ROUTE_PICKER) {
-        command_add(out, MESH_UI_COMMAND_CHOOSE, MESH_STR_ACTION_CHOOSE, INKCELL_BUTTON_A);
+        /* Moving needs somewhere to move to. Before the radio has been heard the picker is one
+           row - the primary channel - and a jump of ten and a d-pad over one row are keycaps
+           that do nothing. */
+        struct mesh_ui_store view;
+        mesh_ui_store_view(snapshot, &view);
+        const uint32_t rows = mesh_ui_nav_picker_count(&view);
+        if (rows > 0U) {
+            command_add(out, MESH_UI_COMMAND_CHOOSE, MESH_STR_ACTION_CHOOSE, INKCELL_BUTTON_A);
+        }
         command_add(out, MESH_UI_COMMAND_CANCEL, MESH_STR_ACTION_CANCEL, INKCELL_BUTTON_B);
-        command_add(out, MESH_UI_COMMAND_JUMP, MESH_STR_ACTION_JUMP, INKCELL_BUTTON_SHOULDERS);
-        command_add(out, MESH_UI_COMMAND_MOVE, MESH_STR_ACTION_MOVE, INKCELL_BUTTON_UP_DOWN);
+        if (rows > 1U) {
+            command_add(out, MESH_UI_COMMAND_JUMP, MESH_STR_ACTION_JUMP, INKCELL_BUTTON_SHOULDERS);
+            command_add(out, MESH_UI_COMMAND_MOVE, MESH_STR_ACTION_MOVE, INKCELL_BUTTON_UP_DOWN);
+        }
         return;
     }
     if (active.level == MESH_UI_ROUTE_KEYBOARD) {
