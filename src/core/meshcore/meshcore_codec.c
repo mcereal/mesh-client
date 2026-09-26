@@ -521,7 +521,8 @@ int mesh_meshcore_decode_lpp(const uint8_t *lpp, size_t len, struct mesh_meshcor
         const bool self = channel == LPP_CHANNEL_SELF;
         switch (type) {
         case LPP_VOLTAGE: {
-            const float volts = (float)lpp_value(v, 2U, false) / 100.0f;
+            /* Signed, as meshcore_py reads it: a sensor across a load can go below zero. */
+            const float volts = (float)lpp_value(v, 2U, true) / 100.0f;
             if (self) {
                 out->has_battery = true;
                 out->battery_v = volts;
@@ -560,7 +561,7 @@ int mesh_meshcore_decode_lpp(const uint8_t *lpp, size_t len, struct mesh_meshcor
         case LPP_CURRENT:
             if (!out->has_current) {
                 out->has_current = true;
-                out->current_a = (float)lpp_value(v, 2U, false) / 1000.0f;
+                out->current_a = (float)lpp_value(v, 2U, true) / 1000.0f; /* either way */
             }
             break;
         case LPP_GPS:

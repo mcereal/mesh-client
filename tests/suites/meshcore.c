@@ -1370,10 +1370,10 @@ MESH_TEST_CASE(meshcore_lpp_reads_what_a_node_reports, unit) {
     MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_offworld, sizeof k_offworld, &t) != 0 ||
                           t.has_position,
                       "a fix off the globe is not a position");
-    static const uint8_t k_current[] = {0x02, 117, 0x00, 0xFA}; /* 0.250 A */
+    static const uint8_t k_current[] = {0x02, 117, 0xFF, 0x06}; /* -0.250 A */
     MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_current, sizeof k_current, &t) != 0 ||
-                          !t.has_current || t.current_a < 0.249f || t.current_a > 0.251f,
-                      "current in thousandths of an amp");
+                          !t.has_current || t.current_a > -0.249f || t.current_a < -0.251f,
+                      "current in signed thousandths of an amp");
     /* What a Heltec V3 on v1.17.1 answered about itself: battery and MCU temperature only. */
     static const uint8_t k_heltec[] = {0x01, 0x74, 0x01, 0x9d, 0x01, 0x67, 0x01, 0x86};
     MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_heltec, sizeof k_heltec, &t) != 0 ||
@@ -1448,9 +1448,13 @@ MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
     MESH_TEST_FAIL_IF(!node->environment.has_current || node->environment.current < 249.9f ||
                           node->environment.current > 250.1f,
                       "current lands in milliamps, as the record keeps it");
+    MESH_TEST_FAIL_IF(node->environment.has_temperature,
+                      "and a reading the node no longer sends is not kept as fresh");
 
     /* One outstanding: a second before the first's answer or deadline would orphan it. */
     MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0, "asked again");
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != -EBUSY,
+                      "a second waits while the first is still on its way to the radio");
     feed(&protocol, k_sent, sizeof k_sent);
     MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != -EBUSY,
                       "and a third waits for the second's answer");

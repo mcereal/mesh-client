@@ -686,7 +686,10 @@ static void mesh_meshcore_store_telemetry(struct mesh_meshcore *meshcore,
     const bool environment = telemetry->has_temperature || telemetry->has_humidity ||
                              telemetry->has_pressure || telemetry->has_lux ||
                              telemetry->has_voltage || telemetry->has_current;
+    /* Each answer is the whole of what the node reports now: a reading it has stopped sending
+       goes, rather than standing in the new report as though it were fresh. */
     if (environment) {
+        memset(env, 0, sizeof *env);
         env->valid = true;
         env->time = now;
     }
@@ -1590,9 +1593,10 @@ int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t nod
         return -ENOENT;
     }
     /* The radio keeps one request outstanding and a new one orphans the last, so a second
-       waits for the first's answer or its deadline. */
-    if (meshcore->telemetry_until_ms != 0U &&
-        inkwell_time_monotonic_ms() < meshcore->telemetry_until_ms) {
+       waits for the first: while it is still queued, and then for its answer or deadline. */
+    if (mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ) ||
+        (meshcore->telemetry_until_ms != 0U &&
+         inkwell_time_monotonic_ms() < meshcore->telemetry_until_ms)) {
         return -EBUSY;
     }
     uint8_t frame[4U + MESH_MESHCORE_PUBKEY_LEN];
@@ -1600,12 +1604,7 @@ int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t nod
     frame[0] = MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ; /* then three reserved bytes */
     memcpy(frame + 4, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
     const int result = mesh_meshcore_enqueue(meshcore, frame, (int)sizeof frame, 0U);
-    if (result < 0) {
-        return result;
-    }
-    /* Until the radio's SENT gives the real deadline: long enough for it to answer at all. */
-    meshcore->telemetry_until_ms = inkwell_time_monotonic_ms() + 30000U;
-    return 0;
+    return result < 0 ? result : 0;
 }
 
 int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
