@@ -361,7 +361,8 @@ static void item_key_field(struct item_list *list, enum mesh_ui_setting_field fi
     /* A channel's PSK, wherever the submessage holding it happens to be embedded: the beacon's
        offered channel is a ChannelSettings and its key is named in the same words. */
     const bool aes =
-        (field == MESH_UI_FIELD_CHANNEL_KEY || field == MESH_UI_FIELD_BEACON_OFFER_KEY);
+        (field == MESH_UI_FIELD_CHANNEL_KEY || field == MESH_UI_FIELD_CHANNEL_ANY_KEY ||
+         field == MESH_UI_FIELD_BEACON_OFFER_KEY);
     struct mesh_ui_settings_item *item = item_add(list, spec->form.label, spec->form.kind);
     if (item == NULL) {
         return;
@@ -393,6 +394,10 @@ static void item_key_field(struct item_list *list, enum mesh_ui_setting_field fi
             item->value, sizeof item->value, "%s",
             inkcell_str(aes ? MESH_STR_SETTINGS_KEY_NO_ENCRYPTION : MESH_STR_SETTINGS_KEY_CLEAR));
         break;
+    case MESH_UI_PSK_FROM_NAME:
+        snprintf(item->value, sizeof item->value, "%s",
+                 inkcell_str(MESH_STR_SETTINGS_KEY_FROM_NAME));
+        break;
     case MESH_UI_PSK_TYPED: {
         uint8_t typed[MESH_UI_PSK_MAX];
         size_t typed_len = 0U;
@@ -407,7 +412,10 @@ static void item_key_field(struct item_list *list, enum mesh_ui_setting_field fi
     }
     case MESH_UI_PSK_KEEP:
     default:
-        key_summary(key, len, aes, item->value, sizeof item->value);
+        /* An unused MeshCore slot has no key yet rather than an open channel: MeshCore has no
+           unencrypted channel to call it. */
+        key_summary(key, len, aes && !(field == MESH_UI_FIELD_CHANNEL_ANY_KEY && len == 0U),
+                    item->value, sizeof item->value);
         break;
     }
 }
@@ -1434,7 +1442,8 @@ static void build_channels(const struct mesh_ui_settings *s,
     char label[MESH_UI_SETTINGS_LABEL_MAX];
     /* A protocol this client cannot write channels for lists its slots as facts: a row that
        opened the editor would take edits no save can send. */
-    const bool editable = mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG);
+    const bool editable = mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG) ||
+                          s->protocol == MESH_UI_PROTOCOL_MESHCORE;
     if (s->has_channels) {
         for (uint32_t i = 0; i < MESH_UI_MAX_CHANNELS; ++i) {
             const struct mesh_ui_channel_detail *channel = &s->channels[i];
@@ -1509,6 +1518,16 @@ static void build_channel(const struct mesh_ui_settings *s, uint8_t slot, struct
         return;
     }
     const struct mesh_ui_channel_detail *channel = &s->channels[slot];
+    if (s->protocol == MESH_UI_PROTOCOL_MESHCORE) {
+        /* A MeshCore slot is a name and a 16-byte secret and nothing else: no role (a named
+           slot is in use), no MQTT, no position precision, no mute on the radio. */
+        item_field(list, MESH_UI_FIELD_CHANNEL_ANY_NAME, 0U, channel->name);
+        item_key_field(list, MESH_UI_FIELD_CHANNEL_ANY_KEY, channel->psk, channel->psk_len);
+        if (channel->role == 2U) {
+            item_verb(list, MESH_STR_CHANNELS_CLEAR_ROW, MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL);
+        }
+        return;
+    }
     item_field(list, MESH_UI_FIELD_CHANNEL_NAME, 0U, channel->name);
     if (channel->role == 1U) {
         item_str(list, MESH_STR_SETTINGS_ROLE_ROW, INKSTAND_FORM_INFO,

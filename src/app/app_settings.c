@@ -13,6 +13,7 @@
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
+#include "inkwell/codec/sha256.h"
 
 #include "app_internal.h"
 
@@ -1469,6 +1470,112 @@ static uint32_t mesh_app_meshcore_bandwidth_hz(uint32_t khz) {
     return khz * 1000U;
 }
 
+/* The Public channel's secret, which every MeshCore radio ships with in slot 0 and which the
+   firmware publishes: the "default key" of a MeshCore channel. */
+static const uint8_t k_meshcore_public_secret[MESH_MESHCORE_SECRET_LEN] = {
+    0x8bU, 0x33U, 0x87U, 0xe9U, 0xc5U, 0xcdU, 0xeaU, 0x6aU,
+    0xc9U, 0xe5U, 0xedU, 0xbaU, 0xa1U, 0x15U, 0xcdU, 0x72U};
+
+/*
+ * One MeshCore channel slot, written whole: its name and its secret, each the radio's unless a
+ * row changed it. The name is the roster's full one rather than the settings record's, which is
+ * Meshtastic's twelve bytes and would cut a longer name down on the way back. Clearing is the
+ * same command with both empty. -ENOENT for a slot the handshake has not read, -EINVAL for a
+ * key MeshCore cannot hold or a slot left with no name or no key, -E2BIG for a name past 31.
+ */
+static int mesh_app_meshcore_channel_write(struct mesh_app *app,
+                                           const struct mesh_ui_action *action) {
+    const struct mesh_radio_settings *radio = mesh_session_settings(&app->session);
+    const struct mesh_handshake_status *status = mesh_session_handshake(&app->session);
+    const uint8_t slot = action->channel;
+    if (radio == NULL || status == NULL || slot >= MESH_RADIO_SETTINGS_MAX_CHANNELS ||
+        slot >= MESH_SESSION_MAX_CHANNELS || !radio->has_channel[slot]) {
+        return -ENOENT;
+    }
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.set_channel = true;
+    write.channel_index = slot;
+    if ((enum mesh_ui_settings_action)action->number == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+        /* Slot 0 is the Public channel every radio starts with; the row is not offered. */
+        return slot == 0U ? -EINVAL : mesh_meshcore_write_settings(&app->meshcore, &write);
+    }
+
+    const meshtastic_Channel *channel = &radio->channels[slot];
+    if (channel->has_settings) {
+        inkwell_str_copy(write.channel_name, sizeof write.channel_name,
+                         status->channels[slot].name);
+        if (channel->settings.psk.size == MESH_MESHCORE_SECRET_LEN) {
+            memcpy(write.channel_secret, channel->settings.psk.bytes, MESH_MESHCORE_SECRET_LEN);
+        }
+    }
+    const struct mesh_ui_setting_edit *key = NULL;
+    for (uint8_t i = 0; i < action->edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
+        const struct mesh_ui_setting_edit *edit = &action->edits[i];
+        if ((enum mesh_ui_setting_field)edit->field == MESH_UI_FIELD_CHANNEL_ANY_NAME) {
+            if (strlen(edit->text) >= sizeof write.channel_name) {
+                return -E2BIG;
+            }
+            inkwell_str_copy(write.channel_name, sizeof write.channel_name, edit->text);
+        } else if ((enum mesh_ui_setting_field)edit->field == MESH_UI_FIELD_CHANNEL_ANY_KEY) {
+            key = edit;
+        }
+    }
+    /* The key after the name, because one choice is made from the name. */
+    if (key != NULL) {
+        switch ((enum mesh_ui_psk_choice)key->number) {
+        case MESH_UI_PSK_KEEP:
+            break;
+        case MESH_UI_PSK_DEFAULT:
+            memcpy(write.channel_secret, k_meshcore_public_secret, MESH_MESHCORE_SECRET_LEN);
+            break;
+        case MESH_UI_PSK_RANDOM_128: {
+            const int result = mesh_app_random_key(write.channel_secret, MESH_MESHCORE_SECRET_LEN);
+            if (result < 0) {
+                inkwell_log_error("ui", "No random bytes for a channel key: %d", result);
+                return -EIO;
+            }
+            break;
+        }
+        case MESH_UI_PSK_FROM_NAME: {
+            /* A hashtag channel: anyone who knows the name can join it, which is the point. */
+            if (write.channel_name[0] != '#' || write.channel_name[1] == '\0') {
+                return -EINVAL;
+            }
+            uint8_t digest[INKWELL_SHA256_DIGEST_LEN];
+            struct inkwell_sha256 sha;
+            inkwell_sha256_init(&sha);
+            inkwell_sha256_update(&sha, write.channel_name, strlen(write.channel_name));
+            inkwell_sha256_final(&sha, digest);
+            memcpy(write.channel_secret, digest, MESH_MESHCORE_SECRET_LEN);
+            break;
+        }
+        case MESH_UI_PSK_TYPED: {
+            uint8_t typed[MESH_UI_PSK_MAX];
+            size_t len = 0U;
+            if (!mesh_ui_settings_key_parse(key->text, typed, sizeof typed, &len) ||
+                len != MESH_MESHCORE_SECRET_LEN) {
+                return -EINVAL;
+            }
+            memcpy(write.channel_secret, typed, MESH_MESHCORE_SECRET_LEN);
+            break;
+        }
+        default:
+            return -EINVAL;
+        }
+    }
+    /* A slot in use has both: a name alone would be a channel with the all-zero key, and a
+       key alone one no screen can name. */
+    bool keyed = false;
+    for (size_t i = 0; i < MESH_MESHCORE_SECRET_LEN; ++i) {
+        keyed = keyed || write.channel_secret[i] != 0U;
+    }
+    if (write.channel_name[0] == '\0' || !keyed) {
+        return -EINVAL;
+    }
+    return mesh_meshcore_write_settings(&app->meshcore, &write);
+}
+
 /*
  * A section save, as MeshCore's commands: the name for User, and for LoRa the four radio
  * numbers as one command and the power as another. Each starts from what the radio reported,
@@ -1490,6 +1597,9 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
     write.tx_power_dbm = (int8_t)self->tx_power_dbm;
 
     const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)action->section;
+    if (section == MESH_UI_SETTINGS_CHANNELS) {
+        return mesh_app_meshcore_channel_write(app, action);
+    }
     if (section != MESH_UI_SETTINGS_USER && section != MESH_UI_SETTINGS_LORA) {
         return -ENOTSUP;
     }

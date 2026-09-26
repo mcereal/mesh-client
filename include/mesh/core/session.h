@@ -498,7 +498,8 @@ struct mesh_traceroute {
 struct mesh_channel_summary {
     uint8_t index;
     uint8_t role; /* meshtastic_Channel_Role */
-    char name[12];
+    /* Meshtastic's names are at most 11 bytes; MeshCore's are 31. */
+    char name[32];
     uint8_t psk_len; /* 0 none, 1 default-key index, 16 AES-128, 32 AES-256 */
     bool uplink_enabled;
     bool downlink_enabled;

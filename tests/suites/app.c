@@ -5035,3 +5035,158 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * A MeshCore channel save is one SET_CHANNEL for the slot, whole: the name the roster holds -
+ * past Meshtastic's eleven bytes - and the secret, each the radio's unless a row changed it. A
+ * hashtag channel's key is SHA-256 of its "#name" cut to 16 bytes, which is what makes it
+ * joinable by name; "default" is the Public channel's published key; a key MeshCore cannot hold
+ * is refused with nothing sent.
+ */
+MESH_TEST_CASE(app_meshcore_channel_save_is_one_slot, unit) {
+    static const uint8_t k_test_secret[16] = {0x9c, 0xd8, 0xfc, 0xf2, 0x2a, 0x47, 0x33, 0x3b,
+                                              0x59, 0x1d, 0x96, 0xa2, 0xb8, 0x48, 0xb7, 0x3f};
+    static const uint8_t k_public_secret[16] = {0x8b, 0x33, 0x87, 0xe9, 0xc5, 0xcd, 0xea, 0x6a,
+                                                0xc9, 0xe5, 0xed, 0xba, 0xa1, 0x15, 0xcd, 0x72};
+    const char *failure = NULL;
+    static struct mesh_app app;
+    static struct app_meshcore_wire wire;
+    memset(&app, 0, sizeof app);
+    memset(&wire, 0, sizeof wire);
+    bool app_ready = false;
+    struct mesh_protocol protocol = {NULL, NULL};
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "meshcore_channel")) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_ble = false;
+    config.enable_serial = false;
+    config.enable_tcp = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    mesh_app_bind_protocol(&app, true);
+    protocol = mesh_meshcore_protocol(&app.meshcore);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+    app.meshcore.has_self = true;
+    app.meshcore.has_device = true;
+    app.meshcore.device.max_channels = 8U;
+    /* Slot 1 as the walk leaves it: a long name in the roster, its secret in the settings. */
+    struct mesh_radio_settings *radio = mesh_session_model_settings(&app.session);
+    const char *long_name = "#a-long-hashtag-channel";
+    radio->has_channel[1] = true;
+    radio->channels[1].index = 1;
+    radio->channels[1].role = meshtastic_Channel_Role_SECONDARY;
+    radio->channels[1].has_settings = true;
+    memset(radio->channels[1].settings.psk.bytes, 0x5a, 16U);
+    radio->channels[1].settings.psk.size = 16U;
+    snprintf(app.session.handshake.channels[1].name, sizeof app.session.handshake.channels[1].name,
+             "%s", long_name);
+    app.session.handshake.channel_count = 2U;
+    radio->has_channel[2] = true;
+    radio->channels[2].index = 2;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = (uint8_t)MESH_UI_SETTINGS_CHANNELS;
+    action.channel = 1U;
+    action.edit_count = 1U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_CHANNEL_ANY_KEY;
+    action.edits[0].number = MESH_UI_PSK_DEFAULT;
+    mesh_app_save_settings(&app, &action, 1000U);
+    if (wire.count != 1U || wire.frames[0][0] != MESH_MESHCORE_CMD_SET_CHANNEL ||
+        wire.frames[0][1] != 1U || strcmp((const char *)wire.frames[0] + 2, long_name) != 0 ||
+        memcmp(wire.frames[0] + 34, k_public_secret, 16U) != 0) {
+        failure = "a key change keeps the whole name and sends the Public channel's key";
+        goto cleanup;
+    }
+    mesh_app_publish_ui_state(&app);
+    if (strcmp(app.ui_store.settings.channels[1].name, long_name) != 0) {
+        failure = "the editor opens on the whole name, not Meshtastic's eleven bytes";
+        goto cleanup;
+    }
+
+    /* A new hashtag channel in an empty slot: named, and keyed from the name. */
+    mesh_protocol_detach(&protocol);
+    app.settings_save_pending = false;
+    app.meshcore.writes_outstanding = 0U;
+    app.meshcore.queue_count = 0U;
+    app.meshcore.awaiting = false;
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+    action.channel = 2U;
+    action.edit_count = 2U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_CHANNEL_ANY_KEY;
+    action.edits[0].number = MESH_UI_PSK_FROM_NAME;
+    action.edits[1].field = (uint16_t)MESH_UI_FIELD_CHANNEL_ANY_NAME;
+    snprintf(action.edits[1].text, sizeof action.edits[1].text, "%s", "#test");
+    mesh_app_save_settings(&app, &action, 2000U);
+    if (wire.count != 1U || wire.frames[0][1] != 2U ||
+        strcmp((const char *)wire.frames[0] + 2, "#test") != 0 ||
+        memcmp(wire.frames[0] + 34, k_test_secret, 16U) != 0) {
+        failure = "a hashtag channel's key is SHA-256 of its name, whichever row came first";
+        goto cleanup;
+    }
+
+    mesh_protocol_detach(&protocol);
+    app.settings_save_pending = false;
+    app.meshcore.writes_outstanding = 0U;
+    app.meshcore.queue_count = 0U;
+    app.meshcore.awaiting = false;
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+    snprintf(action.edits[1].text, sizeof action.edits[1].text, "%s", "plain");
+    mesh_app_save_settings(&app, &action, 3000U);
+    if (wire.count != 0U) {
+        failure = "a name without a # has no key to derive";
+        goto cleanup;
+    }
+    action.edit_count = 1U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_CHANNEL_ANY_NAME;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "named");
+    mesh_app_save_settings(&app, &action, 3000U);
+    if (wire.count != 0U) {
+        failure = "an empty slot named but given no key is not a channel";
+        goto cleanup;
+    }
+    action.channel = 1U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_CHANNEL_ANY_KEY;
+    action.edits[0].number = MESH_UI_PSK_TYPED;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s",
+             "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    mesh_app_save_settings(&app, &action, 3000U);
+    if (wire.count != 0U) {
+        failure = "a 256-bit key is refused; MeshCore has none";
+        goto cleanup;
+    }
+
+    /* Clearing is the same command, empty. */
+    struct mesh_ui_action clear;
+    memset(&clear, 0, sizeof clear);
+    clear.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    clear.section = (uint8_t)MESH_UI_SETTINGS_CHANNELS;
+    clear.channel = 1U;
+    clear.number = (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL;
+    mesh_app_save_settings(&app, &clear, 4000U);
+    uint8_t empty[48];
+    memset(empty, 0, sizeof empty);
+    if (wire.count != 1U || wire.frames[0][1] != 1U || wire.lens[0] != 50U ||
+        memcmp(wire.frames[0] + 2, empty, sizeof empty) != 0) {
+        failure = "a clear is an empty name and an all-zero secret";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_protocol_detach(&protocol);
+        mesh_app_shutdown(&app);
+    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

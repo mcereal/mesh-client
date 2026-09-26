@@ -95,7 +95,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `MODULES` | the Modules row in Settings |
 | `REACTIONS` | React on X, and X itself inside a thread |
 | `RADIO_FIRMWARE` | the radio firmware check and install rows |
-| `FULL_CONFIG` | every Settings section but User, Position, LoRa and Channels, and inside those every row but the name, the coordinates, the frequency, bandwidth, spread factor, coding rate and power; the Radio details' capability, reboot-count and admin-session rows |
+| `FULL_CONFIG` | every Settings section but User, Position, LoRa and Channels, and inside those every row but the name, the coordinates, the frequency, bandwidth, spread factor, coding rate and power, and a MeshCore channel's name and key; the Radio details' capability, reboot-count and admin-session rows |
 | `RADIO_MAINTENANCE` | shut down, NodeDB reset, backup, restore and factory reset - Reboot stays |
 
 A LoRa save without `FULL_CONFIG` gets its own confirm sentence
@@ -158,6 +158,15 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   kHz rather than the record's float; a frequency finer than a kHz is refused, a seventh
   coordinate decimal is rounded, and a link lost mid-save is reported unanswered rather than as
   a restart.
+- **A channel slot is edited** as a name (31 bytes; `MESH_UI_FIELD_CHANNEL_ANY_NAME`) and a
+  16-byte secret (`_ANY_KEY`) and nothing else, written whole with `SET_CHANNEL` and read back
+  with `GET_CHANNEL` for that slot alone. The walk keeps each slot's secret in the settings
+  record so a kept key is written back as it was; the record's name is Meshtastic's twelve bytes,
+  so the editor and the save take the whole name from the roster's channel instead. The key's
+  "default" is the Public channel's published secret, and "from the #name" is a hashtag
+  channel's - SHA-256 of the name, `#` included, cut to 16 bytes - which is what lets anyone who
+  knows the name join. No 256-bit key and no open channel: the firmware has neither. Clearing
+  is `SET_CHANNEL` with an empty name and a zeroed secret, and is not offered on slot 0.
 - **A contact is removed** with `REMOVE_CONTACT` and its whole key, and leaves the roster
   (`mesh_session_model_drop_node()`) when the radio answers OK - a refusal or a timeout leaves it
   listed. Only a contact is offered the row: a heard node the radio never added, or a sender
@@ -173,7 +182,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
 Not yet spoken: repeater and room-server login, telemetry and status requests, trace paths,
-adding a heard node as a contact and a contact's favourite flag, contact sharing, editing channels, and the settings SELF_INFO
+adding a heard node as a contact and a contact's favourite flag, contact sharing, and the settings SELF_INFO
 carries but the tab does not show (advert location policy, auto-add, multi-acks, telemetry
 modes). The `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to

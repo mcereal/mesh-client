@@ -1240,6 +1240,12 @@ static const uint32_t k_led_level_presets[] = {0U, 32U, 64U, 96U, 128U, 160U, 19
     (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_DEFAULT) |      \
      MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_128) |                                              \
      MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_256) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_NONE))
+/* MeshCore's channel secret is 16 bytes and nothing else: no 256-bit key, none at all, or the
+   one-byte shorthand - "default" is the Public channel's published key instead. */
+#define MESHCORE_CHANNEL_KEY_CHOICES                                                               \
+    (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_DEFAULT) |      \
+     MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_128) |                                              \
+     MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_FROM_NAME))
 #define PRIVATE_KEY_CHOICES                                                                        \
     (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_256))
 #define ADMIN_KEY_CHOICES                                                                          \
@@ -1857,6 +1863,20 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                      NULL, NO_PRESETS, 0U, MESH_STR_SETTINGS_NOTE_CHANNEL_NAME},
                                     INKCELL_STR_NONE,
                                     NULL},
+    /* The same label as the row above in the same section, so no note of its own: two notes
+       under one heading would be the help screen repeating itself. */
+    [MESH_UI_FIELD_CHANNEL_ANY_NAME] = {{MESH_STR_SETTINGS_FIELD_CHANNEL_NAME, INKSTAND_FORM_TEXT,
+                                         MESH_UI_SETTINGS_CHANNELS,
+                                         MESH_UI_TEXT_LIMIT_CHANNEL_ANY_NAME, NULL, NO_PRESETS, 0U,
+                                         INKCELL_STR_NONE},
+                                        INKCELL_STR_NONE,
+                                        NULL},
+    [MESH_UI_FIELD_CHANNEL_ANY_KEY] = {{MESH_STR_SETTINGS_FIELD_CHANNEL_KEY, INKSTAND_FORM_KEY,
+                                        MESH_UI_SETTINGS_CHANNELS,
+                                        MESH_UI_TEXT_LIMIT_CHANNEL_ANY_KEY, NULL, NO_PRESETS,
+                                        MESHCORE_CHANNEL_KEY_CHOICES, INKCELL_STR_NONE},
+                                       INKCELL_STR_NONE,
+                                       NULL},
     [MESH_UI_FIELD_CHANNEL_ROLE] = {{MESH_STR_SETTINGS_FIELD_CHANNEL_ROLE, INKSTAND_FORM_ENUM,
                                      MESH_UI_SETTINGS_CHANNELS, 2U, channel_role_name, NO_PRESETS,
                                      0U, MESH_STR_SETTINGS_NOTE_CHANNEL_ROLE},
@@ -2737,6 +2757,8 @@ bool mesh_ui_settings_key_len_ok(enum mesh_ui_setting_field field, size_t len) {
        ChannelSettings and a key it would not accept is a channel nobody can join. */
     case MESH_UI_FIELD_BEACON_OFFER_KEY:
         return len == 0U || len == 1U || len == 16U || len == 32U;
+    case MESH_UI_FIELD_CHANNEL_ANY_KEY:
+        return len == 16U;
     case MESH_UI_FIELD_SECURITY_PRIVATE_KEY:
         return len == 32U;
     case MESH_UI_FIELD_SECURITY_ADMIN_KEY_0:
@@ -3024,12 +3046,29 @@ void mesh_ui_settings_confirm_for_protocol(const struct mesh_ui_settings *settin
                                            enum mesh_ui_settings_section section,
                                            enum mesh_ui_settings_action action, char *text,
                                            size_t text_len) {
-    if (text == NULL || text_len == 0U || action != MESH_UI_SETTINGS_ACTION_NONE ||
+    if (text == NULL || text_len == 0U ||
         mesh_ui_settings_supports(settings, MESH_UI_FEATURE_FULL_CONFIG)) {
         return;
     }
-    if (section == MESH_UI_SETTINGS_LORA) {
+    /* A plain protocol's slot is a name and a key: no MQTT to lose and no role to fall to. */
+    if (action == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+        snprintf(text, text_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_CLEAR_PLAIN));
+        return;
+    }
+    if (action != MESH_UI_SETTINGS_ACTION_NONE) {
+        return;
+    }
+    /* And nothing it saves restarts the radio, so no sheet promises that. */
+    switch (section) {
+    case MESH_UI_SETTINGS_LORA:
         snprintf(text, text_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_LORA_PLAIN));
+        break;
+    case MESH_UI_SETTINGS_CHANNELS:
+        snprintf(text, text_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_CHANNELS_PLAIN));
+        break;
+    default:
+        snprintf(text, text_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_PLAIN));
+        break;
     }
 }
 

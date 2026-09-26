@@ -1018,6 +1018,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_SETTINGS_KEY_NONE] = "ninguna",
     [MESH_STR_SETTINGS_KEY_NO_ENCRYPTION] = "sin cifrado",
     [MESH_STR_SETTINGS_KEY_DEFAULT] = "clave predeterminada",
+    [MESH_STR_SETTINGS_KEY_FROM_NAME] = "del #nombre",
     [MESH_STR_SETTINGS_KEY_SIMPLE] = "clave simple %u",
     [MESH_STR_SETTINGS_KEY_AES] = "%.8s... (AES-%u)",
     [MESH_STR_SETTINGS_KEY_BITS] = "%.8s... (%u bits)",
@@ -1336,6 +1337,13 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Renombra este nodo con tu indicativo, lo mueve a la frecuencia de arriba y desactiva el "
         "cifrado del canal principal. Solo para operadores con licencia.",
     [MESH_STR_CONFIRM_TEXT_DEFAULT] = "La radio se reiniciará para aplicar esto.",
+    [MESH_STR_CONFIRM_TEXT_PLAIN] = "Se aplica al instante.",
+    [MESH_STR_CONFIRM_TEXT_CHANNELS_PLAIN] =
+        "Se aplica al instante. Un canal es su clave - el nombre es solo la etiqueta de esta "
+        "radio - y la clave de un canal #nombre puede sacarse de su nombre.",
+    [MESH_STR_CONFIRM_TEXT_CLEAR_PLAIN] =
+        "Se borran el nombre y la clave. Una clave sin copia en otro sitio se pierde para "
+        "siempre.",
     [MESH_STR_CONFIRM_TITLE_IMPORT] = "¿Unirse a %s?",
     [MESH_STR_CONFIRM_TEXT_IMPORT_ONE] =
         "El enlace lleva %u canal y los ajustes LoRa de su radio. Reemplaza todos los canales de "

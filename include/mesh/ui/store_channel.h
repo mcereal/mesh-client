@@ -20,7 +20,8 @@ extern "C" {
 #endif
 
 #define MESH_UI_MAX_CHANNELS 8U
-#define MESH_UI_CHANNEL_NAME_MAX 12U
+/* Room for MeshCore's 31-byte names; a Meshtastic one is at most 11. */
+#define MESH_UI_CHANNEL_NAME_MAX 32U
 
 struct mesh_ui_channel {
     uint8_t index;
