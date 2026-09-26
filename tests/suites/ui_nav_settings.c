@@ -2307,3 +2307,74 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/* The row a field is on in a section as built, or MESH_UI_SETTINGS_ITEMS_MAX when it is not there.
+ */
+static uint32_t settings_field_row_of(const struct mesh_ui_store *store,
+                                      enum mesh_ui_settings_section section,
+                                      enum mesh_ui_setting_field field) {
+    struct mesh_ui_settings_item item;
+    for (uint32_t row = 0U; row < MESH_UI_SETTINGS_ITEMS_MAX; ++row) {
+        if (!mesh_ui_settings_item(&store->settings, &store->handshake, NULL, 0U, section,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+            break;
+        }
+        if (item.field == field) {
+            return row;
+        }
+    }
+    return MESH_UI_SETTINGS_ITEMS_MAX;
+}
+
+/*
+ * A dimmed LoRa row still takes the edit - a manual setting can be readied before the preset is
+ * turned off - and says, on the press, which switch decides when it counts. A row at full
+ * strength says nothing: the snackbar is the dimming explained, not a receipt for every edit.
+ */
+MESH_TEST_CASE(ui_nav_settings_an_edit_to_a_dimmed_row_says_when_it_counts, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.use_preset = true;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    const uint32_t spread =
+        settings_field_row_of(&store, MESH_UI_SETTINGS_LORA, MESH_UI_FIELD_LORA_SPREAD);
+    const uint32_t hops =
+        settings_field_row_of(&store, MESH_UI_SETTINGS_LORA, MESH_UI_FIELD_LORA_HOPS);
+    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_LORA) ||
+        !mesh_test_settings_cursor_to(&store, hops)) {
+        failure = "the hop limit row should be reachable";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    if (store.nav.settings_edit_count != 1U || store.nav.toast.text[0] != '\0') {
+        failure = "an edit to a row the radio uses should raise no notice";
+        goto cleanup;
+    }
+    if (!mesh_test_settings_cursor_to(&store, spread)) {
+        failure = "the spread factor row should be reachable";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    if (store.nav.settings_edit_count != 2U) {
+        failure = "a dimmed row should still take the edit";
+        goto cleanup;
+    }
+    if (strcmp(store.nav.toast.text, inkcell_str(MESH_STR_TOAST_USED_WITHOUT_PRESET)) != 0) {
+        failure = "an edit to a dimmed row should say it waits for the preset to be off";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

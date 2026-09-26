@@ -42,16 +42,16 @@
  * which is the first thing a new install shows, says what would fill it while no radio is
  * attached.
  */
-static const char *fb_conversation_preview(const struct mesh_ui_conversation *conversation,
-                                           bool link_up) {
+static const char *fb_conversation_preview(const struct mesh_ui_store *view,
+                                           const struct mesh_ui_conversation *conversation) {
     if (conversation->kind == MESH_UI_CONVERSATION_NEW) {
         return inkcell_str(MESH_STR_MESSAGES_NEW_PREVIEW);
     }
+    if (mesh_ui_nav_conversation_wants_link(view, conversation)) {
+        return inkcell_str(MESH_STR_MESSAGES_EMPTY);
+    }
     if (conversation->message_count > 0U || conversation->preview[0] != '\0') {
         return conversation->preview;
-    }
-    if (conversation->kind == MESH_UI_CONVERSATION_ALL && !link_up) {
-        return inkcell_str(MESH_STR_MESSAGES_EMPTY);
     }
     return inkcell_str(MESH_STR_MESSAGES_NO_MESSAGES_YET);
 }
@@ -78,7 +78,6 @@ void fb_render_conversations(struct inkcell_draw_state *state,
                                snapshot->messages.dropped);
     }
     fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
-    const bool link_up = view.handshake_valid && view.handshake.link_up;
 
     /*
      * Each conversation is one cell two body rows tall: the avatar, the name and the age, then
@@ -147,7 +146,7 @@ void fb_render_conversations(struct inkcell_draw_state *state,
             .accent = is_view,
             .name = conversation.name,
             .age = age,
-            .preview = fb_conversation_preview(&conversation, link_up),
+            .preview = fb_conversation_preview(&view, &conversation),
             .preview_outbound = conversation.preview_outbound,
             .badge = badge,
             .unread = (conversation.unread > 0U),

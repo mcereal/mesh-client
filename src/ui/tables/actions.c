@@ -74,8 +74,6 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
             command_add(bar, MESH_UI_COMMAND_CANCEL, MESH_STR_ACTION_CANCEL, INKCELL_BUTTON_B);
             return;
         }
-        command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
-        command_add(bar, MESH_UI_COMMAND_NEW, MESH_STR_ACTION_NEW, INKCELL_BUTTON_Y);
         /*
          * The delete and the mute, the second named for the row the cursor is on rather than
          * for the key.
@@ -96,15 +94,26 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
          * opinion about the nav that the map's selection and the app bar's back arrow both
          * refuse. It is built on one screen, once a frame, and the renderer for that screen
          * builds the same view a moment later.
+         *
+         * The same view answers A, which is "open" on every row but one: the all-traffic row
+         * with no radio and nothing kept, whose second line says "connect" and whose press
+         * does - the Nodes tab's empty state, asked the question the nav asks.
          */
         {
             struct mesh_ui_conversation conversation;
             struct mesh_ui_store view;
             mesh_ui_store_view(snapshot, &view);
-            if (mesh_ui_nav_conversation_at(&view, nav->cursor[MESH_UI_SCREEN_MESSAGES],
-                                            &conversation) &&
-                (conversation.kind == MESH_UI_CONVERSATION_CHANNEL ||
-                 conversation.kind == MESH_UI_CONVERSATION_DIRECT)) {
+            const bool have = mesh_ui_nav_conversation_at(
+                &view, nav->cursor[MESH_UI_SCREEN_MESSAGES], &conversation);
+            if (have && mesh_ui_nav_conversation_wants_link(&view, &conversation)) {
+                command_add(bar, MESH_UI_COMMAND_CONNECT, MESH_STR_ACTION_CONNECT,
+                            INKCELL_BUTTON_A);
+            } else {
+                command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
+            }
+            command_add(bar, MESH_UI_COMMAND_NEW, MESH_STR_ACTION_NEW, INKCELL_BUTTON_Y);
+            if (have && (conversation.kind == MESH_UI_CONVERSATION_CHANNEL ||
+                         conversation.kind == MESH_UI_CONVERSATION_DIRECT)) {
                 command_add(bar, MESH_UI_COMMAND_DELETE, MESH_STR_ACTION_DELETE, INKCELL_BUTTON_X);
                 if (conversation.muted) {
                     command_add(bar, MESH_UI_COMMAND_UNMUTE, MESH_STR_ACTION_UNMUTE,
