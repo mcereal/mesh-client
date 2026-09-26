@@ -978,10 +978,25 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             memcpy(record, request->frame, request->len);
             record[0] = MESH_MESHCORE_RESP_CONTACT;
             struct mesh_meshcore_contact contact;
+            const struct mesh_node_summary *was = NULL;
+            uint32_t id = 0U;
+            bool clash = false;
             if (mesh_meshcore_decode_contact(record, (size_t)request->len + 4U, &contact) == 0) {
-                const uint32_t id =
-                    mesh_meshcore_node_id(contact.public_key, MESH_MESHCORE_PUBKEY_LEN);
-                const struct mesh_node_summary *was = mesh_meshcore_roster_node(meshcore, id);
+                id = mesh_meshcore_node_id(contact.public_key, MESH_MESHCORE_PUBKEY_LEN);
+                was = mesh_meshcore_roster_node(meshcore, id);
+                /* A different key under the same four bytes - an advert heard while this add
+                   waited - keeps its row: storing this one there would make it another node. */
+                clash = was != NULL && (was->public_key_len != MESH_MESHCORE_PUBKEY_LEN ||
+                                        memcmp(was->public_key, contact.public_key,
+                                               MESH_MESHCORE_PUBKEY_LEN) != 0);
+                if (clash) {
+                    inkwell_log_warn("meshcore",
+                                     "Contact 0x%08x shares its number with another node; "
+                                     "not listed until the next contact sync",
+                                     id);
+                }
+            }
+            if (!clash && id != 0U) {
                 const bool favorite = (contact.flags & MESH_MESHCORE_CONTACT_FAVORITE) != 0U;
                 if (was == NULL || !was->in_nodedb) {
                     inkwell_log_info("meshcore", "Added contact 0x%08x", id);

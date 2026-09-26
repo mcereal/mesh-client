@@ -1292,6 +1292,25 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     MESH_TEST_FAIL_IF(model_node(0xE0E1E2E3U) == NULL || model_node(0xE0E1E2E3U)->last_heard == 0U,
                       "the OK brings him back heard, since he was");
+
+    /* An advert under the same four bytes, heard while a link's add waits, keeps its row. */
+    uint8_t gina[MESH_MESHCORE_PUBKEY_LEN];
+    for (size_t i = 0; i < sizeof gina; ++i) {
+        gina[i] = (uint8_t)(0xA0U + i);
+    }
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_import_contact(&g_meshcore, gina, "Gina", MESH_MESHCORE_ADV_CHAT) != 1,
+        "Gina's link is asked");
+    const size_t henry_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xA0, "Henry",
+                                           MESH_MESHCORE_ADV_CHAT, 0xffU, 1700001100U);
+    advert[32] ^= 0xFFU; /* the same first four bytes, a different key */
+    feed(&protocol, advert, henry_len);
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(model_node(0xA0A1A2A3U) == NULL ||
+                          strcmp(model_node(0xA0A1A2A3U)->long_name, "Henry") != 0 ||
+                          model_node(0xA0A1A2A3U)->public_key[31] !=
+                              (uint8_t)((0xA0U + 31U) ^ 0xFFU),
+                      "Henry's row is not written over by Gina's OK");
     record_success(test_name);
 }
 
