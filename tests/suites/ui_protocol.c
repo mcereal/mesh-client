@@ -14,6 +14,7 @@
 #include "support/ui_fixture.h"
 
 #include "inkcell/ui/input.h"
+#include "mesh/core/meshcore.h"
 #include "mesh/core/protocol.h"
 #include "mesh/core/session.h"
 #include "mesh/ui/commands.h"
@@ -85,6 +86,18 @@ MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
     mesh_ui_protocol_features(&stranger, &id, &lacks);
     MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_OTHER || lacks != MESH_UI_FEATURES_ALL,
                       "a protocol with no row lacks every feature");
+
+    /* MeshCore keeps text and the roster, and gives up every verb that is Meshtastic's alone. */
+    static struct mesh_meshcore meshcore;
+    mesh_meshcore_init(&meshcore, &session);
+    const struct mesh_protocol companion = mesh_meshcore_protocol(&meshcore);
+    mesh_ui_protocol_features(&companion, &id, &lacks);
+    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHCORE,
+                      "MeshCore is published under its own name");
+    MESH_TEST_FAIL_IF((lacks & MESH_UI_FEATURE_WAYPOINTS) == 0U ||
+                          (lacks & MESH_UI_FEATURE_REMOTE_ADMIN) == 0U ||
+                          (lacks & MESH_UI_FEATURE_CONTACT_LINKS) == 0U,
+                      "MeshCore lacks waypoints, Meshtastic's admin and its links");
 
     const struct mesh_protocol none = {NULL, NULL};
     mesh_ui_protocol_features(&none, &id, &lacks);

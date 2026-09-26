@@ -89,10 +89,11 @@ static const struct mesh_stream_framing k_oversized_framing = {
 
 /* The Nordic UART shape: write RX, subscribe to TX, and every notification is a frame. Unlike
    Meshtastic's in every UUID and in the inbound model, so a link that fell back to FromNum and
-   FromRadio would find nothing and read nothing. */
-#define FAKE_NUS_SERVICE "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define FAKE_NUS_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
-#define FAKE_NUS_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+   FromRadio would find nothing and read nothing. Not the real Nordic UART UUIDs: those are
+   MeshCore's, a known profile, and the scan would tag the radio with that one first. */
+#define FAKE_NUS_SERVICE "FA4E0001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define FAKE_NUS_RX "FA4E0002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define FAKE_NUS_TX "FA4E0003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 static const struct mesh_ble_profile k_fake_nus = {
     .name = "fake-nus",
