@@ -29,8 +29,8 @@ $packages = @(
     'mingw-w64-ucrt-x86_64-pkgconf',
     'mingw-w64-ucrt-x86_64-SDL2',
     'mingw-w64-ucrt-x86_64-python',
+    'mingw-w64-ucrt-x86_64-protobuf',
     'mingw-w64-ucrt-x86_64-python-protobuf',
-    'mingw-w64-ucrt-x86_64-python-grpcio-tools',
     'mingw-w64-ucrt-x86_64-python-jinja',
     'mingw-w64-ucrt-x86_64-python-jsonschema'
 )
