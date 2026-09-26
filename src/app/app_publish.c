@@ -2668,6 +2668,21 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             (uint16_t)mesh_meshcore_text_max(&app->meshcore, MESH_MESSAGE_BROADCAST_ADDR);
     }
     mesh_app_flatten_firmware(app, &ui_settings);
+    /* MeshCore's DEVICE_INFO is its DeviceMetadata: which firmware, on which board. After the
+       firmware's own flatten, which would otherwise have the last word on `fw_board`. */
+    if (app->meshcore_bound && app->meshcore.has_device) {
+        ui_settings.has_metadata = true;
+        inkwell_str_copy(ui_settings.firmware_version, sizeof ui_settings.firmware_version,
+                         app->meshcore.device.version);
+        inkwell_str_copy(ui_settings.fw_board, sizeof ui_settings.fw_board,
+                         app->meshcore.device.model);
+    }
+    /* And its frequency from the kHz SELF_INFO carries, not through the record's float, which
+       above a GHz no longer holds a tenth of a kHz and would show a value the save refuses. */
+    if (app->meshcore_bound && app->meshcore.has_self) {
+        ui_settings.override_frequency_scaled = (int64_t)app->meshcore.self.frequency_khz * 10;
+        ui_settings.tx_power_max = app->meshcore.self.max_tx_power_dbm;
+    }
     /* And the name of the radio being administered, for the same reason: it is a roster fact,
        so a node that has just introduced itself renames the banner without the settings having
        moved at all. */

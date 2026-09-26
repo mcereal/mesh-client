@@ -344,7 +344,15 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_LORA_OVERRIDE_DUTY,
     MESH_UI_FIELD_LORA_CHANNEL_NUM,    /* text: a slot number, 0 = worked out from the region */
     MESH_UI_FIELD_LORA_OVERRIDE_FREQ,  /* text: MHz, 0 = use the slot above */
+    MESH_UI_FIELD_LORA_FREQUENCY,      /* text: MHz, the one frequency (a protocol with no slots) */
     MESH_UI_FIELD_LORA_FREQUENCY_TRIM, /* text: Hz, a crystal's error either way */
+    /* The bandwidth and spread factor for a protocol with no presets, over every value its
+       firmware takes rather than the five and six Meshtastic's modem does. */
+    MESH_UI_FIELD_LORA_ANY_BANDWIDTH,
+    MESH_UI_FIELD_LORA_ANY_SPREAD,
+    /* Transmit power in dBm, signed and literal: 0 is 0 dBm, not "max". Carried offset by
+       MESH_UI_ANY_TX_POWER_BIAS, because a preset list mixing signs does not step. */
+    MESH_UI_FIELD_LORA_ANY_TX_POWER,
     /*
      * LoRaConfig.ignore_incoming: up to three node numbers whose packets this radio drops as
      * though they were out of range.
@@ -806,6 +814,10 @@ struct mesh_ui_settings_item {
      * a row showing something it should not be. Such a row says so instead - see `conflict`.
      */
     uint32_t choices;
+    /* A NUMBER row's highest value right now, 0 for the field's whole scale: the radio's own
+       limit, which the field table cannot know. Right stops there; a value already above it
+       is shown, as `choices` does, and Left still walks down from it. */
+    uint32_t ceiling;
     /*
      * The row is showing a value that disagrees with another row's, and the radio will not
      * honour the pair.
@@ -1202,6 +1214,16 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
 void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
                                    enum mesh_ui_settings_action action, char *out, size_t out_len);
 /*
+ * Replaces a body the call above filled in with the protocol's own, where the protocol's radio
+ * does something else on that save: a LoRa save on a radio without Meshtastic's configuration
+ * neither reboots it nor has a region or a preset to get wrong - what it costs is a frequency
+ * the other radios are not on.
+ */
+void mesh_ui_settings_confirm_for_protocol(const struct mesh_ui_settings *settings,
+                                           enum mesh_ui_settings_section section,
+                                           enum mesh_ui_settings_action action, char *text,
+                                           size_t text_len);
+/*
  * Adds the sentence naming *which* radio, to a body the call above has already filled in.
  *
  * The confirm sheet is the one place the remote-administration banner cannot reach: a modal owns
@@ -1285,9 +1307,10 @@ bool mesh_ui_settings_decimal_parse(const char *text, uint32_t digits, int64_t l
 
 /* The decimal places each kind of row is held to. Named here rather than written at every
    call, because the format and the parse have to agree and they are in different files. */
-#define MESH_UI_COORD_DIGITS 7U     /* Meshtastic's fixed-point 1e-7 degrees */
-#define MESH_UI_FREQUENCY_DIGITS 4U /* megahertz to 100 Hz, which is finer than any band plan */
-#define MESH_UI_HERTZ_DIGITS 1U     /* a crystal offset, in hertz */
+#define MESH_UI_COORD_DIGITS 7U        /* Meshtastic's fixed-point 1e-7 degrees */
+#define MESH_UI_ANY_TX_POWER_BIAS 128U /* LORA_ANY_TX_POWER's number is dBm plus this */
+#define MESH_UI_FREQUENCY_DIGITS 4U    /* megahertz to 100 Hz, which is finer than any band plan */
+#define MESH_UI_HERTZ_DIGITS 1U        /* a crystal offset, in hertz */
 
 /* Coordinates as decimal degrees, to and from Meshtastic's fixed-point 1e-7 form - the decimal
    pair above at MESH_UI_COORD_DIGITS, shown to five places. An empty string is not a

@@ -683,6 +683,10 @@ struct mesh_node_summary *mesh_session_model_node(struct mesh_session *session, 
 int mesh_session_model_set_channel(struct mesh_session *session,
                                    const struct mesh_channel_summary *channel);
 void mesh_session_model_sync_complete(struct mesh_session *session);
+/* The radio's settings record, for a protocol that reports its settings in its own shape and
+   projects them onto this one's - the section flags, the owner, the LoRa config - so the
+   Settings tab reads them unchanged. Its write counters are how a save is seen to land. */
+struct mesh_radio_settings *mesh_session_model_settings(struct mesh_session *session);
 
 /* Decodes one FromRadio protobuf and folds it into the handshake, node cache, settings or
    message log. Admin replies never reach the message log. */

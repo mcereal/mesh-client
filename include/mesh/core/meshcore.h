@@ -51,7 +51,10 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_SEND_SELF_ADVERT = 7,
     MESH_MESHCORE_CMD_SET_ADVERT_NAME = 8,
     MESH_MESHCORE_CMD_SYNC_NEXT_MESSAGE = 10,
+    MESH_MESHCORE_CMD_SET_RADIO_PARAMS = 11,
+    MESH_MESHCORE_CMD_SET_RADIO_TX_POWER = 12,
     MESH_MESHCORE_CMD_RESET_PATH = 13,
+    MESH_MESHCORE_CMD_SET_ADVERT_LATLON = 14,
     MESH_MESHCORE_CMD_REMOVE_CONTACT = 15,
     MESH_MESHCORE_CMD_REBOOT = 19,
     MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE = 20,
@@ -226,6 +229,18 @@ int mesh_meshcore_encode_text(const uint8_t prefix[MESH_MESHCORE_PREFIX_LEN], ui
                               uint32_t timestamp, const char *text, uint8_t *out, size_t out_len);
 int mesh_meshcore_encode_channel_text(uint8_t channel, uint32_t timestamp, const char *text,
                                       uint8_t *out, size_t out_len);
+/* SET_ADVERT_NAME: the name, unterminated; the firmware keeps at most MESH_MESHCORE_NAME_LEN
+   bytes of it, so a longer one is refused here rather than cut there. */
+int mesh_meshcore_encode_name(const char *name, uint8_t *out, size_t out_len);
+/* SET_RADIO_PARAMS: frequency in kHz, bandwidth in Hz, spreading factor and coding rate. */
+int mesh_meshcore_encode_radio_params(uint32_t frequency_khz, uint32_t bandwidth_hz,
+                                      uint8_t spreading_factor, uint8_t coding_rate, uint8_t *out,
+                                      size_t out_len);
+/* SET_ADVERT_LATLON: degrees times a million, as SELF_INFO reports them. */
+int mesh_meshcore_encode_latlon(int32_t latitude_e6, int32_t longitude_e6, uint8_t *out,
+                                size_t out_len);
+/* REBOOT carries the word, so a stray byte cannot reboot a radio. */
+int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len);
 
 /*
  * The roster's number for a MeshCore key: its first four bytes, big-endian.
@@ -313,6 +328,33 @@ struct mesh_meshcore {
 
     struct mesh_meshcore_pending pending[MESH_MESHCORE_PENDING_SENDS];
     uint32_t next_packet_id;
+
+    /* A settings save in flight: how many of its commands are still unanswered, and the first
+       refusal among those that were. Settled into the model's write counters once the last
+       one is answered. */
+    uint8_t writes_outstanding;
+    int32_t write_error;
+    /* The link's answer to the last frame it refused outright, for a caller that must say so. */
+    int send_error;
+};
+
+/*
+ * A settings save, as MeshCore's commands take it: each group is written only when its `set_`
+ * flag is, and a group is written whole - the radio parameters are one command.
+ */
+struct mesh_meshcore_settings_write {
+    bool set_name;
+    char name[MESH_MESHCORE_NAME_LEN + 1U];
+    bool set_radio;
+    uint32_t frequency_khz;
+    uint32_t bandwidth_hz;
+    uint8_t spreading_factor;
+    uint8_t coding_rate;
+    bool set_tx_power;
+    int8_t tx_power_dbm;
+    bool set_position;
+    int32_t latitude_e6;
+    int32_t longitude_e6;
 };
 
 /* `model` is the session the conversation fills; it must outlive every link that carries this. */
@@ -339,6 +381,22 @@ int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8
                             const char *text, uint32_t *out_packet_id);
 /* Announces this radio: flooded across the mesh, or to the nodes in earshot only. */
 int mesh_meshcore_send_advert(struct mesh_meshcore *meshcore, bool flood);
+
+/*
+ * Queues the save's commands and then APP_START, whose SELF_INFO is the read-back. Returns how
+ * many commands were queued (> 0), -EINVAL for a save that writes nothing or carries a value
+ * the codec refuses, -ENOTCONN without a link, -EBUSY while an earlier save is unanswered, or
+ * -ENOBUFS when the queue cannot take it whole. The outcome lands in the model's
+ * mesh_radio_settings: writes_acked once every command was answered OK, else writes_failed with
+ * the first MeshCore error code (or MESH_RADIO_SETTINGS_WRITE_TIMEOUT) in last_write_error.
+ */
+int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
+                                 const struct mesh_meshcore_settings_write *write);
+/* Asks for SELF_INFO again, which re-projects the settings. 1 when asked, 0 when already
+   asked, -ENOTCONN without a link. */
+int mesh_meshcore_refresh_settings(struct mesh_meshcore *meshcore);
+/* Reboots the radio. The link drops without an answer and auto-connect brings it back. */
+int mesh_meshcore_reboot(struct mesh_meshcore *meshcore);
 
 #ifdef __cplusplus
 }

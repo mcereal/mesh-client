@@ -19,6 +19,7 @@
 #include "inkwell/ble/central.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
+#include "mesh/core/meshcore.h"
 #include "mesh/core/message.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
@@ -4819,6 +4820,218 @@ MESH_TEST_CASE(app_probe_honours_a_forced_protocol, unit) {
 cleanup:
     unsetenv("MESHCLIENT_PROTOCOL");
     app_probe_close(&fx);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* What a MeshCore link was handed, for the save test below. */
+struct app_meshcore_wire {
+    uint8_t frames[8][MESH_MESHCORE_MAX_FRAME];
+    size_t lens[8];
+    size_t count;
+};
+
+static int app_meshcore_capture(void *ctx, const uint8_t *frame, size_t len, uint32_t frame_id) {
+    (void)frame_id;
+    struct app_meshcore_wire *wire = ctx;
+    if (wire->count >= 8U || len > MESH_MESHCORE_MAX_FRAME) {
+        return -ENOBUFS;
+    }
+    memcpy(wire->frames[wire->count], frame, len);
+    wire->lens[wire->count++] = len;
+    return 0;
+}
+
+static uint32_t app_le32(const uint8_t *bytes) {
+    return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8U) | ((uint32_t)bytes[2] << 16U) |
+           ((uint32_t)bytes[3] << 24U);
+}
+
+/*
+ * A Settings save on a MeshCore link is MeshCore's commands, not an AdminMessage: the edited
+ * rows over what the radio reported. The bandwidth row is Meshtastic's whole kHz, and 62 is
+ * 62.5 kHz on the air - a radio sent 62000 Hz would be on a bandwidth nobody else is. A value
+ * the firmware would refuse is refused here with nothing sent, and the radio's OK is announced
+ * as saved, without Meshtastic's warning of a restart.
+ */
+MESH_TEST_CASE(app_meshcore_settings_save_speaks_meshcore, unit) {
+    const char *failure = NULL;
+    static struct mesh_app app;
+    static struct app_meshcore_wire wire;
+    memset(&app, 0, sizeof app);
+    memset(&wire, 0, sizeof wire);
+    bool app_ready = false;
+    struct mesh_protocol protocol = {NULL, NULL};
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "meshcore_save")) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_ble = false;
+    config.enable_serial = false;
+    config.enable_tcp = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    mesh_app_bind_protocol(&app, true);
+    protocol = mesh_meshcore_protocol(&app.meshcore);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+    app.meshcore.has_self = true;
+    app.meshcore.self.frequency_khz = 910525U;
+    app.meshcore.self.bandwidth_hz = 250000U;
+    app.meshcore.self.spreading_factor = 10U;
+    app.meshcore.self.coding_rate = 5U;
+    app.meshcore.self.tx_power_dbm = 20U;
+    app.meshcore.self.max_tx_power_dbm = 22U;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = (uint8_t)MESH_UI_SETTINGS_LORA;
+    action.edit_count = 1U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_ANY_SPREAD;
+    action.edits[0].number = 13U;
+    mesh_app_save_settings(&app, &action, 1000U);
+    if (wire.count != 0U) {
+        failure = "a spread factor the firmware refuses is not sent";
+        goto cleanup;
+    }
+
+    action.edit_count = 2U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_ANY_BANDWIDTH;
+    action.edits[0].number = 62U;
+    action.edits[1].field = (uint16_t)MESH_UI_FIELD_LORA_FREQUENCY;
+    snprintf(action.edits[1].text, sizeof action.edits[1].text, "%s", "869.618");
+    mesh_app_save_settings(&app, &action, 1000U);
+    if (wire.count != 1U || wire.frames[0][0] != MESH_MESHCORE_CMD_SET_RADIO_PARAMS) {
+        failure = "a LoRa save goes out as MeshCore's radio command";
+        goto cleanup;
+    }
+    if (app_le32(wire.frames[0] + 1) != 869618U || app_le32(wire.frames[0] + 5) != 62500U ||
+        wire.frames[0][9] != 10U || wire.frames[0][10] != 5U) {
+        failure = "the edited rows over what the radio had, and 62 kHz as 62.5";
+        goto cleanup;
+    }
+    if (!app.settings_save_pending) {
+        failure = "the save is being watched for its answer";
+        goto cleanup;
+    }
+
+    const uint8_t ok = MESH_MESHCORE_RESP_OK;
+    mesh_protocol_receive(&protocol, &ok, 1U);
+    mesh_app_track_settings_save(&app, mesh_session_settings(&app.session), true);
+    char expected[MESH_UI_NAV_TOAST_MAX];
+    inkcell_str_format(expected, sizeof expected, MESH_STR_TOAST_SAVED_SECTION,
+                       mesh_ui_settings_section_name(MESH_UI_SETTINGS_LORA));
+    if (app.settings_save_pending || strcmp(app.ui_store.nav.toast.text, expected) != 0) {
+        failure = "the radio's OK is announced as saved, with no restart promised";
+        goto cleanup;
+    }
+
+    /* Power is literal dBm: 0 is 0 dBm, a negative one goes out signed, and more than the
+       radio's maximum is refused. */
+    mesh_protocol_detach(&protocol);
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+    action.edit_count = 1U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_ANY_TX_POWER;
+    action.edits[0].number = MESH_UI_ANY_TX_POWER_BIAS + 23U;
+    mesh_app_save_settings(&app, &action, 2000U);
+    if (wire.count != 0U) {
+        failure = "more power than the radio has is not sent";
+        goto cleanup;
+    }
+    action.edits[0].number = MESH_UI_ANY_TX_POWER_BIAS - 9U;
+    mesh_app_save_settings(&app, &action, 2000U);
+    if (wire.count != 1U || wire.frames[0][0] != MESH_MESHCORE_CMD_SET_RADIO_TX_POWER ||
+        (int8_t)wire.frames[0][1] != -9) {
+        failure = "a negative power goes out signed";
+        goto cleanup;
+    }
+
+    /* MeshCore carries whole kHz: a finer frequency is refused, not rounded. */
+    mesh_protocol_detach(&protocol);
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_FREQUENCY;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "869.6185");
+    mesh_app_save_settings(&app, &action, 3000U);
+    if (wire.count != 0U) {
+        failure = "a frequency below a kHz is not sent truncated";
+        goto cleanup;
+    }
+
+    /* A seventh decimal is rounded to MeshCore's millionths, either side of zero. */
+    struct mesh_ui_action pin;
+    memset(&pin, 0, sizeof pin);
+    pin.number = (uint32_t)MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION;
+    pin.edit_count = 2U;
+    pin.edits[0].field = (uint16_t)MESH_UI_FIELD_POSITION_LATITUDE;
+    snprintf(pin.edits[0].text, sizeof pin.edits[0].text, "%s", "1.0000005");
+    pin.edits[1].field = (uint16_t)MESH_UI_FIELD_POSITION_LONGITUDE;
+    snprintf(pin.edits[1].text, sizeof pin.edits[1].text, "%s", "-1.0000005");
+    mesh_app_save_fixed_position(&app, &pin, 3500U);
+    if (wire.count != 1U || wire.frames[0][0] != MESH_MESHCORE_CMD_SET_ADVERT_LATLON ||
+        app_le32(wire.frames[0] + 1) != 1000001U ||
+        (int32_t)app_le32(wire.frames[0] + 5) != -1000001) {
+        failure = "coordinates are rounded to millionths, not truncated";
+        goto cleanup;
+    }
+    mesh_protocol_detach(&protocol);
+    app.settings_save_pending = false;
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+
+    /* A position that rounds to 0,0 would be MeshCore's clear; it is refused instead. */
+    snprintf(pin.edits[0].text, sizeof pin.edits[0].text, "%s", "0.0000001");
+    snprintf(pin.edits[1].text, sizeof pin.edits[1].text, "%s", "-0.0000001");
+    mesh_app_save_fixed_position(&app, &pin, 3600U);
+    if (wire.count != 0U) {
+        failure = "a Set that rounds to 0,0 is not sent as a Clear";
+        goto cleanup;
+    }
+
+    /* Clearing the position is the advert location written as 0,0. */
+    struct mesh_ui_action clear;
+    memset(&clear, 0, sizeof clear);
+    clear.number = (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION;
+    mesh_app_save_fixed_position(&app, &clear, 4000U);
+    if (wire.count != 1U || wire.frames[0][0] != MESH_MESHCORE_CMD_SET_ADVERT_LATLON ||
+        app_le32(wire.frames[0] + 1) != 0U || app_le32(wire.frames[0] + 5) != 0U) {
+        failure = "a clear goes out as MeshCore's 0,0 location";
+        goto cleanup;
+    }
+
+    /* A link lost mid-save is no restart on MeshCore: the save is reported unanswered. */
+    mesh_protocol_detach(&protocol);
+    mesh_app_track_settings_save(&app, mesh_session_settings(&app.session), false);
+    inkcell_str_format(expected, sizeof expected, MESH_STR_TOAST_SAVE_NO_REPLY,
+                       app.settings_save_section);
+    if (app.settings_save_pending || strcmp(app.ui_store.nav.toast.text, expected) != 0) {
+        failure = "a save the link took with it says it got no reply";
+        goto cleanup;
+    }
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+
+    /* Above a GHz the record's float no longer holds a tenth of a kHz; the row reads the kHz
+       SELF_INFO carries, so a 2.4 GHz radio's frequency shows as the value it saves back. */
+    app.meshcore.self.frequency_khz = 2400003U;
+    mesh_app_publish_ui_state(&app);
+    if (app.ui_store.settings.override_frequency_scaled != 24000030) {
+        failure = "a GHz frequency is published to the kHz, not through a float";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_protocol_detach(&protocol);
+        mesh_app_shutdown(&app);
+    }
+    unsetenv("MESHCLIENT_UI_BACKEND");
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

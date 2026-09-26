@@ -1278,7 +1278,13 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
     const struct mesh_ui_settings *ui = &app->ui_store.settings;
     int result = 0;
 
-    if (clearing) {
+    if (clearing && app->meshcore_bound) {
+        /* MeshCore has no fixed-position flag: its advert location is cleared by writing 0,0. */
+        struct mesh_meshcore_settings_write write;
+        memset(&write, 0, sizeof write);
+        write.set_position = true;
+        result = mesh_meshcore_write_settings(&app->meshcore, &write);
+    } else if (clearing) {
         result = mesh_session_clear_fixed_position(&app->session);
     } else {
         int32_t latitude = ui->has_own_position ? ui->own_latitude_i : 0;
@@ -1323,8 +1329,25 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
             mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_NEED_COORDS));
             return;
         }
-        result = mesh_session_set_fixed_position(&app->session, latitude, longitude, has_altitude,
-                                                 altitude);
+        if (app->meshcore_bound) {
+            /* MeshCore's advert position: degrees times a million, and no altitude. */
+            struct mesh_meshcore_settings_write write;
+            memset(&write, 0, sizeof write);
+            write.set_position = true;
+            /* A seventh decimal (about a centimetre) is rounded off, not truncated. */
+            write.latitude_e6 = (latitude + (latitude < 0 ? -5 : 5)) / 10;
+            write.longitude_e6 = (longitude + (longitude < 0 ? -5 : 5)) / 10;
+            /* 0,0 is MeshCore's "no location": a Set that rounds to it would be a Clear. */
+            if (write.latitude_e6 == 0 && write.longitude_e6 == 0) {
+                mesh_ui_store_set_toast(&app->ui_store, now,
+                                        inkcell_str(MESH_STR_TOAST_NEED_COORDS));
+                return;
+            }
+            result = mesh_meshcore_write_settings(&app->meshcore, &write);
+        } else {
+            result = mesh_session_set_fixed_position(&app->session, latitude, longitude,
+                                                     has_altitude, altitude);
+        }
     }
 
     if (result > 0) {
@@ -1345,6 +1368,8 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
                                                 : MESH_STR_TOAST_PINNING_POSITION));
     } else if (result == -ENOTCONN) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED_KEPT));
+    } else if (result == -EBUSY) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_BUSY_RETRY));
     } else if (result == -EINVAL) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_ON_EARTH));
     } else {
@@ -1425,6 +1450,119 @@ void mesh_app_save_ham_mode(struct mesh_app *app, const struct mesh_ui_action *a
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
+/*
+ * MeshCore's bandwidth from the row's, which is Meshtastic's whole kHz: the narrow LoRa
+ * bandwidths are not whole numbers, and Meshtastic's firmware reads 31 as 31.25 and 62 as
+ * 62.5 - so this does too, rather than send MeshCore a bandwidth its radio cannot set.
+ */
+static uint32_t mesh_app_meshcore_bandwidth_hz(uint32_t khz) {
+    static const struct {
+        uint32_t khz;
+        uint32_t hz;
+    } k_fractional[] = {{7U, 7800U},   {10U, 10400U}, {15U, 15600U}, {20U, 20800U},
+                        {31U, 31250U}, {41U, 41700U}, {62U, 62500U}};
+    for (size_t i = 0; i < INKWELL_ARRAY_LEN(k_fractional); ++i) {
+        if (k_fractional[i].khz == khz) {
+            return k_fractional[i].hz;
+        }
+    }
+    return khz * 1000U;
+}
+
+/*
+ * A section save, as MeshCore's commands: the name for User, and for LoRa the four radio
+ * numbers as one command and the power as another. Each starts from what the radio reported,
+ * so an untouched row is written back as it was. -ENOTSUP for a section MeshCore has no command
+ * for, -EINVAL for a row that does not parse or a save with nothing in it.
+ */
+static int mesh_app_meshcore_settings_write(struct mesh_app *app,
+                                            const struct mesh_ui_action *action) {
+    const struct mesh_meshcore_self_info *self = &app->meshcore.self;
+    if (!app->meshcore.has_self) {
+        return -ENOENT;
+    }
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.frequency_khz = self->frequency_khz;
+    write.bandwidth_hz = self->bandwidth_hz;
+    write.spreading_factor = self->spreading_factor;
+    write.coding_rate = self->coding_rate;
+    write.tx_power_dbm = (int8_t)self->tx_power_dbm;
+
+    const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)action->section;
+    if (section != MESH_UI_SETTINGS_USER && section != MESH_UI_SETTINGS_LORA) {
+        return -ENOTSUP;
+    }
+    for (uint8_t i = 0; i < action->edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
+        const struct mesh_ui_setting_edit *edit = &action->edits[i];
+        switch ((enum mesh_ui_setting_field)edit->field) {
+        case MESH_UI_FIELD_USER_LONG_NAME:
+            if (edit->text[0] == '\0') {
+                return -EINVAL;
+            }
+            if (strlen(edit->text) > MESH_MESHCORE_NAME_LEN) {
+                return -E2BIG;
+            }
+            write.set_name = true;
+            inkwell_str_copy(write.name, sizeof write.name, edit->text);
+            break;
+        case MESH_UI_FIELD_LORA_FREQUENCY: {
+            int64_t scaled = 0;
+            if (!mesh_ui_settings_decimal_parse(edit->text, MESH_UI_FREQUENCY_DIGITS,
+                                                MESH_LORA_FREQUENCY_MAX_MHZ, &scaled) ||
+                scaled <= 0) {
+                return -EINVAL;
+            }
+            /* Ten-thousandths of a MHz to kHz, which is all the command carries: a finer
+               value is refused rather than saved as a different frequency. */
+            if (scaled % 10 != 0) {
+                return -EINVAL;
+            }
+            write.frequency_khz = (uint32_t)(scaled / 10);
+            write.set_radio = true;
+            break;
+        }
+        case MESH_UI_FIELD_LORA_ANY_BANDWIDTH:
+            write.bandwidth_hz = mesh_app_meshcore_bandwidth_hz(edit->number);
+            write.set_radio = true;
+            break;
+        case MESH_UI_FIELD_LORA_ANY_SPREAD:
+            write.spreading_factor = (uint8_t)edit->number;
+            write.set_radio = true;
+            break;
+        case MESH_UI_FIELD_LORA_CODING:
+            write.coding_rate = (uint8_t)edit->number;
+            write.set_radio = true;
+            break;
+        case MESH_UI_FIELD_LORA_ANY_TX_POWER: {
+            /* dBm, signed and literal; above what the radio said it can do is refused. */
+            const int32_t dbm = (int32_t)edit->number - (int32_t)MESH_UI_ANY_TX_POWER_BIAS;
+            if (dbm < -9 || dbm > (int32_t)self->max_tx_power_dbm) {
+                return -EINVAL;
+            }
+            write.tx_power_dbm = (int8_t)dbm;
+            write.set_tx_power = true;
+            break;
+        }
+        default:
+            break;
+        }
+    }
+    /* The firmware's own bounds, checked here so a refusal is a toast about the value rather
+       than an error code back from the radio. */
+    if (write.set_radio &&
+        (write.frequency_khz < 150000U || write.frequency_khz > 2500000U ||
+         write.spreading_factor < 5U || write.spreading_factor > 12U || write.coding_rate < 5U ||
+         write.coding_rate > 8U || write.bandwidth_hz < 7000U || write.bandwidth_hz > 500000U)) {
+        return -EINVAL;
+    }
+    if (write.set_tx_power &&
+        (write.tx_power_dbm < -9 || write.tx_power_dbm > (int8_t)self->max_tx_power_dbm)) {
+        return -EINVAL;
+    }
+    return mesh_meshcore_write_settings(&app->meshcore, &write);
+}
+
 void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *action,
                             uint64_t now) {
     char toast[MESH_UI_NAV_TOAST_MAX];
@@ -1439,10 +1577,15 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
     }
     const char *section_name = section_label;
     struct mesh_admin_request write;
-    int result =
-        mesh_app_build_settings_write(mesh_session_settings(&app->session), action, &write);
-    if (result == 0) {
-        result = mesh_session_write_settings(&app->session, &write);
+    int result = 0;
+    if (app->meshcore_bound) {
+        result = mesh_app_meshcore_settings_write(app, action);
+    } else {
+        result =
+            mesh_app_build_settings_write(mesh_session_settings(&app->session), action, &write);
+        if (result == 0) {
+            result = mesh_session_write_settings(&app->session, &write);
+        }
     }
     if (result > 0) {
         const struct mesh_radio_settings *radio = mesh_session_settings(&app->session);
@@ -1460,6 +1603,8 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
                          (unsigned)action->edit_count, result);
     } else if (result == -ENOTCONN) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED_KEPT));
+    } else if (result == -EBUSY) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_BUSY_RETRY));
     } else if (result == -ENOENT) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SECTION_NOT_LOADED, section_name);
     } else if (result == -ENOTSUP) {
@@ -1491,11 +1636,19 @@ void mesh_app_track_settings_save(struct mesh_app *app, const struct mesh_radio_
     /* A local SET_CONFIG commonly succeeds by rebooting before its Routing ack can get back.
        The session's reboot notice is stronger evidence than the queue's five-second silence,
        and a dropped link is the same signal on transports which do not survive the restart. */
-    if (rebooted || !link_connected) {
+    if ((rebooted || !link_connected) && app->meshcore_bound) {
+        /* MeshCore applies a setting where it stands, so a link lost mid-save is not a restart
+           but a save nobody answered. The link took the write counters with it, so this is
+           the only place that can say so. */
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVE_NO_REPLY,
+                           app->settings_save_section);
+        inkwell_log_warn("ui", "Link lost while saving %s", app->settings_save_section);
+    } else if (rebooted || !link_connected) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_RESTARTING_APPLY));
         inkwell_log_info("ui", "Radio restarted while saving %s; awaiting read-back",
                          app->settings_save_section);
-    } else if (timed_out && now - app->settings_save_started_ms < MESH_SETTINGS_REBOOT_GRACE_MS) {
+    } else if (timed_out && !app->meshcore_bound &&
+               now - app->settings_save_started_ms < MESH_SETTINGS_REBOOT_GRACE_MS) {
         return; /* Give a rebooting radio time to say so before calling the save a failure. */
     } else if (radio != NULL && radio->writes_failed > app->settings_writes_failed_seen) {
         switch (radio->last_write_error) {
@@ -1519,7 +1672,10 @@ void mesh_app_track_settings_save(struct mesh_app *app, const struct mesh_radio_
         inkwell_log_warn("ui", "Save of %s failed: error %d", app->settings_save_section,
                          (int)radio->last_write_error);
     } else if (radio != NULL && radio->writes_acked > app->settings_writes_acked_seen) {
-        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVED_MAY_RESTART,
+        /* MeshCore applies a setting where it stands; only Meshtastic restarts for one. */
+        inkcell_str_format(toast, sizeof toast,
+                           app->meshcore_bound ? MESH_STR_TOAST_SAVED_SECTION
+                                               : MESH_STR_TOAST_SAVED_MAY_RESTART,
                            app->settings_save_section);
         inkwell_log_info("ui", "Save of %s acknowledged", app->settings_save_section);
     } else {

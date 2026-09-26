@@ -318,3 +318,63 @@ uint32_t mesh_meshcore_node_id(const uint8_t *key, size_t key_len) {
     }
     return id;
 }
+
+int mesh_meshcore_encode_name(const char *name, uint8_t *out, size_t out_len) {
+    if (name == NULL || out == NULL || name[0] == '\0') {
+        return -EINVAL;
+    }
+    const size_t len = strlen(name);
+    if (len > MESH_MESHCORE_NAME_LEN) {
+        return -EMSGSIZE;
+    }
+    if (out_len < 1U + len) {
+        return -ENOSPC;
+    }
+    out[0] = MESH_MESHCORE_CMD_SET_ADVERT_NAME;
+    memcpy(out + 1, name, len);
+    return (int)(1U + len);
+}
+
+int mesh_meshcore_encode_radio_params(uint32_t frequency_khz, uint32_t bandwidth_hz,
+                                      uint8_t spreading_factor, uint8_t coding_rate, uint8_t *out,
+                                      size_t out_len) {
+    if (out == NULL) {
+        return -EINVAL;
+    }
+    if (out_len < 11U) {
+        return -ENOSPC;
+    }
+    out[0] = MESH_MESHCORE_CMD_SET_RADIO_PARAMS;
+    mesh_meshcore_put_u32(out + 1, frequency_khz);
+    mesh_meshcore_put_u32(out + 5, bandwidth_hz);
+    out[9] = spreading_factor;
+    out[10] = coding_rate;
+    return 11;
+}
+
+int mesh_meshcore_encode_latlon(int32_t latitude_e6, int32_t longitude_e6, uint8_t *out,
+                                size_t out_len) {
+    if (out == NULL) {
+        return -EINVAL;
+    }
+    if (out_len < 9U) {
+        return -ENOSPC;
+    }
+    out[0] = MESH_MESHCORE_CMD_SET_ADVERT_LATLON;
+    mesh_meshcore_put_u32(out + 1, (uint32_t)latitude_e6);
+    mesh_meshcore_put_u32(out + 5, (uint32_t)longitude_e6);
+    return 9;
+}
+
+int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len) {
+    static const char k_word[] = "reboot";
+    if (out == NULL) {
+        return -EINVAL;
+    }
+    if (out_len < sizeof k_word) {
+        return -ENOSPC;
+    }
+    out[0] = MESH_MESHCORE_CMD_REBOOT;
+    memcpy(out + 1, k_word, sizeof k_word - 1U);
+    return (int)sizeof k_word;
+}

@@ -12,6 +12,7 @@
 #include "inkwell/base/time.h"
 #include "mesh/core/meshcore.h"
 #include "mesh/core/message.h"
+#include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/ble_profile.h"
 #include "mesh/proto/stream_framing.h"
@@ -82,10 +83,14 @@ struct wire {
     size_t lens[32];
     uint32_t ids[32];
     size_t count;
+    bool refuse; /* the link's queue is full */
 };
 
 static int wire_send(void *ctx, const uint8_t *frame, size_t len, uint32_t frame_id) {
     struct wire *wire = ctx;
+    if (wire->refuse) {
+        return -EAGAIN;
+    }
     if (wire->count >= 32U || len > MESH_MESHCORE_MAX_FRAME) {
         return -ENOBUFS;
     }
@@ -664,5 +669,225 @@ MESH_TEST_CASE(meshcore_channel_text_leaves_room_for_the_name, unit) {
     MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR, 0U, text,
                                               &packet_id) != 0,
                       "and one that fits goes out");
+    record_success(test_name);
+}
+
+/* SELF_INFO is the radio's settings too, and lands on the record the Settings tab reads in
+   Meshtastic's shape: the name is the owner, the four radio numbers a preset-off LoRa config. */
+MESH_TEST_CASE(meshcore_self_info_projects_the_settings, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const struct mesh_radio_settings *settings = mesh_session_settings(&g_model);
+    MESH_TEST_FAIL_IF(settings == NULL || !settings->has_owner ||
+                          strcmp(settings->owner.long_name, "MPBC") != 0,
+                      "the radio's name is the owner's");
+    MESH_TEST_FAIL_IF(!settings->has_lora || settings->lora.use_preset,
+                      "the radio numbers are a LoRa config with no preset");
+    MESH_TEST_FAIL_IF(settings->lora.bandwidth != 62U || settings->lora.spread_factor != 7U ||
+                          settings->lora.coding_rate != 5U || settings->lora.tx_power != 22,
+                      "62.5 kHz reads as Meshtastic writes it, and the rest as they are");
+    MESH_TEST_FAIL_IF(settings->lora.override_frequency < 910.524f ||
+                          settings->lora.override_frequency > 910.526f,
+                      "and the frequency in MHz");
+    MESH_TEST_FAIL_IF(!settings->has_position, "the position section has something to stand on");
+    record_success(test_name);
+}
+
+/* A read-back with no advert location clears the fix the radio's own record held, so the
+   Position rows do not show - and a save does not send back - coordinates the radio dropped. */
+MESH_TEST_CASE(meshcore_self_info_without_a_location_clears_the_fix, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const struct mesh_node_summary *self =
+        mesh_session_model_node(&g_model, g_meshcore.self_node, false);
+    MESH_TEST_FAIL_IF(self == NULL || !self->position.valid, "the captured radio has a fix");
+
+    MESH_TEST_FAIL_IF(mesh_meshcore_refresh_settings(&g_meshcore) != 1, "a refresh is asked");
+    uint8_t cleared[sizeof k_self_info];
+    memcpy(cleared, k_self_info, sizeof cleared);
+    memset(cleared + 36, 0, 8U); /* lat_e6, lon_e6 */
+    feed(&protocol, cleared, sizeof cleared);
+    self = mesh_session_model_node(&g_model, g_meshcore.self_node, false);
+    MESH_TEST_FAIL_IF(self == NULL || self->position.valid, "and the fix goes with the location");
+    record_success(test_name);
+}
+
+/* A settings command the link refuses outright is settled as refused, so the save is reported
+   and the next one is not held off behind it. */
+MESH_TEST_CASE(meshcore_settings_write_the_link_refuses_is_settled, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const struct mesh_radio_settings *settings = mesh_session_settings(&g_model);
+    const uint32_t failed = settings->writes_failed;
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.set_name = true;
+    memcpy(write.name, "Pine", 5U);
+    wire.refuse = true;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EAGAIN,
+                      "the link's refusal is the save's answer");
+    MESH_TEST_FAIL_IF(settings->writes_failed != failed + 1U ||
+                          settings->last_write_error != -EAGAIN,
+                      "is refused by the link and settled as such");
+    wire.refuse = false;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1,
+                      "and the next save is not held behind it");
+    record_success(test_name);
+}
+
+/* A save is each group's command and then APP_START, whose SELF_INFO is the read-back; the
+   answers settle into the write counters the app's save toast watches. */
+MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const struct mesh_radio_settings *settings = mesh_session_settings(&g_model);
+    const uint32_t acked = settings->writes_acked;
+
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.set_name = true;
+    memcpy(write.name, "Pine", 5U);
+    write.set_radio = true;
+    write.frequency_khz = 869618U;
+    write.bandwidth_hz = 62500U;
+    write.spreading_factor = 8U;
+    write.coding_rate = 8U;
+    write.set_tx_power = true;
+    write.tx_power_dbm = -2;
+    write.set_position = true;
+    write.latitude_e6 = -33868800;
+    write.longitude_e6 = 151209300;
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 4,
+                      "four groups are four commands");
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EBUSY,
+                      "and a second save waits for the first");
+
+    /* One at a time: each answer lets the next command out. */
+    MESH_TEST_FAIL_IF(
+        wire.count != before + 1U || wire.frames[before][0] != MESH_MESHCORE_CMD_SET_ADVERT_NAME ||
+            wire.lens[before] != 5U || memcmp(wire.frames[before] + 1, "Pine", 4U) != 0,
+        "the name goes first, unterminated");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    const uint8_t *radio = wire.frames[before + 1U];
+    MESH_TEST_FAIL_IF(radio[0] != MESH_MESHCORE_CMD_SET_RADIO_PARAMS ||
+                          wire.lens[before + 1U] != 11U || frame_u32(radio + 1) != 869618U ||
+                          frame_u32(radio + 5) != 62500U || radio[9] != 8U || radio[10] != 8U,
+                      "then the radio numbers as one command");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    const uint8_t *power = wire.frames[before + 2U];
+    MESH_TEST_FAIL_IF(power[0] != MESH_MESHCORE_CMD_SET_RADIO_TX_POWER || (int8_t)power[1] != -2,
+                      "then the power, signed");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    const uint8_t *place = wire.frames[before + 3U];
+    MESH_TEST_FAIL_IF(place[0] != MESH_MESHCORE_CMD_SET_ADVERT_LATLON ||
+                          (int32_t)frame_u32(place + 1) != -33868800 ||
+                          (int32_t)frame_u32(place + 5) != 151209300,
+                      "then the position");
+    MESH_TEST_FAIL_IF(settings->writes_acked != acked, "nothing is settled while one is out");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(settings->writes_acked != acked + 1U, "the last OK settles the save");
+    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_APP_START, "and the read-back follows");
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EBUSY,
+                      "and no save is built over values a read-back is about to replace");
+    /* Each OK moved the baseline, so a save made before the read-back lands is built over
+       what the radio now holds rather than undoing it. */
+    MESH_TEST_FAIL_IF(
+        strcmp(g_meshcore.self.name, "Pine") != 0 || g_meshcore.self.frequency_khz != 869618U ||
+            g_meshcore.self.spreading_factor != 8U || (int8_t)g_meshcore.self.tx_power_dbm != -2 ||
+            g_meshcore.self.latitude_e6 != -33868800,
+        "the baseline follows each OK ahead of the read-back");
+    MESH_TEST_FAIL_IF(strcmp(settings->owner.long_name, "Pine") != 0 ||
+                          settings->lora.spread_factor != 8U,
+                      "and so do the settings the screens read");
+
+    /* A refusal fails the save with the radio's own code. */
+    const uint32_t failed = settings->writes_failed;
+    feed(&protocol, k_self_info, sizeof k_self_info);
+    write.set_radio = false;
+    write.set_position = false;
+    write.set_name = false;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1, "power alone");
+    const uint8_t refused[] = {MESH_MESHCORE_RESP_ERR, 6U};
+    feed(&protocol, refused, sizeof refused);
+    MESH_TEST_FAIL_IF(settings->writes_failed != failed + 1U || settings->last_write_error != 6,
+                      "a refused write says which error");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(meshcore_settings_write_refuses_what_it_cannot_send_whole, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EINVAL,
+                      "a save that writes nothing");
+    write.set_name = true;
+    memset(write.name, 'n', MESH_MESHCORE_NAME_LEN);
+    write.name[MESH_MESHCORE_NAME_LEN] = '\0';
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1,
+                      "a name at the firmware's limit is written");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    feed(&protocol, k_self_info, sizeof k_self_info); /* the read-back */
+    write.set_name = true;
+    write.name[0] = '\0';
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EINVAL ||
+                          g_meshcore.writes_outstanding != 0U,
+                      "an empty name is refused before anything is queued");
+    MESH_TEST_FAIL_IF(wire.count != before, "and nothing reached the radio");
+    record_success(test_name);
+}
+
+/* A reboot is never answered, and over a USB bridge the port stays open while the ESP32 behind
+   it resets - so once the answer is overdue the conversation starts over by itself. */
+MESH_TEST_CASE(meshcore_reboot_syncs_again, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != 1, "the reboot is queued");
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.set_tx_power = true;
+    write.tx_power_dbm = 10;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EBUSY,
+                      "no save is queued behind it");
+    MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != 0, "nor a second reboot");
+    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_REBOOT ||
+                          wire.lens[wire.count - 1U] != 7U ||
+                          memcmp(wire.frames[wire.count - 1U] + 1, "reboot", 6U) != 0,
+                      "carrying the word the firmware checks for");
+    mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_DEVICE_QUERY,
+                      "the silence that follows starts the handshake over");
+    MESH_TEST_FAIL_IF(mesh_protocol_silent(&protocol), "and is not counted against the link");
+    /* But a handshake the link will not take leaves nothing to time out, so the link is
+       called silent at once rather than left unsynced. */
+    feed(&protocol, k_device_info, sizeof k_device_info);
+    while (g_meshcore.queue_count > 0U) {
+        feed_code(&protocol, MESH_MESHCORE_RESP_ERR);
+    }
+    MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != 1, "a second reboot is queued");
+    wire.refuse = true;
+    mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    MESH_TEST_FAIL_IF(!mesh_protocol_silent(&protocol), "a refused handshake drops the link");
+    wire.refuse = false;
+    g_meshcore.timeouts = 0U;
+
+    /* A reboot the link refuses outright was never asked for. */
+    feed(&protocol, k_device_info, sizeof k_device_info);
+    wire.refuse = true;
+    while (g_meshcore.queue_count > 0U) {
+        feed_code(&protocol, MESH_MESHCORE_RESP_ERR);
+    }
+    MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != -EAGAIN,
+                      "a reboot the link refuses is the call's answer");
+    MESH_TEST_FAIL_IF(mesh_meshcore_refresh_settings(&g_meshcore) != -EAGAIN,
+                      "and so is a refresh");
     record_success(test_name);
 }

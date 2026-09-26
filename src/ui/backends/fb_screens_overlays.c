@@ -266,6 +266,8 @@ void fb_render_confirm(struct inkcell_draw_state *state, const struct mesh_ui_sn
         mesh_ui_settings_confirm_title(section, mesh_ui_nav_open_channel(nav), confirmed, title,
                                        sizeof title);
         mesh_ui_settings_confirm_text(section, confirmed, text, sizeof text);
+        mesh_ui_settings_confirm_for_protocol(&snapshot->settings, section, confirmed, text,
+                                              sizeof text);
         /* And which radio, when it is not this one. The banner that has been saying so on every
            other frame is gone the moment this panel takes the body, so the sheet says it
            instead - in a sentence of settings.c's own, joined here rather than composed here. */

@@ -5,6 +5,7 @@
 #include "inkwell/base/time.h"
 
 #include "mesh/core/message.h"
+#include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/ble_profile.h"
 #include "mesh/proto/stream_framing.h"
@@ -70,8 +71,12 @@ static void mesh_meshcore_mark(struct mesh_meshcore *meshcore, uint32_t packet_i
     }
 }
 
+static bool mesh_meshcore_is_settings_write(uint8_t cmd);
+static void mesh_meshcore_settle_write(struct mesh_meshcore *meshcore, int32_t error);
+
 /* Writes the head of the queue when nothing is outstanding. A write that fails is dropped and
-   the next one tried, so one refused frame cannot wedge the queue behind it. */
+   the next one tried, so one refused frame cannot wedge the queue behind it - and a settings
+   command so dropped is settled as refused, or its save would wait on it for ever. */
 static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
     while (!meshcore->awaiting && meshcore->queue_count > 0U && meshcore->send != NULL) {
         struct mesh_meshcore_request *request = mesh_meshcore_head(meshcore);
@@ -87,8 +92,13 @@ static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
         }
         inkwell_log_warn("meshcore", "Command %u not sent: %d", (unsigned)request->frame[0],
                          result);
+        meshcore->send_error = result;
         mesh_meshcore_mark(meshcore, request->packet_id, MESH_MESSAGE_ACK_FAILED);
+        const uint8_t cmd = request->frame[0];
         mesh_meshcore_pop(meshcore);
+        if (mesh_meshcore_is_settings_write(cmd)) {
+            mesh_meshcore_settle_write(meshcore, result);
+        }
     }
 }
 
@@ -109,7 +119,14 @@ static int mesh_meshcore_enqueue(struct mesh_meshcore *meshcore, const uint8_t *
     request->len = (uint8_t)len;
     request->packet_id = packet_id;
     meshcore->queue_count += 1U;
+    /* Alone in an idle queue it is written now, and a link that refuses it outright leaves
+       nothing on its way: that refusal is this call's answer, not a success. */
+    const bool immediate = !meshcore->awaiting && meshcore->queue_count == 1U;
+    meshcore->send_error = 0;
     mesh_meshcore_pump(meshcore);
+    if (immediate && !meshcore->awaiting) {
+        return meshcore->send_error < 0 ? meshcore->send_error : -EIO;
+    }
     return 0;
 }
 
@@ -235,7 +252,76 @@ static void mesh_meshcore_store_self(struct mesh_meshcore *meshcore) {
         node->position.valid = true;
         node->position.latitude_i = self->latitude_e6 * 10;
         node->position.longitude_i = self->longitude_e6 * 10;
+    } else {
+        /* No advert location: cleared on the radio, perhaps by another app, so the fix this
+           record held is no longer the radio's and must not be shown or saved back. */
+        memset(&node->position, 0, sizeof node->position);
     }
+}
+
+/*
+ * SELF_INFO onto the settings record the Settings tab reads, in Meshtastic's shape: the name is
+ * the owner, the radio parameters are a LoRa config with its preset off - MeshCore has no
+ * presets and no regions, only the four numbers - and the position section is loaded so its
+ * coordinate rows have something to stand on. The bandwidth goes in as Meshtastic writes it,
+ * whole kHz, so 62.5 is 62 exactly as it is on a Meshtastic radio.
+ */
+static void mesh_meshcore_store_settings(struct mesh_meshcore *meshcore) {
+    struct mesh_radio_settings *settings = mesh_session_model_settings(meshcore->model);
+    if (settings == NULL) {
+        return;
+    }
+    const struct mesh_meshcore_self_info *self = &meshcore->self;
+    settings->has_owner = true;
+    memset(&settings->owner, 0, sizeof settings->owner);
+    inkwell_str_copy(settings->owner.long_name, sizeof settings->owner.long_name, self->name);
+    mesh_meshcore_short_name(self->name, settings->owner.short_name,
+                             sizeof settings->owner.short_name);
+
+    settings->has_lora = true;
+    memset(&settings->lora, 0, sizeof settings->lora);
+    settings->lora.use_preset = false;
+    settings->lora.tx_enabled = true;
+    settings->lora.bandwidth = (uint16_t)(self->bandwidth_hz / 1000U);
+    settings->lora.spread_factor = self->spreading_factor;
+    settings->lora.coding_rate = self->coding_rate;
+    settings->lora.tx_power = (int8_t)self->tx_power_dbm;
+    settings->lora.override_frequency = (float)self->frequency_khz / 1000.0f;
+
+    settings->has_position = true;
+}
+
+/* Every command a settings save is made of. */
+static bool mesh_meshcore_is_settings_write(uint8_t cmd) {
+    return cmd == MESH_MESHCORE_CMD_SET_ADVERT_NAME || cmd == MESH_MESHCORE_CMD_SET_RADIO_PARAMS ||
+           cmd == MESH_MESHCORE_CMD_SET_RADIO_TX_POWER ||
+           cmd == MESH_MESHCORE_CMD_SET_ADVERT_LATLON;
+}
+
+/* One command of a save answered: `error` is 0 for OK. The last answer settles the save into
+   the model's write counters, which is what the app's save toast is watching. */
+static void mesh_meshcore_settle_write(struct mesh_meshcore *meshcore, int32_t error) {
+    if (meshcore->writes_outstanding == 0U) {
+        return;
+    }
+    if (error != 0 && meshcore->write_error == 0) {
+        meshcore->write_error = error;
+    }
+    meshcore->writes_outstanding -= 1U;
+    if (meshcore->writes_outstanding > 0U) {
+        return;
+    }
+    struct mesh_radio_settings *settings = mesh_session_model_settings(meshcore->model);
+    if (settings == NULL) {
+        return;
+    }
+    if (meshcore->write_error != 0) {
+        settings->writes_failed += 1U;
+        settings->last_write_error = meshcore->write_error;
+    } else {
+        settings->writes_acked += 1U;
+    }
+    meshcore->write_error = 0;
 }
 
 static bool mesh_meshcore_channel_used(const struct mesh_meshcore_channel *channel) {
@@ -561,6 +647,54 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
     }
 }
 
+/*
+ * A settings command the radio took, onto the SELF_INFO the next save is built over. The
+ * read-back is queued behind it and will say the same, but a save made before it lands would
+ * otherwise carry the old values of every row it did not touch and undo this one - and a
+ * read-back the link drops would leave the screens on the old values until a refresh.
+ */
+static uint32_t mesh_meshcore_u32_at(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8U) | ((uint32_t)p[2] << 16U) |
+           ((uint32_t)p[3] << 24U);
+}
+
+static void mesh_meshcore_apply_write(struct mesh_meshcore *meshcore, const uint8_t *frame,
+                                      size_t len) {
+    struct mesh_meshcore_self_info *self = &meshcore->self;
+    switch (frame[0]) {
+    case MESH_MESHCORE_CMD_SET_ADVERT_NAME: {
+        const size_t n = len - 1U < MESH_MESHCORE_NAME_LEN ? len - 1U : MESH_MESHCORE_NAME_LEN;
+        memcpy(self->name, frame + 1, n);
+        self->name[n] = '\0';
+        break;
+    }
+    case MESH_MESHCORE_CMD_SET_RADIO_PARAMS:
+        if (len >= 11U) {
+            self->frequency_khz = mesh_meshcore_u32_at(frame + 1);
+            self->bandwidth_hz = mesh_meshcore_u32_at(frame + 5);
+            self->spreading_factor = frame[9];
+            self->coding_rate = frame[10];
+        }
+        break;
+    case MESH_MESHCORE_CMD_SET_RADIO_TX_POWER:
+        if (len >= 2U) {
+            self->tx_power_dbm = frame[1];
+        }
+        break;
+    case MESH_MESHCORE_CMD_SET_ADVERT_LATLON:
+        if (len >= 9U) {
+            self->latitude_e6 = (int32_t)mesh_meshcore_u32_at(frame + 1);
+            self->longitude_e6 = (int32_t)mesh_meshcore_u32_at(frame + 5);
+        }
+        break;
+    default:
+        return;
+    }
+    /* And onto what the screens read, so the save shows even if the read-back never lands. */
+    mesh_meshcore_store_self(meshcore);
+    mesh_meshcore_store_settings(meshcore);
+}
+
 /* The answer to the command at the head of the queue. */
 static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t *frame,
                                    size_t len) {
@@ -605,6 +739,7 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         if (mesh_meshcore_decode_self_info(frame, len, &meshcore->self) == 0) {
             meshcore->has_self = true;
             mesh_meshcore_store_self(meshcore);
+            mesh_meshcore_store_settings(meshcore);
             inkwell_log_info("meshcore", "Radio \"%s\" is 0x%08x", meshcore->self.name,
                              meshcore->self_node);
             if (meshcore->phase == MESH_MESHCORE_HANDSHAKE) {
@@ -673,6 +808,11 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         /* A channel message is sent once and never acknowledged; OK is all it will get. */
         if (cmd == MESH_MESHCORE_CMD_SEND_CHANNEL_TXT_MSG) {
             mesh_meshcore_mark(meshcore, packet_id, MESH_MESSAGE_ACK_NONE);
+        } else if (mesh_meshcore_is_settings_write(cmd)) {
+            if (request != NULL) {
+                mesh_meshcore_apply_write(meshcore, request->frame, request->len);
+            }
+            mesh_meshcore_settle_write(meshcore, 0);
         }
         break;
     case MESH_MESHCORE_RESP_CURR_TIME:
@@ -693,6 +833,10 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         const unsigned error = len >= 2U ? frame[1] : 0U;
         inkwell_log_info("meshcore", "Command %u refused (%u, error %u)", (unsigned)cmd,
                          (unsigned)code, error);
+        if (mesh_meshcore_is_settings_write(cmd)) {
+            /* A refusal with no code still has to count as one. */
+            mesh_meshcore_settle_write(meshcore, error != 0U ? (int32_t)error : -1);
+        }
         struct mesh_meshcore_pending *pending = mesh_meshcore_pending_for(meshcore, packet_id);
         if (pending != NULL) {
             mesh_meshcore_pending_done(meshcore, pending, MESH_MESSAGE_ACK_FAILED);
@@ -761,6 +905,10 @@ static void mesh_meshcore_detach(void *self) {
             meshcore->queue[(meshcore->queue_head + i) % MESH_MESHCORE_QUEUE_LEN].packet_id,
             MESH_MESSAGE_ACK_FAILED);
     }
+    /* A save the link took with it did not land; say so rather than leave it pending. */
+    while (meshcore->writes_outstanding > 0U) {
+        mesh_meshcore_settle_write(meshcore, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
+    }
     meshcore->send = NULL;
     meshcore->send_ctx = NULL;
     meshcore->queue_head = 0U;
@@ -828,11 +976,28 @@ static void mesh_meshcore_tick(void *self, uint64_t now_ms) {
         struct mesh_meshcore_request *request = mesh_meshcore_head(meshcore);
         const uint8_t cmd = request->frame[0];
         const uint32_t packet_id = request->packet_id;
+        mesh_meshcore_pop(meshcore);
+        /* A reboot is never answered: the radio is gone before it could be. Where the link
+           outlives the restart - a USB-serial bridge keeps the port open while the ESP32 behind
+           it resets - nothing else would notice, so the conversation starts over by itself. */
+        if (cmd == MESH_MESHCORE_CMD_REBOOT) {
+            inkwell_log_info("meshcore", "Radio rebooted; syncing again");
+            const int result = mesh_meshcore_begin(meshcore);
+            if (result < 0) {
+                /* Nothing is on its way to time out, so nothing would ever notice: call the
+                   link silent now and let it be dropped and reconnected. */
+                inkwell_log_warn("meshcore", "Handshake after reboot not sent (%d)", result);
+                meshcore->timeouts = 2U;
+            }
+            return;
+        }
         inkwell_log_warn("meshcore", "Command %u unanswered after %u ms", (unsigned)cmd,
                          (unsigned)MESH_MESHCORE_REPLY_TIMEOUT_MS);
-        mesh_meshcore_pop(meshcore);
         if (meshcore->timeouts < UINT8_MAX) {
             meshcore->timeouts += 1U;
+        }
+        if (mesh_meshcore_is_settings_write(cmd)) {
+            mesh_meshcore_settle_write(meshcore, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
         }
         struct mesh_meshcore_pending *pending = mesh_meshcore_pending_for(meshcore, packet_id);
         if (pending != NULL) {
@@ -1015,4 +1180,114 @@ int mesh_meshcore_send_advert(struct mesh_meshcore *meshcore, bool flood) {
                                  mesh_meshcore_encode_byte(MESH_MESHCORE_CMD_SEND_SELF_ADVERT,
                                                            flood ? 1U : 0U, frame, sizeof frame),
                                  0U);
+}
+
+int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
+                                 const struct mesh_meshcore_settings_write *write) {
+    if (meshcore == NULL || write == NULL) {
+        return -EINVAL;
+    }
+    if (meshcore->send == NULL) {
+        return -ENOTCONN;
+    }
+    /* A save is built over SELF_INFO, so none is made while one is on its way: the radio
+       parameters are one command, and a save encoded over values a queued read-back is about
+       to replace would put the stale ones back. Nor behind a reboot, whose handshake starts
+       the write counters over under a save still queued. */
+    if (meshcore->writes_outstanding > 0U ||
+        mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_APP_START) ||
+        mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_REBOOT)) {
+        return -EBUSY;
+    }
+    /* Encoded whole before anything is queued, so a value the codec refuses leaves the radio
+       untouched rather than half written. */
+    uint8_t frames[4][MESH_MESHCORE_MAX_FRAME];
+    int lens[4];
+    size_t count = 0U;
+    if (write->set_name) {
+        lens[count] = mesh_meshcore_encode_name(write->name, frames[count], sizeof frames[count]);
+        count += 1U;
+    }
+    if (write->set_radio) {
+        lens[count] = mesh_meshcore_encode_radio_params(write->frequency_khz, write->bandwidth_hz,
+                                                        write->spreading_factor, write->coding_rate,
+                                                        frames[count], sizeof frames[count]);
+        count += 1U;
+    }
+    if (write->set_tx_power) {
+        lens[count] = mesh_meshcore_encode_byte(MESH_MESHCORE_CMD_SET_RADIO_TX_POWER,
+                                                (uint8_t)write->tx_power_dbm, frames[count],
+                                                sizeof frames[count]);
+        count += 1U;
+    }
+    if (write->set_position) {
+        lens[count] = mesh_meshcore_encode_latlon(write->latitude_e6, write->longitude_e6,
+                                                  frames[count], sizeof frames[count]);
+        count += 1U;
+    }
+    if (count == 0U) {
+        return -EINVAL;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (lens[i] < 0) {
+            return -EINVAL;
+        }
+    }
+    /* The whole save and its read-back, or none of it. */
+    if (meshcore->queue_count + count + 1U > MESH_MESHCORE_QUEUE_LEN) {
+        return -ENOBUFS;
+    }
+    meshcore->writes_outstanding = (uint8_t)count;
+    meshcore->write_error = 0;
+    struct mesh_radio_settings *settings = mesh_session_model_settings(meshcore->model);
+    if (settings != NULL) {
+        settings->writes_sent += 1U;
+    }
+    const uint32_t failed_before = settings != NULL ? settings->writes_failed : 0U;
+    for (size_t i = 0; i < count; ++i) {
+        (void)mesh_meshcore_enqueue(meshcore, frames[i], lens[i], 0U);
+    }
+    /* Every command refused by the link before this returns: the save settled as failed
+       already, before a caller could start watching for it, so it is this call's answer. */
+    if (settings != NULL && meshcore->writes_outstanding == 0U &&
+        settings->writes_failed != failed_before) {
+        return settings->last_write_error < 0 ? (int)settings->last_write_error : -EIO;
+    }
+    uint8_t frame[MESH_MESHCORE_MAX_FRAME];
+    (void)mesh_meshcore_enqueue(
+        meshcore, frame,
+        mesh_meshcore_encode_app_start(MESH_MESHCORE_APP_NAME, frame, sizeof frame), 0U);
+    return (int)count;
+}
+
+int mesh_meshcore_refresh_settings(struct mesh_meshcore *meshcore) {
+    if (meshcore == NULL) {
+        return -EINVAL;
+    }
+    if (meshcore->send == NULL) {
+        return -ENOTCONN;
+    }
+    if (mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_APP_START)) {
+        return 0;
+    }
+    uint8_t frame[MESH_MESHCORE_MAX_FRAME];
+    const int result = mesh_meshcore_enqueue(
+        meshcore, frame,
+        mesh_meshcore_encode_app_start(MESH_MESHCORE_APP_NAME, frame, sizeof frame), 0U);
+    return result < 0 ? result : 1;
+}
+
+int mesh_meshcore_reboot(struct mesh_meshcore *meshcore) {
+    if (meshcore == NULL) {
+        return -EINVAL;
+    }
+    /* One is enough: a second would restart the radio again ahead of the handshake the first
+       one's silence starts. */
+    if (mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_REBOOT)) {
+        return 0;
+    }
+    uint8_t frame[8];
+    const int result = mesh_meshcore_enqueue(meshcore, frame,
+                                             mesh_meshcore_encode_reboot(frame, sizeof frame), 0U);
+    return result < 0 ? result : 1;
 }

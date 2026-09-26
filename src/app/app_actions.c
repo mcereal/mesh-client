@@ -546,7 +546,8 @@ static void on_refresh_settings(struct mesh_app *app, const struct mesh_ui_actio
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
 
-    const int result = mesh_session_refresh_settings(&app->session);
+    const int result = app->meshcore_bound ? mesh_meshcore_refresh_settings(&app->meshcore)
+                                           : mesh_session_refresh_settings(&app->session);
     if (result > 0 && action->edit_count > 0U) {
         inkcell_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_REFRESH_EDITS_ONE,
                                   action->edit_count, result, (unsigned)action->edit_count);
@@ -713,7 +714,15 @@ static void on_radio_action(struct mesh_app *app, const struct mesh_ui_action *a
     if (verb == NULL) {
         return;
     }
-    const int result = mesh_session_radio_action(&app->session, verb->kind);
+    /* MeshCore has a reboot and none of the rest; the rows for the rest are not listed for it
+       (MESH_UI_FEATURE_RADIO_MAINTENANCE), so a press that gets here anyway is refused. */
+    int result = 0;
+    if (app->meshcore_bound) {
+        result =
+            row == MESH_UI_SETTINGS_ACTION_REBOOT ? mesh_meshcore_reboot(&app->meshcore) : -ENOTSUP;
+    } else {
+        result = mesh_session_radio_action(&app->session, verb->kind);
+    }
     if (result > 0) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(verb->asked));
         if (verb->refresh_after) {

@@ -94,8 +94,12 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `MODULES` | the Modules row in Settings |
 | `REACTIONS` | React on X, and X itself inside a thread |
 | `RADIO_FIRMWARE` | the radio firmware check and install rows |
+| `FULL_CONFIG` | every Settings section but User, Position, LoRa and Channels, and inside those every row but the name, the coordinates, the frequency, bandwidth, spread factor, coding rate and power; the Radio details' capability, reboot-count and admin-session rows |
+| `RADIO_MAINTENANCE` | shut down, NodeDB reset, backup, restore and factory reset - Reboot stays |
 
-Not gated yet: the Radio tab's reboot, NodeDB and backup verbs. `tests/suites/ui_protocol.c` is what fails when a gate is lost.
+A LoRa save without `FULL_CONFIG` gets its own confirm sentence
+(`mesh_ui_settings_confirm_for_protocol()`): nothing reboots, and there is no region or preset to
+get wrong. `tests/suites/ui_protocol.c` is what fails when a gate is lost.
 
 ## MeshCore
 
@@ -139,12 +143,29 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   print.
 - **A channel message's only sender is `"Name: "` at the start of its text.** A name the roster
   holds becomes the sender and leaves the text; one it does not stays in it.
+- **Settings are SELF_INFO.** `mesh_meshcore_store_settings()` projects it onto the session's
+  `mesh_radio_settings` in Meshtastic's shape - the name as the owner, the radio numbers as a
+  LoRa config with `use_preset` off, bandwidth in whole kHz as Meshtastic writes it (62.5 is 62) -
+  so the Settings tab reads it unchanged. A save (`mesh_app_save_settings()`, routed by
+  `meshcore_bound`) becomes `SET_ADVERT_NAME`, `SET_RADIO_PARAMS`, `SET_RADIO_TX_POWER` or
+  `SET_ADVERT_LATLON` over what the radio reported, checked against the firmware's own bounds,
+  then `APP_START` as the read-back. The answers settle into the record's `writes_acked` /
+  `writes_failed`, which is what the save toast already watched. A row's 31 and 62 kHz go back
+  out as 31.25 and 62.5, the reading Meshtastic's firmware gives them. The bandwidth, spread
+  and power rows are MeshCore's own (`MESH_UI_FIELD_LORA_ANY_*`), stepping 7.8 kHz to 500, SF5
+  to 12 and -9 dBm up in literal dBm (0 is 0, not "max"); the frequency row reads SELF_INFO's
+  kHz rather than the record's float; a frequency finer than a kHz is refused, a seventh
+  coordinate decimal is rounded, and a link lost mid-save is reported unanswered rather than as
+  a restart.
+- **A reboot is never answered.** Over a USB-serial bridge the port outlives the ESP32 behind it,
+  so once the answer is overdue the conversation runs its handshake again by itself.
 - **A direct message** is pending until `PUSH_CODE_SEND_CONFIRMED` carries the four bytes the
   `RESP_CODE_SENT` named. It is tried three times with the same timestamp - the last after
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
-Not yet spoken: repeater and room-server login, telemetry and status requests, trace paths, the
-radio's own settings (name, position, LoRa, TX power), adding and removing contacts, and contact
-sharing. The `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
+Not yet spoken: repeater and room-server login, telemetry and status requests, trace paths,
+adding and removing contacts, contact sharing, editing channels, and the settings SELF_INFO
+carries but the tab does not show (advert location policy, auto-add, multi-acks, telemetry
+modes). The `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
 end.

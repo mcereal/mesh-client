@@ -1371,6 +1371,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_LORA_OK_TO_MQTT,             "Lets gateways forward
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_BOOST_GAIN,             "Turns on the receiver's extra gain stage on radios that have one. It hears weaker signals for a little more current, and does nothing on a radio without the chip.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_OVERRIDE_DUTY,          "Ignores the airtime limit your region sets in law. It is for a bench and for bands with no such limit; leaving it on where the limit applies is your responsibility.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_CHANNEL_NUM,            "Which numbered slot of the region's band this radio sits on. At 0 the radio works it out from the primary channel's name, which is what puts two radios sharing a channel on one frequency.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_FREQUENCY,               "What this radio transmits and listens on, in MHz. Every radio it talks to has to be on the same one, and off your band plan it is illegal without a licence.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_OVERRIDE_FREQ,          "Transmits on this exact frequency in MHz instead of a slot, and 0 goes back to the slot above. Off your band plan this is illegal without a licence.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_FREQUENCY_TRIM,         "Corrects this radio's own crystal error, in hertz. It is a calibration rather than another frequency, and 0 is right unless something measured says otherwise.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_IGNORE_NODES,           "Up to three nodes whose packets this radio drops as though they were out of range. Not the Nodes tab's Ignore, which hides a node the radio still relays for.")
@@ -1765,6 +1766,7 @@ MESH_STR_ENTRY(SETTINGS_FIELD_LORA_OVERRIDE_DUTY,         "Override duty cycle")
    from the primary channel's name when the row reads 0. */
 MESH_STR_ENTRY(SETTINGS_FIELD_LORA_CHANNEL_NUM,           "Frequency slot")
 MESH_STR_ENTRY(SETTINGS_FIELD_LORA_OVERRIDE_FREQ,         "Override frequency")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_FREQUENCY,              "Frequency")
 /* "Trim" is a correction to the radio's own crystal error, in hertz - not another frequency. */
 MESH_STR_ENTRY(SETTINGS_FIELD_LORA_FREQUENCY_TRIM,        "Frequency trim")
 MESH_STR_ENTRY(SETTINGS_FIELD_LORA_IGNORE_NODE_0,         "Ignored sender 1")
@@ -2012,6 +2014,11 @@ MESH_STR_ENTRY(VALUE_METRES,              "%u m")
 MESH_STR_ENTRY(VALUE_BANDWIDTH_31,        "31.25 kHz")
 MESH_STR_ENTRY(VALUE_BANDWIDTH_62,        "62.5 kHz")
 MESH_STR_ENTRY(VALUE_BANDWIDTH_KHZ,       "%u kHz")
+MESH_STR_ENTRY(VALUE_BANDWIDTH_7,         "7.8 kHz")
+MESH_STR_ENTRY(VALUE_BANDWIDTH_10,        "10.4 kHz")
+MESH_STR_ENTRY(VALUE_BANDWIDTH_15,        "15.6 kHz")
+MESH_STR_ENTRY(VALUE_BANDWIDTH_20,        "20.8 kHz")
+MESH_STR_ENTRY(VALUE_BANDWIDTH_41,        "41.7 kHz")
 /* A coding rate is written as the fraction 4/n. */
 MESH_STR_ENTRY(VALUE_CODING_RATE,         "4/%u")
 /* Transmit power: 0 means "whatever the region allows", not zero power. */
@@ -2474,6 +2481,7 @@ MESH_STR_ENTRY(CONFIRM_TEXT_RM_BACKUP,    "The saved copy is erased from the rad
 MESH_STR_ENTRY(CONFIRM_TEXT_BLUETOOTH,    "The radio will reboot. Changing the pairing mode or PIN invalidates the Brick's bond: forget the node in Devices (Y) and connect again to pair with the new PIN. Turning Bluetooth off cuts this client off entirely.")
 MESH_STR_ENTRY(CONFIRM_TEXT_CHANNELS,     "The radio will reboot. A new key or name moves this radio to a different channel: every other node needs the same settings to keep talking to it.")
 MESH_STR_ENTRY(CONFIRM_TEXT_LORA,         "The radio will reboot. A region or preset the other nodes do not share takes this radio off the mesh, and a wrong region may be illegal to transmit on. Transmit off makes it receive-only.")
+MESH_STR_ENTRY(CONFIRM_TEXT_LORA_PLAIN,   "Takes effect at once. A frequency, bandwidth, spread factor or coding rate the other radios do not share takes this one off the mesh, and a frequency outside your band plan may be illegal to transmit on.")
 MESH_STR_ENTRY(CONFIRM_TEXT_SECURITY,     "A new private key changes this node's identity: peers must learn it again and old direct messages stay unreadable. Managed mode locks out every client whose key is not an admin key, this one included.")
 MESH_STR_ENTRY(CONFIRM_TEXT_POWER,        "The radio will reboot. Power saving puts the radio to sleep between packets, and a short light-sleep or wake time can leave too little Bluetooth on for this client to reconnect on its own.")
 MESH_STR_ENTRY(CONFIRM_TEXT_HAM_MODE,     "Renames this node to your call sign, moves it to the frequency above and turns the primary channel's encryption off. Licensed operators only.")
@@ -2946,6 +2954,7 @@ MESH_STR_ENTRY(TOAST_SAVE_BAD_VALUE,      "%s rejected by the radio (bad value)"
 MESH_STR_ENTRY(TOAST_SAVE_NO_REPLY,       "No reply saving %s; X to check")
 MESH_STR_ENTRY(TOAST_SAVE_REJECTED,       "%s rejected (error %d)")
 MESH_STR_ENTRY(TOAST_SAVED_MAY_RESTART,   "%s saved; radio may restart")
+MESH_STR_ENTRY(TOAST_SAVED_SECTION,       "%s saved")
 MESH_STR_ENTRY(TOAST_RESTARTING_APPLY,    "Radio restarting to apply; reconnecting")
 /* The names the save toasts above put in their %s. */
 MESH_STR_ENTRY(SAVE_SECTION_FIXED_POS,    "Fixed position")

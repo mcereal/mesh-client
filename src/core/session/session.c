@@ -807,6 +807,10 @@ int mesh_session_model_set_channel(struct mesh_session *session,
     return 0;
 }
 
+struct mesh_radio_settings *mesh_session_model_settings(struct mesh_session *session) {
+    return session != NULL ? &session->settings : NULL;
+}
+
 void mesh_session_model_sync_complete(struct mesh_session *session) {
     if (session == NULL) {
         return;

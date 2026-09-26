@@ -209,6 +209,7 @@ static bool field_is_secret(enum mesh_ui_setting_field field) {
 static inkcell_str_id field_unit(enum mesh_ui_setting_field field) {
     switch (field) {
     case MESH_UI_FIELD_LORA_OVERRIDE_FREQ:
+    case MESH_UI_FIELD_LORA_FREQUENCY:
     case MESH_UI_FIELD_LORA_HAM_FREQUENCY:
         return MESH_STR_VALUE_MEGAHERTZ;
     case MESH_UI_FIELD_LORA_FREQUENCY_TRIM:
@@ -1045,8 +1046,17 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
         inkcell_str_format(buffer, sizeof buffer, MESH_STR_NODE_VAL_USER_ID_HEX,
                            hs->my_info.node_num);
         item_text(list, MESH_STR_RADIO_NODE_NUMBER, INKSTAND_FORM_INFO, buffer);
-        inkcell_str_format(buffer, sizeof buffer, MESH_STR_VALUE_PLAIN, hs->my_info.reboot_count);
-        item_text(list, MESH_STR_RADIO_REBOOTS, INKSTAND_FORM_INFO, buffer);
+        /* MyNodeInfo's count; a protocol that keeps none would only ever show 0. */
+        if (mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG)) {
+            inkcell_str_format(buffer, sizeof buffer, MESH_STR_VALUE_PLAIN,
+                               hs->my_info.reboot_count);
+            item_text(list, MESH_STR_RADIO_REBOOTS, INKSTAND_FORM_INFO, buffer);
+        }
+    }
+    /* The rest is Meshtastic's: DeviceMetadata's capability bits and the admin session this
+       client holds with the radio. A protocol without that configuration has neither. */
+    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG)) {
+        return;
     }
     if (s->has_metadata) {
         snprintf(buffer, sizeof buffer, "%s%s%s%s",
@@ -1079,6 +1089,11 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
 
 static void build_user(const struct mesh_ui_settings *s, struct item_list *list) {
     item_field(list, MESH_UI_FIELD_USER_LONG_NAME, 0U, s->long_name);
+    /* One name is all a protocol without Meshtastic's owner record has; its short form is made
+       from it rather than set. */
+    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG)) {
+        return;
+    }
     item_field(list, MESH_UI_FIELD_USER_SHORT_NAME, 0U, s->short_name);
     item_field(list, MESH_UI_FIELD_USER_LICENSED, s->is_licensed ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_USER_UNMESSAGEABLE, s->is_unmessagable ? 1U : 0U, NULL);
@@ -1173,7 +1188,32 @@ static void constrain_preset_row(const struct mesh_ui_settings *s, uint32_t regi
         choices, mesh_ui_settings_enum_count(preset_row->field), preset_row->number);
 }
 
+/*
+ * LoRa for a protocol with no regions and no presets: the frequency, the three numbers a preset
+ * would otherwise stand for, and the power. None of them depends on another, so nothing is
+ * inactive and nothing conflicts.
+ */
+static void build_lora_plain(const struct mesh_ui_settings *s, struct item_list *list) {
+    char typed[MESH_UI_SETTINGS_VALUE_MAX];
+    mesh_ui_settings_decimal_text(s->override_frequency_scaled, MESH_UI_FREQUENCY_DIGITS,
+                                  MESH_UI_FREQUENCY_DIGITS, typed, sizeof typed);
+    item_field(list, MESH_UI_FIELD_LORA_FREQUENCY, 0U, typed);
+    item_field(list, MESH_UI_FIELD_LORA_ANY_BANDWIDTH, s->bandwidth, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_ANY_SPREAD, s->spread_factor, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_CODING, s->coding_rate, NULL);
+    struct mesh_ui_settings_item *power =
+        item_field(list, MESH_UI_FIELD_LORA_ANY_TX_POWER,
+                   (uint32_t)((int32_t)MESH_UI_ANY_TX_POWER_BIAS + s->tx_power), NULL);
+    if (power != NULL && s->tx_power_max != 0U) {
+        power->ceiling = MESH_UI_ANY_TX_POWER_BIAS + s->tx_power_max;
+    }
+}
+
 static void build_lora(const struct mesh_ui_settings *s, struct item_list *list) {
+    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG)) {
+        build_lora_plain(s, list);
+        return;
+    }
     /*
      * The region and the preset are one pair, and this is the only place in the tab where one
      * row's value decides what another row will take.
@@ -1392,10 +1432,13 @@ static void channel_summary(uint8_t role, uint8_t psk_len, char *out, size_t out
 static void build_channels(const struct mesh_ui_settings *s,
                            const struct mesh_ui_handshake_state *hs, struct item_list *list) {
     char label[MESH_UI_SETTINGS_LABEL_MAX];
+    /* A protocol this client cannot write channels for lists its slots as facts: a row that
+       opened the editor would take edits no save can send. */
+    const bool editable = mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG);
     if (s->has_channels) {
         for (uint32_t i = 0; i < MESH_UI_MAX_CHANNELS; ++i) {
             const struct mesh_ui_channel_detail *channel = &s->channels[i];
-            if (!channel->present) {
+            if (!channel->present || (!editable && channel->role == 0U)) {
                 continue;
             }
             if (channel->role == 0U) {
@@ -1404,7 +1447,8 @@ static void build_channels(const struct mesh_ui_settings *s,
             } else {
                 channel_label(channel->index, channel->name, label, sizeof label);
             }
-            struct mesh_ui_settings_item *item = item_add_named(list, label, INKSTAND_FORM_ACTION);
+            struct mesh_ui_settings_item *item =
+                item_add_named(list, label, editable ? INKSTAND_FORM_ACTION : INKSTAND_FORM_INFO);
             if (item == NULL) {
                 continue;
             }
@@ -1532,6 +1576,25 @@ static void build_security(const struct mesh_ui_settings *s, struct item_list *l
 }
 
 static void build_position(const struct mesh_ui_settings *s, struct item_list *list) {
+    /* A protocol whose position is only ever the one typed in: the two coordinates and the
+       row that sets them, which is all it advertises. */
+    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG)) {
+        char coord[MESH_UI_SETTINGS_VALUE_MAX];
+        mesh_ui_settings_coord_text(s->has_own_position ? s->own_latitude_i : 0, coord,
+                                    sizeof coord);
+        item_field(list, MESH_UI_FIELD_POSITION_LATITUDE, 0U, coord);
+        mesh_ui_settings_coord_text(s->has_own_position ? s->own_longitude_i : 0, coord,
+                                    sizeof coord);
+        item_field(list, MESH_UI_FIELD_POSITION_LONGITUDE, 0U, coord);
+        item_verb(list, MESH_STR_SETTINGS_SET_FIXED_POS,
+                  MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION);
+        /* The location it advertises, when there is one, can be taken back off the air. */
+        if (s->has_own_position) {
+            item_verb(list, MESH_STR_SETTINGS_CLEAR_FIXED_POS,
+                      MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION);
+        }
+        return;
+    }
     item_field(list, MESH_UI_FIELD_POSITION_GPS_MODE, s->gps_mode, NULL);
     item_field(list, MESH_UI_FIELD_POSITION_BROADCAST_SECS, s->position_broadcast_secs, NULL);
     item_field(list, MESH_UI_FIELD_POSITION_SMART, s->position_broadcast_smart_enabled ? 1U : 0U,
@@ -2209,6 +2272,9 @@ static void build_power_verbs(const struct mesh_ui_settings *s, bool connected,
                               struct item_list *list) {
     item_heading(list, MESH_STR_HEAD_POWER);
     item_radio_action(list, MESH_STR_ACTION_REBOOT, MESH_UI_SETTINGS_ACTION_REBOOT, connected);
+    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_RADIO_MAINTENANCE)) {
+        return;
+    }
     /* DeviceMetadata says whether the hardware can cut its own power; on a board that cannot,
        the request is simply ignored, so the row says so rather than lying about what A does.
        Until the metadata arrives the row is offered: the radio is the authority, not us. */
@@ -2221,7 +2287,11 @@ static void build_power_verbs(const struct mesh_ui_settings *s, bool connected,
     }
 }
 
-static void build_nodedb_verbs(bool connected, struct item_list *list) {
+static void build_nodedb_verbs(const struct mesh_ui_settings *s, bool connected,
+                               struct item_list *list) {
+    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_RADIO_MAINTENANCE)) {
+        return;
+    }
     item_heading(list, MESH_STR_HEAD_NODES_RADIO);
     item_radio_action(list, MESH_STR_ACTION_RESET_NODEDB, MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
                       connected);
@@ -2244,7 +2314,11 @@ static void build_forget_verbs(const struct mesh_ui_handshake_state *handshake,
 
 /* Backup before the factory resets, which is the order every list of these runs in: least to
    most destructive, and a backup is the thing you want to have pressed before the row below. */
-static void build_backup_verbs(bool connected, struct item_list *list) {
+static void build_backup_verbs(const struct mesh_ui_settings *s, bool connected,
+                               struct item_list *list) {
+    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_RADIO_MAINTENANCE)) {
+        return;
+    }
     item_heading(list, MESH_STR_HEAD_BACKUP);
     item_radio_action(list, MESH_STR_ACTION_BACKUP_CONFIG, MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG,
                       connected);
@@ -2282,8 +2356,8 @@ static void build_actions(const struct mesh_ui_settings *s,
         build_remote_head(s, list);
     }
     build_power_verbs(s, connected, list);
-    build_nodedb_verbs(connected, list);
-    build_backup_verbs(connected, list);
+    build_nodedb_verbs(s, connected, list);
+    build_backup_verbs(s, connected, list);
 }
 
 /*
@@ -2306,7 +2380,7 @@ static void build_radio_details(const struct mesh_ui_settings *s,
     const bool connected = actions_connected(handshake);
     build_radio(s, handshake, list);
     build_power_verbs(s, connected, list);
-    build_backup_verbs(connected, list);
+    build_backup_verbs(s, connected, list);
 }
 
 /*
@@ -2321,7 +2395,7 @@ static void build_node_lists(const struct mesh_ui_settings *s,
                              const struct mesh_ui_handshake_state *handshake,
                              struct item_list *list) {
     if (s->admin_dest == 0U) {
-        build_nodedb_verbs(actions_connected(handshake), list);
+        build_nodedb_verbs(s, actions_connected(handshake), list);
     }
     build_forget_verbs(handshake, list);
 }

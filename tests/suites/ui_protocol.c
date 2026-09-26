@@ -211,8 +211,10 @@ MESH_TEST_CASE(ui_protocol_settings_hide_what_the_protocol_lacks, unit) {
                       "Meshtastic checks for the radio's firmware");
     const uint32_t meshtastic_root = mesh_ui_settings_root_count(&settings);
 
+    /* Everything but the full configuration, whose own test is below: that bit takes every
+       section but four, which would hide what this one is checking. */
     settings.protocol = (uint8_t)MESH_UI_PROTOCOL_OTHER;
-    settings.protocol_lacks = MESH_UI_FEATURES_ALL;
+    settings.protocol_lacks = MESH_UI_FEATURES_ALL & ~(uint32_t)MESH_UI_FEATURE_FULL_CONFIG;
     MESH_TEST_FAIL_IF(root_lists(&settings, MESH_UI_SETTINGS_MODULES) ||
                           mesh_ui_settings_root_count(&settings) != meshtastic_root - 1U,
                       "a protocol without modules has no Modules row, and only that row goes");
@@ -404,5 +406,137 @@ MESH_TEST_CASE(ui_protocol_waypoints_row_follows_the_protocol, unit) {
 cleanup:
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* The field on each row of a section, in order, up to `cap`. */
+static size_t section_fields(const struct mesh_ui_settings *settings,
+                             const struct mesh_ui_handshake_state *handshake,
+                             enum mesh_ui_settings_section section, uint16_t *fields, size_t cap) {
+    struct mesh_ui_settings_item items[64];
+    const uint32_t count =
+        mesh_ui_settings_items(settings, handshake, NULL, 0U, section, MESH_UI_SETTINGS_NO_CHANNEL,
+                               items, (uint32_t)(sizeof items / sizeof items[0]));
+    size_t n = 0U;
+    for (uint32_t i = 0; i < count && n < cap; ++i) {
+        fields[n++] = (uint16_t)items[i].field;
+    }
+    return n;
+}
+
+/*
+ * MeshCore's settings are a name, four radio numbers, a power and a position, projected onto
+ * Meshtastic's record. Without the full configuration Settings lists the four sections that
+ * hold them, each cut to its rows - LoRa is the frequency itself rather than a region, a preset
+ * and an override - and the Radio tab offers a reboot and nothing more destructive.
+ */
+MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.has_owner = true;
+    settings.has_lora = true;
+    settings.has_position = true;
+    settings.has_metadata = true;
+    settings.protocol = (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
+    settings.protocol_lacks = MESH_UI_FEATURE_FULL_CONFIG | MESH_UI_FEATURE_RADIO_MAINTENANCE |
+                              MESH_UI_FEATURE_MODULES | MESH_UI_FEATURE_CONTACT_LINKS |
+                              MESH_UI_FEATURE_RADIO_FIRMWARE;
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.link_up = true;
+
+    const enum mesh_ui_settings_section listed[] = {
+        MESH_UI_SETTINGS_USER, MESH_UI_SETTINGS_POSITION, MESH_UI_SETTINGS_LORA,
+        MESH_UI_SETTINGS_CHANNELS};
+    for (size_t i = 0; i < sizeof listed / sizeof listed[0]; ++i) {
+        MESH_TEST_FAIL_IF(!root_lists(&settings, listed[i]), "a core section is listed");
+    }
+    MESH_TEST_FAIL_IF(root_lists(&settings, MESH_UI_SETTINGS_DEVICE) ||
+                          root_lists(&settings, MESH_UI_SETTINGS_BLUETOOTH) ||
+                          root_lists(&settings, MESH_UI_SETTINGS_SECURITY),
+                      "and Meshtastic's other sections are not");
+    /* About, the heading and the four. */
+    MESH_TEST_FAIL_IF(mesh_ui_settings_root_count(&settings) != 6U, "nothing else is either");
+
+    uint16_t fields[16];
+    size_t n = section_fields(&settings, &handshake, MESH_UI_SETTINGS_LORA, fields, 16U);
+    const uint16_t lora[] = {MESH_UI_FIELD_LORA_FREQUENCY, MESH_UI_FIELD_LORA_ANY_BANDWIDTH,
+                             MESH_UI_FIELD_LORA_ANY_SPREAD, MESH_UI_FIELD_LORA_CODING,
+                             MESH_UI_FIELD_LORA_ANY_TX_POWER};
+    MESH_TEST_FAIL_IF(n != sizeof lora / sizeof lora[0] || memcmp(fields, lora, sizeof lora) != 0,
+                      "LoRa is the frequency, the three numbers and the power");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_number_step(MESH_UI_FIELD_LORA_ANY_BANDWIDTH, 31U, -1) !=
+                              20U ||
+                          mesh_ui_settings_number_step(MESH_UI_FIELD_LORA_ANY_SPREAD, 7U, -1) != 6U,
+                      "and its bandwidth and spread reach below Meshtastic's modem");
+    settings.tx_power_max = 22U;
+    struct mesh_ui_settings_item items[16];
+    const uint32_t count =
+        mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                               MESH_UI_SETTINGS_NO_CHANNEL, items, 16U);
+    MESH_TEST_FAIL_IF(count != sizeof lora / sizeof lora[0] ||
+                          items[count - 1U].ceiling != MESH_UI_ANY_TX_POWER_BIAS + 22U,
+                      "and its power stops at what the radio says it can do");
+    n = section_fields(&settings, &handshake, MESH_UI_SETTINGS_USER, fields, 16U);
+    MESH_TEST_FAIL_IF(n != 1U || fields[0] != MESH_UI_FIELD_USER_LONG_NAME, "User is one name");
+    MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_POSITION,
+                                      MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION),
+                      "Position sets the coordinates it lists");
+    MESH_TEST_FAIL_IF(section_offers(&settings, &handshake, MESH_UI_SETTINGS_POSITION,
+                                     MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION),
+                      "with nothing advertised there is nothing to clear");
+    settings.has_own_position = true;
+    settings.own_latitude_i = 330000000;
+    MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_POSITION,
+                                      MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION),
+                      "and an advertised location can be cleared");
+
+    /* Channels are listed, not opened: nothing could save an edit to one. */
+    settings.has_channels = true;
+    settings.channels[0].present = true;
+    settings.channels[0].role = 1U;
+    snprintf(settings.channels[0].name, sizeof settings.channels[0].name, "%s", "Public");
+    settings.channels[1].present = true;
+    settings.channels[1].index = 1U;
+    struct mesh_ui_settings_item slots[16];
+    const uint32_t slot_count =
+        mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
+                               MESH_UI_SETTINGS_NO_CHANNEL, slots, 16U);
+    MESH_TEST_FAIL_IF(slot_count < 1U || slots[0].kind != INKSTAND_FORM_INFO,
+                      "a slot is a fact, not a row that opens the editor");
+    for (uint32_t i = 1U; i < slot_count; ++i) {
+        MESH_TEST_FAIL_IF(slots[i].kind == INKSTAND_FORM_ACTION && slots[i].number == 1U &&
+                              slots[i].field == MESH_UI_FIELD_NONE,
+                          "and an empty slot offers no set-up");
+    }
+
+    MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                      MESH_UI_SETTINGS_ACTION_REBOOT),
+                      "the radio can be rebooted");
+    MESH_TEST_FAIL_IF(section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                     MESH_UI_SETTINGS_ACTION_SHUTDOWN) ||
+                          section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                         MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG) ||
+                          section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                         MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE) ||
+                          section_offers(&settings, &handshake, MESH_UI_SETTINGS_NODE_LISTS,
+                                         MESH_UI_SETTINGS_ACTION_RESET_NODEDB),
+                      "and nothing Meshtastic's admin verbs would do");
+
+    char text[512];
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_LORA, MESH_UI_SETTINGS_ACTION_NONE, text,
+                                  sizeof text);
+    mesh_ui_settings_confirm_for_protocol(&settings, MESH_UI_SETTINGS_LORA,
+                                          MESH_UI_SETTINGS_ACTION_NONE, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, inkcell_str(MESH_STR_CONFIRM_TEXT_LORA_PLAIN)) != 0,
+                      "the LoRa sheet promises no reboot and names no region");
+    settings.protocol_lacks = 0U;
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_LORA, MESH_UI_SETTINGS_ACTION_NONE, text,
+                                  sizeof text);
+    mesh_ui_settings_confirm_for_protocol(&settings, MESH_UI_SETTINGS_LORA,
+                                          MESH_UI_SETTINGS_ACTION_NONE, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, inkcell_str(MESH_STR_CONFIRM_TEXT_LORA)) != 0,
+                      "while Meshtastic's still warns of both");
     record_success(test_name);
 }
