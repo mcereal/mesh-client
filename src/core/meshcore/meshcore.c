@@ -104,7 +104,7 @@ static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
 
 static int mesh_meshcore_enqueue_tagged(struct mesh_meshcore *meshcore, const uint8_t *frame,
                                         int len, uint32_t packet_id, uint8_t favorite,
-                                        bool from_link) {
+                                        bool never_heard) {
     if (len < 0) {
         return len;
     }
@@ -120,7 +120,7 @@ static int mesh_meshcore_enqueue_tagged(struct mesh_meshcore *meshcore, const ui
     request->len = (uint8_t)len;
     request->packet_id = packet_id;
     request->favorite = favorite;
-    request->from_link = from_link;
+    request->never_heard = never_heard;
     meshcore->queue_count += 1U;
     /* Alone in an idle queue it is written now, and a link that refuses it outright leaves
        nothing on its way: that refusal is this call's answer, not a success. */
@@ -832,7 +832,7 @@ static void mesh_meshcore_write_favorite(struct mesh_meshcore *meshcore,
     request->len = (uint8_t)len;
     request->packet_id = 0U;
     request->favorite = MESH_MESHCORE_FAVORITE_NONE;
-    request->from_link = false;
+    request->never_heard = false;
     meshcore->queue_count += 1U;
 }
 
@@ -994,7 +994,7 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
                    radio's lastmod for it too, so it keeps its place among the recently heard
                    rather than sinking to the bottom of a full roster. A contact from a link
                    carries no stamp, and was never heard at all. */
-                const bool heard = !request->from_link;
+                const bool heard = !request->never_heard;
                 contact.last_advert = 0U;
                 contact.lastmod = was == NULL && heard ? mesh_meshcore_clock_now(meshcore) : 0U;
                 mesh_meshcore_store_contact(meshcore, &contact, false);
@@ -1509,7 +1509,7 @@ int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
     uint8_t frame[MESH_MESHCORE_MAX_FRAME];
     const int result = mesh_meshcore_enqueue_tagged(
         meshcore, frame, mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U,
-        MESH_MESHCORE_FAVORITE_NONE, true);
+        MESH_MESHCORE_FAVORITE_NONE, node == NULL);
     return result < 0 ? result : 1;
 }
 

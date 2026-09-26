@@ -1152,9 +1152,9 @@ static void build_user(const struct mesh_ui_settings *s, struct item_list *list)
        from it rather than set. */
     if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG)) {
         build_meshcore_other(s, list);
-        /* MeshCore adds a contact with the radio's own verb, which needs only a radio that
-           has answered - its SELF_INFO - rather than Meshtastic's admin channel. */
-        build_contact_links(s, list, s->has_meshcore_other);
+        /* MeshCore adds a contact with the radio's own verb, which needs the handshake through
+           rather than Meshtastic's admin channel. */
+        build_contact_links(s, list, s->meshcore_ready);
         return;
     }
     item_field(list, MESH_UI_FIELD_USER_SHORT_NAME, 0U, s->short_name);

@@ -299,9 +299,9 @@ struct mesh_meshcore_request {
        one of enum mesh_meshcore_favorite_intent. Kept with the lookup, so two pins in flight
        are two lookups that each know their own answer. */
     uint8_t favorite;
-    /* An ADD_UPDATE_CONTACT made from a link rather than from anything heard: the node it
-       names has never transmitted, so its OK does not make it heard. */
-    bool from_link;
+    /* An ADD_UPDATE_CONTACT for a node the roster had never heard - one from a link, not on
+       the roster when it was asked - so its OK does not make it heard. */
+    bool never_heard;
 };
 
 enum mesh_meshcore_favorite_intent {

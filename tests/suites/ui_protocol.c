@@ -520,6 +520,10 @@ MESH_TEST_CASE(ui_protocol_meshcore_offers_contact_links, unit) {
                                          MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT),
                       "nothing to share or add before the radio has answered");
     settings.has_meshcore_other = true;
+    MESH_TEST_FAIL_IF(section_offers(&settings, &handshake, MESH_UI_SETTINGS_USER,
+                                     MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT),
+                      "no Add while the handshake still walks the contacts");
+    settings.meshcore_ready = true;
     snprintf(settings.contact_url, sizeof settings.contact_url, "%s",
              "meshcore://contact/add?name=MPBC&public_key="
              "ef490a40000000000000000000000000000000000000000000000000000000000&type=1");

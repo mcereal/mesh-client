@@ -1275,6 +1275,23 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     MESH_TEST_FAIL_IF(model_node(0xD0D1D2D3U) == NULL || model_node(0xD0D1D2D3U)->last_heard == 0U,
                       "the OK brings her back heard, since she was");
+
+    /* And a link for a node already heard keeps it heard, whatever the roster did meanwhile. */
+    const size_t frank_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xE0, "Frank",
+                                           MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000900U);
+    feed(&protocol, advert, frank_len);
+    uint8_t frank[MESH_MESHCORE_PUBKEY_LEN];
+    for (size_t i = 0; i < sizeof frank; ++i) {
+        frank[i] = (uint8_t)(0xE0U + i);
+    }
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_import_contact(&g_meshcore, frank, "Frank", MESH_MESHCORE_ADV_CHAT) != 1,
+        "Frank's link is asked");
+    MESH_TEST_FAIL_IF(mesh_session_model_drop_node(g_meshcore.model, 0xE0E1E2E3U) != 0,
+                      "and he is dropped while it waits");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(model_node(0xE0E1E2E3U) == NULL || model_node(0xE0E1E2E3U)->last_heard == 0U,
+                      "the OK brings him back heard, since he was");
     record_success(test_name);
 }
 

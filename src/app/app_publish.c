@@ -2692,6 +2692,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     /* This radio as the MeshCore app's contact link - never the Meshtastic one the flatten may
        have made from the same name, which that app could not read. */
     if (app->meshcore_bound) {
+        ui_settings.meshcore_ready = mesh_meshcore_ready(&app->meshcore);
         ui_settings.contact_url[0] = '\0';
         if (app->meshcore.has_self) {
             struct mesh_meshcore_contact_link link;
