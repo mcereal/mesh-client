@@ -83,6 +83,8 @@ add_library(meshclient_core
     src/core/firmware/firmware_ota.c
     src/core/firmware/firmware_update.c
     src/core/protocol/protocol.c
+    src/core/meshcore/meshcore.c
+    src/core/meshcore/meshcore_codec.c
     src/core/session/key_verification.c
     src/core/session/message.c
     src/core/session/waypoint.c
