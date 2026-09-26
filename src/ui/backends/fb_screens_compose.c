@@ -20,6 +20,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
 
@@ -256,10 +257,92 @@ void fb_render_picker(struct inkcell_draw_state *state, const struct mesh_ui_sna
     }
 }
 
+/*
+ * The grid, which is inkcell's: the keys, how tall they are when the body is short, which way the
+ * slack goes, and how big the letter on a key that size is set. What is left for this screen is
+ * the two things only it knows - which panel the cursor is on, which arrived in the snapshot, and
+ * what the submit key is *for*.
+ *
+ * The symbol on that key and the word under it now come off one predicate rather than two copies
+ * of the same list. They disagreed: the copy here left the key-verification prompt out, so six
+ * digits that must never reach the mesh were typed under a send arrow.
+ */
+static void fb_draw_keyboard_grid(const struct inkcell_draw_state *state,
+                                  const struct mesh_ui_nav *nav, struct inkcell_fb_layout *layout,
+                                  int *y) {
+    const struct inkcell_keyboard_layout kb_layout = mesh_ui_nav_kb_layout(nav);
+    const struct inkcell_fb_keyboard grid = {
+        .keyboard = &nav->kb,
+        .layout = &kb_layout,
+        .submit_icon = mesh_ui_nav_kb_submit_finishes(nav) ? INKCELL_ICON_CHECK : INKCELL_ICON_SEND,
+    };
+    inkcell_fb_draw_keyboard(state, layout, y, &grid);
+}
+
+/*
+ * The Find keyboard: the query is typed into the heading rather than into a box under it.
+ *
+ * Every other keyboard here is writing something that goes somewhere - a packet, a field on the
+ * radio - and its box says so, with a counter against the limit at the other end. A find goes
+ * nowhere; it narrows a list, and a search field in the bar is the shape every platform gives
+ * that. The box's two lines are the grid's to use where the body is short of room for its keys -
+ * a large glyph scale, a small panel - and slack above it where it is not.
+ *
+ * The capsule beside the field is what the typing has done so far: how many nodes it keeps,
+ * through the filter the list is on, so the number is the one the list will show once Done is
+ * pressed. The list itself is under the keys and cannot be seen, so without it the reader typed
+ * blind and found out on the way back whether any of it had matched. Nothing is counted for an
+ * empty field, which is not a search yet.
+ */
+static void fb_render_node_search(const struct inkcell_draw_state *state,
+                                  const struct mesh_ui_snapshot *snapshot,
+                                  struct inkcell_fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    const bool typed = nav->draft[0] != '\0';
+    const uint32_t matches =
+        typed ? mesh_ui_node_query_count(&snapshot->handshake,
+                                         (enum mesh_ui_node_filter)nav->node_filter, nav->draft)
+              : 0U;
+    char badge[32] = "";
+    if (typed) {
+        inkcell_str_format_plural(badge, sizeof badge, MESH_STR_NODES_FIND_MATCHES_ONE, matches,
+                                  matches);
+    }
+    fb_draw_app_bar(
+        state, layout,
+        &(const struct inkcell_fb_app_bar){
+            .mode = INKCELL_FB_APP_BAR_SEARCH,
+            .query = nav->draft,
+            .placeholder = inkcell_str(MESH_STR_NODES_FIND_PROMPT),
+            .editing = true,
+            .caret_back = nav->kb.caret_back,
+            .badge = typed ? badge : NULL,
+            /* Nothing kept is the one count worth colouring: it is the reader's cue
+               to take a letter back before Done empties the list. */
+            .badge_family = typed && matches == 0U ? INKCELL_FAMILY_ERROR : INKCELL_FAMILY_PRIMARY,
+        });
+
+    int y = layout->body_y;
+    /* A window types on its own keyboard and draws no grid (see fb_render_keyboard()), so the
+       body is free - and says so in words when the typing has matched nothing. */
+    if (state->pointer) {
+        if (typed && matches == 0U) {
+            inkcell_fb_draw_empty(state, layout, INKCELL_ICON_SEARCH,
+                                  inkcell_str(MESH_STR_NODES_FIND_NONE));
+        }
+        return;
+    }
+    fb_draw_keyboard_grid(state, nav, layout, &y);
+}
+
 /* The on-screen keyboard takes the whole body: target, the draft so far, then the grid. */
 void fb_render_keyboard(const struct inkcell_draw_state *state,
                         const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
+    if (mesh_ui_nav_kb_node_search(nav)) {
+        fb_render_node_search(state, snapshot, layout);
+        return;
+    }
     const bool for_passkey = nav->keyboard_passkey;
     const bool for_verify = (!for_passkey && nav->keyboard_verify);
     const bool for_setting =
@@ -305,18 +388,15 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
         snprintf(title, sizeof title, "%s", inkcell_str(MESH_STR_IMPORT_PROMPT));
     } else if (nav->keyboard_contact_url) {
         snprintf(title, sizeof title, "%s", inkcell_str(MESH_STR_CONTACT_IMPORT_PROMPT));
-    } else if (nav->keyboard_node_query) {
-        snprintf(title, sizeof title, "%s", inkcell_str(MESH_STR_NODES_FIND_PROMPT));
     } else {
         inkcell_str_format(title, sizeof title, MESH_STR_COMPOSE_TO, nav->target_name);
     }
     /* The same badge the compose sheet carries, for the same reason: this keyboard was raised
        over a bubble, and the destination in the title is not what says so. A setting's keyboard
        and the pairing prompt never carry one - `reply_to` belongs to the thread. */
-    const bool replying =
-        (!for_passkey && !for_verify && !for_setting && !nav->keyboard_network &&
-         !nav->keyboard_waypoint && !nav->keyboard_channel_url && !nav->keyboard_contact_url &&
-         !nav->keyboard_node_query && nav->reply_to != 0U);
+    const bool replying = (!for_passkey && !for_verify && !for_setting && !nav->keyboard_network &&
+                           !nav->keyboard_waypoint && !nav->keyboard_channel_url &&
+                           !nav->keyboard_contact_url && nav->reply_to != 0U);
     fb_draw_app_bar(state, layout,
                     &(const struct inkcell_fb_app_bar){
                         .title = title,
@@ -340,10 +420,7 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
         .caret = true,
         .caret_back = nav->kb.caret_back,
         .lines = 2U,
-        /* Not over a search. A cap is worth stating where the text is going somewhere with a
-           limit - a packet, a field on the radio - and a find is only ever a few letters of a
-           name; "0/23" over it read as a budget the reader had to manage. */
-        .counter = nav->keyboard_node_query ? NULL : meter,
+        .counter = meter,
     };
 
     /*
@@ -369,22 +446,5 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
         return;
     }
     inkcell_fb_draw_text_field(state, layout, &y, &field);
-
-    /*
-     * And the grid, which is inkcell's: the keys, how tall they are when the body is short,
-     * which way the slack goes, and how big the letter on a key that size is set. What is left
-     * for this screen is the two things only it knows - which panel the cursor is on, which
-     * arrived in the snapshot, and what the submit key is *for*.
-     *
-     * The symbol on that key and the word under it now come off one predicate rather than two
-     * copies of the same list. They disagreed: the copy here left the key-verification prompt
-     * out, so six digits that must never reach the mesh were typed under a send arrow.
-     */
-    const struct inkcell_keyboard_layout kb_layout = mesh_ui_nav_kb_layout(nav);
-    const struct inkcell_fb_keyboard grid = {
-        .keyboard = &nav->kb,
-        .layout = &kb_layout,
-        .submit_icon = mesh_ui_nav_kb_submit_finishes(nav) ? INKCELL_ICON_CHECK : INKCELL_ICON_SEND,
-    };
-    inkcell_fb_draw_keyboard(state, layout, &y, &grid);
+    fb_draw_keyboard_grid(state, nav, layout, &y);
 }

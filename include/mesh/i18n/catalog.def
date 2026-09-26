@@ -448,6 +448,10 @@ MESH_STR_ENTRY(NODES_FILTER_NONE,         "No nodes match this filter")
 MESH_STR_ENTRY(NODES_FIND_ROW,            "Find")
 MESH_STR_ENTRY(NODES_FIND_PROMPT,         "Find a node")
 MESH_STR_ENTRY(NODES_FIND_NONE,           "No node matches what you typed")
+/* The capsule beside the search field while the Find keyboard is up: how many nodes the text
+   typed so far keeps, counted through the filter the list is on, so it is the number the list
+   will show once the keyboard is done. A badge, so keep it short. */
+MESH_STR_PLURAL_ENTRY(NODES_FIND_MATCHES, "%u match", "%u matches")
 MESH_STR_ENTRY(NODES_SORT_ROW,            "Sort")
 MESH_STR_ENTRY(NODES_SORT_DEFAULT,        "Default")
 MESH_STR_ENTRY(NODES_SORT_HEARD,          "Recent")

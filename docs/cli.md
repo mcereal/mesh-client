@@ -240,7 +240,8 @@ list is then written to `canned.txt`, built-in replies included, so it is the fi
 
 **Nodes** is the contact list; A opens a node's detail, where rows appear only for what the node
 has actually reported. Above the nodes are the filter, the sort, *Find* - A types a piece of a
-name, short name or `!id` and the list keeps only the nodes that match; X clears it - the *Map* and
+name, short name or `!id` into the heading, which counts the matches as you type, and the list
+keeps only the nodes that match; X clears it - the *Map* and
 the *Waypoints* row, which opens the shared places (and the row that marks a new one here); B goes
 back. **Radio** opens on the link, mesh and radio cards; the Link card's
 *devices* button opens the device list, which shows USB ports first (no pairing, so they sort to

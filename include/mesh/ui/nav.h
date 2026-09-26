@@ -1282,6 +1282,16 @@ struct inkcell_keyboard_layout mesh_ui_nav_kb_layout(const struct mesh_ui_nav *n
 bool mesh_ui_nav_kb_submit_finishes(const struct mesh_ui_nav *nav);
 
 /*
+ * The keyboard on screen is the Find keyboard: the one whose query is typed into the heading.
+ *
+ * Not `keyboard_node_query` read on its own. A pairing prompt or a security number opened over
+ * the Find keyboard parks it rather than closing it, so that flag stays set underneath - and the
+ * renderer that read it alone drew the search heading over six digits BlueZ was waiting for,
+ * while every key went to the prompt. The prompt wins here as it wins in the key dispatch.
+ */
+bool mesh_ui_nav_kb_node_search(const struct mesh_ui_nav *nav);
+
+/*
  * The most bytes the draft may hold, whichever job the keyboard is doing: the message limit, a
  * settings field's own cap, a waypoint's name, a passkey's six digits, or a network address.
  *

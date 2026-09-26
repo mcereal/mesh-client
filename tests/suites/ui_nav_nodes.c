@@ -2485,6 +2485,57 @@ cleanup:
 }
 
 /*
+ * A pairing prompt or a security number raised over the Find keyboard parks it and leaves
+ * `keyboard_node_query` set underneath, so the renderer asks mesh_ui_nav_kb_node_search() rather
+ * than the flag: read alone, it drew the search heading over digits BlueZ was waiting for.
+ */
+MESH_TEST_CASE(ui_nav_nodes_find_yields_to_a_security_prompt, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FIND_ROW;
+    if (mesh_ui_nav_kb_node_search(&store.nav)) {
+        failure = "the list is not the Find keyboard";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!mesh_ui_nav_kb_node_search(&store.nav)) {
+        failure = "A on the Find row should open the Find keyboard";
+        goto cleanup;
+    }
+
+    if (!mesh_ui_nav_open_passkey(&store.nav, "Bravo", 123456U, false) ||
+        !store.nav.keyboard_node_query || mesh_ui_nav_kb_node_search(&store.nav)) {
+        failure = "a pairing prompt over Find should be the keyboard on screen";
+        goto cleanup;
+    }
+    mesh_ui_nav_close_passkey(&store.nav);
+    if (!mesh_ui_nav_kb_node_search(&store.nav)) {
+        failure = "and Find should come back when it closes";
+        goto cleanup;
+    }
+
+    if (!mesh_ui_nav_open_verify_number(&store.nav) || mesh_ui_nav_kb_node_search(&store.nav)) {
+        failure = "a security number over Find should be the keyboard on screen";
+        goto cleanup;
+    }
+    mesh_ui_nav_close_verify_number(&store.nav);
+    if (!mesh_ui_nav_kb_node_search(&store.nav)) {
+        failure = "and Find should come back when it closes too";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * The empty Nodes tab with no radio behind it says "Connect to a node to see the mesh", and A
  * is how: it lands on the device list, which is where connecting happens. Waiting for a roster
  * a radio is already sending, the same press has nothing to do, and Left and Right stay the tab
