@@ -1256,6 +1256,12 @@ MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_SMART_DISTANCE,     "How far the radio mus
 MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_SMART_INTERVAL,     "The shortest gap smart broadcasting leaves between two positions, however far the radio has moved. It is the floor that stops somebody in a car flooding the channel.")
 
 /* Channels. */
+MESH_STR_ENTRY(SETTINGS_NOTE_ADVERT_LOCATION,             "Puts this radio's position in every advert it sends, so any radio that hears one can place it on a map.")
+MESH_STR_ENTRY(SETTINGS_NOTE_ASK_TELEMETRY,               "Who may ask this radio for its battery and other readings. Chosen contacts are the ones given that permission in a MeshCore app.")
+MESH_STR_ENTRY(SETTINGS_NOTE_ASK_LOCATION,                "Who may ask this radio where it is, whether or not its adverts carry a position.")
+MESH_STR_ENTRY(SETTINGS_NOTE_ASK_SENSORS,                 "Who may ask for readings from sensors wired to this radio.")
+MESH_STR_ENTRY(SETTINGS_NOTE_AUTO_ADD,                    "Makes a node a contact as soon as its advert is heard. Off, a heard node is listed but not added, and cannot be sent a direct message until it is.")
+MESH_STR_ENTRY(SETTINGS_NOTE_EXTRA_ACKS,                  "Sends each delivery confirmation more than once, so fewer are lost on a poor path, at the cost of airtime.")
 MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_KEY,                 "The key that protects this channel: everyone who can read it holds the same one. The default key is published with the firmware, so a channel meant to be private needs a random key shared by hand.")
 MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_UPLINK,              "Sends this channel's traffic on to the MQTT broker, when the radio has one. Everything said here then leaves the local mesh for the internet, so leave it off for a private channel.")
 MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_DOWNLINK,            "Puts traffic from the MQTT broker onto this channel and out over the radio. A busy broker can fill the air with messages nobody nearby asked for, at everyone's expense.")
@@ -1742,6 +1748,12 @@ MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_HEALTH_SCREEN,    "Show on screen")
 MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_NAME,               "Name")
 MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_ROLE,               "Role")
 MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_KEY,                "Key")
+MESH_STR_ENTRY(SETTINGS_FIELD_ADVERT_LOCATION,            "Location in adverts")
+MESH_STR_ENTRY(SETTINGS_FIELD_ASK_TELEMETRY,              "Telemetry requests")
+MESH_STR_ENTRY(SETTINGS_FIELD_ASK_LOCATION,               "Location requests")
+MESH_STR_ENTRY(SETTINGS_FIELD_ASK_SENSORS,                "Sensor requests")
+MESH_STR_ENTRY(SETTINGS_FIELD_AUTO_ADD,                   "Add heard nodes")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTRA_ACKS,                 "Extra acks")
 MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_UPLINK,             "MQTT uplink")
 MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_DOWNLINK,           "MQTT downlink")
 MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_POSITION,           "Position precision")
@@ -1931,6 +1943,9 @@ MESH_STR_ENTRY(ENUM_GPS_ENABLED,          "Enabled")
 MESH_STR_ENTRY(ENUM_GPS_NOT_PRESENT,      "Not present")
 /* A channel slot's role. The primary slot is never offered here - see build_channel(). */
 MESH_STR_ENTRY(ENUM_CHANNEL_DISABLED,     "Disabled")
+MESH_STR_ENTRY(ENUM_ASK_NOBODY,           "No one")
+MESH_STR_ENTRY(ENUM_ASK_CHOSEN,           "Chosen contacts")
+MESH_STR_ENTRY(ENUM_ASK_EVERYONE,         "Everyone")
 MESH_STR_ENTRY(ENUM_CHANNEL_SECONDARY,    "Secondary")
 MESH_STR_ENTRY(ENUM_CHANNEL_PRIMARY,      "Primary")
 /* BluetoothConfig.PairingMode: how the radio proves it is the one you meant to pair with. */
@@ -2233,6 +2248,8 @@ MESH_STR_ENTRY(CHANNELS_DEFAULT_NAME,     "the default channel")
  * the sentence says what the reader gains rather than what they join.
  */
 MESH_STR_ENTRY(USER_CONTACT_HEAD,         "Contact code")
+MESH_STR_ENTRY(USER_SHARING_HEAD,         "Sharing")
+MESH_STR_ENTRY(USER_CONTACTS_HEAD,        "Contacts")
 MESH_STR_ENTRY(USER_SHARE_CONTACT_ROW,    "Show my contact code")
 /* "Add from a link", the same words the channel list uses, and short enough for the label
    column: the heading above these two says which kind of link it is. */

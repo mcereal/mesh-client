@@ -457,6 +457,13 @@ struct mesh_ui_settings {
     int8_t tx_power;
     /* The most the radio says it can transmit, in dBm; 0 when it does not say (Meshtastic). */
     uint8_t tx_power_max;
+    /* MeshCore's other parameters as SELF_INFO reports them, raw; `has_meshcore_other` is false
+       for any other protocol. The telemetry byte is three 2-bit modes: base, location, sensors. */
+    bool has_meshcore_other;
+    uint8_t meshcore_manual_add;
+    uint8_t meshcore_telemetry_modes;
+    uint8_t meshcore_advert_loc_policy;
+    uint8_t meshcore_multi_acks;
     bool ignore_mqtt;
     bool config_ok_to_mqtt;
     /*

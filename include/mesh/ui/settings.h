@@ -317,6 +317,15 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_CHANNEL_ANY_NAME,
     /* And its key where that is 16 bytes and nothing else (kind KEY, as CHANNEL_KEY). */
     MESH_UI_FIELD_CHANNEL_ANY_KEY,
+    /* MeshCore's other parameters (CMD_SET_OTHER_PARAMS), listed under the name in User: what
+       the radio tells others and what it takes in. The three request rows are an enum of who
+       may ask - no one, the contacts chosen for it, everyone. */
+    MESH_UI_FIELD_ADVERT_LOCATION,
+    MESH_UI_FIELD_ASK_TELEMETRY,
+    MESH_UI_FIELD_ASK_LOCATION,
+    MESH_UI_FIELD_ASK_SENSORS,
+    MESH_UI_FIELD_AUTO_ADD,
+    MESH_UI_FIELD_EXTRA_ACKS,
     MESH_UI_FIELD_BT_ENABLED,
     MESH_UI_FIELD_BT_MODE,
     MESH_UI_FIELD_BT_PIN, /* text: six digits */

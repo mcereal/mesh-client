@@ -62,6 +62,7 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY = 30,
     MESH_MESHCORE_CMD_GET_CHANNEL = 31,
     MESH_MESHCORE_CMD_SET_CHANNEL = 32,
+    MESH_MESHCORE_CMD_SET_OTHER_PARAMS = 38,
 };
 
 enum mesh_meshcore_resp {
@@ -362,6 +363,12 @@ struct mesh_meshcore_settings_write {
     bool set_position;
     int32_t latitude_e6;
     int32_t longitude_e6;
+    /* SET_OTHER_PARAMS, written whole: the four bytes SELF_INFO reports them as. */
+    bool set_other;
+    uint8_t manual_add_contacts;
+    uint8_t telemetry_modes;
+    uint8_t advert_loc_policy;
+    uint8_t multi_acks;
     /* One channel slot, whole: an empty name and an all-zero secret is an unused slot. */
     bool set_channel;
     uint8_t channel_index;

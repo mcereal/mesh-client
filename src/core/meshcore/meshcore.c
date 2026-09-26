@@ -295,7 +295,8 @@ static void mesh_meshcore_store_settings(struct mesh_meshcore *meshcore) {
 static bool mesh_meshcore_is_settings_write(uint8_t cmd) {
     return cmd == MESH_MESHCORE_CMD_SET_ADVERT_NAME || cmd == MESH_MESHCORE_CMD_SET_RADIO_PARAMS ||
            cmd == MESH_MESHCORE_CMD_SET_RADIO_TX_POWER ||
-           cmd == MESH_MESHCORE_CMD_SET_ADVERT_LATLON || cmd == MESH_MESHCORE_CMD_SET_CHANNEL;
+           cmd == MESH_MESHCORE_CMD_SET_ADVERT_LATLON || cmd == MESH_MESHCORE_CMD_SET_CHANNEL ||
+           cmd == MESH_MESHCORE_CMD_SET_OTHER_PARAMS;
 }
 
 /* One command of a save answered: `error` is 0 for OK. The last answer settles the save into
@@ -704,6 +705,14 @@ static void mesh_meshcore_apply_write(struct mesh_meshcore *meshcore, const uint
         if (len >= 9U) {
             self->latitude_e6 = (int32_t)mesh_meshcore_u32_at(frame + 1);
             self->longitude_e6 = (int32_t)mesh_meshcore_u32_at(frame + 5);
+        }
+        break;
+    case MESH_MESHCORE_CMD_SET_OTHER_PARAMS:
+        if (len >= 5U) {
+            self->manual_add_contacts = frame[1];
+            self->telemetry_modes = frame[2];
+            self->advert_loc_policy = frame[3];
+            self->multi_acks = frame[4];
         }
         break;
     case MESH_MESHCORE_CMD_SET_CHANNEL:
@@ -1276,8 +1285,8 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
     }
     /* Encoded whole before anything is queued, so a value the codec refuses leaves the radio
        untouched rather than half written. */
-    uint8_t frames[5][MESH_MESHCORE_MAX_FRAME];
-    int lens[5];
+    uint8_t frames[6][MESH_MESHCORE_MAX_FRAME];
+    int lens[6];
     size_t count = 0U;
     if (write->set_name) {
         lens[count] = mesh_meshcore_encode_name(write->name, frames[count], sizeof frames[count]);
@@ -1300,10 +1309,20 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
                                                   frames[count], sizeof frames[count]);
         count += 1U;
     }
+    /* All four together, every one of them the caller's: the firmware reads a shorter frame as
+       "leave the rest", but a frame this client sends says what it means. */
+    if (write->set_other) {
+        const uint8_t other[5] = {MESH_MESHCORE_CMD_SET_OTHER_PARAMS, write->manual_add_contacts,
+                                  write->telemetry_modes, write->advert_loc_policy,
+                                  write->multi_acks};
+        memcpy(frames[count], other, sizeof other);
+        lens[count] = (int)sizeof other;
+        count += 1U;
+    }
     /* A slot the radio has, and one the handshake has read: the save starts from what it
        read, and a slot past the walk is one no screen offers. */
-    const bool self_info =
-        write->set_name || write->set_radio || write->set_tx_power || write->set_position;
+    const bool self_info = write->set_name || write->set_radio || write->set_tx_power ||
+                           write->set_position || write->set_other;
     if (write->set_channel) {
         if (write->channel_index >= mesh_meshcore_channel_limit(meshcore)) {
             return -EINVAL;

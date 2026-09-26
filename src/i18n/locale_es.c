@@ -754,6 +754,28 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_SETTINGS_FIELD_CHANNEL_NAME] = "Nombre",
     [MESH_STR_SETTINGS_FIELD_CHANNEL_ROLE] = "Rol",
     [MESH_STR_SETTINGS_FIELD_CHANNEL_KEY] = "Clave",
+    [MESH_STR_SETTINGS_FIELD_ADVERT_LOCATION] = "Ubicación en anuncios",
+    [MESH_STR_SETTINGS_FIELD_ASK_TELEMETRY] = "Pedidos de telemetría",
+    [MESH_STR_SETTINGS_FIELD_ASK_LOCATION] = "Pedidos de ubicación",
+    [MESH_STR_SETTINGS_FIELD_ASK_SENSORS] = "Pedidos de sensores",
+    [MESH_STR_SETTINGS_FIELD_AUTO_ADD] = "Añadir nodos oídos",
+    [MESH_STR_SETTINGS_FIELD_EXTRA_ACKS] = "Confirmaciones extra",
+    [MESH_STR_SETTINGS_NOTE_ADVERT_LOCATION] =
+        "Pone la posición de esta radio en cada anuncio, para que cualquier radio que lo oiga "
+        "pueda situarla en un mapa.",
+    [MESH_STR_SETTINGS_NOTE_ASK_TELEMETRY] =
+        "Quién puede pedir a esta radio su batería y otras lecturas. Los contactos elegidos son "
+        "los que tienen ese permiso en una app de MeshCore.",
+    [MESH_STR_SETTINGS_NOTE_ASK_LOCATION] =
+        "Quién puede preguntar a esta radio dónde está, lleven o no posición sus anuncios.",
+    [MESH_STR_SETTINGS_NOTE_ASK_SENSORS] =
+        "Quién puede pedir lecturas de los sensores conectados a esta radio.",
+    [MESH_STR_SETTINGS_NOTE_AUTO_ADD] =
+        "Hace contacto a un nodo en cuanto se oye su anuncio. Apagado, el nodo se lista pero no "
+        "se añade, y no puede recibir mensajes directos hasta que lo esté.",
+    [MESH_STR_SETTINGS_NOTE_EXTRA_ACKS] =
+        "Envía cada confirmación de entrega más de una vez, para perder menos en un camino malo, "
+        "a costa de tiempo de aire.",
     [MESH_STR_SETTINGS_FIELD_CHANNEL_UPLINK] = "Subida MQTT",
     [MESH_STR_SETTINGS_FIELD_CHANNEL_DOWNLINK] = "Bajada MQTT",
     [MESH_STR_SETTINGS_FIELD_CHANNEL_POSITION] = "Precisión de posición",
@@ -919,6 +941,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_ENUM_GPS_ENABLED] = "Activado",
     [MESH_STR_ENUM_GPS_NOT_PRESENT] = "No disponible",
     [MESH_STR_ENUM_CHANNEL_DISABLED] = "Desactivado",
+    [MESH_STR_ENUM_ASK_NOBODY] = "Nadie",
+    [MESH_STR_ENUM_ASK_CHOSEN] = "Contactos elegidos",
+    [MESH_STR_ENUM_ASK_EVERYONE] = "Todos",
     [MESH_STR_ENUM_CHANNEL_SECONDARY] = "Secundario",
     [MESH_STR_ENUM_CHANNEL_PRIMARY] = "Principal",
     [MESH_STR_ENUM_PAIRING_RANDOM_PIN] = "PIN aleatorio",
@@ -1110,6 +1135,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Demasiado largo para mostrarlo como código. El enlace sigue sirviendo.",
     [MESH_STR_IMPORT_PROMPT] = "Enlace de canal",
     [MESH_STR_USER_CONTACT_HEAD] = "Código de contacto",
+    [MESH_STR_USER_SHARING_HEAD] = "Compartir",
+    [MESH_STR_USER_CONTACTS_HEAD] = "Contactos",
     [MESH_STR_USER_SHARE_CONTACT_ROW] = "Mostrar mi código de contacto",
     [MESH_STR_USER_ADD_CONTACT_ROW] = "Añadir desde un enlace",
     [MESH_STR_CONTACT_TITLE] = "Mi código de contacto",
