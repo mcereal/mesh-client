@@ -1449,6 +1449,8 @@ static void on_add_contact(struct mesh_app *app, const struct mesh_ui_action *ac
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -ENOENT) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
+    } else if (result == -EADDRINUSE) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CONTACT_CLASHES));
     } else if (result == -EINVAL) {
         /* The one thing this verb cannot do without, said as the reason rather than as a
            refusal: an entry with no key is what the radio would build for itself. */

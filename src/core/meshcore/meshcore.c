@@ -1430,6 +1430,27 @@ static uint8_t mesh_meshcore_adv_type(uint32_t role) {
     }
 }
 
+/*
+ * Whether an add for `key`'s number is already waiting for its OK - it joins the roster only
+ * then, so the roster alone cannot say. 1 for the same key (already asked), -EADDRINUSE for a
+ * different key with the same four bytes (a second contact under one number), 0 for none.
+ */
+static int mesh_meshcore_add_pending(const struct mesh_meshcore *meshcore,
+                                     const uint8_t key[MESH_MESHCORE_PUBKEY_LEN]) {
+    const uint32_t id = mesh_meshcore_node_id(key, MESH_MESHCORE_PUBKEY_LEN);
+    for (size_t i = 0; i < meshcore->queue_count; ++i) {
+        const struct mesh_meshcore_request *queued =
+            &meshcore->queue[(meshcore->queue_head + i) % MESH_MESHCORE_QUEUE_LEN];
+        if (queued->frame[0] != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT ||
+            queued->len <= MESH_MESHCORE_PUBKEY_LEN ||
+            mesh_meshcore_node_id(queued->frame + 1, MESH_MESHCORE_PUBKEY_LEN) != id) {
+            continue;
+        }
+        return memcmp(queued->frame + 1, key, MESH_MESHCORE_PUBKEY_LEN) == 0 ? 1 : -EADDRINUSE;
+    }
+    return 0;
+}
+
 int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id) {
     if (meshcore == NULL || node_id == 0U || node_id == meshcore->self_node) {
         return -EINVAL;
@@ -1444,6 +1465,10 @@ int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id) 
     }
     if (node->in_nodedb) {
         return -EEXIST;
+    }
+    const int pending = mesh_meshcore_add_pending(meshcore, node->public_key);
+    if (pending != 0) {
+        return pending;
     }
     struct mesh_meshcore_contact contact;
     const struct mesh_meshcore_contact *heard =
@@ -1495,23 +1520,14 @@ int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
     }
     /* The roster names a node by its key's first four bytes: a different key with the same
        four - this radio's, or another node's - would be stored over that one. */
-    if (node == NULL) {
-        const uint32_t id = mesh_meshcore_node_id(key, MESH_MESHCORE_PUBKEY_LEN);
-        if (id == meshcore->self_node || mesh_meshcore_roster_node(meshcore, id) != NULL) {
-            return -EADDRINUSE;
-        }
-        /* Nor over one still waiting for its OK, which joins the roster only then: the same
-           key is already asked, and a different one with the same four bytes would land on it. */
-        for (size_t i = 0; i < meshcore->queue_count; ++i) {
-            const struct mesh_meshcore_request *queued =
-                &meshcore->queue[(meshcore->queue_head + i) % MESH_MESHCORE_QUEUE_LEN];
-            if (queued->frame[0] != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT ||
-                queued->len <= MESH_MESHCORE_PUBKEY_LEN ||
-                mesh_meshcore_node_id(queued->frame + 1, MESH_MESHCORE_PUBKEY_LEN) != id) {
-                continue;
-            }
-            return memcmp(queued->frame + 1, key, MESH_MESHCORE_PUBKEY_LEN) == 0 ? 1 : -EADDRINUSE;
-        }
+    const uint32_t id = mesh_meshcore_node_id(key, MESH_MESHCORE_PUBKEY_LEN);
+    if (node == NULL &&
+        (id == meshcore->self_node || mesh_meshcore_roster_node(meshcore, id) != NULL)) {
+        return -EADDRINUSE;
+    }
+    const int pending = mesh_meshcore_add_pending(meshcore, key);
+    if (pending != 0) {
+        return pending;
     }
     struct mesh_meshcore_contact contact;
     memset(&contact, 0, sizeof contact);

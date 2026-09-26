@@ -444,7 +444,8 @@ int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_i
  * key, the name, the kind of node and where it said it was, with no route known yet so the
  * first message floods. The node joins the radio's list when the radio says OK. 1 when asked;
  * -EINVAL for 0 or this radio, -ENOTCONN until the handshake has named the radio, -ENOENT for a
- * node with no whole key, -EEXIST for one that is already a contact, -ENOBUFS when the queue is
+ * node with no whole key, -EEXIST for one that is already a contact, -EADDRINUSE while an add
+ * for a different key under the same four bytes waits for its OK, -ENOBUFS when the queue is
  * full.
  */
 int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id);

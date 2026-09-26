@@ -1311,6 +1311,28 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
                           model_node(0xA0A1A2A3U)->public_key[31] !=
                               (uint8_t)((0xA0U + 31U) ^ 0xFFU),
                       "Henry's row is not written over by Gina's OK");
+
+    /* And the other way round: Henry, heard while Gina's add waits, is not asked under her
+       number - by link or as a heard node. */
+    uint8_t ivy[MESH_MESHCORE_PUBKEY_LEN];
+    for (size_t i = 0; i < sizeof ivy; ++i) {
+        ivy[i] = (uint8_t)(0xB8U + i);
+    }
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_import_contact(&g_meshcore, ivy, "Ivy", MESH_MESHCORE_ADV_CHAT) != 1,
+        "Ivy's link is asked");
+    const size_t jack_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xB8, "Jack",
+                                          MESH_MESHCORE_ADV_CHAT, 0xffU, 1700001200U);
+    advert[32] ^= 0xFFU;
+    feed(&protocol, advert, jack_len);
+    uint8_t jack[MESH_MESHCORE_PUBKEY_LEN];
+    memcpy(jack, ivy, sizeof jack);
+    jack[31] ^= 0xFFU;
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, jack, "Jack",
+                                                   MESH_MESHCORE_ADV_CHAT) != -EADDRINUSE ||
+                          mesh_meshcore_add_contact(&g_meshcore, 0xB8B9BABBU) != -EADDRINUSE,
+                      "a heard key under a number an add is waiting on is not asked again");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     record_success(test_name);
 }
 
