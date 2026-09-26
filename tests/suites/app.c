@@ -4986,6 +4986,15 @@ MESH_TEST_CASE(app_meshcore_settings_save_speaks_meshcore, unit) {
     memset(&wire, 0, sizeof wire);
     mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
 
+    /* A position that rounds to 0,0 would be MeshCore's clear; it is refused instead. */
+    snprintf(pin.edits[0].text, sizeof pin.edits[0].text, "%s", "0.0000001");
+    snprintf(pin.edits[1].text, sizeof pin.edits[1].text, "%s", "-0.0000001");
+    mesh_app_save_fixed_position(&app, &pin, 3600U);
+    if (wire.count != 0U) {
+        failure = "a Set that rounds to 0,0 is not sent as a Clear";
+        goto cleanup;
+    }
+
     /* Clearing the position is the advert location written as 0,0. */
     struct mesh_ui_action clear;
     memset(&clear, 0, sizeof clear);

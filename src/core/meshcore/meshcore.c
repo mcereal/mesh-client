@@ -642,7 +642,8 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
 /*
  * A settings command the radio took, onto the SELF_INFO the next save is built over. The
  * read-back is queued behind it and will say the same, but a save made before it lands would
- * otherwise carry the old values of every row it did not touch and undo this one.
+ * otherwise carry the old values of every row it did not touch and undo this one - and a
+ * read-back the link drops would leave the screens on the old values until a refresh.
  */
 static uint32_t mesh_meshcore_u32_at(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8U) | ((uint32_t)p[2] << 16U) |
@@ -679,8 +680,11 @@ static void mesh_meshcore_apply_write(struct mesh_meshcore *meshcore, const uint
         }
         break;
     default:
-        break;
+        return;
     }
+    /* And onto what the screens read, so the save shows even if the read-back never lands. */
+    mesh_meshcore_store_self(meshcore);
+    mesh_meshcore_store_settings(meshcore);
 }
 
 /* The answer to the command at the head of the queue. */

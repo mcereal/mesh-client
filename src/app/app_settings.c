@@ -1337,6 +1337,12 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
             /* A seventh decimal (about a centimetre) is rounded off, not truncated. */
             write.latitude_e6 = (latitude + (latitude < 0 ? -5 : 5)) / 10;
             write.longitude_e6 = (longitude + (longitude < 0 ? -5 : 5)) / 10;
+            /* 0,0 is MeshCore's "no location": a Set that rounds to it would be a Clear. */
+            if (write.latitude_e6 == 0 && write.longitude_e6 == 0) {
+                mesh_ui_store_set_toast(&app->ui_store, now,
+                                        inkcell_str(MESH_STR_TOAST_NEED_COORDS));
+                return;
+            }
             result = mesh_meshcore_write_settings(&app->meshcore, &write);
         } else {
             result = mesh_session_set_fixed_position(&app->session, latitude, longitude,

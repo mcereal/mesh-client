@@ -799,6 +799,9 @@ MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {
             g_meshcore.self.spreading_factor != 8U || (int8_t)g_meshcore.self.tx_power_dbm != -2 ||
             g_meshcore.self.latitude_e6 != -33868800,
         "the baseline follows each OK ahead of the read-back");
+    MESH_TEST_FAIL_IF(strcmp(settings->owner.long_name, "Pine") != 0 ||
+                          settings->lora.spread_factor != 8U,
+                      "and so do the settings the screens read");
 
     /* A refusal fails the save with the radio's own code. */
     const uint32_t failed = settings->writes_failed;
