@@ -61,10 +61,16 @@ static void contact_name(const meshtastic_SharedContact *contact, char *out, siz
  * or the MeshCore app's `meshcore://contact/add`. The two cannot be mistaken for each other -
  * one is a fragment of base64, the other a query string - so reading is trying each.
  */
+/* An id as either app prints one: Meshtastic's `!%08x`, or MeshCore's key head in 12 hex. */
+#define CONTACT_ID_MAX 16U
+_Static_assert(CONTACT_ID_MAX >= sizeof(((meshtastic_User *)0)->id) &&
+                   CONTACT_ID_MAX >= sizeof("0123456789ab"),
+               "a contact id holds either app's spelling of one");
+
 struct contact_reading {
     bool meshcore;
     char name[sizeof(((meshtastic_User *)0)->long_name)];
-    char id[sizeof(((meshtastic_User *)0)->id)];
+    char id[CONTACT_ID_MAX];
 };
 
 static bool read_link(const char *text, struct contact_reading *out) {
