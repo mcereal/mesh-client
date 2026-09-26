@@ -25,6 +25,7 @@
 #include "mesh/core/contact_share.h"
 #include "mesh/core/version.h"
 #include "mesh/geo/coords.h"
+#include "mesh/proto/meshcore_url.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
 #include "mesh/transport/tcp.h"
@@ -2687,6 +2688,22 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_settings.meshcore_telemetry_modes = app->meshcore.self.telemetry_modes;
         ui_settings.meshcore_advert_loc_policy = app->meshcore.self.advert_loc_policy;
         ui_settings.meshcore_multi_acks = app->meshcore.self.multi_acks;
+    }
+    /* This radio as the MeshCore app's contact link - never the Meshtastic one the flatten may
+       have made from the same name, which that app could not read. */
+    if (app->meshcore_bound) {
+        ui_settings.meshcore_ready = mesh_meshcore_ready(&app->meshcore);
+        ui_settings.contact_url[0] = '\0';
+        if (app->meshcore.has_self) {
+            struct mesh_meshcore_contact_link link;
+            memset(&link, 0, sizeof link);
+            memcpy(link.public_key, app->meshcore.self.public_key, sizeof link.public_key);
+            inkwell_str_copy(link.name, sizeof link.name, app->meshcore.self.name);
+            link.type = app->meshcore.self.adv_type != 0U ? app->meshcore.self.adv_type
+                                                          : (uint8_t)MESH_MESHCORE_ADV_CHAT;
+            (void)mesh_meshcore_contact_url_encode(&link, ui_settings.contact_url,
+                                                   sizeof ui_settings.contact_url);
+        }
     }
     /* And each channel's whole name, which the settings record - Meshtastic's twelve bytes -
        cannot carry: the editor opens on what the radio holds, not on the first eleven bytes. */

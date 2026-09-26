@@ -109,6 +109,7 @@ add_library(meshclient_core
     src/proto/channel_url.c
     src/proto/contact_url.c
     src/proto/meshcore_framing.c
+    src/proto/meshcore_url.c
     src/proto/mqtt_topic.c
     src/proto/stream_framing.c
     src/geo/coords.c

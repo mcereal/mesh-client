@@ -299,6 +299,9 @@ struct mesh_meshcore_request {
        one of enum mesh_meshcore_favorite_intent. Kept with the lookup, so two pins in flight
        are two lookups that each know their own answer. */
     uint8_t favorite;
+    /* An ADD_UPDATE_CONTACT for a node the roster had never heard - one from a link, not on
+       the roster when it was asked - so its OK does not make it heard. */
+    bool never_heard;
 };
 
 enum mesh_meshcore_favorite_intent {
@@ -441,7 +444,8 @@ int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_i
  * key, the name, the kind of node and where it said it was, with no route known yet so the
  * first message floods. The node joins the radio's list when the radio says OK. 1 when asked;
  * -EINVAL for 0 or this radio, -ENOTCONN until the handshake has named the radio, -ENOENT for a
- * node with no whole key, -EEXIST for one that is already a contact, -ENOBUFS when the queue is
+ * node with no whole key, -EEXIST for one that is already a contact, -EADDRINUSE while an add
+ * for a different key under the same four bytes waits for its OK, -ENOBUFS when the queue is
  * full.
  */
 int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id);
@@ -454,6 +458,20 @@ int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id);
  * of the radio's contacts, -ENOBUFS when the command queue is full.
  */
 int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id, bool favorite);
+/*
+ * Asks the radio to make a contact of a node known only from a link: its whole key, its name and
+ * the kind of node it is (enum mesh_meshcore_adv_type), with no route and no advert stamp, so the
+ * first message floods and the node's next advert is taken. The node joins the roster, a
+ * contact, when the radio says OK. 1 when asked; -EINVAL for a missing key, a kind outside
+ * 1-4 or this radio's own key, -ENOTCONN until the handshake has named the radio, -EEXIST for a
+ * node that is already a contact - a link carries no route, and writing it over a contact's
+ * record would drop the one the radio has learned - -EADDRINUSE for a key whose first four bytes,
+ * the roster's number for a node, are already this radio's or another node's, and -ENOBUFS
+ * when the queue is full.
+ */
+int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
+                                 const uint8_t key[MESH_MESHCORE_PUBKEY_LEN], const char *name,
+                                 uint8_t adv_type);
 
 /*
  * Queues the save's commands and then APP_START, whose SELF_INFO is the read-back. Returns how

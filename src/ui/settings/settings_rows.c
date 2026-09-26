@@ -1116,18 +1116,8 @@ static void build_meshcore_other(const struct mesh_ui_settings *s, struct item_l
     item_field(list, MESH_UI_FIELD_EXTRA_ACKS, s->meshcore_multi_acks != 0U ? 1U : 0U, NULL);
 }
 
-static void build_user(const struct mesh_ui_settings *s, struct item_list *list) {
-    item_field(list, MESH_UI_FIELD_USER_LONG_NAME, 0U, s->long_name);
-    /* One name is all a protocol without Meshtastic's owner record has; its short form is made
-       from it rather than set. */
-    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG)) {
-        build_meshcore_other(s, list);
-        return;
-    }
-    item_field(list, MESH_UI_FIELD_USER_SHORT_NAME, 0U, s->short_name);
-    item_field(list, MESH_UI_FIELD_USER_LICENSED, s->is_licensed ? 1U : 0U, NULL);
-    item_field(list, MESH_UI_FIELD_USER_UNMESSAGEABLE, s->is_unmessagable ? 1U : 0U, NULL);
-
+static void build_contact_links(const struct mesh_ui_settings *s, struct item_list *list,
+                                bool can_add) {
     /*
      * Contact sharing, under the fields it is made of.
      *
@@ -1137,23 +1127,41 @@ static void build_user(const struct mesh_ui_settings *s, struct item_list *list)
      * radio's owner - the second one is about somebody else's.
      *
      * The show row appears only when there is a link to show, which is what a non-empty
-     * `contact_url` means: the owner reply has arrived and had a public key in it. The add row
-     * waits on the radio answering admin at all, because that is the whole of what an
-     * add_contact needs - unlike a channel import it overwrites no table and so needs no
-     * settled reading of one.
+     * `contact_url` means: the radio has told us its key. The add row waits on `can_add`,
+     * which is whatever the protocol's add verb needs - for Meshtastic the radio answering
+     * admin at all, since unlike a channel import an add_contact overwrites no table and so
+     * needs no settled reading of one.
      */
     if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_CONTACT_LINKS)) {
         return;
     }
-    if (s->contact_url[0] != '\0' || s->admin_ok) {
+    if (s->contact_url[0] != '\0' || can_add) {
         item_heading(list, MESH_STR_USER_CONTACT_HEAD);
     }
     if (s->contact_url[0] != '\0') {
         item_verb(list, MESH_STR_USER_SHARE_CONTACT_ROW, MESH_UI_SETTINGS_ACTION_SHARE_CONTACT);
     }
-    if (s->admin_ok) {
+    if (can_add) {
         item_verb(list, MESH_STR_USER_ADD_CONTACT_ROW, MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT);
     }
+}
+
+static void build_user(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_field(list, MESH_UI_FIELD_USER_LONG_NAME, 0U, s->long_name);
+    /* One name is all a protocol without Meshtastic's owner record has; its short form is made
+       from it rather than set. */
+    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG)) {
+        build_meshcore_other(s, list);
+        /* MeshCore adds a contact with the radio's own verb, which needs the handshake through
+           rather than Meshtastic's admin channel. */
+        build_contact_links(s, list, s->meshcore_ready);
+        return;
+    }
+    item_field(list, MESH_UI_FIELD_USER_SHORT_NAME, 0U, s->short_name);
+    item_field(list, MESH_UI_FIELD_USER_LICENSED, s->is_licensed ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_USER_UNMESSAGEABLE, s->is_unmessagable ? 1U : 0U, NULL);
+
+    build_contact_links(s, list, s->admin_ok);
 }
 
 static void build_device(const struct mesh_ui_settings *s, struct item_list *list) {

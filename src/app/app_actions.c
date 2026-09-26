@@ -29,6 +29,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/proto/channel_url.h"
 #include "mesh/proto/contact_url.h"
+#include "mesh/proto/meshcore_url.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_hci.h"
 #include "mesh/transport/serial.h"
@@ -1448,6 +1449,8 @@ static void on_add_contact(struct mesh_app *app, const struct mesh_ui_action *ac
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -ENOENT) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
+    } else if (result == -EADDRINUSE) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CONTACT_CLASHES));
     } else if (result == -EINVAL) {
         /* The one thing this verb cannot do without, said as the reason rather than as a
            refusal: an entry with no key is what the radio would build for itself. */
@@ -2007,14 +2010,59 @@ static void on_import_channels(struct mesh_app *app, const struct mesh_ui_action
  * it was: the session refuses our own node and a contact with no key with the same code, and
  * the decoder above has already ruled the second out.
  */
+/* A MeshCore contact link, to a MeshCore radio: added by its key, as the MeshCore app would. */
+static void import_meshcore_contact(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = inkwell_time_monotonic_ms();
+
+    struct mesh_meshcore_contact_link link;
+    if (!mesh_meshcore_contact_url_decode(action->text, &link)) {
+        meshtastic_SharedContact other;
+        mesh_ui_store_set_toast(&app->ui_store, now,
+                                inkcell_str(mesh_contact_url_decode(action->text, &other)
+                                                ? MESH_STR_TOAST_CONTACT_LINK_OTHER
+                                                : MESH_STR_TOAST_CONTACT_LINK_INVALID));
+        return;
+    }
+    char name[MESH_UI_NAV_TARGET_NAME_MAX];
+    if (!mesh_ui_contact_link_name(action->text, name, sizeof name)) {
+        name[0] = '\0';
+    }
+    const int result =
+        mesh_meshcore_import_contact(&app->meshcore, link.public_key, link.name, link.type);
+    if (result > 0) {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_LINK_QUEUED, name);
+        inkwell_log_info("ui", "Asked the radio to add a contact from a link");
+    } else if (result == -EEXIST) {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_EXISTS, name);
+    } else if (result == -EADDRINUSE) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CONTACT_CLASHES));
+    } else if (result == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else if (result == -EINVAL) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CONTACT_LINK_IS_SELF));
+    } else {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CONTACT_LINK_FAILED));
+        inkwell_log_warn("ui", "Contact import failed: %d", result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 static void on_import_contact(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
 
+    if (app->meshcore_bound) {
+        import_meshcore_contact(app, action);
+        return;
+    }
     meshtastic_SharedContact contact;
     if (!mesh_contact_url_decode(action->text, &contact)) {
+        struct mesh_meshcore_contact_link other;
         mesh_ui_store_set_toast(&app->ui_store, now,
-                                inkcell_str(MESH_STR_TOAST_CONTACT_LINK_INVALID));
+                                inkcell_str(mesh_meshcore_contact_url_decode(action->text, &other)
+                                                ? MESH_STR_TOAST_CONTACT_LINK_OTHER
+                                                : MESH_STR_TOAST_CONTACT_LINK_INVALID));
         return;
     }
 

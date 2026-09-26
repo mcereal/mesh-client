@@ -8,6 +8,7 @@
 
 #include "mesh/i18n/strings.h"
 #include "mesh/proto/contact_url.h"
+#include "mesh/proto/meshcore_url.h"
 #include "mesh/ui/store_settings.h"
 
 #include <stdio.h>
@@ -23,6 +24,8 @@
  */
 _Static_assert(MESH_UI_CONTACT_URL_MAX >= MESH_CONTACT_URL_MAX,
                "the store's contact_url is too small for the longest contact link");
+_Static_assert(MESH_UI_CONTACT_URL_MAX >= MESH_MESHCORE_CONTACT_URL_MAX,
+               "the store's contact_url is too small for the longest MeshCore contact link");
 
 /*
  * The node number as text, always spelled from `node_num` and never copied out of `user.id`.
@@ -53,26 +56,67 @@ static void contact_name(const meshtastic_SharedContact *contact, char *out, siz
     inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_CONTACT_NO_NAME));
 }
 
+/*
+ * What a link names, in either protocol's spelling: the Meshtastic app's `meshtastic.org/v/#`
+ * or the MeshCore app's `meshcore://contact/add`. The two cannot be mistaken for each other -
+ * one is a fragment of base64, the other a query string - so reading is trying each.
+ */
+/* An id as either app prints one: Meshtastic's `!%08x`, or MeshCore's key head in 12 hex. */
+#define CONTACT_ID_MAX 16U
+_Static_assert(CONTACT_ID_MAX >= sizeof(((meshtastic_User *)0)->id) &&
+                   CONTACT_ID_MAX >= sizeof("0123456789ab"),
+               "a contact id holds either app's spelling of one");
+
+struct contact_reading {
+    bool meshcore;
+    char name[sizeof(((meshtastic_User *)0)->long_name)];
+    char id[CONTACT_ID_MAX];
+};
+
+static bool read_link(const char *text, struct contact_reading *out) {
+    memset(out, 0, sizeof *out);
+    if (text == NULL || text[0] == '\0') {
+        return false;
+    }
+    meshtastic_SharedContact contact;
+    if (mesh_contact_url_decode(text, &contact)) {
+        contact_name(&contact, out->name, sizeof out->name);
+        contact_id(&contact, out->id, sizeof out->id);
+        return true;
+    }
+    struct mesh_meshcore_contact_link link;
+    if (mesh_meshcore_contact_url_decode(text, &link)) {
+        out->meshcore = true;
+        inkwell_str_copy(out->name, sizeof out->name,
+                         link.name[0] != '\0' ? link.name : inkcell_str(MESH_STR_CONTACT_NO_NAME));
+        /* The key's first six bytes, which is how MeshCore's own apps print a node. */
+        snprintf(out->id, sizeof out->id, "%02x%02x%02x%02x%02x%02x", link.public_key[0],
+                 link.public_key[1], link.public_key[2], link.public_key[3], link.public_key[4],
+                 link.public_key[5]);
+        return true;
+    }
+    return false;
+}
+
 bool mesh_ui_contact_share_summary(const char *url, char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {
         return false;
     }
     out[0] = '\0';
-    meshtastic_SharedContact contact;
-    if (url == NULL || url[0] == '\0' || !mesh_contact_url_decode(url, &contact)) {
+    struct contact_reading reading;
+    if (!read_link(url, &reading)) {
         return false;
     }
-    char name[sizeof contact.user.long_name];
-    char id[sizeof contact.user.id];
-    contact_name(&contact, name, sizeof name);
-    contact_id(&contact, id, sizeof id);
-    inkcell_str_format(out, out_len, MESH_STR_CONTACT_SUMMARY, name, id);
+    inkcell_str_format(out, out_len,
+                       reading.meshcore ? MESH_STR_CONTACT_SUMMARY_MESHCORE
+                                        : MESH_STR_CONTACT_SUMMARY,
+                       reading.name, reading.id);
     return true;
 }
 
 bool mesh_ui_contact_link_valid(const char *text) {
-    meshtastic_SharedContact contact;
-    return text != NULL && mesh_contact_url_decode(text, &contact);
+    struct contact_reading reading;
+    return read_link(text, &reading);
 }
 
 bool mesh_ui_contact_link_name(const char *text, char *out, size_t out_len) {
@@ -80,11 +124,11 @@ bool mesh_ui_contact_link_name(const char *text, char *out, size_t out_len) {
         return false;
     }
     out[0] = '\0';
-    meshtastic_SharedContact contact;
-    if (text == NULL || !mesh_contact_url_decode(text, &contact)) {
+    struct contact_reading reading;
+    if (!read_link(text, &reading)) {
         return false;
     }
-    contact_name(&contact, out, out_len);
+    inkwell_str_copy(out, out_len, reading.name);
     return true;
 }
 
@@ -96,22 +140,22 @@ bool mesh_ui_contact_import_sheet(const char *text, char *headline, size_t headl
     if (body != NULL && body_len > 0U) {
         body[0] = '\0';
     }
-    meshtastic_SharedContact contact;
-    if (text == NULL || !mesh_contact_url_decode(text, &contact)) {
+    struct contact_reading reading;
+    if (!read_link(text, &reading)) {
         return false;
     }
     if (headline != NULL) {
-        char name[sizeof contact.user.long_name];
-        contact_name(&contact, name, sizeof name);
-        inkcell_str_format(headline, headline_len, MESH_STR_CONFIRM_TITLE_ADD_CONTACT, name);
+        inkcell_str_format(headline, headline_len, MESH_STR_CONFIRM_TITLE_ADD_CONTACT,
+                           reading.name);
     }
     if (body != NULL) {
         /* The paragraph names the *number* where the headline named the name. A link is a
-           stranger's claim about both, and the number is the half that decides which NodeDB
-           entry this write lands on - so it is the half worth reading before saying yes. */
-        char id[sizeof contact.user.id];
-        contact_id(&contact, id, sizeof id);
-        inkcell_str_format(body, body_len, MESH_STR_CONFIRM_TEXT_ADD_CONTACT, id);
+           stranger's claim about both, and the number is the half that decides which entry
+           this write lands on - so it is the half worth reading before saying yes. */
+        inkcell_str_format(body, body_len,
+                           reading.meshcore ? MESH_STR_CONFIRM_TEXT_ADD_CONTACT_MESHCORE
+                                            : MESH_STR_CONFIRM_TEXT_ADD_CONTACT,
+                           reading.id);
     }
     return true;
 }

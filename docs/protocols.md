@@ -92,7 +92,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `REMOTE_ADMIN` | configuring a node over the mesh |
 | `KEY_VERIFICATION` | the verify-key ceremony |
 | `CHANNEL_LINKS` | the channel share QR and import rows |
-| `CONTACT_LINKS` | the contact share and import rows |
+| `CONTACT_LINKS` | the contact share and import rows (Meshtastic's `meshtastic.org/v/#` link, or the MeshCore app's `meshcore://contact/add`) |
 | `NODE_ADD` | "put back on the radio" (Meshtastic) / "add as contact" (MeshCore), on a node the radio does not carry |
 | `MODULES` | the Modules row in Settings |
 | `REACTIONS` | React on X, and X itself inside a thread |
@@ -187,6 +187,12 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   finds the list full will not overwrite. An update replaces the whole record, route included,
   so `GET_CONTACT_BY_KEY` reads it first and `ADD_UPDATE_CONTACT` writes it back with that bit
   alone changed; the row follows the radio's OK.
+- **A contact link** is the MeshCore app's QR text, `meshcore://contact/add?name=…&public_key=<64
+  hex>&type=N` (`src/proto/meshcore_url.c`). User in Settings shows this radio's, made from
+  `SELF_INFO`, and adds a stranger's with `ADD_UPDATE_CONTACT` by key, kind and name - no route and
+  no stamp, so the first message floods and the node's next advert is taken. A link for a node
+  that is already a contact is refused rather than written over the route the radio has learned.
+  The signed business card, `meshcore://<hex advert>` for `IMPORT_CONTACT`, is not read yet.
 - **An advert** is this radio announcing its name and key now: Radio details offers it to the
   nodes in earshot or flooded across the mesh. Meshtastic has no such verb, so the two rows are
   listed by `protocol`, not by a lacked feature.
@@ -197,7 +203,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
 Not yet spoken: repeater and room-server login, telemetry and status requests, trace paths,
-and contact sharing. The
+channel links and the signed contact card. The
 `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
 end.

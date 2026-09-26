@@ -1197,6 +1197,145 @@ MESH_TEST_CASE(meshcore_favorite_rewrites_the_radios_record, unit) {
     record_success(test_name);
 }
 
+/* A contact link names a node by key alone: it is added with no route and no stamp, and joins
+   the roster - never heard - on the radio's OK. */
+MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    uint8_t key[MESH_MESHCORE_PUBKEY_LEN];
+    for (size_t i = 0; i < sizeof key; ++i) {
+        key[i] = (uint8_t)(0xC0U + i);
+    }
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, key, "Dave", 9U) != -EINVAL,
+                      "a kind outside the four is refused");
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, g_meshcore.self.public_key, "Me",
+                                                   MESH_MESHCORE_ADV_CHAT) != -EINVAL,
+                      "this radio is not a contact of its own");
+    uint8_t alice[MESH_MESHCORE_PUBKEY_LEN];
+    for (size_t i = 0; i < sizeof alice; ++i) {
+        alice[i] = (uint8_t)(0x40U + i);
+    }
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, alice, "Alice",
+                                                   MESH_MESHCORE_ADV_CHAT) != -EEXIST,
+                      "a contact's record, route and all, is not written over from a link");
+    uint8_t twin[MESH_MESHCORE_PUBKEY_LEN];
+    memcpy(twin, alice, sizeof twin);
+    twin[31] ^= 0xFFU;
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, twin, "Mallory",
+                                                   MESH_MESHCORE_ADV_CHAT) != -EADDRINUSE,
+                      "a key that starts as a roster node's would be stored over it");
+    memcpy(twin, g_meshcore.self.public_key, sizeof twin);
+    twin[31] ^= 0xFFU;
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, twin, "Mallory",
+                                                   MESH_MESHCORE_ADV_CHAT) != -EADDRINUSE,
+                      "and one that starts as this radio's over its own row");
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_import_contact(&g_meshcore, key, "Dave", MESH_MESHCORE_ADV_ROOM) != 1,
+        "a stranger's link is asked");
+    const size_t queued = g_meshcore.queue_count;
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_import_contact(&g_meshcore, key, "Dave", MESH_MESHCORE_ADV_ROOM) != 1 ||
+            g_meshcore.queue_count != queued,
+        "the same link again is already asked");
+    uint8_t cousin[MESH_MESHCORE_PUBKEY_LEN];
+    memcpy(cousin, key, sizeof cousin);
+    cousin[31] ^= 0xFFU;
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, cousin, "Eve",
+                                                   MESH_MESHCORE_ADV_CHAT) != -EADDRINUSE,
+                      "and a key starting the same, while the first waits, would land on it");
+    const uint8_t *frame = wire.frames[before];
+    MESH_TEST_FAIL_IF(wire.count != before + 1U ||
+                          frame[0] != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT || frame[1] != 0xC0U ||
+                          frame[33] != MESH_MESHCORE_ADV_ROOM ||
+                          frame[35] != MESH_MESHCORE_PATH_NONE ||
+                          memcmp(frame + 100, "Dave", 5U) != 0 || frame_u32(frame + 132) != 0U,
+                      "by key, kind and name, with no route and no stamp");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    const struct mesh_node_summary *dave = model_node(0xC0C1C2C3U);
+    MESH_TEST_FAIL_IF(dave == NULL || !dave->in_nodedb || strcmp(dave->long_name, "Dave") != 0,
+                      "the OK puts it on the roster, a contact");
+    MESH_TEST_FAIL_IF(dave->last_heard != 0U, "and never heard: a link is not a transmission");
+
+    /* A heard node added with no advert kept - one from before this connection - carries no
+       stamp either, and is still heard as of the OK if the roster let it go meanwhile. */
+    uint8_t advert[160];
+    const size_t advert_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xD0, "Erin",
+                                            MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000700U);
+    feed(&protocol, advert, advert_len);
+    memset(g_meshcore.heard_age, 0, sizeof g_meshcore.heard_age);
+    g_meshcore.radio_clock = 1700000800U;
+    g_meshcore.radio_clock_at_ms = inkwell_time_monotonic_ms();
+    MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0xD0D1D2D3U) != 1 ||
+                          frame_u32(wire.frames[wire.count - 1U] + 132) != 0U,
+                      "Erin is added with no stamp");
+    MESH_TEST_FAIL_IF(mesh_session_model_drop_node(g_meshcore.model, 0xD0D1D2D3U) != 0,
+                      "and dropped from the roster while the add waits");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(model_node(0xD0D1D2D3U) == NULL || model_node(0xD0D1D2D3U)->last_heard == 0U,
+                      "the OK brings her back heard, since she was");
+
+    /* And a link for a node already heard keeps it heard, whatever the roster did meanwhile. */
+    const size_t frank_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xE0, "Frank",
+                                           MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000900U);
+    feed(&protocol, advert, frank_len);
+    uint8_t frank[MESH_MESHCORE_PUBKEY_LEN];
+    for (size_t i = 0; i < sizeof frank; ++i) {
+        frank[i] = (uint8_t)(0xE0U + i);
+    }
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_import_contact(&g_meshcore, frank, "Frank", MESH_MESHCORE_ADV_CHAT) != 1,
+        "Frank's link is asked");
+    MESH_TEST_FAIL_IF(mesh_session_model_drop_node(g_meshcore.model, 0xE0E1E2E3U) != 0,
+                      "and he is dropped while it waits");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(model_node(0xE0E1E2E3U) == NULL || model_node(0xE0E1E2E3U)->last_heard == 0U,
+                      "the OK brings him back heard, since he was");
+
+    /* An advert under the same four bytes, heard while a link's add waits, keeps its row. */
+    uint8_t gina[MESH_MESHCORE_PUBKEY_LEN];
+    for (size_t i = 0; i < sizeof gina; ++i) {
+        gina[i] = (uint8_t)(0xA0U + i);
+    }
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_import_contact(&g_meshcore, gina, "Gina", MESH_MESHCORE_ADV_CHAT) != 1,
+        "Gina's link is asked");
+    const size_t henry_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xA0, "Henry",
+                                           MESH_MESHCORE_ADV_CHAT, 0xffU, 1700001100U);
+    advert[32] ^= 0xFFU; /* the same first four bytes, a different key */
+    feed(&protocol, advert, henry_len);
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(model_node(0xA0A1A2A3U) == NULL ||
+                          strcmp(model_node(0xA0A1A2A3U)->long_name, "Henry") != 0 ||
+                          model_node(0xA0A1A2A3U)->public_key[31] !=
+                              (uint8_t)((0xA0U + 31U) ^ 0xFFU),
+                      "Henry's row is not written over by Gina's OK");
+
+    /* And the other way round: Henry, heard while Gina's add waits, is not asked under her
+       number - by link or as a heard node. */
+    uint8_t ivy[MESH_MESHCORE_PUBKEY_LEN];
+    for (size_t i = 0; i < sizeof ivy; ++i) {
+        ivy[i] = (uint8_t)(0xB8U + i);
+    }
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_import_contact(&g_meshcore, ivy, "Ivy", MESH_MESHCORE_ADV_CHAT) != 1,
+        "Ivy's link is asked");
+    const size_t jack_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xB8, "Jack",
+                                          MESH_MESHCORE_ADV_CHAT, 0xffU, 1700001200U);
+    advert[32] ^= 0xFFU;
+    feed(&protocol, advert, jack_len);
+    uint8_t jack[MESH_MESHCORE_PUBKEY_LEN];
+    memcpy(jack, ivy, sizeof jack);
+    jack[31] ^= 0xFFU;
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, jack, "Jack",
+                                                   MESH_MESHCORE_ADV_CHAT) != -EADDRINUSE ||
+                          mesh_meshcore_add_contact(&g_meshcore, 0xB8B9BABBU) != -EADDRINUSE,
+                      "a heard key under a number an add is waiting on is not asked again");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    record_success(test_name);
+}
+
 /* An advert is SEND_SELF_ADVERT with 1 to flood it and 0 for the nodes in earshot. */
 MESH_TEST_CASE(meshcore_advert_is_flooded_or_not, unit) {
     struct mesh_protocol protocol;
