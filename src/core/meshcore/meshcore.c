@@ -119,7 +119,14 @@ static int mesh_meshcore_enqueue(struct mesh_meshcore *meshcore, const uint8_t *
     request->len = (uint8_t)len;
     request->packet_id = packet_id;
     meshcore->queue_count += 1U;
+    /* Alone in an idle queue it is written now, and a link that refuses it outright leaves
+       nothing on its way: that refusal is this call's answer, not a success. */
+    const bool immediate = !meshcore->awaiting && meshcore->queue_count == 1U;
+    meshcore->send_error = 0;
     mesh_meshcore_pump(meshcore);
+    if (immediate && !meshcore->awaiting) {
+        return meshcore->send_error < 0 ? meshcore->send_error : -EIO;
+    }
     return 0;
 }
 
@@ -1274,15 +1281,7 @@ int mesh_meshcore_reboot(struct mesh_meshcore *meshcore) {
         return 0;
     }
     uint8_t frame[8];
-    meshcore->send_error = 0;
     const int result = mesh_meshcore_enqueue(meshcore, frame,
                                              mesh_meshcore_encode_reboot(frame, sizeof frame), 0U);
-    if (result < 0) {
-        return result;
-    }
-    /* Written at once and refused by the link: nothing is on its way, so say so. */
-    if (!mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_REBOOT)) {
-        return meshcore->send_error < 0 ? meshcore->send_error : -EIO;
-    }
-    return 1;
+    return result < 0 ? result : 1;
 }

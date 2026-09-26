@@ -875,5 +875,7 @@ MESH_TEST_CASE(meshcore_reboot_syncs_again, unit) {
     }
     MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != -EAGAIN,
                       "a reboot the link refuses is the call's answer");
+    MESH_TEST_FAIL_IF(mesh_meshcore_refresh_settings(&g_meshcore) != -EAGAIN,
+                      "and so is a refresh");
     record_success(test_name);
 }
