@@ -1108,17 +1108,63 @@ MESH_TEST_CASE(meshcore_favorite_rewrites_the_radios_record, unit) {
 
     MESH_TEST_FAIL_IF(mesh_meshcore_set_favorite(&g_meshcore, alice, false) != 1,
                       "unpinning is asked");
+    before = wire.count;
     feed_code(&protocol, MESH_MESHCORE_RESP_ERR);
-    MESH_TEST_FAIL_IF(
-        !model_node(alice)->is_favorite || g_meshcore.favorite_pending,
-        "a radio that no longer has the contact leaves the flag, and nothing waiting");
+    MESH_TEST_FAIL_IF(!model_node(alice)->is_favorite || wire.count != before,
+                      "a radio that no longer has the contact leaves the flag, and writes nothing");
 
     uint8_t advert[160];
     const size_t advert_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x60, "Bob",
                                             MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000100U);
     feed(&protocol, advert, advert_len);
-    MESH_TEST_FAIL_IF(mesh_meshcore_set_favorite(&g_meshcore, 0x60616263U, true) != -ENOENT,
+    const uint32_t bob = 0x60616263U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_set_favorite(&g_meshcore, bob, true) != -ENOENT,
                       "a heard node is no contact to pin");
+
+    /* Two in flight: each lookup carries its own answer, and both are written. */
+    struct mesh_node_summary *bob_node = mesh_session_model_node(g_meshcore.model, bob, false);
+    bob_node->in_nodedb = true;
+    before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_set_favorite(&g_meshcore, alice, false) != 1 ||
+                          mesh_meshcore_set_favorite(&g_meshcore, bob, true) != 1,
+                      "unpinning one and pinning another are both asked");
+    feed(&protocol, record, record_len); /* Alice's record, still 0x04 | favourite on the radio */
+    uint8_t bob_record[160];
+    const size_t bob_len = build_contact(bob_record, MESH_MESHCORE_RESP_CONTACT, 0x60, "Bob",
+                                         MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000100U);
+    feed(&protocol, bob_record, bob_len);
+    /* Alice's write goes out as Bob's lookup is answered, and Bob's once Alice's is. */
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    bool alice_written = false;
+    bool bob_written = false;
+    for (size_t i = before; i < wire.count; ++i) {
+        const uint8_t *f = wire.frames[i];
+        if (f[0] != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT) {
+            continue;
+        }
+        alice_written |= f[1] == 0x40 && (f[34] & MESH_MESHCORE_CONTACT_FAVORITE) == 0U;
+        bob_written |= f[1] == 0x60 && (f[34] & MESH_MESHCORE_CONTACT_FAVORITE) != 0U;
+    }
+    MESH_TEST_FAIL_IF(!alice_written || !bob_written,
+                      "each lookup writes its own contact back with its own answer");
+    MESH_TEST_FAIL_IF(model_node(alice)->is_favorite || !model_node(bob)->is_favorite,
+                      "and both land on the OKs");
+
+    /* A full queue: the write takes the slot its lookup leaves. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_set_favorite(&g_meshcore, alice, true) != 1, "pin again");
+    while (g_meshcore.queue_count < MESH_MESHCORE_QUEUE_LEN) {
+        MESH_TEST_FAIL_IF(mesh_meshcore_send_advert(&g_meshcore, false) != 0, "fill the queue");
+    }
+    record[34] = 0x04U;
+    feed(&protocol, record, record_len);
+    MESH_TEST_FAIL_IF(g_meshcore.queue_count != MESH_MESHCORE_QUEUE_LEN,
+                      "the write is queued in the slot the lookup left");
+    before = wire.count;
+    while (g_meshcore.queue_count > 0U) {
+        feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    }
+    MESH_TEST_FAIL_IF(!model_node(alice)->is_favorite, "and lands once the queue drains");
     record_success(test_name);
 }
 

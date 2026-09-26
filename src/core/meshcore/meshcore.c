@@ -102,8 +102,8 @@ static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
     }
 }
 
-static int mesh_meshcore_enqueue(struct mesh_meshcore *meshcore, const uint8_t *frame, int len,
-                                 uint32_t packet_id) {
+static int mesh_meshcore_enqueue_tagged(struct mesh_meshcore *meshcore, const uint8_t *frame,
+                                        int len, uint32_t packet_id, uint8_t favorite) {
     if (len < 0) {
         return len;
     }
@@ -118,6 +118,7 @@ static int mesh_meshcore_enqueue(struct mesh_meshcore *meshcore, const uint8_t *
     memcpy(request->frame, frame, (size_t)len);
     request->len = (uint8_t)len;
     request->packet_id = packet_id;
+    request->favorite = favorite;
     meshcore->queue_count += 1U;
     /* Alone in an idle queue it is written now, and a link that refuses it outright leaves
        nothing on its way: that refusal is this call's answer, not a success. */
@@ -128,6 +129,12 @@ static int mesh_meshcore_enqueue(struct mesh_meshcore *meshcore, const uint8_t *
         return meshcore->send_error < 0 ? meshcore->send_error : -EIO;
     }
     return 0;
+}
+
+static int mesh_meshcore_enqueue(struct mesh_meshcore *meshcore, const uint8_t *frame, int len,
+                                 uint32_t packet_id) {
+    return mesh_meshcore_enqueue_tagged(meshcore, frame, len, packet_id,
+                                        MESH_MESHCORE_FAVORITE_NONE);
 }
 
 static bool mesh_meshcore_queued(const struct mesh_meshcore *meshcore, uint8_t cmd) {
@@ -791,10 +798,10 @@ mesh_meshcore_roster_node(const struct mesh_meshcore *meshcore, uint32_t node_id
 
 /* The record just read back for a favourite asked for: written whole, one bit changed. */
 static void mesh_meshcore_write_favorite(struct mesh_meshcore *meshcore,
-                                         const struct mesh_meshcore_contact *record) {
+                                         const struct mesh_meshcore_contact *record,
+                                         uint8_t intent) {
     struct mesh_meshcore_contact contact = *record;
-    meshcore->favorite_pending = false;
-    if (meshcore->favorite_want) {
+    if (intent == MESH_MESHCORE_FAVORITE_SET) {
         contact.flags |= MESH_MESHCORE_CONTACT_FAVORITE;
     } else {
         contact.flags &= (uint8_t)~MESH_MESHCORE_CONTACT_FAVORITE;
@@ -811,6 +818,10 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
     struct mesh_meshcore_request *request = mesh_meshcore_head(meshcore);
     const uint32_t packet_id = request != NULL && meshcore->awaiting ? request->packet_id : 0U;
     const uint8_t code = frame[0];
+    /* A favourite's record, written back once its lookup has left the queue - so the slot
+       the lookup held is there for the write. */
+    struct mesh_meshcore_contact favorite_record;
+    uint8_t favorite_intent = MESH_MESHCORE_FAVORITE_NONE;
 
     /* The contact list is several frames to one command; only its end closes it. */
     if (code == MESH_MESHCORE_RESP_CONTACTS_START) {
@@ -820,9 +831,11 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         struct mesh_meshcore_contact contact;
         if (mesh_meshcore_decode_contact(frame, len, &contact) == 0) {
             mesh_meshcore_store_contact(meshcore, &contact, cmd == MESH_MESHCORE_CMD_GET_CONTACTS);
-            if (cmd == MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY && meshcore->favorite_pending &&
-                memcmp(contact.public_key, meshcore->favorite_key, MESH_MESHCORE_PUBKEY_LEN) == 0) {
-                mesh_meshcore_write_favorite(meshcore, &contact);
+            if (cmd == MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY && meshcore->awaiting &&
+                request->favorite != MESH_MESHCORE_FAVORITE_NONE &&
+                memcmp(contact.public_key, request->frame + 1, MESH_MESHCORE_PUBKEY_LEN) == 0) {
+                favorite_record = contact;
+                favorite_intent = request->favorite;
             }
         }
         if (cmd != MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY) {
@@ -836,6 +849,9 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
     }
     mesh_meshcore_pop(meshcore);
     meshcore->timeouts = 0U;
+    if (favorite_intent != MESH_MESHCORE_FAVORITE_NONE) {
+        mesh_meshcore_write_favorite(meshcore, &favorite_record, favorite_intent);
+    }
 
     switch (code) {
     case MESH_MESHCORE_RESP_DEVICE_INFO:
@@ -995,10 +1011,6 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         } else {
             mesh_meshcore_mark(meshcore, packet_id, MESH_MESSAGE_ACK_FAILED);
         }
-        /* A contact the radio no longer has is no favourite to write. */
-        if (cmd == MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY) {
-            meshcore->favorite_pending = false;
-        }
         /* A walk step refused ends the walk where it stands. */
         if (cmd == MESH_MESHCORE_CMD_GET_CHANNEL && meshcore->phase == MESH_MESHCORE_CHANNELS) {
             mesh_meshcore_ready_now(meshcore);
@@ -1091,7 +1103,6 @@ static int mesh_meshcore_begin(void *self) {
     /* And the adverts kept for adding are this connection's: one from before may be older than
        what the sender now stamps, and would hold its next advert back as a replay. */
     memset(meshcore->heard_age, 0, sizeof meshcore->heard_age);
-    meshcore->favorite_pending = false;
     /* And no channel slot is editable until this walk has read it again: the table outlives
        the link, and a slot left over from the last one - a walk refused before reaching it -
        would be written back over whatever the radio holds now. */
@@ -1435,18 +1446,12 @@ int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id,
         return 0;
     }
     uint8_t frame[1U + MESH_MESHCORE_PUBKEY_LEN];
-    const int result =
-        mesh_meshcore_enqueue(meshcore, frame,
-                              mesh_meshcore_encode_key(MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY,
-                                                       node->public_key, frame, sizeof frame),
-                              0U);
-    if (result < 0) {
-        return result;
-    }
-    meshcore->favorite_pending = true;
-    meshcore->favorite_want = favorite;
-    memcpy(meshcore->favorite_key, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
-    return 1;
+    const int result = mesh_meshcore_enqueue_tagged(
+        meshcore, frame,
+        mesh_meshcore_encode_key(MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY, node->public_key, frame,
+                                 sizeof frame),
+        0U, favorite ? MESH_MESHCORE_FAVORITE_SET : MESH_MESHCORE_FAVORITE_CLEAR);
+    return result < 0 ? result : 1;
 }
 
 int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,

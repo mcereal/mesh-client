@@ -295,6 +295,16 @@ struct mesh_meshcore_request {
     uint8_t len;
     /* The message log entry this command carries, 0 for none. */
     uint32_t packet_id;
+    /* A GET_CONTACT_BY_KEY asked for a favourite: what to write back when the record arrives,
+       one of enum mesh_meshcore_favorite_intent. Kept with the lookup, so two pins in flight
+       are two lookups that each know their own answer. */
+    uint8_t favorite;
+};
+
+enum mesh_meshcore_favorite_intent {
+    MESH_MESHCORE_FAVORITE_NONE = 0,
+    MESH_MESHCORE_FAVORITE_SET = 1,
+    MESH_MESHCORE_FAVORITE_CLEAR = 2,
 };
 
 /* One direct message waiting for its ack. */
@@ -338,11 +348,6 @@ struct mesh_meshcore {
     struct mesh_meshcore_contact heard[MESH_MESHCORE_HEARD_ADVERTS];
     uint32_t heard_age[MESH_MESHCORE_HEARD_ADVERTS]; /* when each was kept; 0 for an empty slot */
     uint32_t heard_clock;
-    /* A favourite asked for and not yet written: the radio's record is read first, since an
-       update replaces the whole of it - route included - and only the flag is ours to change. */
-    bool favorite_pending;
-    bool favorite_want;
-    uint8_t favorite_key[MESH_MESHCORE_PUBKEY_LEN];
     bool battery_valid;
     uint16_t battery_mv;
     /*
