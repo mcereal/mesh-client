@@ -62,6 +62,22 @@ static enum mesh_ui_command_id command_for_button(const struct mesh_ui_command_s
     return command != NULL ? command->id : MESH_UI_COMMAND_NONE;
 }
 
+/* One inbound message from `peer`, so a thread has a bubble for the cursor to sit on. */
+static void actions_add_message(struct mesh_ui_snapshot *snapshot, uint32_t peer) {
+    struct mesh_ui_message *message = &snapshot->messages.entries[snapshot->messages.count++];
+    memset(message, 0, sizeof *message);
+    message->packet_id = 12U;
+    message->peer = peer;
+    message->direction = MESH_MESSAGE_INBOUND;
+}
+
+/* A radio that has been heard, with one node besides ourselves: a picker two rows long. */
+static void actions_add_peer(struct mesh_ui_snapshot *snapshot) {
+    snapshot->handshake_valid = true;
+    snapshot->handshake.node_count = 1U;
+    snapshot->handshake.nodes[0].node_id = 0x2000U;
+}
+
 /* One more row on the Devices tab, with the cursor left on it. */
 static struct mesh_ui_device *actions_add_device(struct mesh_ui_snapshot *snapshot,
                                                  const char *identifier,
@@ -283,6 +299,7 @@ MESH_TEST_CASE(actions_overlays_win_over_the_screen, unit) {
     /* Every overlay raised at once: they are answered in the order fb_render_snapshot() draws
        them, so the confirmation - the innermost - is the one the bar describes. */
     actions_snapshot(&snapshot);
+    actions_add_peer(&snapshot);
     snapshot.nav.compose_open = true;
     snapshot.nav.keyboard_open = true;
     snapshot.nav.picker_open = true;
@@ -538,6 +555,8 @@ MESH_TEST_CASE(actions_compact_drops_only_what_the_chrome_says, unit) {
 
     actions_snapshot(&snapshot);
     snapshot.nav.thread_open = true;
+    snapshot.nav.target_node = 0x3000U;
+    actions_add_message(&snapshot, 0x3000U);
     mesh_ui_actions_for(&snapshot, &bar);
     const size_t full = bar.count;
     mesh_ui_actions_compact(&bar, mesh_ui_action_bar_goes_back(&bar));
@@ -977,5 +996,61 @@ MESH_TEST_CASE(actions_map_pans_on_the_whole_d_pad, unit) {
                       "the map's pan should be named on the four-way keycap");
     MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_UP_DOWN) != MESH_UI_COMMAND_NONE,
                       "and not on half of it");
+    record_success(test_name);
+}
+
+/*
+ * A thread nothing has arrived in and a picker with one row: the bar names only the presses that
+ * still do something. Reply, react and the trigger jump all act on a bubble, and a jump of ten
+ * over a single row goes nowhere - a keycap that does nothing is the bug this table prevents.
+ */
+MESH_TEST_CASE(actions_empty_thread_and_picker_offer_only_live_presses, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct inkcell_action_bar bar;
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.thread_open = true;
+    snapshot.nav.target_node = 0x3000U;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != INKCELL_STR_NONE,
+                      "an empty thread has no bubble for A to answer");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_X) != INKCELL_STR_NONE,
+                      "an empty thread has no bubble to react to");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_TRIGGERS) != INKCELL_STR_NONE,
+                      "an empty thread has no landmarks to jump between");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_Y) != MESH_STR_ACTION_WRITE,
+                      "writing to an empty conversation is how it stops being empty");
+
+    actions_add_message(&snapshot, 0x3000U);
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_REPLY,
+                      "one bubble is enough for A to answer");
+
+    /* All traffic, empty and then not. */
+    actions_snapshot(&snapshot);
+    snapshot.nav.thread_open = true;
+    snapshot.nav.inbox = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != INKCELL_STR_NONE,
+                      "an empty All traffic has no conversation to open");
+    actions_add_message(&snapshot, 0x3000U);
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_OPEN,
+                      "a line in All traffic opens the conversation it belongs to");
+
+    /* The picker before the radio is heard: the primary channel alone. */
+    actions_snapshot(&snapshot);
+    snapshot.nav.picker_open = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_CHOOSE,
+                      "the one row is still there to choose");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_SHOULDERS) != INKCELL_STR_NONE,
+                      "a jump of ten over one row goes nowhere");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_UP_DOWN) != INKCELL_STR_NONE,
+                      "there is nowhere for the d-pad to move to");
+    actions_add_peer(&snapshot);
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_UP_DOWN) != MESH_STR_ACTION_MOVE,
+                      "two rows are somewhere to move");
     record_success(test_name);
 }
