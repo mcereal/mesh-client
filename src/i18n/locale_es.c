@@ -1529,6 +1529,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_CONTACT_LINK_INVALID] = "No es un enlace de contacto",
     [MESH_STR_TOAST_CONTACT_LINK_OTHER] = "Ese enlace es para otro tipo de radio",
     [MESH_STR_TOAST_CONTACT_EXISTS] = "%.20s ya es un contacto",
+    [MESH_STR_TOAST_CONTACT_CLASHES] = "Otro nodo de aquí tiene una clave que empieza igual",
     [MESH_STR_TOAST_CONTACT_LINK_QUEUED] = "%s enviado a los contactos de la radio",
     [MESH_STR_TOAST_CONTACT_LINK_IS_SELF] = "Ese código es el de esta misma radio",
     [MESH_STR_TOAST_CONTACT_LINK_FAILED] = "No se pudo enviar el contacto a la radio",

@@ -1219,6 +1219,17 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, alice, "Alice",
                                                    MESH_MESHCORE_ADV_CHAT) != -EEXIST,
                       "a contact's record, route and all, is not written over from a link");
+    uint8_t twin[MESH_MESHCORE_PUBKEY_LEN];
+    memcpy(twin, alice, sizeof twin);
+    twin[31] ^= 0xFFU;
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, twin, "Mallory",
+                                                   MESH_MESHCORE_ADV_CHAT) != -EADDRINUSE,
+                      "a key that starts as a roster node's would be stored over it");
+    memcpy(twin, g_meshcore.self.public_key, sizeof twin);
+    twin[31] ^= 0xFFU;
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, twin, "Mallory",
+                                                   MESH_MESHCORE_ADV_CHAT) != -EADDRINUSE,
+                      "and one that starts as this radio's over its own row");
     const size_t before = wire.count;
     MESH_TEST_FAIL_IF(
         mesh_meshcore_import_contact(&g_meshcore, key, "Dave", MESH_MESHCORE_ADV_ROOM) != 1,

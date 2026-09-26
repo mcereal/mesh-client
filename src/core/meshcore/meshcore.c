@@ -1478,6 +1478,14 @@ int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
     if (node != NULL && node->in_nodedb) {
         return -EEXIST;
     }
+    /* The roster names a node by its key's first four bytes: a different key with the same
+       four - this radio's, or another node's - would be stored over that one. */
+    if (node == NULL) {
+        const uint32_t id = mesh_meshcore_node_id(key, MESH_MESHCORE_PUBKEY_LEN);
+        if (id == meshcore->self_node || mesh_meshcore_roster_node(meshcore, id) != NULL) {
+            return -EADDRINUSE;
+        }
+    }
     struct mesh_meshcore_contact contact;
     memset(&contact, 0, sizeof contact);
     memcpy(contact.public_key, key, MESH_MESHCORE_PUBKEY_LEN);

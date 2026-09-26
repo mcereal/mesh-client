@@ -464,7 +464,9 @@ int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id,
  * contact, when the radio says OK. 1 when asked; -EINVAL for a missing key, a kind outside
  * 1-4 or this radio's own key, -ENOTCONN until the handshake has named the radio, -EEXIST for a
  * node that is already a contact - a link carries no route, and writing it over a contact's
- * record would drop the one the radio has learned - and -ENOBUFS when the queue is full.
+ * record would drop the one the radio has learned - -EADDRINUSE for a key whose first four bytes,
+ * the roster's number for a node, are already this radio's or another node's, and -ENOBUFS
+ * when the queue is full.
  */
 int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
                                  const uint8_t key[MESH_MESHCORE_PUBKEY_LEN], const char *name,

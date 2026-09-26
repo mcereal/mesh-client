@@ -2033,6 +2033,8 @@ static void import_meshcore_contact(struct mesh_app *app, const struct mesh_ui_a
         inkwell_log_info("ui", "Asked the radio to add a contact from a link");
     } else if (result == -EEXIST) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_EXISTS, name);
+    } else if (result == -EADDRINUSE) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CONTACT_CLASHES));
     } else if (result == -ENOTCONN) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -EINVAL) {

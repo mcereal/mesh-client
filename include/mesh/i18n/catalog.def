@@ -2833,6 +2833,7 @@ MESH_STR_ENTRY(TOAST_IMPORT_NO_CHANGE,    "This radio is already on those channe
 MESH_STR_ENTRY(TOAST_CONTACT_LINK_INVALID, "Not a contact link")
 MESH_STR_ENTRY(TOAST_CONTACT_LINK_OTHER,  "That link is for another kind of radio")
 MESH_STR_ENTRY(TOAST_CONTACT_EXISTS,      "%.20s is already a contact")
+MESH_STR_ENTRY(TOAST_CONTACT_CLASHES,     "Another node here has a key that starts the same")
 MESH_STR_ENTRY(TOAST_CONTACT_LINK_QUEUED, "Sent %s to the radio's contacts")
 MESH_STR_ENTRY(TOAST_CONTACT_LINK_IS_SELF, "That code is this radio's own")
 MESH_STR_ENTRY(TOAST_CONTACT_LINK_FAILED, "Could not send the contact to the radio")
