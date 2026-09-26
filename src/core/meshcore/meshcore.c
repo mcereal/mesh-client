@@ -103,7 +103,8 @@ static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
 }
 
 static int mesh_meshcore_enqueue_tagged(struct mesh_meshcore *meshcore, const uint8_t *frame,
-                                        int len, uint32_t packet_id, uint8_t favorite) {
+                                        int len, uint32_t packet_id, uint8_t favorite,
+                                        bool from_link) {
     if (len < 0) {
         return len;
     }
@@ -119,6 +120,7 @@ static int mesh_meshcore_enqueue_tagged(struct mesh_meshcore *meshcore, const ui
     request->len = (uint8_t)len;
     request->packet_id = packet_id;
     request->favorite = favorite;
+    request->from_link = from_link;
     meshcore->queue_count += 1U;
     /* Alone in an idle queue it is written now, and a link that refuses it outright leaves
        nothing on its way: that refusal is this call's answer, not a success. */
@@ -134,7 +136,7 @@ static int mesh_meshcore_enqueue_tagged(struct mesh_meshcore *meshcore, const ui
 static int mesh_meshcore_enqueue(struct mesh_meshcore *meshcore, const uint8_t *frame, int len,
                                  uint32_t packet_id) {
     return mesh_meshcore_enqueue_tagged(meshcore, frame, len, packet_id,
-                                        MESH_MESHCORE_FAVORITE_NONE);
+                                        MESH_MESHCORE_FAVORITE_NONE, false);
 }
 
 static bool mesh_meshcore_queued(const struct mesh_meshcore *meshcore, uint8_t cmd) {
@@ -830,6 +832,7 @@ static void mesh_meshcore_write_favorite(struct mesh_meshcore *meshcore,
     request->len = (uint8_t)len;
     request->packet_id = 0U;
     request->favorite = MESH_MESHCORE_FAVORITE_NONE;
+    request->from_link = false;
     meshcore->queue_count += 1U;
 }
 
@@ -991,7 +994,7 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
                    radio's lastmod for it too, so it keeps its place among the recently heard
                    rather than sinking to the bottom of a full roster. A contact from a link
                    carries no stamp, and was never heard at all. */
-                const bool heard = contact.last_advert != 0U;
+                const bool heard = !request->from_link;
                 contact.last_advert = 0U;
                 contact.lastmod = was == NULL && heard ? mesh_meshcore_clock_now(meshcore) : 0U;
                 mesh_meshcore_store_contact(meshcore, &contact, false);
@@ -1484,8 +1487,9 @@ int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
         inkwell_str_copy(contact.name, sizeof contact.name, name);
     }
     uint8_t frame[MESH_MESHCORE_MAX_FRAME];
-    const int result = mesh_meshcore_enqueue(
-        meshcore, frame, mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U);
+    const int result = mesh_meshcore_enqueue_tagged(
+        meshcore, frame, mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U,
+        MESH_MESHCORE_FAVORITE_NONE, true);
     return result < 0 ? result : 1;
 }
 
@@ -1508,7 +1512,7 @@ int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id,
         meshcore, frame,
         mesh_meshcore_encode_key(MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY, node->public_key, frame,
                                  sizeof frame),
-        0U, favorite ? MESH_MESHCORE_FAVORITE_SET : MESH_MESHCORE_FAVORITE_CLEAR);
+        0U, favorite ? MESH_MESHCORE_FAVORITE_SET : MESH_MESHCORE_FAVORITE_CLEAR, false);
     return result < 0 ? result : 1;
 }
 

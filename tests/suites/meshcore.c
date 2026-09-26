@@ -1235,6 +1235,24 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     MESH_TEST_FAIL_IF(dave == NULL || !dave->in_nodedb || strcmp(dave->long_name, "Dave") != 0,
                       "the OK puts it on the roster, a contact");
     MESH_TEST_FAIL_IF(dave->last_heard != 0U, "and never heard: a link is not a transmission");
+
+    /* A heard node added with no advert kept - one from before this connection - carries no
+       stamp either, and is still heard as of the OK if the roster let it go meanwhile. */
+    uint8_t advert[160];
+    const size_t advert_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xD0, "Erin",
+                                            MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000700U);
+    feed(&protocol, advert, advert_len);
+    memset(g_meshcore.heard_age, 0, sizeof g_meshcore.heard_age);
+    g_meshcore.radio_clock = 1700000800U;
+    g_meshcore.radio_clock_at_ms = inkwell_time_monotonic_ms();
+    MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0xD0D1D2D3U) != 1 ||
+                          frame_u32(wire.frames[wire.count - 1U] + 132) != 0U,
+                      "Erin is added with no stamp");
+    MESH_TEST_FAIL_IF(mesh_session_model_drop_node(g_meshcore.model, 0xD0D1D2D3U) != 0,
+                      "and dropped from the roster while the add waits");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(model_node(0xD0D1D2D3U) == NULL || model_node(0xD0D1D2D3U)->last_heard == 0U,
+                      "the OK brings her back heard, since she was");
     record_success(test_name);
 }
 
