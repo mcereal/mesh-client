@@ -851,6 +851,12 @@ MESH_TEST_CASE(meshcore_reboot_syncs_again, unit) {
     static struct wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != 1, "the reboot is queued");
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.set_tx_power = true;
+    write.tx_power_dbm = 10;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EBUSY,
+                      "no save is queued behind it");
     MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_REBOOT ||
                           wire.lens[wire.count - 1U] != 7U ||
                           memcmp(wire.frames[wire.count - 1U] + 1, "reboot", 6U) != 0,
