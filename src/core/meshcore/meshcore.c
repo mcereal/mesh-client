@@ -717,7 +717,7 @@ static void mesh_meshcore_store_telemetry(struct mesh_meshcore *meshcore,
         env->has_current = true;
         env->current = telemetry->current_a * 1000.0f; /* the record's current is in mA */
     }
-    if (telemetry->has_position && (telemetry->latitude_e7 != 0 || telemetry->longitude_e7 != 0)) {
+    if (telemetry->has_position) {
         node->position.valid = true;
         node->position.latitude_i = telemetry->latitude_e7;
         node->position.longitude_i = telemetry->longitude_e7;
@@ -794,7 +794,11 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
                 mesh_meshcore_store_telemetry(meshcore, node, &telemetry);
                 inkwell_log_info("meshcore", "Readings from 0x%08x", id);
             }
-            meshcore->telemetry_until_ms = 0U;
+            /* Only that node's answer frees the radio: a late one from an earlier request is
+               stored, and leaves the current request its deadline. */
+            if (memcmp(frame + 2, meshcore->telemetry_prefix, MESH_MESHCORE_PREFIX_LEN) == 0) {
+                meshcore->telemetry_until_ms = 0U;
+            }
         }
         break;
     case MESH_MESHCORE_PUSH_CONTACT_DELETED:
@@ -1604,7 +1608,11 @@ int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t nod
     frame[0] = MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ; /* then three reserved bytes */
     memcpy(frame + 4, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
     const int result = mesh_meshcore_enqueue(meshcore, frame, (int)sizeof frame, 0U);
-    return result < 0 ? result : 0;
+    if (result < 0) {
+        return result;
+    }
+    memcpy(meshcore->telemetry_prefix, node->public_key, MESH_MESHCORE_PREFIX_LEN);
+    return 0;
 }
 
 int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,

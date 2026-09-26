@@ -389,6 +389,7 @@ struct mesh_meshcore {
     /* A telemetry request's answer is due until this monotonic time, 0 for none outstanding:
        the radio keeps one, and a second would orphan the first. */
     uint64_t telemetry_until_ms;
+    uint8_t telemetry_prefix[MESH_MESHCORE_PREFIX_LEN]; /* whose answer frees it */
     bool battery_valid;
     uint16_t battery_mv;
     /*

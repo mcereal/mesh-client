@@ -1450,6 +1450,31 @@ MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
                       "current lands in milliamps, as the record keeps it");
     MESH_TEST_FAIL_IF(node->environment.has_temperature,
                       "and a reading the node no longer sends is not kept as fresh");
+    static const uint8_t k_null_island[] = {
+        MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE,
+        0x00,
+        0x40,
+        0x41,
+        0x42,
+        0x43,
+        0x44,
+        0x45,
+        0x03,
+        136,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    };
+    feed(&protocol, k_null_island, sizeof k_null_island);
+    MESH_TEST_FAIL_IF(!node->position.valid || node->position.latitude_i != 0 ||
+                          node->position.longitude_i != 0,
+                      "a fix at 0, 0 reported as one is a position");
 
     /* One outstanding: a second before the first's answer or deadline would orphan it. */
     MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0, "asked again");
@@ -1458,6 +1483,24 @@ MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
     feed(&protocol, k_sent, sizeof k_sent);
     MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != -EBUSY,
                       "and a third waits for the second's answer");
+    /* A late answer from someone else leaves the current request its deadline. */
+    static const uint8_t k_stranger[] = {
+        MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE,
+        0x00,
+        0x99,
+        0x98,
+        0x97,
+        0x96,
+        0x95,
+        0x94,
+        0x01,
+        116,
+        0x01,
+        0x72,
+    };
+    feed(&protocol, k_stranger, sizeof k_stranger);
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != -EBUSY,
+                      "only the asked node's answer frees the radio");
     g_meshcore.telemetry_until_ms = 1U; /* the deadline long past */
     MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0,
                       "an answer that never came frees it at its deadline");
