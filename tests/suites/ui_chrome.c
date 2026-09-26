@@ -434,3 +434,37 @@ MESH_TEST_CASE(ui_chrome_banner_names_the_radio_being_configured, unit) {
                       "and the section whose Save would land on the other radio says nothing");
     record_success(test_name);
 }
+
+/*
+ * A list's heading carries a number only for what is not on the list. The screens each used to
+ * count their own noun and leave their controls out, and "Messages (4)" over five conversations
+ * read as a client that could not count - so a list showing everything it has is its name alone,
+ * and the number a heading does carry means one thing wherever it appears.
+ */
+MESH_TEST_CASE(ui_chrome_list_title_counts_only_what_the_list_holds_back, unit) {
+    char title[64];
+
+    mesh_ui_chrome_list_title(title, sizeof title, "Devices", 5U, 5U, 0U);
+    MESH_TEST_FAIL_IF(strcmp(title, "Devices") != 0,
+                      "every radio is on the list, so a total is arithmetic the reader can "
+                      "check against rows that include a control, and gets wrong");
+
+    mesh_ui_chrome_list_title(title, sizeof title, "Nodes", 22U, 42U, 0U);
+    MESH_TEST_FAIL_IF(strcmp(title, "Nodes (22 of 42)") != 0,
+                      "a list holding some back says how many of how many");
+
+    mesh_ui_chrome_list_title(title, sizeof title, "#LongFast", 64U, 64U, 30U);
+    MESH_TEST_FAIL_IF(strcmp(title, "#LongFast (+30 older)") != 0,
+                      "history dropped off the top is not on the list either, and says so "
+                      "without the count of what is");
+
+    mesh_ui_chrome_list_title(title, sizeof title, "Nodes", 5U, 3U, 0U);
+    MESH_TEST_FAIL_IF(strcmp(title, "Nodes") != 0,
+                      "a floor below what is drawn is not a reason to print \"5 of 3\"");
+
+    mesh_ui_chrome_list_title(title, sizeof title, "Nodes", 0U, 12U, 0U);
+    MESH_TEST_FAIL_IF(strcmp(title, "Nodes (0 of 12)") != 0,
+                      "a filter that keeps nothing still says there is something to keep");
+
+    record_success(test_name);
+}

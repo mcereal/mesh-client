@@ -15,6 +15,7 @@
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/chrome.h"
 #include "mesh/ui/devices.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
@@ -88,12 +89,12 @@ static void fb_devices_network_row(struct inkcell_draw_state *state, struct inkc
 void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                        struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
-    /* The heading counts the radios, not the rows: the network row is a control, and a Devices
-       tab reading "Devices 1" with nothing found would be the arithmetic-no-screen-should-show
-       rule the Nodes title states. */
+    /* Every radio found is on the list, so the heading is the name alone - see
+       mesh_ui_chrome_list_title() for why a bare count is not said. */
     char title[96];
-    inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_DEVICES),
-                           (uint32_t)snapshot->device_count, 0U);
+    mesh_ui_chrome_list_title(title, sizeof title, inkcell_str(MESH_STR_TAB_DEVICES),
+                              (uint32_t)snapshot->device_count, (uint32_t)snapshot->device_count,
+                              0U);
     fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     /*

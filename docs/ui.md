@@ -474,6 +474,17 @@ while (inkcell_fb_list_next(&list, &i)) {
 `inkcell_fb_list_begin_rows()` is the variant for an item that spends more than one row;
 `inkcell_fb_list_begin_visible()` for a screen that reserves body rows for something else.
 
+### A heading's number is what the list is not showing
+
+Every list heading is built by `mesh_ui_chrome_list_title()` in `src/ui/tables/chrome.c`, and a
+number appears in one only for what is *not* on the list: "Nodes (22 of 42)" when a filter, the
+roster cap or a sync still arriving holds some back, "#LongFast (+30 older)" when history was
+dropped off the top. A list with everything on it is its name alone. The bare total is refused
+because a reader counts the rows in front of them, and each screen's rows mix items with controls
+differently - "Messages (4)" counted conversations over five conversation-shaped rows (All
+traffic is one), "Devices (5)" radios over six rows (the network row is one). The rows already
+say how many there are, and the scroll rail says when there are more. `ui_chrome_list_title_*`.
+
 ### A row is however many steps the model says
 
 `inkcell_fb_list_begin_heights()` takes one row count per item and is what a list of **mixed** heights

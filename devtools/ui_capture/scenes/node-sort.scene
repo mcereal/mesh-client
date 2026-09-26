@@ -11,7 +11,7 @@
 #     pills with nothing in them.
 #   - The action bar names the d-pad per row. On the filter it reads "filter", on this one
 #     "sort", and on a node A reads "open" - the keycap whose verb changes is named per row.
-#   - The heading's count does not move as the order steps. A filter changes how many rows there
+#   - The heading does not change as the order steps. A filter changes how many rows there
 #     are and a sort does not, which is the difference the two rows exist to keep apart.
 #   - Under Distance the rows reorder. Under Distance with no fix of our own they cannot, and the
 #     value column says so rather than leaving a list that did not move under a word that says it

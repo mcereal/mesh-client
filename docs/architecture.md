@@ -125,7 +125,7 @@ else.
 - Emptying it is the client's own verb, never a side effect of one sent over the air.
   `mesh_session_forget_nodes(only_off_nodedb)` sends nothing, so it works with no link. Each
   row shows `mesh_session_forgettable_nodes()` — the count *that press removes*, through the
-  same predicate the forget uses — which is a different number from the Nodes tab's "off radio"
+  same predicate the forget uses — which is a different number from the Status card's "off radio"
   total (the UI carries 128 nodes and the roster holds 256).
 - `mesh_session_seed_node` restores the roster the last run persisted before any radio is
   attached, so a restart is not a reset either. The owning radio travels with it as its own

@@ -171,6 +171,34 @@ struct mesh_ui_banner {
  */
 bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_banner *out);
 
+/*
+ * The heading over a list: `name`, and a number only when the list is not showing everything
+ * there is. Every list screen - Messages, a thread, Nodes, Devices, Waypoints, Send to - names
+ * its heading through this, so a number in one means the same thing in all of them.
+ *
+ *   - `shown` of `exist`, when fewer are on the list than exist: a filter, the roster cap, a
+ *     radio that knows nodes the client has not been sent. "Nodes (22 of 42)".
+ *   - `older` dropped off the top, when the list's history does not reach back that far.
+ *     "#LongFast (+30 older)".
+ *   - Otherwise the name alone. `shown` is not said on its own.
+ *
+ * The bare total is what this refuses, and it is refused rather than tidied. Each screen used to
+ * count its own noun and leave its controls out - conversations but not All traffic, radios but
+ * not the network row, places but not New waypoint - and each was right by its own lights, but
+ * a reader counts the rows in front of them: "Messages (4)" over five conversations and
+ * "Devices (5)" over six rows read as the client miscounting. No choice of noun fixes that on
+ * every screen at once, because what reads as an item differs by screen. A total also says
+ * nothing the list does not: the rows are there to be seen, and the scroll rail's thumb says how
+ * much of the list is on screen when it is not all of it. What the rows *cannot* say is what
+ * is not among them, and that is the only thing a heading's number is for.
+ *
+ * `exist` below `shown` is read as `shown`: the caller's "there are at least this many" is a
+ * floor, never a reason to print "5 of 3". Both qualifiers at once takes the first - no list
+ * has both, and one parenthesis is what a heading has room for.
+ */
+void mesh_ui_chrome_list_title(char *out, size_t out_len, const char *name, uint32_t shown,
+                               uint32_t exist, uint32_t older);
+
 #ifdef __cplusplus
 }
 #endif

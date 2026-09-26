@@ -292,6 +292,8 @@ These are authoring rules - breaking one compiles and looks fine.
   *nominal* width and an estimate. Measure with `inkcell_fb_text_width()`, wrap and fit against
   pixels (`layout->body_w`), and reach for `inkcell_fb_text_cols()` only where a layout really
   does reserve whole columns.
+- **A list heading is `mesh_ui_chrome_list_title()`**, which puts a number in it only for what the
+  list is not showing ("22 of 42", "+30 older"). A screen does not format its own count.
 - **A setting explains itself through `src/ui/tables/help.c`**, keyed per section (and per route for
   screens that are not lists of fields), never as a sentence on a screen.
 - **Adding a string or a cache key is adding a table row** - `catalog.def`, `store_keys.def`. A
