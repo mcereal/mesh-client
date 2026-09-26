@@ -1002,6 +1002,18 @@ MESH_TEST_CASE(meshcore_add_contact_from_a_heard_advert, unit) {
     MESH_TEST_FAIL_IF(model_node(bob)->in_nodedb, "and is not a contact until the radio agrees");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     MESH_TEST_FAIL_IF(!model_node(bob)->in_nodedb, "the OK makes it one");
+
+    /* A node pushed off the roster while its add waits comes back on the OK, from the record. */
+    size_t carol_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x80, "Carol",
+                                     MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000150U);
+    feed(&protocol, advert, carol_len);
+    MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x80818283U) != 1, "Carol is added");
+    MESH_TEST_FAIL_IF(mesh_session_model_drop_node(g_meshcore.model, 0x80818283U) != 0,
+                      "and dropped from the roster while the add waits");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(model_node(0x80818283U) == NULL || !model_node(0x80818283U)->in_nodedb ||
+                          strcmp(model_node(0x80818283U)->long_name, "Carol") != 0,
+                      "the OK puts her back, a contact, by the name sent");
     static const char k_long[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
     const size_t long_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x70, k_long,
                                           MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000200U);

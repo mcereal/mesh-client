@@ -884,15 +884,21 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             }
             mesh_meshcore_settle_write(meshcore, 0);
         } else if (cmd == MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT && request != NULL &&
-                   request->len > MESH_MESHCORE_PUBKEY_LEN) {
-            /* Only now is it on the radio's list, and so a node a direct message can reach. */
-            const uint32_t id =
-                mesh_meshcore_find_prefix(meshcore, request->frame + 1, MESH_MESHCORE_PUBKEY_LEN);
-            struct mesh_node_summary *node =
-                id != 0U ? mesh_session_model_node(meshcore->model, id, false) : NULL;
-            if (node != NULL) {
-                node->in_nodedb = true;
-                inkwell_log_info("meshcore", "Added contact 0x%08x", id);
+                   (size_t)request->len + 4U <= MESH_MESHCORE_MAX_FRAME) {
+            /* Only now is it on the radio's list, and so a node a direct message can reach. The
+               record sent is stored as the radio now holds it, which also brings the node back
+               if an advert pushed it off the roster while the add was waiting. */
+            uint8_t record[MESH_MESHCORE_MAX_FRAME];
+            memset(record, 0, sizeof record);
+            memcpy(record, request->frame, request->len);
+            record[0] = MESH_MESHCORE_RESP_CONTACT;
+            struct mesh_meshcore_contact contact;
+            if (mesh_meshcore_decode_contact(record, (size_t)request->len + 4U, &contact) == 0) {
+                contact.last_advert = 0U; /* the sender's clock: not when we heard it */
+                mesh_meshcore_store_contact(meshcore, &contact, false);
+                inkwell_log_info(
+                    "meshcore", "Added contact 0x%08x",
+                    mesh_meshcore_node_id(contact.public_key, MESH_MESHCORE_PUBKEY_LEN));
             }
         } else if (cmd == MESH_MESHCORE_CMD_REMOVE_CONTACT && request != NULL &&
                    request->len == 1U + MESH_MESHCORE_PUBKEY_LEN) {
