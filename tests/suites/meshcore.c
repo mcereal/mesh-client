@@ -1234,6 +1234,17 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     MESH_TEST_FAIL_IF(
         mesh_meshcore_import_contact(&g_meshcore, key, "Dave", MESH_MESHCORE_ADV_ROOM) != 1,
         "a stranger's link is asked");
+    const size_t queued = g_meshcore.queue_count;
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_import_contact(&g_meshcore, key, "Dave", MESH_MESHCORE_ADV_ROOM) != 1 ||
+            g_meshcore.queue_count != queued,
+        "the same link again is already asked");
+    uint8_t cousin[MESH_MESHCORE_PUBKEY_LEN];
+    memcpy(cousin, key, sizeof cousin);
+    cousin[31] ^= 0xFFU;
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, cousin, "Eve",
+                                                   MESH_MESHCORE_ADV_CHAT) != -EADDRINUSE,
+                      "and a key starting the same, while the first waits, would land on it");
     const uint8_t *frame = wire.frames[before];
     MESH_TEST_FAIL_IF(wire.count != before + 1U ||
                           frame[0] != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT || frame[1] != 0xC0U ||

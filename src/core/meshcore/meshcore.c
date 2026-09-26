@@ -1485,6 +1485,18 @@ int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
         if (id == meshcore->self_node || mesh_meshcore_roster_node(meshcore, id) != NULL) {
             return -EADDRINUSE;
         }
+        /* Nor over one still waiting for its OK, which joins the roster only then: the same
+           key is already asked, and a different one with the same four bytes would land on it. */
+        for (size_t i = 0; i < meshcore->queue_count; ++i) {
+            const struct mesh_meshcore_request *queued =
+                &meshcore->queue[(meshcore->queue_head + i) % MESH_MESHCORE_QUEUE_LEN];
+            if (queued->frame[0] != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT ||
+                queued->len <= MESH_MESHCORE_PUBKEY_LEN ||
+                mesh_meshcore_node_id(queued->frame + 1, MESH_MESHCORE_PUBKEY_LEN) != id) {
+                continue;
+            }
+            return memcmp(queued->frame + 1, key, MESH_MESHCORE_PUBKEY_LEN) == 0 ? 1 : -EADDRINUSE;
+        }
     }
     struct mesh_meshcore_contact contact;
     memset(&contact, 0, sizeof contact);
