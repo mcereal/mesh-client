@@ -1334,8 +1334,9 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
             struct mesh_meshcore_settings_write write;
             memset(&write, 0, sizeof write);
             write.set_position = true;
-            write.latitude_e6 = latitude / 10;
-            write.longitude_e6 = longitude / 10;
+            /* A seventh decimal (about a centimetre) is rounded off, not truncated. */
+            write.latitude_e6 = (latitude + (latitude < 0 ? -5 : 5)) / 10;
+            write.longitude_e6 = (longitude + (longitude < 0 ? -5 : 5)) / 10;
             result = mesh_meshcore_write_settings(&app->meshcore, &write);
         } else {
             result = mesh_session_set_fixed_position(&app->session, latitude, longitude,
@@ -1513,11 +1514,11 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
             write.set_radio = true;
             break;
         }
-        case MESH_UI_FIELD_LORA_BANDWIDTH:
+        case MESH_UI_FIELD_LORA_ANY_BANDWIDTH:
             write.bandwidth_hz = mesh_app_meshcore_bandwidth_hz(edit->number);
             write.set_radio = true;
             break;
-        case MESH_UI_FIELD_LORA_SPREAD:
+        case MESH_UI_FIELD_LORA_ANY_SPREAD:
             write.spreading_factor = (uint8_t)edit->number;
             write.set_radio = true;
             break;
@@ -1622,11 +1623,19 @@ void mesh_app_track_settings_save(struct mesh_app *app, const struct mesh_radio_
     /* A local SET_CONFIG commonly succeeds by rebooting before its Routing ack can get back.
        The session's reboot notice is stronger evidence than the queue's five-second silence,
        and a dropped link is the same signal on transports which do not survive the restart. */
-    if (rebooted || !link_connected) {
+    if ((rebooted || !link_connected) && app->meshcore_bound) {
+        /* MeshCore applies a setting where it stands, so a link lost mid-save is not a restart
+           but a save nobody answered. The link took the write counters with it, so this is
+           the only place that can say so. */
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVE_NO_REPLY,
+                           app->settings_save_section);
+        inkwell_log_warn("ui", "Link lost while saving %s", app->settings_save_section);
+    } else if (rebooted || !link_connected) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_RESTARTING_APPLY));
         inkwell_log_info("ui", "Radio restarted while saving %s; awaiting read-back",
                          app->settings_save_section);
-    } else if (timed_out && now - app->settings_save_started_ms < MESH_SETTINGS_REBOOT_GRACE_MS) {
+    } else if (timed_out && !app->meshcore_bound &&
+               now - app->settings_save_started_ms < MESH_SETTINGS_REBOOT_GRACE_MS) {
         return; /* Give a rebooting radio time to say so before calling the save a failure. */
     } else if (radio != NULL && radio->writes_failed > app->settings_writes_failed_seen) {
         switch (radio->last_write_error) {

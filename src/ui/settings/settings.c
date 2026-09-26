@@ -1038,6 +1038,20 @@ static const char *signature_policy_name(uint32_t policy) {
 
 static void format_bandwidth(uint32_t khz, bool imperial, char *out, size_t out_len) {
     (void)imperial;
+    static const struct {
+        uint32_t khz;
+        inkcell_str_id text;
+    } k_fractional[] = {
+        {7U, MESH_STR_VALUE_BANDWIDTH_7},   {10U, MESH_STR_VALUE_BANDWIDTH_10},
+        {15U, MESH_STR_VALUE_BANDWIDTH_15}, {20U, MESH_STR_VALUE_BANDWIDTH_20},
+        {41U, MESH_STR_VALUE_BANDWIDTH_41},
+    };
+    for (size_t i = 0; i < sizeof k_fractional / sizeof k_fractional[0]; ++i) {
+        if (k_fractional[i].khz == khz) {
+            snprintf(out, out_len, "%s", inkcell_str(k_fractional[i].text));
+            return;
+        }
+    }
     if (khz == 31U) {
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_VALUE_BANDWIDTH_31));
     } else if (khz == 62U) {
@@ -1065,6 +1079,12 @@ static void format_tx_power(uint32_t value, bool imperial, char *out, size_t out
 
 static const uint32_t k_bandwidth_presets[] = {31U, 62U, 125U, 250U, 500U};
 static const uint32_t k_spread_presets[] = {7U, 8U, 9U, 10U, 11U, 12U};
+/* The whole kHz Meshtastic writes, for every bandwidth the SX126x has: 7 is 7.8, 41 is 41.7.
+   The rows over these carry no help note: the section's help already explains the two words
+   through the Meshtastic rows of the same name, and one heading twice is what it refuses. */
+static const uint32_t k_any_bandwidth_presets[] = {7U,  10U, 15U,  20U,  31U,
+                                                   41U, 62U, 125U, 250U, 500U};
+static const uint32_t k_any_spread_presets[] = {5U, 6U, 7U, 8U, 9U, 10U, 11U, 12U};
 static const uint32_t k_coding_presets[] = {5U, 6U, 7U, 8U};
 static const uint32_t k_hop_presets[] = {1U, 2U, 3U, 4U, 5U, 6U, 7U};
 static const uint32_t k_tx_power_presets[] = {0U, 2U, 5U, 8U, 10U, 14U, 17U, 20U, 22U, 27U, 30U};
@@ -1892,6 +1912,17 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                     MESH_STR_SETTINGS_NOTE_LORA_SPREAD},
                                    INKCELL_STR_NONE,
                                    format_plain},
+    [MESH_UI_FIELD_LORA_ANY_BANDWIDTH] = {{MESH_STR_SETTINGS_FIELD_LORA_BANDWIDTH,
+                                           INKSTAND_FORM_NUMBER, MESH_UI_SETTINGS_LORA, 0U, NULL,
+                                           NAMED_PRESETS(k_any_bandwidth_presets), 0U,
+                                           INKCELL_STR_NONE},
+                                          INKCELL_STR_NONE,
+                                          format_bandwidth},
+    [MESH_UI_FIELD_LORA_ANY_SPREAD] = {{MESH_STR_SETTINGS_FIELD_LORA_SPREAD, INKSTAND_FORM_NUMBER,
+                                        MESH_UI_SETTINGS_LORA, 0U, NULL,
+                                        NAMED_PRESETS(k_any_spread_presets), 0U, INKCELL_STR_NONE},
+                                       INKCELL_STR_NONE,
+                                       format_plain},
     [MESH_UI_FIELD_LORA_CODING] = {{MESH_STR_SETTINGS_FIELD_LORA_CODING, INKSTAND_FORM_NUMBER,
                                     MESH_UI_SETTINGS_LORA, 0U, NULL,
                                     NAMED_PRESETS(k_coding_presets), 0U,

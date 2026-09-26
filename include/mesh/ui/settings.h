@@ -346,6 +346,10 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_LORA_OVERRIDE_FREQ,  /* text: MHz, 0 = use the slot above */
     MESH_UI_FIELD_LORA_FREQUENCY,      /* text: MHz, the one frequency (a protocol with no slots) */
     MESH_UI_FIELD_LORA_FREQUENCY_TRIM, /* text: Hz, a crystal's error either way */
+    /* The bandwidth and spread factor for a protocol with no presets, over every value its
+       firmware takes rather than the five and six Meshtastic's modem does. */
+    MESH_UI_FIELD_LORA_ANY_BANDWIDTH,
+    MESH_UI_FIELD_LORA_ANY_SPREAD,
     /*
      * LoRaConfig.ignore_incoming: up to three node numbers whose packets this radio drops as
      * though they were out of range.

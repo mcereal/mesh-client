@@ -4893,7 +4893,7 @@ MESH_TEST_CASE(app_meshcore_settings_save_speaks_meshcore, unit) {
     action.type = MESH_UI_ACTION_SAVE_SETTINGS;
     action.section = (uint8_t)MESH_UI_SETTINGS_LORA;
     action.edit_count = 1U;
-    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_SPREAD;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_ANY_SPREAD;
     action.edits[0].number = 13U;
     mesh_app_save_settings(&app, &action, 1000U);
     if (wire.count != 0U) {
@@ -4902,7 +4902,7 @@ MESH_TEST_CASE(app_meshcore_settings_save_speaks_meshcore, unit) {
     }
 
     action.edit_count = 2U;
-    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_BANDWIDTH;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_ANY_BANDWIDTH;
     action.edits[0].number = 62U;
     action.edits[1].field = (uint16_t)MESH_UI_FIELD_LORA_FREQUENCY;
     snprintf(action.edits[1].text, sizeof action.edits[1].text, "%s", "869.618");
@@ -4958,6 +4958,27 @@ MESH_TEST_CASE(app_meshcore_settings_save_speaks_meshcore, unit) {
         goto cleanup;
     }
 
+    /* A seventh decimal is rounded to MeshCore's millionths, either side of zero. */
+    struct mesh_ui_action pin;
+    memset(&pin, 0, sizeof pin);
+    pin.number = (uint32_t)MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION;
+    pin.edit_count = 2U;
+    pin.edits[0].field = (uint16_t)MESH_UI_FIELD_POSITION_LATITUDE;
+    snprintf(pin.edits[0].text, sizeof pin.edits[0].text, "%s", "1.0000005");
+    pin.edits[1].field = (uint16_t)MESH_UI_FIELD_POSITION_LONGITUDE;
+    snprintf(pin.edits[1].text, sizeof pin.edits[1].text, "%s", "-1.0000005");
+    mesh_app_save_fixed_position(&app, &pin, 3500U);
+    if (wire.count != 1U || wire.frames[0][0] != MESH_MESHCORE_CMD_SET_ADVERT_LATLON ||
+        app_le32(wire.frames[0] + 1) != 1000001U ||
+        (int32_t)app_le32(wire.frames[0] + 5) != -1000001) {
+        failure = "coordinates are rounded to millionths, not truncated";
+        goto cleanup;
+    }
+    mesh_protocol_detach(&protocol);
+    app.settings_save_pending = false;
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+
     /* Clearing the position is the advert location written as 0,0. */
     struct mesh_ui_action clear;
     memset(&clear, 0, sizeof clear);
@@ -4968,6 +4989,17 @@ MESH_TEST_CASE(app_meshcore_settings_save_speaks_meshcore, unit) {
         failure = "a clear goes out as MeshCore's 0,0 location";
         goto cleanup;
     }
+
+    /* A link lost mid-save is no restart on MeshCore: the save is reported unanswered. */
+    mesh_protocol_detach(&protocol);
+    mesh_app_track_settings_save(&app, mesh_session_settings(&app.session), false);
+    inkcell_str_format(expected, sizeof expected, MESH_STR_TOAST_SAVE_NO_REPLY,
+                       app.settings_save_section);
+    if (app.settings_save_pending || strcmp(app.ui_store.nav.toast.text, expected) != 0) {
+        failure = "a save the link took with it says it got no reply";
+        goto cleanup;
+    }
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
 
 cleanup:
     if (app_ready) {

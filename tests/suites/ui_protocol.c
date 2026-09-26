@@ -461,11 +461,15 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
 
     uint16_t fields[16];
     size_t n = section_fields(&settings, &handshake, MESH_UI_SETTINGS_LORA, fields, 16U);
-    const uint16_t lora[] = {MESH_UI_FIELD_LORA_FREQUENCY, MESH_UI_FIELD_LORA_BANDWIDTH,
-                             MESH_UI_FIELD_LORA_SPREAD, MESH_UI_FIELD_LORA_CODING,
+    const uint16_t lora[] = {MESH_UI_FIELD_LORA_FREQUENCY, MESH_UI_FIELD_LORA_ANY_BANDWIDTH,
+                             MESH_UI_FIELD_LORA_ANY_SPREAD, MESH_UI_FIELD_LORA_CODING,
                              MESH_UI_FIELD_LORA_TX_POWER};
     MESH_TEST_FAIL_IF(n != sizeof lora / sizeof lora[0] || memcmp(fields, lora, sizeof lora) != 0,
                       "LoRa is the frequency, the three numbers and the power");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_number_step(MESH_UI_FIELD_LORA_ANY_BANDWIDTH, 31U, -1) !=
+                              20U ||
+                          mesh_ui_settings_number_step(MESH_UI_FIELD_LORA_ANY_SPREAD, 7U, -1) != 6U,
+                      "and its bandwidth and spread reach below Meshtastic's modem");
     n = section_fields(&settings, &handshake, MESH_UI_SETTINGS_USER, fields, 16U);
     MESH_TEST_FAIL_IF(n != 1U || fields[0] != MESH_UI_FIELD_USER_LONG_NAME, "User is one name");
     MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_POSITION,

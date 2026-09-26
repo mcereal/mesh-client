@@ -1198,8 +1198,8 @@ static void build_lora_plain(const struct mesh_ui_settings *s, struct item_list 
     mesh_ui_settings_decimal_text(s->override_frequency_scaled, MESH_UI_FREQUENCY_DIGITS,
                                   MESH_UI_FREQUENCY_DIGITS, typed, sizeof typed);
     item_field(list, MESH_UI_FIELD_LORA_FREQUENCY, 0U, typed);
-    item_field(list, MESH_UI_FIELD_LORA_BANDWIDTH, s->bandwidth, NULL);
-    item_field(list, MESH_UI_FIELD_LORA_SPREAD, s->spread_factor, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_ANY_BANDWIDTH, s->bandwidth, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_ANY_SPREAD, s->spread_factor, NULL);
     item_field(list, MESH_UI_FIELD_LORA_CODING, s->coding_rate, NULL);
     item_field(list, MESH_UI_FIELD_LORA_TX_POWER, (uint32_t)(uint8_t)s->tx_power, NULL);
 }
