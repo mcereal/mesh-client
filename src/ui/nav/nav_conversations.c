@@ -703,6 +703,15 @@ bool mesh_ui_nav_mute_conversation(struct mesh_ui_nav *nav, const struct mesh_ui
     return false;
 }
 
+bool mesh_ui_nav_conversation_wants_link(const struct mesh_ui_store *store,
+                                         const struct mesh_ui_conversation *conversation) {
+    if (conversation == NULL || conversation->kind != MESH_UI_CONVERSATION_ALL ||
+        conversation->message_count > 0U || conversation->preview[0] != '\0') {
+        return false;
+    }
+    return store == NULL || !store->handshake_valid || !store->handshake.link_up;
+}
+
 /* A on a conversation row. Returns true when the frame changed. */
 bool mesh_ui_nav_open_conversation(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                    uint32_t index) {
@@ -712,6 +721,11 @@ bool mesh_ui_nav_open_conversation(struct mesh_ui_nav *nav, const struct mesh_ui
     }
     switch ((enum mesh_ui_conversation_kind)conversation.kind) {
     case MESH_UI_CONVERSATION_ALL:
+        /* With no radio and nothing kept, the row says "connect" and this is how. */
+        if (mesh_ui_nav_conversation_wants_link(store, &conversation)) {
+            mesh_ui_nav_land_on_devices(nav);
+            return true;
+        }
         /* Nothing to compose to: all traffic is a view, not a destination. */
         mesh_ui_nav_open_all_traffic(nav);
         return true;

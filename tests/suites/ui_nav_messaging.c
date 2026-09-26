@@ -2648,3 +2648,39 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * A on the all-traffic row of a client with no radio and nothing kept does what the row says -
+ * connect - landing on the device list the way A on the empty Nodes tab does. With a radio
+ * attached the same press opens the transcript.
+ */
+MESH_TEST_CASE(ui_nav_empty_all_traffic_connects, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    struct mesh_ui_action action;
+
+    store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+    store.nav.cursor[MESH_UI_SCREEN_MESSAGES] = 0U;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!mesh_ui_nav_devices_showing(&store.nav) || store.nav.thread_open) {
+        failure = "with no radio, A on all traffic should land on the device list";
+        goto cleanup;
+    }
+
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+    store.nav.cursor[MESH_UI_SCREEN_MESSAGES] = 0U;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.thread_open || !store.nav.inbox) {
+        failure = "with a radio attached, A on all traffic should open it";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

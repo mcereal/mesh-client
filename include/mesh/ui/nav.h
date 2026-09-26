@@ -1166,6 +1166,15 @@ uint32_t mesh_ui_nav_conversation_count(const struct mesh_ui_store *store);
 uint32_t mesh_ui_nav_conversation_threads(const struct mesh_ui_store *store);
 bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t index,
                                  struct mesh_ui_conversation *out);
+/*
+ * Whether this row is the one asking for a radio: "All traffic" with nothing in it and no link
+ * up. It is the first row a new install shows, and its second line says "connect" - so A on it
+ * connects, landing on the device list exactly as A on the Nodes tab's empty state does. The
+ * preview, the action bar and the press all ask this one question, so the row cannot say
+ * "connect" over a press that opens an empty transcript.
+ */
+bool mesh_ui_nav_conversation_wants_link(const struct mesh_ui_store *store,
+                                         const struct mesh_ui_conversation *conversation);
 /* True when X has been pressed once on this conversation and the next one deletes it. What a
    backend asks so the armed row can say so rather than the screen saying it in the abstract. */
 bool mesh_ui_nav_conversation_is_armed(const struct mesh_ui_nav *nav,

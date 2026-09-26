@@ -96,6 +96,10 @@ static struct mesh_ui_device *actions_add_device(struct mesh_ui_snapshot *snapsh
 MESH_TEST_CASE(commands_are_the_source_of_the_legacy_action_bar, unit) {
     struct mesh_ui_snapshot snapshot;
     actions_snapshot(&snapshot);
+    /* A radio attached: with none, the all-traffic row's A is "connect" - see
+       actions_empty_messages_offer_to_connect. */
+    snapshot.handshake_valid = true;
+    snapshot.handshake.link_up = true;
 
     struct mesh_ui_command_set commands;
     mesh_ui_commands_for(&snapshot, &commands);
@@ -165,6 +169,10 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
     struct inkcell_action_bar bar;
 
     actions_snapshot(&snapshot);
+    /* A radio attached: with none, the all-traffic row's A is "connect" - see
+       actions_empty_messages_offer_to_connect. */
+    snapshot.handshake_valid = true;
+    snapshot.handshake.link_up = true;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_OPEN,
                       "A should open the conversation the cursor is on");
@@ -189,6 +197,7 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
     snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
     snapshot.nav.devices_open = false;
     snapshot.handshake_valid = false;
+    snapshot.handshake.link_up = false;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != INKCELL_STR_NONE,
                       "Status should not repeat the quit hint while nothing is connected");
@@ -861,6 +870,10 @@ MESH_TEST_CASE(actions_devices_ask_the_row_under_the_cursor, unit) {
 MESH_TEST_CASE(actions_heading_is_what_a_pointer_has_nowhere_else, unit) {
     struct mesh_ui_snapshot snapshot;
     actions_snapshot(&snapshot);
+    /* A radio attached: with none, the all-traffic row's A is "connect" - see
+       actions_empty_messages_offer_to_connect. */
+    snapshot.handshake_valid = true;
+    snapshot.handshake.link_up = true;
     struct mesh_ui_heading_action verbs[MESH_UI_HEADING_ACTIONS_MAX];
     const size_t count = mesh_ui_actions_heading(&snapshot, verbs, MESH_UI_HEADING_ACTIONS_MAX);
 
@@ -1052,5 +1065,30 @@ MESH_TEST_CASE(actions_empty_thread_and_picker_offer_only_live_presses, unit) {
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_UP_DOWN) != MESH_STR_ACTION_MOVE,
                       "two rows are somewhere to move");
+    record_success(test_name);
+}
+
+/*
+ * The Messages tab with no radio and nothing kept: the all-traffic row's second line says
+ * "connect", so A is named for that rather than for opening an empty transcript. Once a link
+ * is up the row is a view again and A opens it.
+ */
+MESH_TEST_CASE(actions_empty_messages_offer_to_connect, unit) {
+    struct mesh_ui_snapshot snapshot;
+    actions_snapshot(&snapshot);
+    snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] = 0U;
+
+    struct mesh_ui_command_set commands;
+    mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_A) != MESH_UI_COMMAND_CONNECT,
+                      "with no radio, A on all traffic should connect one");
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_Y) != MESH_UI_COMMAND_NEW,
+                      "Y still starts a message");
+
+    snapshot.handshake_valid = true;
+    snapshot.handshake.link_up = true;
+    mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_A) != MESH_UI_COMMAND_OPEN,
+                      "with a radio attached, A opens all traffic");
     record_success(test_name);
 }
