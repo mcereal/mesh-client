@@ -1,9 +1,10 @@
 # Protocols
 
 A **transport** is how bytes reach a radio (BLE, USB serial, TCP). A **protocol** is what those
-bytes say. Today there is one protocol, Meshtastic, and one conversation, `struct mesh_session`.
-The line between the two is `include/mesh/core/protocol.h`, and this page says what sits on
-each side of it and what is still Meshtastic's everywhere else.
+bytes say. This client speaks two: Meshtastic (`struct mesh_session`) and MeshCore
+(`struct mesh_meshcore`, [below](#meshcore)). The line between a transport and a protocol is
+`include/mesh/core/protocol.h`, and this page says what sits on each side of it and what is
+still Meshtastic's everywhere else.
 
 ## The seam
 
@@ -100,22 +101,46 @@ verbs. `tests/suites/ui_protocol.c` is what fails when a gate is lost.
 
 ## MeshCore
 
-For reference when a second protocol arrives. Checked against MeshCore's
-`examples/companion_radio/` source; re-check it before building on any of it.
+MeshCore's companion protocol is the second conversation: `include/mesh/core/meshcore.h`, with the
+codec in `src/core/meshcore/meshcore_codec.c` and the conversation in `meshcore.c`. Checked
+against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware version code 13).
 
-- **BLE** is the Nordic UART Service (`6E400001-…`, RX `…0002`, TX `…0003`). One frame per
-  write or notify, no length prefix, and inbound frames are notified directly rather than read:
-  a `MESH_BLE_INBOUND_NOTIFY` profile, which `tests/suites/protocol.c` already drives.
-- **Serial and TCP** frame as `'<'` (app to radio) or `'>'` (radio to app), then a 16-bit
-  little-endian length, then the frame. As a `struct mesh_stream_framing`, it has no
-  `wake_byte`.
-- **A frame** is a one-byte code and packed little-endian fields. Commands are `CMD_*` (`1`
-  `APP_START`, `2` `SEND_TXT_MSG`, `4` `GET_CONTACTS`, `10` `SYNC_NEXT_MESSAGE`, `22`
-  `DEVICE_QUERY`, `31` `GET_CHANNEL`, …). Replies are `RESP_CODE_*`, and unsolicited events are
-  `PUSH_CODE_*` at `0x80` and up.
-- **The conversation is pulled.** `begin` would be `APP_START` then `DEVICE_QUERY`, and the rest
-  is requested: contacts, then each channel slot. `PUSH_CODE_MSG_WAITING` means "call
-  `SYNC_NEXT_MESSAGE` until `NO_MORE_MESSAGES`".
-- **A node is a 32-byte public key**, addressed by a prefix of it. The store already keeps a
-  node's 32-byte key beside its `node_id`, so one option is to keep `node_id` as a local handle
-  derived from the key and treat the key as the identity.
+- **BLE** is the Nordic UART Service (`6E400001-…`; the app writes RX `…0002` and is notified on
+  TX `…0003`): `mesh_ble_profile_meshcore`, a `MESH_BLE_INBOUND_NOTIFY` profile, one frame per
+  write or notification and never split. It is in `mesh_ble_known_profiles[]`, so the scan tags a
+  companion radio with it, and `mesh_app_link_connect()` binds MeshCore for a radio so tagged.
+- **Serial and TCP** frame as `'<'` (app to radio) or `'>'` (radio to app), a 16-bit
+  *little*-endian length and the frame, at most 176 bytes: `mesh_stream_framing_meshcore`, with
+  no `wake_byte`. Nothing on a port says which firmware is behind it, so a stream link speaks
+  MeshCore only under `MESHCLIENT_PROTOCOL=meshcore`. A firmware build serves BLE *or* USB, never
+  both; on a `_ble` build the USB port carries only debug text.
+- **One command at a time.** Each `CMD_*` is answered by one `RESP_CODE_*` (the contact list by a
+  start, a record each and an end), and the firmware's BLE queue holds four frames, so the
+  conversation queues commands and writes the next only once the last is answered.
+  `PUSH_CODE_*` (0x80 and up) arrive whenever they like. A command unanswered for ten seconds is
+  given up on; two in a row is `silent()`.
+- **Connecting** walks `DEVICE_QUERY` (asking for version 3, which puts an SNR on messages),
+  `APP_START`, `SET_DEVICE_TIME` when the clock is credible, `GET_CONTACTS`, then `GET_CHANNEL`
+  for each slot up to the lesser of the radio's count and `MESH_SESSION_MAX_CHANNELS`. Then the
+  model's sync completes and `SYNC_NEXT_MESSAGE` drains the radio's queue - again on every
+  `PUSH_CODE_MSG_WAITING`. A queue can also hold the pre-V3 shapes, so both decode.
+- **The model is the session.** What MeshCore learns goes into `struct mesh_session` through
+  `mesh_session_model_*()`, the same steps the FromRadio decoder takes, so every screen, the
+  roster cache and the swap-of-radio rule work unchanged. While MeshCore holds the link the
+  session's own send path is a refusal: a Meshtastic verb a screen forgot to gate fails rather
+  than writing a protobuf at the radio.
+- **A node is a 32-byte key.** Its roster number is the key's first four bytes
+  (`mesh_meshcore_node_id()`), so a direct message - which names its sender by a six-byte
+  prefix - resolves without a lookup, and `user_id` is the twelve hex digits MeshCore's apps
+  print.
+- **A channel message's only sender is `"Name: "` at the start of its text.** A name the roster
+  holds becomes the sender and leaves the text; one it does not stays in it.
+- **A direct message** is pending until `PUSH_CODE_SEND_CONFIRMED` carries the four bytes the
+  `RESP_CODE_SENT` named. It is tried three times with the same timestamp - the last after
+  `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
+
+Not yet spoken: repeater and room-server login, telemetry and status requests, trace paths, the
+radio's own settings (name, position, LoRa, TX power), adding and removing contacts, and contact
+sharing. The `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
+`tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
+end.
