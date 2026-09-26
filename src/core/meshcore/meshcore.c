@@ -555,6 +555,14 @@ static uint8_t mesh_meshcore_channel_limit(const struct mesh_meshcore *meshcore)
 static void mesh_meshcore_ready_now(struct mesh_meshcore *meshcore) {
     meshcore->phase = MESH_MESHCORE_READY;
     mesh_session_model_sync_complete(meshcore->model);
+    /* A favourite is a flag on the radio's contact record: a node the sync left off the list
+       has no record to carry one, and one still shown pinned could never be unpinned. */
+    struct mesh_handshake_status *roster = &meshcore->model->handshake;
+    for (size_t i = 0; i < roster->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (!roster->nodes[i].in_nodedb) {
+            roster->nodes[i].is_favorite = false;
+        }
+    }
     inkwell_log_info("meshcore", "Synced: %zu nodes, %zu channels",
                      meshcore->model->handshake.node_count,
                      meshcore->model->handshake.channel_count);
@@ -696,6 +704,7 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
             struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, id, false);
             if (node != NULL) {
                 node->in_nodedb = false;
+                node->is_favorite = false; /* the flag went with the record */
             }
         }
         break;

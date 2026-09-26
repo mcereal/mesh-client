@@ -224,8 +224,14 @@ static bool mesh_ui_actions_list_pins(const struct mesh_ui_snapshot *snapshot,
     struct mesh_ui_node_view view;
     mesh_ui_node_view_build_query(&snapshot->handshake, (enum mesh_ui_node_filter)nav->node_filter,
                                   nav->node_query, (enum mesh_ui_node_sort)nav->node_sort, &view);
-    return mesh_ui_node_pinnable(
-        mesh_ui_node_view_at(&snapshot->handshake, &view, cursor - MESH_UI_NODES_LEAD_ROWS), lacks);
+    const struct mesh_ui_node_summary *node =
+        mesh_ui_node_view_at(&snapshot->handshake, &view, cursor - MESH_UI_NODES_LEAD_ROWS);
+    /* Not over this radio's own row: the press refuses to pin ourselves. */
+    if (node != NULL && snapshot->handshake.has_my_info &&
+        node->node_id == snapshot->handshake.my_info.node_num) {
+        return false;
+    }
+    return mesh_ui_node_pinnable(node, lacks);
 }
 
 /*
@@ -343,10 +349,15 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
          * groups and the press has never had nowhere to go.
          */
         command_add(bar, MESH_UI_COMMAND_GROUPS, MESH_STR_ACTION_GROUPS, INKCELL_BUTTON_LEFT_RIGHT);
+        const struct mesh_ui_node_summary *pin_node =
+            snapshot != NULL
+                ? mesh_ui_node_detail_find(&snapshot->handshake, snapshot->nav.node_detail_node)
+                : NULL;
+        /* Not on this radio's own detail: the press refuses to pin ourselves. */
+        const bool pin_self = pin_node != NULL && snapshot->handshake.has_my_info &&
+                              pin_node->node_id == snapshot->handshake.my_info.node_num;
         if (snapshot == NULL ||
-            mesh_ui_node_pinnable(
-                mesh_ui_node_detail_find(&snapshot->handshake, snapshot->nav.node_detail_node),
-                snapshot->settings.protocol_lacks)) {
+            (!pin_self && mesh_ui_node_pinnable(pin_node, snapshot->settings.protocol_lacks))) {
             command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
         }
         command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);

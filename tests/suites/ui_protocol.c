@@ -377,6 +377,25 @@ MESH_TEST_CASE(ui_protocol_pin_shortcut_follows_the_protocol, unit) {
 
     /* Without the per-node flags a pin is a contact's favourite: a node the radio does not
        carry by its whole key has none to set. */
+    /* Nor on this radio's own detail, whose press refuses to pin ourselves. */
+    {
+        static struct mesh_ui_snapshot detail;
+        (void)mesh_ui_store_consume_updates(&store, &detail);
+        detail.handshake = store.handshake; /* consumed already, by the bar above */
+        detail.handshake_valid = true;
+        detail.settings.protocol_lacks = 0U;
+        detail.nav.screen = MESH_UI_SCREEN_NODES;
+        detail.nav.node_detail_open = true;
+        detail.nav.node_detail_node = detail.handshake.my_info.node_num;
+        struct mesh_ui_command_set commands;
+        mesh_ui_commands_for(&detail, &commands);
+        if (!detail.handshake.has_my_info ||
+            mesh_ui_commands_find(&commands, MESH_UI_COMMAND_PIN) != NULL) {
+            failure = "no Pin on this radio's own detail";
+            goto cleanup;
+        }
+    }
+
     store.settings.protocol_lacks = MESH_UI_FEATURE_NODE_FLAGS;
     if (bar_offers_pin(&store, MESH_UI_FEATURE_NODE_FLAGS)) {
         failure = "no Pin on the bar over a node that is no whole-key contact";

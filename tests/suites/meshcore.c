@@ -1182,6 +1182,18 @@ MESH_TEST_CASE(meshcore_favorite_rewrites_the_radios_record, unit) {
                       "and the removal after it, so the contact stays removed");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     MESH_TEST_FAIL_IF(model_node(alice) != NULL, "and it is gone");
+
+    /* A contact dropped elsewhere takes its favourite with it. */
+    struct mesh_node_summary *pinned = mesh_session_model_node(g_meshcore.model, bob, false);
+    pinned->is_favorite = true;
+    uint8_t deleted[1U + MESH_MESHCORE_PUBKEY_LEN];
+    deleted[0] = MESH_MESHCORE_PUSH_CONTACT_DELETED;
+    for (size_t i = 0; i < MESH_MESHCORE_PUBKEY_LEN; ++i) {
+        deleted[1U + i] = (uint8_t)(0x60U + i);
+    }
+    feed(&protocol, deleted, sizeof deleted);
+    MESH_TEST_FAIL_IF(model_node(bob)->in_nodedb || model_node(bob)->is_favorite,
+                      "a contact the radio dropped is no longer pinned");
     record_success(test_name);
 }
 
