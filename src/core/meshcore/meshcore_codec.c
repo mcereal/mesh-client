@@ -421,6 +421,165 @@ int mesh_meshcore_encode_contact(const struct mesh_meshcore_contact *contact, ui
     return (int)i;
 }
 
+/* The LPP type ids and value sizes MeshCore's library writes (LPPDataHelpers.h). */
+enum {
+    LPP_DIGITAL_INPUT = 0,
+    LPP_DIGITAL_OUTPUT = 1,
+    LPP_ANALOG_INPUT = 2,
+    LPP_ANALOG_OUTPUT = 3,
+    LPP_GENERIC_SENSOR = 100,
+    LPP_LUMINOSITY = 101,
+    LPP_PRESENCE = 102,
+    LPP_TEMPERATURE = 103,
+    LPP_RELATIVE_HUMIDITY = 104,
+    LPP_ACCELEROMETER = 113,
+    LPP_BAROMETRIC_PRESSURE = 115,
+    LPP_VOLTAGE = 116,
+    LPP_CURRENT = 117,
+    LPP_FREQUENCY = 118,
+    LPP_PERCENTAGE = 120,
+    LPP_ALTITUDE = 121,
+    LPP_CONCENTRATION = 125,
+    LPP_POWER = 128,
+    LPP_DISTANCE = 130,
+    LPP_ENERGY = 131,
+    LPP_DIRECTION = 132,
+    LPP_UNIXTIME = 133,
+    LPP_GYROMETER = 134,
+    LPP_COLOUR = 135,
+    LPP_GPS = 136,
+    LPP_SWITCH = 142,
+};
+#define LPP_CHANNEL_SELF 1U
+
+static size_t lpp_size(uint8_t type) {
+    switch (type) {
+    case LPP_DIGITAL_INPUT:
+    case LPP_DIGITAL_OUTPUT:
+    case LPP_PRESENCE:
+    case LPP_RELATIVE_HUMIDITY:
+    case LPP_PERCENTAGE:
+    case LPP_SWITCH:
+        return 1U;
+    case LPP_ANALOG_INPUT:
+    case LPP_ANALOG_OUTPUT:
+    case LPP_LUMINOSITY:
+    case LPP_TEMPERATURE:
+    case LPP_BAROMETRIC_PRESSURE:
+    case LPP_VOLTAGE:
+    case LPP_CURRENT:
+    case LPP_ALTITUDE:
+    case LPP_CONCENTRATION:
+    case LPP_POWER:
+    case LPP_DIRECTION:
+        return 2U;
+    case LPP_COLOUR:
+        return 3U;
+    case LPP_GENERIC_SENSOR:
+    case LPP_FREQUENCY:
+    case LPP_DISTANCE:
+    case LPP_ENERGY:
+    case LPP_UNIXTIME:
+        return 4U;
+    case LPP_ACCELEROMETER:
+    case LPP_GYROMETER:
+        return 6U;
+    case LPP_GPS:
+        return 9U;
+    default:
+        return 0U;
+    }
+}
+
+/* A big-endian value of 1-4 bytes, sign-extended when asked. */
+static int32_t lpp_value(const uint8_t *p, size_t size, bool is_signed) {
+    uint32_t v = 0U;
+    for (size_t i = 0; i < size; ++i) {
+        v = (v << 8U) | p[i];
+    }
+    if (is_signed && size < 4U && (v & (1UL << (size * 8U - 1U))) != 0U) {
+        v |= ~((1UL << (size * 8U)) - 1U);
+    }
+    return (int32_t)v;
+}
+
+int mesh_meshcore_decode_lpp(const uint8_t *lpp, size_t len, struct mesh_meshcore_telemetry *out) {
+    if (lpp == NULL || out == NULL) {
+        return -EINVAL;
+    }
+    memset(out, 0, sizeof *out);
+    bool sensor_temperature = false;
+    size_t i = 0U;
+    while (i + 2U <= len) {
+        const uint8_t channel = lpp[i];
+        const uint8_t type = lpp[i + 1U];
+        const size_t size = lpp_size(type);
+        if (channel == 0U || size == 0U || i + 2U + size > len) {
+            break;
+        }
+        const uint8_t *v = lpp + i + 2U;
+        const bool self = channel == LPP_CHANNEL_SELF;
+        switch (type) {
+        case LPP_VOLTAGE: {
+            const float volts = (float)lpp_value(v, 2U, false) / 100.0f;
+            if (self) {
+                out->has_battery = true;
+                out->battery_v = volts;
+            } else if (!out->has_voltage) {
+                out->has_voltage = true;
+                out->voltage_v = volts;
+            }
+            break;
+        }
+        case LPP_TEMPERATURE:
+            /* A sensor's over the MCU's, and the first sensor's over any later one. */
+            if (!out->has_temperature || (!self && !sensor_temperature)) {
+                out->has_temperature = true;
+                out->temperature_c = (float)lpp_value(v, 2U, true) / 10.0f;
+                sensor_temperature = !self;
+            }
+            break;
+        case LPP_RELATIVE_HUMIDITY:
+            if (!out->has_humidity) {
+                out->has_humidity = true;
+                out->humidity_pct = (float)v[0] / 2.0f;
+            }
+            break;
+        case LPP_BAROMETRIC_PRESSURE:
+            if (!out->has_pressure) {
+                out->has_pressure = true;
+                out->pressure_hpa = (float)lpp_value(v, 2U, false) / 10.0f;
+            }
+            break;
+        case LPP_LUMINOSITY:
+            if (!out->has_lux) {
+                out->has_lux = true;
+                out->lux = (float)lpp_value(v, 2U, false);
+            }
+            break;
+        case LPP_CURRENT:
+            if (!out->has_current) {
+                out->has_current = true;
+                out->current_a = (float)lpp_value(v, 2U, false) / 1000.0f;
+            }
+            break;
+        case LPP_GPS:
+            if (!out->has_position) {
+                /* 0.0001 degrees in three bytes, 0.01 m in three. */
+                out->has_position = true;
+                out->latitude_e7 = lpp_value(v, 3U, true) * 1000;
+                out->longitude_e7 = lpp_value(v + 3U, 3U, true) * 1000;
+                out->altitude_m = lpp_value(v + 6U, 3U, true) / 100;
+            }
+            break;
+        default:
+            break;
+        }
+        i += 2U + size;
+    }
+    return 0;
+}
+
 int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len) {
     static const char k_word[] = "reboot";
     if (out == NULL) {

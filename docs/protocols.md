@@ -85,7 +85,8 @@ cache written before the field - is full Meshtastic and nothing on screen change
 |---|---|
 | `WAYPOINTS` | "Send a waypoint" on a node's sheet; the Nodes list's Waypoints row dims and a press says why, since every row under it is counted from it (`MESH_UI_NODES_LEAD_ROWS`) |
 | `TRACEROUTE` | the traceroute verb |
-| `NODE_REQUESTS` | asking a node for its name, position or telemetry |
+| `NODE_REQUESTS` | asking a node for its name or position |
+| `NODE_TELEMETRY` | asking a node for its readings (on MeshCore, a contact) |
 | `NODE_FLAGS` | mute, ignore - and pin on a node that is not a whole-key contact |
 | `NODE_PIN` | pin, on the sheet and as X on the list and the detail |
 | `NODE_REMOVE` | remove, on a node's sheet |
@@ -187,6 +188,10 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   finds the list full will not overwrite. An update replaces the whole record, route included,
   so `GET_CONTACT_BY_KEY` reads it first and `ADD_UPDATE_CONTACT` writes it back with that bit
   alone changed; the row follows the radio's OK.
+- **A contact's readings** are `SEND_TELEMETRY_REQ` by its whole key, answered by
+  `TELEMETRY_RESPONSE`'s Cayenne LPP (`mesh_meshcore_decode_lpp()`): channel 1's voltage is the
+  battery, and a sensor's temperature, humidity, pressure, light, current and GPS fill the node's
+  environment and position. A node answers only if its telemetry settings let this radio ask.
 - **A contact link** is the MeshCore app's QR text, `meshcore://contact/add?name=…&public_key=<64
   hex>&type=N` (`src/proto/meshcore_url.c`). User in Settings shows this radio's, made from
   `SELF_INFO`, and adds a stranger's with `ADD_UPDATE_CONTACT` by key, kind and name - no route and
@@ -202,7 +207,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `RESP_CODE_SENT` named. It is tried three times with the same timestamp - the last after
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
-Not yet spoken: repeater and room-server login, telemetry and status requests, trace paths,
+Not yet spoken: repeater and room-server login, status requests, trace paths,
 channel links and the signed contact card. The
 `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to

@@ -1336,6 +1336,93 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     record_success(test_name);
 }
 
+/* Cayenne LPP as MeshCore writes it: the battery on channel 1, sensors after, a sensor's
+   temperature over the MCU's, and a type it does not know stops the read. */
+MESH_TEST_CASE(meshcore_lpp_reads_what_a_node_reports, unit) {
+    static const uint8_t k_lpp[] = {
+        0x01, 116,  0x01, 0x9A,       /* ch1 voltage 4.10 V */
+        0x01, 103,  0x00, 0xFA,       /* ch1 MCU temperature 25.0 C */
+        0x02, 103,  0xFF, 0x9C,       /* ch2 sensor temperature -10.0 C */
+        0x02, 104,  0x5A,             /* ch2 humidity 45 % */
+        0x02, 115,  0x27, 0x9B,       /* ch2 pressure 1013.9 hPa */
+        0x03, 136,  0x05, 0xC3, 0x8C, /* ch3 GPS lat 37.7740 */
+        0xED, 0x51, 0xFC,             /*         lon -122.4196 */
+        0x00, 0x03, 0xE8,             /*         alt 10.00 m */
+        0x04, 200,  0x01,             /* a type this reader does not know */
+        0x02, 116,  0x01, 0x00,       /* never reached */
+    };
+    struct mesh_meshcore_telemetry t;
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_lpp, sizeof k_lpp, &t) != 0, "decodes");
+    MESH_TEST_FAIL_IF(!t.has_battery || t.battery_v < 4.09f || t.battery_v > 4.11f,
+                      "the battery is channel 1's voltage");
+    MESH_TEST_FAIL_IF(!t.has_temperature || t.temperature_c > -9.9f || t.temperature_c < -10.1f,
+                      "the sensor's temperature wins over the MCU's");
+    MESH_TEST_FAIL_IF(!t.has_humidity || t.humidity_pct != 45.0f, "humidity in half percent");
+    MESH_TEST_FAIL_IF(!t.has_pressure || t.pressure_hpa < 1013.8f || t.pressure_hpa > 1014.0f,
+                      "pressure in tenths of a hPa");
+    MESH_TEST_FAIL_IF(!t.has_position || t.latitude_e7 != 377740000 ||
+                          t.longitude_e7 != -1224196000 || t.altitude_m != 10,
+                      "GPS in three signed bytes each");
+    MESH_TEST_FAIL_IF(t.has_voltage, "nothing after an unknown type is read");
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_lpp, 3U, &t) != 0 || t.has_battery,
+                      "a truncated value is not read");
+    /* What a Heltec V3 on v1.17.1 answered about itself: battery and MCU temperature only. */
+    static const uint8_t k_heltec[] = {0x01, 0x74, 0x01, 0x9d, 0x01, 0x67, 0x01, 0x86};
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_heltec, sizeof k_heltec, &t) != 0 ||
+                          !t.has_battery || t.battery_v < 4.12f || t.battery_v > 4.14f ||
+                          !t.has_temperature || t.temperature_c != 39.0f || t.has_position,
+                      "a real radio's answer reads as 4.13 V and 39.0 C");
+    record_success(test_name);
+}
+
+/* A telemetry request names a contact by its whole key; the answer lands on its record. */
+MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const uint32_t alice = 0x40414243U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, g_meshcore.self_node) != -EINVAL,
+                      "this radio is not asked");
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, 0x12345678U) != -ENOENT,
+                      "a node the radio does not carry is not asked");
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0, "Alice is asked");
+    const uint8_t *frame = wire.frames[before];
+    MESH_TEST_FAIL_IF(wire.lens[before] != 36U ||
+                          frame[0] != MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ || frame[1] != 0U ||
+                          frame[4] != 0x40 || frame[35] != 0x40 + 31,
+                      "by three reserved bytes and her whole key");
+    static const uint8_t k_sent[10] = {MESH_MESHCORE_RESP_SENT, 0, 1, 2, 3, 4, 0x88, 0x13, 0, 0};
+    feed(&protocol, k_sent, sizeof k_sent);
+    static const uint8_t k_push[] = {
+        MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE,
+        0x00,
+        0x40,
+        0x41,
+        0x42,
+        0x43,
+        0x44,
+        0x45,
+        0x01,
+        116,
+        0x01,
+        0x72, /* 3.70 V */
+        0x02,
+        103,
+        0x00,
+        0xC8, /* 20.0 C */
+    };
+    feed(&protocol, k_push, sizeof k_push);
+    const struct mesh_node_summary *node = model_node(alice);
+    MESH_TEST_FAIL_IF(!node->metrics.valid || !node->metrics.has_voltage ||
+                          node->metrics.voltage < 3.69f || node->metrics.voltage > 3.71f,
+                      "the battery lands in the node's metrics");
+    MESH_TEST_FAIL_IF(!node->environment.valid || !node->environment.has_temperature ||
+                          node->environment.temperature != 20.0f || node->environment.has_humidity,
+                      "the temperature in its environment, and nothing it did not send");
+    record_success(test_name);
+}
+
 /* An advert is SEND_SELF_ADVERT with 1 to flood it and 0 for the nodes in earshot. */
 MESH_TEST_CASE(meshcore_advert_is_flooded_or_not, unit) {
     struct mesh_protocol protocol;

@@ -1386,6 +1386,11 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
         if (requests) {
             rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_POSITION,
                         inkcell_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_REQUEST_POSITION);
+        }
+        /* MeshCore's radio asks only a contact - it looks the key up among its own - so where
+           the node flags are missing, so is the row for a node that is not one. */
+        if (node_actions_offer(lacks, MESH_UI_FEATURE_NODE_TELEMETRY) &&
+            (flags || (node->in_nodedb && node->public_key_len == sizeof node->public_key))) {
             rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_TELEM,
                         inkcell_str(MESH_STR_COMMON_PRESS_A),
                         MESH_UI_NODE_ACTION_REQUEST_TELEMETRY);

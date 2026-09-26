@@ -175,13 +175,18 @@ MESH_TEST_CASE(ui_protocol_node_sheet_offers_what_the_protocol_has, unit) {
     count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
                                        MESH_UI_NODE_ACTIONS_MAX);
     MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE) ||
-                          has_verb(items, count, MESH_UI_NODE_ACTION_FAVORITE),
-                      "a heard node the radio never added is no contact to remove or pin");
+                          has_verb(items, count, MESH_UI_NODE_ACTION_FAVORITE) ||
+                          has_verb(items, count, MESH_UI_NODE_ACTION_REQUEST_TELEMETRY),
+                      "a heard node the radio never added is no contact to remove, pin or ask");
     MESH_TEST_FAIL_IF(!has_verb(items, count, MESH_UI_NODE_ACTION_ADD_CONTACT),
                       "but one it can add");
     node.in_nodedb = true;
     count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
                                        MESH_UI_NODE_ACTIONS_MAX);
+    MESH_TEST_FAIL_IF(!has_verb(items, count, MESH_UI_NODE_ACTION_REQUEST_TELEMETRY) ||
+                          has_verb(items, count, MESH_UI_NODE_ACTION_REQUEST_POSITION) ||
+                          has_verb(items, count, MESH_UI_NODE_ACTION_REQUEST_INFO),
+                      "a MeshCore contact is asked for its readings, not Meshtastic's name or fix");
     MESH_TEST_FAIL_IF(!has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE) ||
                           !has_verb(items, count, MESH_UI_NODE_ACTION_FAVORITE) ||
                           has_verb(items, count, MESH_UI_NODE_ACTION_MUTE) ||
