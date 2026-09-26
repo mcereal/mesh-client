@@ -57,6 +57,13 @@ struct mesh_ble_profile {
      * client installs.
      */
     bool adopts_bonded_dfu;
+    /*
+     * Optional: list only a radio whose advertised name begins with this. For a profile whose
+     * service is not the protocol's own - the Nordic UART Service is on bike computers,
+     * keyboards and every nRF dev board - the name is what tells a radio from the rest. NULL
+     * lists everything advertising the service.
+     */
+    const char *name_prefix;
 };
 
 /* Meshtastic's GATT contract (https://meshtastic.org/docs/development/device/client-api/). */
@@ -67,10 +74,12 @@ struct mesh_ble_profile {
 #define MESH_BLE_LOGRADIO_UUID "5A3D6E49-06E6-4423-9944-E9DE8CDF9547"
 
 /* MeshCore's companion radio: the Nordic UART Service. The app writes RX and subscribes to TX,
-   whose notifications are the frames themselves (examples/companion_radio, SerialBLEInterface). */
+   whose notifications are the frames themselves (examples/companion_radio, SerialBLEInterface).
+   The firmware advertises as BLE_NAME_PREFIX followed by the node's name. */
 #define MESH_BLE_NUS_SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define MESH_BLE_NUS_RX_UUID "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 #define MESH_BLE_NUS_TX_UUID "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+#define MESH_BLE_MESHCORE_NAME_PREFIX "MeshCore-"
 
 /* The most any profile may carry in one frame - ATT's own limit, and what Meshtastic uses. */
 #define MESH_BLE_MAX_PACKET_SIZE 512U

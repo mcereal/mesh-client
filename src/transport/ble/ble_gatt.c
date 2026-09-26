@@ -15,6 +15,18 @@ int mesh_ble_list_profile(struct inkwell_ble_central *central,
     }
     const int result =
         inkwell_ble_list_by_service(central, profile->service_uuid, devices, capacity, count);
+    /* A service shared with things that are not radios: keep only what is named like one. A
+       radio whose name has not been heard yet is left out until it is, rather than guessed. */
+    if (result >= 0 && profile->name_prefix != NULL && devices != NULL && count != NULL) {
+        const size_t prefix_len = strlen(profile->name_prefix);
+        size_t kept = 0U;
+        for (size_t i = 0; i < *count; ++i) {
+            if (strncmp(devices[i].name, profile->name_prefix, prefix_len) == 0) {
+                devices[kept++] = devices[i];
+            }
+        }
+        *count = kept;
+    }
     if (result < 0 || !profile->adopts_bonded_dfu || devices == NULL || count == NULL ||
         *count >= capacity) {
         return result;

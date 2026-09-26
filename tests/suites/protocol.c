@@ -485,3 +485,46 @@ cleanup:
     }
     record_success(test_name);
 }
+
+/*
+ * The Nordic UART Service is not MeshCore's: a bike computer, a keyboard and every nRF dev board
+ * carry it too. Only a radio named the way MeshCore's companion names itself is listed under it,
+ * so the Devices tab and auto-connect's "strongest node" never reach for a stranger.
+ */
+MESH_TEST_CASE(ble_scan_lists_only_named_meshcore_radios, unit) {
+    const char *failure = NULL;
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:B1", "MeshCore-Alpha", -40);
+    (void)mesh_test_ble_rig_add_device(&rig, "AA:BB:CC:DD:EE:B2", "Bike Computer", -30);
+    (void)mesh_test_ble_rig_add_device(&rig, "AA:BB:CC:DD:EE:B3", "", -35);
+    static const char *const services[] = {MESH_BLE_NUS_SERVICE_UUID, MESH_BLE_NUS_SERVICE_UUID,
+                                           MESH_BLE_NUS_SERVICE_UUID};
+    rig.mock.device_service_uuids = services;
+    if (mesh_test_ble_rig_start(&rig) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+
+    (void)mesh_ble_transport_refresh_devices(rig.ble);
+    if (mesh_ble_transport_device_profile(rig.ble, rig.devices[0].address) !=
+        &mesh_ble_profile_meshcore) {
+        failure = "a MeshCore companion is listed under MeshCore's profile";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_device_profile(rig.ble, rig.devices[1].address) != NULL) {
+        failure = "another Nordic UART device is not a radio";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_device_profile(rig.ble, rig.devices[2].address) != NULL) {
+        failure = "nor is one whose name has not been heard yet";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_test_ble_rig_close(&rig);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
