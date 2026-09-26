@@ -322,10 +322,18 @@ struct mesh_protocol mesh_meshcore_protocol(struct mesh_meshcore *meshcore);
 bool mesh_meshcore_ready(const struct mesh_meshcore *meshcore);
 
 /*
+ * The most bytes of text a message to `dest` may carry. MESH_MESHCORE_TEXT_MAX for a node; for a
+ * channel, less the "Name: " the firmware writes in front of it, since it cuts whatever no longer
+ * fits (BaseChatMesh::sendGroupMessage) rather than refusing it. Before the radio has named
+ * itself the longest name it could have is assumed.
+ */
+size_t mesh_meshcore_text_max(const struct mesh_meshcore *meshcore, uint32_t dest);
+
+/*
  * Sends `text` to `dest` - a node, or MESH_MESSAGE_BROADCAST_ADDR for channel `channel` - and
  * logs it in the model as ours. Returns the log entry's id through `out_packet_id` and 0, or
  * -ENOTCONN without a link, -ENOENT for a node whose key the roster does not hold, -EMSGSIZE for
- * text past MESH_MESHCORE_TEXT_MAX, -ENOBUFS when the command queue is full.
+ * text past mesh_meshcore_text_max(), -ENOBUFS when the command queue is full.
  */
 int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8_t channel,
                             const char *text, uint32_t *out_packet_id);

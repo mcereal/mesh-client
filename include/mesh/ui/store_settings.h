@@ -776,6 +776,11 @@ struct mesh_ui_settings {
        for both is Meshtastic with everything; see enum mesh_ui_feature. */
     uint8_t protocol;
     uint32_t protocol_lacks;
+    /* And how long a message on it may be, to a node and on a channel: 0 is the Meshtastic
+       payload the draft is sized for. MeshCore's is shorter, and shorter again on a channel,
+       where the firmware spends some of it on the sender's name. */
+    uint16_t direct_text_max;
+    uint16_t channel_text_max;
     /* Whether this build can verify XEdDSA packet signatures at all. Read-only upstream and
        read-only here: it is the answer to a Security section whose signature policy appears to
        do nothing, so it goes in the capabilities row beside PKC. */

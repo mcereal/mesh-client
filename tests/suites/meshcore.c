@@ -633,3 +633,36 @@ MESH_TEST_CASE(meshcore_unreadable_sent_fails_the_message, unit) {
     }
     record_success(test_name);
 }
+
+/* The firmware writes "Name: " in front of a channel message and cuts what no longer fits, so a
+   channel's limit is what is left of 160 after the radio's own name. */
+MESH_TEST_CASE(meshcore_channel_text_leaves_room_for_the_name, unit) {
+    mesh_session_init(&g_model);
+    mesh_meshcore_init(&g_meshcore, &g_model);
+    MESH_TEST_FAIL_IF(mesh_meshcore_text_max(&g_meshcore, 0x40414243U) != MESH_MESHCORE_TEXT_MAX,
+                      "a direct message carries the whole 160");
+    MESH_TEST_FAIL_IF(mesh_meshcore_text_max(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR) !=
+                          MESH_MESHCORE_TEXT_MAX - MESH_MESHCORE_NAME_LEN - 2U,
+                      "before the radio has named itself the longest name is assumed");
+
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const size_t name = strlen(g_meshcore.self.name);
+    const size_t channel_max = mesh_meshcore_text_max(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR);
+    MESH_TEST_FAIL_IF(name == 0U || channel_max != MESH_MESHCORE_TEXT_MAX - name - 2U,
+                      "then the name it has");
+
+    char text[MESH_MESHCORE_TEXT_MAX + 1U];
+    memset(text, 'a', channel_max + 1U);
+    text[channel_max + 1U] = '\0';
+    uint32_t packet_id = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR, 0U, text,
+                                              &packet_id) != -EMSGSIZE,
+                      "a channel message the firmware would cut is refused whole");
+    text[channel_max] = '\0';
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR, 0U, text,
+                                              &packet_id) != 0,
+                      "and one that fits goes out");
+    record_success(test_name);
+}

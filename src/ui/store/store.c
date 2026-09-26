@@ -578,6 +578,9 @@ void mesh_ui_store_set_settings(struct mesh_ui_store *store,
     if (settings != NULL) {
         next = *settings;
     }
+    /* Before the test below, so a nav reset under unchanged settings still has them. */
+    store->nav.direct_text_max = next.direct_text_max;
+    store->nav.channel_text_max = next.channel_text_max;
     if (memcmp(&store->settings, &next, sizeof next) == 0) {
         return;
     }

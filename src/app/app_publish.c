@@ -2662,6 +2662,11 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     /* And which protocol the link speaks: the one the transports were handed in app.c. */
     const struct mesh_protocol protocol = mesh_app_protocol(app);
     mesh_ui_protocol_features(&protocol, &ui_settings.protocol, &ui_settings.protocol_lacks);
+    if (app->meshcore_bound) {
+        ui_settings.direct_text_max = (uint16_t)mesh_meshcore_text_max(&app->meshcore, 0U);
+        ui_settings.channel_text_max =
+            (uint16_t)mesh_meshcore_text_max(&app->meshcore, MESH_MESSAGE_BROADCAST_ADDR);
+    }
     mesh_app_flatten_firmware(app, &ui_settings);
     /* And the name of the radio being administered, for the same reason: it is a roster fact,
        so a node that has just introduced itself renames the banner without the settings having

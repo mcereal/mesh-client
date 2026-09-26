@@ -15,9 +15,11 @@
 
 #include "inkcell/ui/input.h"
 #include "mesh/core/meshcore.h"
+#include "mesh/core/message.h"
 #include "mesh/core/protocol.h"
 #include "mesh/core/session.h"
 #include "mesh/ui/commands.h"
+#include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/protocols.h"
 #include "mesh/ui/settings.h"
@@ -338,5 +340,31 @@ MESH_TEST_CASE(ui_protocol_pin_shortcut_follows_the_protocol, unit) {
 cleanup:
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* The counter under the draft is the cap the typing is held to, and it is the link's: a
+   MeshCore channel message is shorter than a direct one, and both are shorter than Meshtastic's
+   payload. Settings carry it into the nav, which is all the compose screen reads. */
+MESH_TEST_CASE(ui_protocol_draft_cap_follows_the_link, unit) {
+    static struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    store.nav.target_node = MESH_MESSAGE_BROADCAST_ADDR;
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) != MESH_UI_DRAFT_MAX - 1U,
+                      "Meshtastic's draft holds the whole payload");
+
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.protocol = (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
+    settings.direct_text_max = 160U;
+    settings.channel_text_max = 150U;
+    mesh_ui_store_set_settings(&store, &settings);
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) != 150U,
+                      "a channel message is held to the channel's limit");
+    store.nav.target_node = 0x40414243U;
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) != 160U, "a direct one to the node's");
+    store.nav.keyboard_channel_url = true;
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) != MESH_UI_DRAFT_MAX - 1U,
+                      "a link being typed is not a message");
     record_success(test_name);
 }
