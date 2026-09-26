@@ -312,6 +312,55 @@ struct mesh_ui_region_presets {
 };
 
 /*
+ * Which mesh protocol the link speaks, and what of this client's surface it has no counterpart
+ * for.
+ *
+ * Most of what the client offers is Meshtastic's by design: a traceroute, a waypoint, a
+ * ModuleConfig list, a meshtastic.org link. A second protocol shares the shape of the thing - a
+ * roster, channels, messages - and not those verbs, and a row it cannot answer is worse than no
+ * row: it is a press that fails after a dialog. So the screens that offer one ask
+ * mesh_ui_settings_supports() instead of assuming, and the publish says what the protocol
+ * *lacks* rather than what it has, the same way `excluded_modules` does for a firmware build: a
+ * zeroed record - a cold start, a test, a cache written before this existed - is then full
+ * Meshtastic, which is what this client has always been.
+ *
+ * A feature is a verb or a list the user reaches, not a wire message; the bits are named for
+ * what disappears from a screen when one is set.
+ */
+enum mesh_ui_protocol {
+    MESH_UI_PROTOCOL_MESHTASTIC = 0, /* zero on purpose: see above */
+    MESH_UI_PROTOCOL_OTHER,          /* a protocol this UI has no name for yet */
+};
+
+enum mesh_ui_feature {
+    /* Sending a waypoint from a node's sheet. */
+    MESH_UI_FEATURE_WAYPOINTS = 1U << 0,
+    /* The traceroute verb on a node. */
+    MESH_UI_FEATURE_TRACEROUTE = 1U << 1,
+    /* Asking a node for its name, position or telemetry now. */
+    MESH_UI_FEATURE_NODE_REQUESTS = 1U << 2,
+    /* Pin, mute, ignore and remove: flags the radio keeps per node. */
+    MESH_UI_FEATURE_NODE_FLAGS = 1U << 3,
+    /* Configuring another node's radio over the mesh. */
+    MESH_UI_FEATURE_REMOTE_ADMIN = 1U << 4,
+    /* The out-of-band key ceremony behind the padlock. */
+    MESH_UI_FEATURE_KEY_VERIFICATION = 1U << 5,
+    /* A channel as a link and a QR code, both ways. */
+    MESH_UI_FEATURE_CHANNEL_LINKS = 1U << 6,
+    /* A contact as a link, both ways, and putting a heard node back on the radio. */
+    MESH_UI_FEATURE_CONTACT_LINKS = 1U << 7,
+    /* The Modules list: ModuleConfig and canned messages. */
+    MESH_UI_FEATURE_MODULES = 1U << 8,
+    /* Tapbacks on a message. */
+    MESH_UI_FEATURE_REACTIONS = 1U << 9,
+    /* Checking for and installing the radio's own firmware. */
+    MESH_UI_FEATURE_RADIO_FIRMWARE = 1U << 10,
+};
+
+/* Every bit above: what a protocol with none of Meshtastic's verbs lacks. */
+#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_RADIO_FIRMWARE << 1) - 1U))
+
+/*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so the
  * backends and the settings table never include nanopb. Every `has_*` says whether that section has
  * arrived this connection; `loaded` is any of them. These were read-only first; the same fields are
@@ -722,6 +771,10 @@ struct mesh_ui_settings {
      * mesh_ui_settings_section_availability() rather than compared against bits at a row.
      */
     uint32_t excluded_modules;
+    /* The protocol on the link and the mesh_ui_feature bits it has no counterpart for. Zero
+       for both is Meshtastic with everything; see enum mesh_ui_feature. */
+    uint8_t protocol;
+    uint32_t protocol_lacks;
     /* Whether this build can verify XEdDSA packet signatures at all. Read-only upstream and
        read-only here: it is the answer to a Security section whose signature policy appears to
        do nothing, so it goes in the capabilities row beside PKC. */

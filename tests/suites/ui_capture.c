@@ -4487,7 +4487,7 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
                               "the walk landed on our own node rather than on somebody else's");
     struct mesh_ui_node_item items[MESH_UI_NODE_ACTIONS_MAX];
     const uint32_t count =
-        mesh_ui_node_actions_build(node, false, NULL, false, items, MESH_UI_NODE_ACTIONS_MAX);
+        mesh_ui_node_actions_build(node, false, NULL, false, 0U, items, MESH_UI_NODE_ACTIONS_MAX);
     uint32_t remove_row = count;
     for (uint32_t i = 0; i < count; ++i) {
         if (items[i].action == (uint8_t)MESH_UI_NODE_ACTION_REMOVE) {

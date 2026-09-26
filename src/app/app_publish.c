@@ -30,6 +30,7 @@
 #include "mesh/transport/tcp.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
+#include "mesh/ui/protocols.h"
 #include "mesh/ui/route.h"
 #include "mesh/utils/crash.h"
 
@@ -2658,6 +2659,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     }
     /* flatten_settings() zeroes the struct, so the client's own facts go in after it. */
     mesh_app_flatten_client_info(app, &ui_settings.client);
+    /* And which protocol the link speaks: the one the transports were handed in app.c. */
+    const struct mesh_protocol protocol = mesh_session_protocol(&app->session);
+    mesh_ui_protocol_features(&protocol, &ui_settings.protocol, &ui_settings.protocol_lacks);
     mesh_app_flatten_firmware(app, &ui_settings);
     /* And the name of the radio being administered, for the same reason: it is a roster fact,
        so a node that has just introduced itself renames the banner without the settings having

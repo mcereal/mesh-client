@@ -1683,10 +1683,10 @@ static bool mesh_ui_nav_node_actions_key(struct mesh_ui_nav *nav, const struct m
         return false;
     }
     struct mesh_ui_node_item verbs[MESH_UI_NODE_ACTIONS_MAX];
-    const uint32_t count =
-        mesh_ui_node_actions_build(node, mesh_ui_nav_node_is_self(store, node),
-                                   mesh_ui_store_traceroute_view(store, node->node_id),
-                                   nav->node_remove_armed, verbs, MESH_UI_NODE_ACTIONS_MAX);
+    const uint32_t count = mesh_ui_node_actions_build(
+        node, mesh_ui_nav_node_is_self(store, node),
+        mesh_ui_store_traceroute_view(store, node->node_id), nav->node_remove_armed,
+        store->settings.protocol_lacks, verbs, MESH_UI_NODE_ACTIONS_MAX);
     if (count == 0U) {
         return false;
     }
@@ -2707,6 +2707,9 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             const struct mesh_ui_message *message =
                 mesh_ui_nav_message_at_cursor(nav, mesh_ui_store_message_view(store, nav));
             if (message == NULL) {
+                return changed;
+            }
+            if (!mesh_ui_settings_supports(&store->settings, MESH_UI_FEATURE_REACTIONS)) {
                 return changed;
             }
             return mesh_ui_nav_open_reactions(nav, message->packet_id) || changed;

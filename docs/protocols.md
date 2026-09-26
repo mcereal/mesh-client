@@ -69,6 +69,35 @@ Meshtastic, and each is where a second protocol has work to do:
 The UI's renderers, the nav, inkcell, inkstand and inkwell do not know which protocol is on the
 other end. They read the store.
 
+## What the UI offers per protocol
+
+`struct mesh_ui_settings` carries `protocol` and `protocol_lacks`: the `enum mesh_ui_feature`
+bits (`include/mesh/ui/store_settings.h`) the protocol on the link has no counterpart for. A
+screen that offers a Meshtastic-only verb asks `mesh_ui_settings_supports()` first, and the
+publish fills both fields from `src/ui/tables/protocols.c`, one row per protocol by its ops
+table's name. A protocol with no row lacks everything.
+
+The bits say what *lacks*, like `excluded_modules`, so a zeroed record - a cold start, a test, a
+cache written before the field - is full Meshtastic and nothing on screen changes for it.
+
+| Feature | What disappears without it |
+|---|---|
+| `WAYPOINTS` | "Send a waypoint" on a node's sheet |
+| `TRACEROUTE` | the traceroute verb |
+| `NODE_REQUESTS` | asking a node for its name, position or telemetry |
+| `NODE_FLAGS` | pin, mute, ignore, remove |
+| `REMOTE_ADMIN` | configuring a node over the mesh |
+| `KEY_VERIFICATION` | the verify-key ceremony |
+| `CHANNEL_LINKS` | the channel share QR and import rows |
+| `CONTACT_LINKS` | the contact share and import rows, and "put back on the radio" |
+| `MODULES` | the Modules row in Settings |
+| `REACTIONS` | React on X, and X itself inside a thread |
+| `RADIO_FIRMWARE` | the radio firmware check and install rows |
+
+Not gated yet: the Waypoints row at the head of the Nodes list, which is fixed row arithmetic
+(`MESH_UI_NODES_LEAD_ROWS`) rather than a filter, and the Radio tab's reboot, NodeDB and backup
+verbs. `tests/suites/ui_protocol.c` is what fails when a gate is lost.
+
 ## MeshCore
 
 For reference when a second protocol arrives. Checked against MeshCore's

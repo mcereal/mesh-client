@@ -394,13 +394,19 @@ bool mesh_ui_node_detail_trend_row(const struct mesh_ui_node_summary *node, bool
  * next press is the one that does it. The trace's measured *path* is not here: that is a report
  * and it stays on the detail, which is the group rule this split was already holding.
  */
+/*
+ * `lacks` is the protocol's mesh_ui_feature bits it has no counterpart for
+ * (mesh_ui_settings.protocol_lacks): a verb the protocol cannot carry is not offered. Message
+ * and show-on-map are never gated, so whether a node has a sheet at all does not depend on it.
+ */
 uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, bool is_self,
                                     const struct mesh_ui_traceroute *trace, bool remove_armed,
-                                    struct mesh_ui_node_item *out, uint32_t capacity);
+                                    uint32_t lacks, struct mesh_ui_node_item *out,
+                                    uint32_t capacity);
 
 /* Verbs the node would offer. Zero is a node with no sheet - see the builder above. */
 uint32_t mesh_ui_node_actions_count(const struct mesh_ui_node_summary *node, bool is_self,
-                                    const struct mesh_ui_traceroute *trace);
+                                    const struct mesh_ui_traceroute *trace, uint32_t lacks);
 
 /* Rows the node would produce. The nav needs nothing else from this module. */
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,

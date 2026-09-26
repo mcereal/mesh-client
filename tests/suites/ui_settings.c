@@ -1412,8 +1412,8 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
        notices. */
     struct mesh_ui_node_item verbs[MESH_UI_NODE_ACTIONS_MAX];
     const uint32_t verb_count =
-        mesh_ui_node_actions_build(&node, false, NULL, false, verbs, MESH_UI_NODE_ACTIONS_MAX);
-    MESH_TEST_FAIL_IF(verb_count != mesh_ui_node_actions_count(&node, false, NULL),
+        mesh_ui_node_actions_build(&node, false, NULL, false, 0U, verbs, MESH_UI_NODE_ACTIONS_MAX);
+    MESH_TEST_FAIL_IF(verb_count != mesh_ui_node_actions_count(&node, false, NULL, 0U),
                       "the count the nav walks disagrees with the built sheet");
     MESH_TEST_FAIL_IF(verb_count == 0U || verbs[0].action != MESH_UI_NODE_ACTION_MESSAGE,
                       "the message action should be the first verb on the sheet");
@@ -1481,7 +1481,7 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     /* Not even the row that opens the sheet: a node with no verbs has no sheet, and a row that
        opened an empty screen is the press-that-does-nothing this client's tables exist to
        prevent. This node has reported no position yet, which is what leaves it with none. */
-    MESH_TEST_FAIL_IF(mesh_ui_node_actions_count(&node, true, NULL) != 0U,
+    MESH_TEST_FAIL_IF(mesh_ui_node_actions_count(&node, true, NULL, 0U) != 0U,
                       "our own node with no fix should offer no verbs at all");
 
     /* With readings, each section appears and each value is formatted for the screen. */
@@ -4792,7 +4792,7 @@ MESH_TEST_CASE(ui_settings_node_detail_offers_remote_admin_with_a_key, unit) {
        a screen of their own now. */
     struct mesh_ui_node_item verbs[MESH_UI_NODE_ACTIONS_MAX];
     uint32_t verb_count =
-        mesh_ui_node_actions_build(&node, false, NULL, false, verbs, MESH_UI_NODE_ACTIONS_MAX);
+        mesh_ui_node_actions_build(&node, false, NULL, false, 0U, verbs, MESH_UI_NODE_ACTIONS_MAX);
     uint32_t at = verb_count;
     for (uint32_t i = 0; i < verb_count; ++i) {
         if (verbs[i].action == (uint8_t)MESH_UI_NODE_ACTION_ADMIN) {
@@ -4807,7 +4807,7 @@ MESH_TEST_CASE(ui_settings_node_detail_offers_remote_admin_with_a_key, unit) {
     /* Never against our own node: the radio on the end of the link is not administered over the
        air, and the row would be the way out of remote admin offered as the way in. */
     verb_count =
-        mesh_ui_node_actions_build(&node, true, NULL, false, verbs, MESH_UI_NODE_ACTIONS_MAX);
+        mesh_ui_node_actions_build(&node, true, NULL, false, 0U, verbs, MESH_UI_NODE_ACTIONS_MAX);
     for (uint32_t i = 0; i < verb_count; ++i) {
         MESH_TEST_FAIL_IF(verbs[i].action == (uint8_t)MESH_UI_NODE_ACTION_ADMIN,
                           "our own radio is not configured over the mesh");

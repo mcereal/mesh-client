@@ -1322,12 +1322,20 @@ static void node_rows_route_path(struct node_rows *rows, const struct mesh_ui_no
  * other side: a group is one unbroken run, and a measured path between two verbs is a group
  * interrupting a group. The verb is here; what it measured is on the detail.
  */
+/* Whether the protocol has `feature`, from the builder's `lacks`. */
+static bool node_actions_offer(uint32_t lacks, enum mesh_ui_feature feature) {
+    return (lacks & (uint32_t)feature) == 0U;
+}
+
 uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, bool is_self,
                                     const struct mesh_ui_traceroute *trace, bool remove_armed,
-                                    struct mesh_ui_node_item *out, uint32_t capacity) {
+                                    uint32_t lacks, struct mesh_ui_node_item *out,
+                                    uint32_t capacity) {
     if (node == NULL) {
         return 0U;
     }
+    const bool flags = node_actions_offer(lacks, MESH_UI_FEATURE_NODE_FLAGS);
+    const bool requests = node_actions_offer(lacks, MESH_UI_FEATURE_NODE_REQUESTS);
 
     struct node_rows rows = {
         .items = out,
@@ -1343,36 +1351,53 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
     if (!is_self) {
         rows_action(&rows, MESH_STR_NODE_ACT_MESSAGE, NULL, MESH_UI_NODE_ACTION_MESSAGE);
         /* Pinning our own node would be meaningless - it already ranks above everything. */
-        rows_toggle(&rows, MESH_STR_NODE_ACT_PIN, node->is_favorite, MESH_UI_NODE_ACTION_FAVORITE);
+        if (flags) {
+            rows_toggle(&rows, MESH_STR_NODE_ACT_PIN, node->is_favorite,
+                        MESH_UI_NODE_ACTION_FAVORITE);
+        }
         /* Tracing the route to ourselves is a question with no links in it. */
-        node_rows_route_action(&rows, node, trace);
+        if (node_actions_offer(lacks, MESH_UI_FEATURE_TRACEROUTE)) {
+            node_rows_route_action(&rows, node, trace);
+        }
         /* The one row that answers "who is this?" for a node that joined after the NodeDB
            replay and has been sitting in the list as a bare id ever since. */
-        rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_INFO, inkcell_str(MESH_STR_COMMON_PRESS_A),
-                    MESH_UI_NODE_ACTION_REQUEST_INFO);
+        if (requests) {
+            rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_INFO, inkcell_str(MESH_STR_COMMON_PRESS_A),
+                        MESH_UI_NODE_ACTION_REQUEST_INFO);
+        }
         /* The same shape, for the two readings that otherwise arrive on the node's own
            schedule. They sit next to "Ask for its name" because they are the same question -
            tell me what you have now - and because the answer to all three lands in the groups
            further down this screen rather than anywhere else. */
-        rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_POSITION, inkcell_str(MESH_STR_COMMON_PRESS_A),
-                    MESH_UI_NODE_ACTION_REQUEST_POSITION);
-        rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_TELEM, inkcell_str(MESH_STR_COMMON_PRESS_A),
-                    MESH_UI_NODE_ACTION_REQUEST_TELEMETRY);
+        if (requests) {
+            rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_POSITION,
+                        inkcell_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_REQUEST_POSITION);
+            rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_TELEM,
+                        inkcell_str(MESH_STR_COMMON_PRESS_A),
+                        MESH_UI_NODE_ACTION_REQUEST_TELEMETRY);
+        }
         /* Muting is the gentle one of the three below: the node's traffic still arrives and
            still shows in its conversation, the radio just stops announcing it. The wire verb
            is a toggle rather than a set, so this row states the flag and flips it. */
-        rows_toggle(&rows, MESH_STR_NODE_ACT_MUTE, node->is_muted, MESH_UI_NODE_ACTION_MUTE);
+        if (flags) {
+            rows_toggle(&rows, MESH_STR_NODE_ACT_MUTE, node->is_muted, MESH_UI_NODE_ACTION_MUTE);
+        }
         /* Then, stated as what the radio will do rather than as a preference: an ignored
            node's packets are dropped before they reach us. */
-        rows_toggle(&rows, MESH_STR_NODE_ACT_IGNORE, node->is_ignored, MESH_UI_NODE_ACTION_IGNORE);
+        if (flags) {
+            rows_toggle(&rows, MESH_STR_NODE_ACT_IGNORE, node->is_ignored,
+                        MESH_UI_NODE_ACTION_IGNORE);
+        }
         /* Last, because it is the only row here that takes its own row away with it: the node
            leaves the list and there is nothing left to press to undo it. It comes back on its
            own when the node next transmits, which is why this is an arming press rather than
            the confirm overlay - the cost is a wait, not a loss. */
-        rows_action(
-            &rows, MESH_STR_NODE_ACT_REMOVE,
-            inkcell_str(remove_armed ? MESH_STR_NODE_ACT_REMOVE_ARMED : MESH_STR_COMMON_PRESS_A),
-            MESH_UI_NODE_ACTION_REMOVE);
+        if (flags) {
+            rows_action(&rows, MESH_STR_NODE_ACT_REMOVE,
+                        inkcell_str(remove_armed ? MESH_STR_NODE_ACT_REMOVE_ARMED
+                                                 : MESH_STR_COMMON_PRESS_A),
+                        MESH_UI_NODE_ACTION_REMOVE);
+        }
         /*
          * The two key rows, after everything above because they are the pair that acts on what
          * the Identity group states rather than on the node's traffic - and because one of them
@@ -1387,17 +1412,19 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
          */
         const enum mesh_ui_key_trust key_trust = mesh_ui_key_trust_of(node);
         if (key_trust != MESH_UI_KEY_TRUST_NONE) {
-            if (!node->in_nodedb) {
+            if (!node->in_nodedb && node_actions_offer(lacks, MESH_UI_FEATURE_CONTACT_LINKS)) {
                 rows_action(&rows, MESH_STR_NODE_ACT_ADD_CONTACT,
                             inkcell_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_ADD_CONTACT);
             }
             /* Already verified is not a reason to hide the row. A key that changed is exactly
                when somebody would want to do it again, and the label says which of the two
                presses this is so the row is not silently a no-op. */
-            rows_action(&rows,
-                        key_trust == MESH_UI_KEY_TRUST_VERIFIED ? MESH_STR_NODE_ACT_VERIFY_AGAIN
-                                                                : MESH_STR_NODE_ACT_VERIFY_KEY,
-                        inkcell_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_VERIFY_KEY);
+            if (node_actions_offer(lacks, MESH_UI_FEATURE_KEY_VERIFICATION)) {
+                rows_action(&rows,
+                            key_trust == MESH_UI_KEY_TRUST_VERIFIED ? MESH_STR_NODE_ACT_VERIFY_AGAIN
+                                                                    : MESH_STR_NODE_ACT_VERIFY_KEY,
+                            inkcell_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_VERIFY_KEY);
+            }
             /*
              * And the last row on the card: open the Settings tab against this node's radio
              * instead of our own.
@@ -1413,8 +1440,10 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
              * is what somebody pressing "configure this radio" wanted either way. The way back
              * is a row in About radio, which is where the banner sends them.
              */
-            rows_action(&rows, MESH_STR_NODE_ACT_ADMIN, inkcell_str(MESH_STR_COMMON_PRESS_A),
-                        MESH_UI_NODE_ACTION_ADMIN);
+            if (node_actions_offer(lacks, MESH_UI_FEATURE_REMOTE_ADMIN)) {
+                rows_action(&rows, MESH_STR_NODE_ACT_ADMIN, inkcell_str(MESH_STR_COMMON_PRESS_A),
+                            MESH_UI_NODE_ACTION_ADMIN);
+            }
         }
     }
     /*
@@ -1430,20 +1459,22 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
            aimed at nowhere. */
         rows_action(&rows, MESH_STR_NODE_ACT_SHOW_ON_MAP, inkcell_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_NODE_ACTION_SHOW_ON_MAP);
-        rows_action(&rows, MESH_STR_NODE_ACT_WAYPOINT, inkcell_str(MESH_STR_COMMON_PRESS_A),
-                    MESH_UI_NODE_ACTION_WAYPOINT);
+        if (node_actions_offer(lacks, MESH_UI_FEATURE_WAYPOINTS)) {
+            rows_action(&rows, MESH_STR_NODE_ACT_WAYPOINT, inkcell_str(MESH_STR_COMMON_PRESS_A),
+                        MESH_UI_NODE_ACTION_WAYPOINT);
+        }
     }
 
     return rows.count;
 }
 
 uint32_t mesh_ui_node_actions_count(const struct mesh_ui_node_summary *node, bool is_self,
-                                    const struct mesh_ui_traceroute *trace) {
+                                    const struct mesh_ui_traceroute *trace, uint32_t lacks) {
     /* Built to be counted, exactly as mesh_ui_node_detail_count() is and for its reason: which
        verbs exist depends on what the node has - a key, a fix, a place in the radio's list - so
        there is no arithmetic from a node to a number. `remove_armed` changes a row's value and
        never whether it is there, so this passes false and cannot disagree with the build. */
-    return mesh_ui_node_actions_build(node, is_self, trace, false, NULL, 0U);
+    return mesh_ui_node_actions_build(node, is_self, trace, false, lacks, NULL, 0U);
 }
 
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
@@ -1477,7 +1508,9 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
      * No heading over it. A heading names a group the reader can skip past and this is one row;
      * what the row is about is in the row, and the sheet it opens says "Actions" in its own bar.
      */
-    if (mesh_ui_node_actions_count(node, is_self, trace) > 0U) {
+    /* With nothing lacked: message and show-on-map are never gated, so whether there is a sheet
+       is the same answer whatever the protocol, and the detail has no settings to ask. */
+    if (mesh_ui_node_actions_count(node, is_self, trace, 0U) > 0U) {
         rows_action(&rows, MESH_STR_NODE_HEAD_ACTIONS, inkcell_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_NODE_ACTION_OPEN_ACTIONS);
     }

@@ -881,8 +881,8 @@ MESH_TEST_CASE(key_trust_node_detail_offers_the_key_rows, unit) {
         const uint32_t count = mesh_ui_node_detail_build(node, false, 0U, NULL, &handshake, NULL,
                                                          false, items, MESH_UI_NODE_ITEMS_MAX);
         struct mesh_ui_node_item verbs[MESH_UI_NODE_ACTIONS_MAX];
-        const uint32_t verb_count =
-            mesh_ui_node_actions_build(node, false, NULL, false, verbs, MESH_UI_NODE_ACTIONS_MAX);
+        const uint32_t verb_count = mesh_ui_node_actions_build(node, false, NULL, false, 0U, verbs,
+                                                               MESH_UI_NODE_ACTIONS_MAX);
 
         bool saw_verify = false;
         bool saw_add = false;

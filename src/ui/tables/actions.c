@@ -149,7 +149,9 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
        the bubble under the cursor, X puts an emoji on it, and Y writes to the conversation. */
     if (has_bubble) {
         command_add(bar, MESH_UI_COMMAND_REPLY, MESH_STR_ACTION_REPLY, INKCELL_BUTTON_A);
-        command_add(bar, MESH_UI_COMMAND_REACT, MESH_STR_ACTION_REACT, INKCELL_BUTTON_X);
+        if (mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_REACTIONS)) {
+            command_add(bar, MESH_UI_COMMAND_REACT, MESH_STR_ACTION_REACT, INKCELL_BUTTON_X);
+        }
     }
     command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);
     command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
