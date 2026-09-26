@@ -1176,7 +1176,11 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
     if (meshcore->send == NULL) {
         return -ENOTCONN;
     }
-    if (meshcore->writes_outstanding > 0U) {
+    /* A save is built over SELF_INFO, so none is made while one is on its way: the radio
+       parameters are one command, and a save encoded over values a queued read-back is about
+       to replace would put the stale ones back. */
+    if (meshcore->writes_outstanding > 0U ||
+        mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_APP_START)) {
         return -EBUSY;
     }
     /* Encoded whole before anything is queued, so a value the codec refuses leaves the radio

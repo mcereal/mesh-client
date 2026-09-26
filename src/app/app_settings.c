@@ -1368,6 +1368,8 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
                                                 : MESH_STR_TOAST_PINNING_POSITION));
     } else if (result == -ENOTCONN) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED_KEPT));
+    } else if (result == -EBUSY) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_BUSY_RETRY));
     } else if (result == -EINVAL) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_ON_EARTH));
     } else {
@@ -1601,6 +1603,8 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
                          (unsigned)action->edit_count, result);
     } else if (result == -ENOTCONN) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED_KEPT));
+    } else if (result == -EBUSY) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_BUSY_RETRY));
     } else if (result == -ENOENT) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SECTION_NOT_LOADED, section_name);
     } else if (result == -ENOTSUP) {

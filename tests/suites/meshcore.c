@@ -792,6 +792,8 @@ MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     MESH_TEST_FAIL_IF(settings->writes_acked != acked + 1U, "the last OK settles the save");
     MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_APP_START, "and the read-back follows");
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EBUSY,
+                      "and no save is built over values a read-back is about to replace");
     /* Each OK moved the baseline, so a save made before the read-back lands is built over
        what the radio now holds rather than undoing it. */
     MESH_TEST_FAIL_IF(
@@ -831,6 +833,7 @@ MESH_TEST_CASE(meshcore_settings_write_refuses_what_it_cannot_send_whole, unit) 
     MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1,
                       "a name at the firmware's limit is written");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    feed(&protocol, k_self_info, sizeof k_self_info); /* the read-back */
     write.set_name = true;
     write.name[0] = '\0';
     const size_t before = wire.count;
