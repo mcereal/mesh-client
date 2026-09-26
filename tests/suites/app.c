@@ -5211,3 +5211,89 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * MeshCore's other parameters are saved as one SET_OTHER_PARAMS over what SELF_INFO reported:
+ * a request row replaces only its own two bits of the telemetry byte, "add heard nodes" is the
+ * firmware's manual-add turned over, and the rows left alone go back as the radio had them.
+ */
+MESH_TEST_CASE(app_meshcore_other_params_save, unit) {
+    const char *failure = NULL;
+    static struct mesh_app app;
+    static struct app_meshcore_wire wire;
+    memset(&app, 0, sizeof app);
+    memset(&wire, 0, sizeof wire);
+    bool app_ready = false;
+    struct mesh_protocol protocol = {NULL, NULL};
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "meshcore_other")) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_ble = false;
+    config.enable_serial = false;
+    config.enable_tcp = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    mesh_app_bind_protocol(&app, true);
+    protocol = mesh_meshcore_protocol(&app.meshcore);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+    app.meshcore.has_self = true;
+    app.meshcore.self.telemetry_modes = 0x26U; /* base 2, location 1, sensors 2 */
+    app.meshcore.self.manual_add_contacts = 1U;
+    app.meshcore.self.advert_loc_policy = 1U;
+    app.meshcore.self.multi_acks = 1U;
+
+    mesh_app_publish_ui_state(&app);
+    if (!app.ui_store.settings.has_meshcore_other ||
+        app.ui_store.settings.meshcore_telemetry_modes != 0x26U) {
+        failure = "SELF_INFO's other parameters are published for the rows";
+        goto cleanup;
+    }
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = (uint8_t)MESH_UI_SETTINGS_USER;
+    action.edit_count = 2U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_ASK_LOCATION;
+    action.edits[0].number = 2U;
+    action.edits[1].field = (uint16_t)MESH_UI_FIELD_AUTO_ADD;
+    action.edits[1].number = 1U;
+    mesh_app_save_settings(&app, &action, 1000U);
+    const uint8_t expected[5] = {MESH_MESHCORE_CMD_SET_OTHER_PARAMS, 0U, 0x2aU, 1U, 1U};
+    if (wire.count != 1U || wire.lens[0] != 5U || memcmp(wire.frames[0], expected, 5U) != 0) {
+        failure = "location requests go to everyone, the rest of the byte and the row left "
+                  "alone stay, and auto-add clears manual-add";
+        goto cleanup;
+    }
+
+    mesh_protocol_detach(&protocol);
+    app.settings_save_pending = false;
+    app.meshcore.writes_outstanding = 0U;
+    app.meshcore.queue_count = 0U;
+    app.meshcore.awaiting = false;
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+    action.edit_count = 1U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_ASK_SENSORS;
+    action.edits[0].number = 3U;
+    mesh_app_save_settings(&app, &action, 2000U);
+    if (wire.count != 0U) {
+        failure = "a mode the firmware does not define is not sent";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_protocol_detach(&protocol);
+        mesh_app_shutdown(&app);
+    }
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

@@ -1599,6 +1599,10 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
     write.spreading_factor = self->spreading_factor;
     write.coding_rate = self->coding_rate;
     write.tx_power_dbm = (int8_t)self->tx_power_dbm;
+    write.manual_add_contacts = self->manual_add_contacts;
+    write.telemetry_modes = self->telemetry_modes;
+    write.advert_loc_policy = self->advert_loc_policy;
+    write.multi_acks = self->multi_acks;
 
     const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)action->section;
     if (section == MESH_UI_SETTINGS_CHANNELS) {
@@ -1619,6 +1623,34 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
             }
             write.set_name = true;
             inkwell_str_copy(write.name, sizeof write.name, edit->text);
+            break;
+        case MESH_UI_FIELD_ADVERT_LOCATION:
+            write.advert_loc_policy = edit->number != 0U ? 1U : 0U;
+            write.set_other = true;
+            break;
+        /* Three two-bit modes in one byte: base, location, sensors. Each row replaces its own
+           pair and leaves the other two as the radio has them. */
+        case MESH_UI_FIELD_ASK_TELEMETRY:
+        case MESH_UI_FIELD_ASK_LOCATION:
+        case MESH_UI_FIELD_ASK_SENSORS: {
+            if (edit->number > 2U) {
+                return -EINVAL;
+            }
+            const unsigned shift = edit->field == MESH_UI_FIELD_ASK_TELEMETRY
+                                       ? 0U
+                                       : (edit->field == MESH_UI_FIELD_ASK_LOCATION ? 2U : 4U);
+            write.telemetry_modes =
+                (uint8_t)((write.telemetry_modes & ~(0x03U << shift)) | (edit->number << shift));
+            write.set_other = true;
+            break;
+        }
+        case MESH_UI_FIELD_AUTO_ADD:
+            write.manual_add_contacts = edit->number != 0U ? 0U : 1U;
+            write.set_other = true;
+            break;
+        case MESH_UI_FIELD_EXTRA_ACKS:
+            write.multi_acks = edit->number != 0U ? 1U : 0U;
+            write.set_other = true;
             break;
         case MESH_UI_FIELD_LORA_FREQUENCY: {
             int64_t scaled = 0;

@@ -508,6 +508,37 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
                       "and its power stops at what the radio says it can do");
     n = section_fields(&settings, &handshake, MESH_UI_SETTINGS_USER, fields, 16U);
     MESH_TEST_FAIL_IF(n != 1U || fields[0] != MESH_UI_FIELD_USER_LONG_NAME, "User is one name");
+    /* And, once SELF_INFO has said what they are, MeshCore's other parameters under it. */
+    settings.has_meshcore_other = true;
+    settings.meshcore_telemetry_modes = 0x26U; /* base 2, location 1, sensors 2 */
+    settings.meshcore_manual_add = 1U;
+    settings.meshcore_advert_loc_policy = 1U;
+    n = section_fields(&settings, &handshake, MESH_UI_SETTINGS_USER, fields, 16U);
+    /* The two headings are rows with no field. */
+    const uint16_t user[] = {
+        MESH_UI_FIELD_USER_LONG_NAME, MESH_UI_FIELD_NONE,         MESH_UI_FIELD_ADVERT_LOCATION,
+        MESH_UI_FIELD_ASK_TELEMETRY,  MESH_UI_FIELD_ASK_LOCATION, MESH_UI_FIELD_ASK_SENSORS,
+        MESH_UI_FIELD_NONE,           MESH_UI_FIELD_AUTO_ADD,     MESH_UI_FIELD_EXTRA_ACKS};
+    MESH_TEST_FAIL_IF(n != sizeof user / sizeof user[0] || memcmp(fields, user, sizeof user) != 0,
+                      "User adds what this radio shares and what it takes in");
+    struct mesh_ui_settings_item user_rows[16];
+    const uint32_t user_count =
+        mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_USER,
+                               MESH_UI_SETTINGS_NO_CHANNEL, user_rows, 16U);
+    uint32_t values[MESH_UI_FIELD_COUNT];
+    memset(values, 0xff, sizeof values);
+    for (uint32_t i = 0; i < user_count; ++i) {
+        if (user_rows[i].field != MESH_UI_FIELD_NONE) {
+            values[user_rows[i].field] = user_rows[i].number;
+        }
+    }
+    MESH_TEST_FAIL_IF(
+        values[MESH_UI_FIELD_ASK_TELEMETRY] != 2U || values[MESH_UI_FIELD_ASK_LOCATION] != 1U ||
+            values[MESH_UI_FIELD_ASK_SENSORS] != 2U ||
+            values[MESH_UI_FIELD_ADVERT_LOCATION] != 1U || values[MESH_UI_FIELD_AUTO_ADD] != 0U ||
+            values[MESH_UI_FIELD_EXTRA_ACKS] != 0U,
+        "each row reads its own bits, and auto-add is manual-add turned over");
+    settings.has_meshcore_other = false;
     MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_POSITION,
                                       MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION),
                       "Position sets the coordinates it lists");

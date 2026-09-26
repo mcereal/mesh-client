@@ -95,7 +95,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `MODULES` | the Modules row in Settings |
 | `REACTIONS` | React on X, and X itself inside a thread |
 | `RADIO_FIRMWARE` | the radio firmware check and install rows |
-| `FULL_CONFIG` | every Settings section but User, Position, LoRa and Channels, and inside those every row but the name, the coordinates, the frequency, bandwidth, spread factor, coding rate and power, and a MeshCore channel's name and key; the Radio details' capability, reboot-count and admin-session rows |
+| `FULL_CONFIG` | every Settings section but User, Position, LoRa and Channels, and inside those every row but the name, the coordinates, the frequency, bandwidth, spread factor, coding rate and power, a MeshCore channel's name and key, and MeshCore's other parameters under the name; the Radio details' capability, reboot-count and admin-session rows |
 | `RADIO_MAINTENANCE` | shut down, NodeDB reset, backup, restore and factory reset - Reboot stays |
 
 A LoRa save without `FULL_CONFIG` gets its own confirm sentence
@@ -158,6 +158,11 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   kHz rather than the record's float; a frequency finer than a kHz is refused, a seventh
   coordinate decimal is rounded, and a link lost mid-save is reported unanswered rather than as
   a restart.
+- **The other parameters** - location in adverts, who may request telemetry, location and
+  sensor readings (SELF_INFO's three 2-bit modes: no one, contacts given the permission,
+  everyone), auto-add and multi-acks - are rows under the name in User, and one
+  `SET_OTHER_PARAMS` with all four bytes over what SELF_INFO reported. "Add heard nodes" is the
+  firmware's `manual_add_contacts` turned over.
 - **A channel slot is edited** as a name (31 bytes; `MESH_UI_FIELD_CHANNEL_ANY_NAME`) and a
   16-byte secret (`_ANY_KEY`) and nothing else, written whole with `SET_CHANNEL` and read back
   with `GET_CHANNEL` for that slot alone. The walk keeps each slot's secret in the settings
@@ -182,8 +187,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
 Not yet spoken: repeater and room-server login, telemetry and status requests, trace paths,
-adding a heard node as a contact and a contact's favourite flag, contact sharing, and the settings SELF_INFO
-carries but the tab does not show (advert location policy, auto-add, multi-acks, telemetry
-modes). The `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
+adding a heard node as a contact and a contact's favourite flag, and contact sharing. The
+`meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
 end.

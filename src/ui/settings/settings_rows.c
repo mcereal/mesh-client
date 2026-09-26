@@ -1095,11 +1095,33 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
     build_connection(&s->connection, list);
 }
 
+/*
+ * MeshCore's other parameters, under the name because MeshCore's own apps keep them there: what
+ * this radio tells the mesh about itself, then what it takes in from the mesh. Only once
+ * SELF_INFO has said what they are, so no row offers a value the radio never reported.
+ */
+static void build_meshcore_other(const struct mesh_ui_settings *s, struct item_list *list) {
+    if (s->protocol != MESH_UI_PROTOCOL_MESHCORE || !s->has_meshcore_other) {
+        return;
+    }
+    const uint32_t modes = s->meshcore_telemetry_modes;
+    item_heading(list, MESH_STR_USER_SHARING_HEAD);
+    item_field(list, MESH_UI_FIELD_ADVERT_LOCATION, s->meshcore_advert_loc_policy != 0U ? 1U : 0U,
+               NULL);
+    item_field(list, MESH_UI_FIELD_ASK_TELEMETRY, modes & 0x03U, NULL);
+    item_field(list, MESH_UI_FIELD_ASK_LOCATION, (modes >> 2U) & 0x03U, NULL);
+    item_field(list, MESH_UI_FIELD_ASK_SENSORS, (modes >> 4U) & 0x03U, NULL);
+    item_heading(list, MESH_STR_USER_CONTACTS_HEAD);
+    item_field(list, MESH_UI_FIELD_AUTO_ADD, s->meshcore_manual_add == 0U ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_EXTRA_ACKS, s->meshcore_multi_acks != 0U ? 1U : 0U, NULL);
+}
+
 static void build_user(const struct mesh_ui_settings *s, struct item_list *list) {
     item_field(list, MESH_UI_FIELD_USER_LONG_NAME, 0U, s->long_name);
     /* One name is all a protocol without Meshtastic's owner record has; its short form is made
        from it rather than set. */
     if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG)) {
+        build_meshcore_other(s, list);
         return;
     }
     item_field(list, MESH_UI_FIELD_USER_SHORT_NAME, 0U, s->short_name);

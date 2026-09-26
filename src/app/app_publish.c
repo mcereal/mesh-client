@@ -2682,6 +2682,11 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app->meshcore_bound && app->meshcore.has_self) {
         ui_settings.override_frequency_scaled = (int64_t)app->meshcore.self.frequency_khz * 10;
         ui_settings.tx_power_max = app->meshcore.self.max_tx_power_dbm;
+        ui_settings.has_meshcore_other = true;
+        ui_settings.meshcore_manual_add = app->meshcore.self.manual_add_contacts;
+        ui_settings.meshcore_telemetry_modes = app->meshcore.self.telemetry_modes;
+        ui_settings.meshcore_advert_loc_policy = app->meshcore.self.advert_loc_policy;
+        ui_settings.meshcore_multi_acks = app->meshcore.self.multi_acks;
     }
     /* And each channel's whole name, which the settings record - Meshtastic's twelve bytes -
        cannot carry: the editor opens on what the radio holds, not on the first eleven bytes. */

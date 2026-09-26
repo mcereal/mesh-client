@@ -881,6 +881,18 @@ static const char *channel_role_name(uint32_t value) {
                                    : MESH_STR_ENUM_CHANNEL_DISABLED);
 }
 
+/* Who a MeshCore radio answers a request from. 3 is unused by the firmware and read as 2. */
+static const char *ask_enum_name(uint32_t value) {
+    switch (value) {
+    case 0U:
+        return inkcell_str(MESH_STR_ENUM_ASK_NOBODY);
+    case 1U:
+        return inkcell_str(MESH_STR_ENUM_ASK_CHOSEN);
+    default:
+        return inkcell_str(MESH_STR_ENUM_ASK_EVERYONE);
+    }
+}
+
 static const char *pairing_enum_name(uint32_t mode) {
     switch (mode) {
     case 0U:
@@ -1877,6 +1889,30 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                         MESHCORE_CHANNEL_KEY_CHOICES, INKCELL_STR_NONE},
                                        INKCELL_STR_NONE,
                                        NULL},
+#define MESHCORE_OTHER_TOGGLE(field, label, note)                                                  \
+    [field] = {                                                                                    \
+        {label, INKSTAND_FORM_TOGGLE, MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, 0U, note},      \
+        INKCELL_STR_NONE,                                                                          \
+        NULL}
+#define MESHCORE_OTHER_ASK(field, label, note)                                                     \
+    [field] = {{label, INKSTAND_FORM_ENUM, MESH_UI_SETTINGS_USER, 3U, ask_enum_name, NO_PRESETS,   \
+                0U, note},                                                                         \
+               INKCELL_STR_NONE,                                                                   \
+               NULL}
+    MESHCORE_OTHER_TOGGLE(MESH_UI_FIELD_ADVERT_LOCATION, MESH_STR_SETTINGS_FIELD_ADVERT_LOCATION,
+                          MESH_STR_SETTINGS_NOTE_ADVERT_LOCATION),
+    MESHCORE_OTHER_ASK(MESH_UI_FIELD_ASK_TELEMETRY, MESH_STR_SETTINGS_FIELD_ASK_TELEMETRY,
+                       MESH_STR_SETTINGS_NOTE_ASK_TELEMETRY),
+    MESHCORE_OTHER_ASK(MESH_UI_FIELD_ASK_LOCATION, MESH_STR_SETTINGS_FIELD_ASK_LOCATION,
+                       MESH_STR_SETTINGS_NOTE_ASK_LOCATION),
+    MESHCORE_OTHER_ASK(MESH_UI_FIELD_ASK_SENSORS, MESH_STR_SETTINGS_FIELD_ASK_SENSORS,
+                       MESH_STR_SETTINGS_NOTE_ASK_SENSORS),
+    MESHCORE_OTHER_TOGGLE(MESH_UI_FIELD_AUTO_ADD, MESH_STR_SETTINGS_FIELD_AUTO_ADD,
+                          MESH_STR_SETTINGS_NOTE_AUTO_ADD),
+    MESHCORE_OTHER_TOGGLE(MESH_UI_FIELD_EXTRA_ACKS, MESH_STR_SETTINGS_FIELD_EXTRA_ACKS,
+                          MESH_STR_SETTINGS_NOTE_EXTRA_ACKS),
+#undef MESHCORE_OTHER_TOGGLE
+#undef MESHCORE_OTHER_ASK
     [MESH_UI_FIELD_CHANNEL_ROLE] = {{MESH_STR_SETTINGS_FIELD_CHANNEL_ROLE, INKSTAND_FORM_ENUM,
                                      MESH_UI_SETTINGS_CHANNELS, 2U, channel_role_name, NO_PRESETS,
                                      0U, MESH_STR_SETTINGS_NOTE_CHANNEL_ROLE},

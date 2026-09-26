@@ -805,6 +805,27 @@ MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {
                           settings->lora.spread_factor != 8U,
                       "and so do the settings the screens read");
 
+    /* The other parameters are one command, all four bytes, and move the baseline too. */
+    feed(&protocol, k_self_info, sizeof k_self_info);
+    struct mesh_meshcore_settings_write other;
+    memset(&other, 0, sizeof other);
+    other.set_other = true;
+    other.manual_add_contacts = 1U;
+    other.telemetry_modes = 0x26U;
+    other.advert_loc_policy = 1U;
+    other.multi_acks = 1U;
+    const size_t other_at = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &other) != 1, "one command");
+    const uint8_t expected_other[5] = {MESH_MESHCORE_CMD_SET_OTHER_PARAMS, 1U, 0x26U, 1U, 1U};
+    MESH_TEST_FAIL_IF(wire.lens[other_at] != 5U ||
+                          memcmp(wire.frames[other_at], expected_other, 5U) != 0,
+                      "manual add, telemetry modes, location policy, multi-acks");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(g_meshcore.self.telemetry_modes != 0x26U ||
+                          g_meshcore.self.manual_add_contacts != 1U ||
+                          g_meshcore.self.multi_acks != 1U,
+                      "and the OK moves the baseline");
+
     /* A refusal fails the save with the radio's own code. */
     const uint32_t failed = settings->writes_failed;
     feed(&protocol, k_self_info, sizeof k_self_info);
