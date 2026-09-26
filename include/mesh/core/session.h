@@ -660,6 +660,30 @@ void mesh_session_set_roster_owner(struct mesh_session *session, uint32_t node_n
    nothing when the node is already known. */
 void mesh_session_seed_node(struct mesh_session *session, const struct mesh_node_summary *node);
 
+/*
+ * The session as a *model* another protocol fills.
+ *
+ * The roster, the channel table and the message log are what every screen reads, and nothing
+ * about them is Meshtastic's except where the records came from. A second protocol keeps its
+ * own conversation (mesh/core/meshcore.h) and writes what it learns here through these five
+ * calls, which are the same steps the FromRadio decoder takes - so a swap of radio, a node the
+ * radio stopped carrying and a sync in progress read identically whichever protocol ran them.
+ *
+ * sync_begin() opens a sync the way want_config_id does: a fresh epoch, a request in flight.
+ * adopt_radio() is my_info's arm, including dropping the roster when the radio changed.
+ * model_node() is the roster entry for a node, added when new; `synced` stamps it into the
+ * running sync, which is what "the radio still carries it" is decided by. sync_complete() is
+ * config_complete_id's arm.
+ */
+void mesh_session_model_sync_begin(struct mesh_session *session);
+void mesh_session_model_adopt_radio(struct mesh_session *session, uint32_t node_num);
+struct mesh_node_summary *mesh_session_model_node(struct mesh_session *session, uint32_t node_id,
+                                                  bool synced);
+/* Stores `channel` at its own index; one beyond MESH_SESSION_MAX_CHANNELS is refused. */
+int mesh_session_model_set_channel(struct mesh_session *session,
+                                   const struct mesh_channel_summary *channel);
+void mesh_session_model_sync_complete(struct mesh_session *session);
+
 /* Decodes one FromRadio protobuf and folds it into the handshake, node cache, settings or
    message log. Admin replies never reach the message log. */
 void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t *payload,

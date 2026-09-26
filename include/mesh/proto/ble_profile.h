@@ -66,11 +66,20 @@ struct mesh_ble_profile {
 #define MESH_BLE_FROMNUM_UUID "ED9DA18C-A800-4F66-A670-AA7547E34453"
 #define MESH_BLE_LOGRADIO_UUID "5A3D6E49-06E6-4423-9944-E9DE8CDF9547"
 
+/* MeshCore's companion radio: the Nordic UART Service. The app writes RX and subscribes to TX,
+   whose notifications are the frames themselves (examples/companion_radio, SerialBLEInterface). */
+#define MESH_BLE_NUS_SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define MESH_BLE_NUS_RX_UUID "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define MESH_BLE_NUS_TX_UUID "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+
 /* The most any profile may carry in one frame - ATT's own limit, and what Meshtastic uses. */
 #define MESH_BLE_MAX_PACKET_SIZE 512U
 
 /* ToRadio, FromNum then FromRadio until empty, LogRadio when the firmware has it. */
 extern const struct mesh_ble_profile mesh_ble_profile_meshtastic;
+
+/* RX, TX notified with one frame each; MAX_FRAME_SIZE (176) either way. */
+extern const struct mesh_ble_profile mesh_ble_profile_meshcore;
 
 /* Every profile the scan looks for, in the order a radio advertising several is tagged. */
 extern const struct mesh_ble_profile *const mesh_ble_known_profiles[];

@@ -48,6 +48,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/map_pack.c
     suites/tile_cache.c
     suites/tile_image.c
+    suites/meshcore.c
     suites/message.c
     suites/mqtt_app.c
     suites/mqtt_session.c

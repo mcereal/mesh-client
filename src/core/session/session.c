@@ -751,6 +751,73 @@ static void mesh_session_resolve_nodedb_membership(struct mesh_session *session)
     }
 }
 
+void mesh_session_model_sync_begin(struct mesh_session *session) {
+    if (session == NULL) {
+        return;
+    }
+    mesh_session_reset_link_state(session);
+    if (++session->sync_epoch == 0U) {
+        session->sync_epoch = 1U;
+    }
+    session->handshake.request_in_flight = true;
+    session->handshake.request_id = session->sync_epoch;
+}
+
+void mesh_session_model_adopt_radio(struct mesh_session *session, uint32_t node_num) {
+    if (session == NULL || node_num == 0U) {
+        return;
+    }
+    if (session->roster_node != 0U && session->roster_node != node_num) {
+        inkwell_log_info("session", "Radio changed (0x%08x -> 0x%08x); dropping the roster",
+                         session->roster_node, node_num);
+        mesh_session_clear_nodes(session);
+        mesh_session_forget_radio(session);
+        mesh_waypoint_book_reset(&session->waypoints);
+    }
+    session->roster_node = node_num;
+    session->handshake.has_my_info = true;
+    session->handshake.my_info.my_node_num = node_num;
+}
+
+struct mesh_node_summary *mesh_session_model_node(struct mesh_session *session, uint32_t node_id,
+                                                  bool synced) {
+    if (session == NULL || node_id == 0U || node_id == MESH_MESSAGE_BROADCAST_ADDR) {
+        return NULL;
+    }
+    struct mesh_node_summary *slot = mesh_session_node_slot(session, node_id);
+    if (slot != NULL && synced) {
+        slot->sync_epoch = session->sync_epoch;
+    }
+    return slot;
+}
+
+int mesh_session_model_set_channel(struct mesh_session *session,
+                                   const struct mesh_channel_summary *channel) {
+    if (session == NULL || channel == NULL) {
+        return -EINVAL;
+    }
+    if (channel->index >= MESH_SESSION_MAX_CHANNELS) {
+        return -ERANGE;
+    }
+    struct mesh_handshake_status *handshake = &session->handshake;
+    handshake->channels[channel->index] = *channel;
+    if (handshake->channel_count < (size_t)channel->index + 1U) {
+        handshake->channel_count = (size_t)channel->index + 1U;
+    }
+    return 0;
+}
+
+void mesh_session_model_sync_complete(struct mesh_session *session) {
+    if (session == NULL) {
+        return;
+    }
+    struct mesh_handshake_status *handshake = &session->handshake;
+    handshake->request_in_flight = false;
+    handshake->config_complete = true;
+    handshake->config_complete_id = handshake->request_id;
+    mesh_session_resolve_nodedb_membership(session);
+}
+
 /*
  * Every packet a node sends us is proof it is alive now. The NodeDB sync only tells us what the
  * radio knew at connect time, and a mesh of 130 nodes re-sorts constantly, so without this the
