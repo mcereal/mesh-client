@@ -970,6 +970,14 @@ static int mesh_meshcore_begin(void *self) {
     /* A fresh connection asks for every contact: the model may hold nodes from another radio's
        list, and "since" is only meaningful against the list it came from. */
     meshcore->contacts_since = 0U;
+    /* And no channel slot is editable until this walk has read it again: the table outlives
+       the link, and a slot left over from the last one - a walk refused before reaching it -
+       would be written back over whatever the radio holds now. */
+    struct mesh_radio_settings *settings = mesh_session_model_settings(meshcore->model);
+    if (settings != NULL) {
+        memset(settings->has_channel, 0, sizeof settings->has_channel);
+        memset(settings->channels, 0, sizeof settings->channels);
+    }
 
     uint8_t frame[MESH_MESHCORE_MAX_FRAME];
     int result = mesh_meshcore_enqueue(

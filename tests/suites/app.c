@@ -5155,6 +5155,27 @@ MESH_TEST_CASE(app_meshcore_channel_save_is_one_slot, unit) {
         failure = "an empty slot named but given no key is not a channel";
         goto cleanup;
     }
+    action.edit_count = 2U;
+    action.edits[1].field = (uint16_t)MESH_UI_FIELD_CHANNEL_ANY_KEY;
+    action.edits[1].number = MESH_UI_PSK_TYPED;
+    snprintf(action.edits[1].text, sizeof action.edits[1].text, "%s",
+             "00000000000000000000000000000000");
+    mesh_app_save_settings(&app, &action, 3000U);
+    uint8_t zero_key[16];
+    memset(zero_key, 0, sizeof zero_key);
+    if (wire.count != 1U || strcmp((const char *)wire.frames[0] + 2, "named") != 0 ||
+        memcmp(wire.frames[0] + 34, zero_key, sizeof zero_key) != 0) {
+        failure = "but a typed all-zero key is a key";
+        goto cleanup;
+    }
+    mesh_protocol_detach(&protocol);
+    app.settings_save_pending = false;
+    app.meshcore.writes_outstanding = 0U;
+    app.meshcore.queue_count = 0U;
+    app.meshcore.awaiting = false;
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+    action.edit_count = 1U;
     action.channel = 1U;
     action.edits[0].field = (uint16_t)MESH_UI_FIELD_CHANNEL_ANY_KEY;
     action.edits[0].number = MESH_UI_PSK_TYPED;

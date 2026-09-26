@@ -1502,6 +1502,7 @@ static int mesh_app_meshcore_channel_write(struct mesh_app *app,
     }
 
     const meshtastic_Channel *channel = &radio->channels[slot];
+    const bool was_used = channel->has_settings;
     if (channel->has_settings) {
         inkwell_str_copy(write.channel_name, sizeof write.channel_name,
                          status->channels[slot].name);
@@ -1564,13 +1565,16 @@ static int mesh_app_meshcore_channel_write(struct mesh_app *app,
             return -EINVAL;
         }
     }
-    /* A slot in use has both: a name alone would be a channel with the all-zero key, and a
-       key alone one no screen can name. */
+    /* A slot in use has a name: a key alone is a channel no screen can name. The all-zero key
+       is a key like any other once chosen, and a channel the radio already holds keeps
+       whatever it has - but an empty slot given a name and no key choice at all is a
+       set-up left half done, not a request for the zero key. */
     bool keyed = false;
     for (size_t i = 0; i < MESH_MESHCORE_SECRET_LEN; ++i) {
         keyed = keyed || write.channel_secret[i] != 0U;
     }
-    if (write.channel_name[0] == '\0' || !keyed) {
+    const bool key_chosen = key != NULL && key->number != (uint32_t)MESH_UI_PSK_KEEP;
+    if (write.channel_name[0] == '\0' || (!keyed && !key_chosen && !was_used)) {
         return -EINVAL;
     }
     return mesh_meshcore_write_settings(&app->meshcore, &write);

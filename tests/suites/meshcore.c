@@ -830,6 +830,14 @@ MESH_TEST_CASE(meshcore_channel_write_is_one_slot_whole, unit) {
     MESH_TEST_FAIL_IF(!settings->has_channel[0] || settings->channels[0].settings.psk.size != 16U ||
                           settings->channels[0].settings.psk.bytes[0] != 0x8b,
                       "the walk keeps each slot's secret for the editor");
+    /* A new handshake forgets every slot until its walk reads it again. */
+    mesh_protocol_detach(&protocol);
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, wire_send, &wire);
+    MESH_TEST_FAIL_IF(mesh_protocol_begin(&protocol) < 0 || settings->has_channel[0],
+                      "a reconnect's walk starts with no slot to edit");
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "and walks to ready again");
+    g_meshcore.device.max_channels = 8U;
 
     struct mesh_meshcore_settings_write write;
     memset(&write, 0, sizeof write);
