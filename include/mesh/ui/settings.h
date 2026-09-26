@@ -350,6 +350,9 @@ enum mesh_ui_setting_field {
        firmware takes rather than the five and six Meshtastic's modem does. */
     MESH_UI_FIELD_LORA_ANY_BANDWIDTH,
     MESH_UI_FIELD_LORA_ANY_SPREAD,
+    /* Transmit power in dBm, signed and literal: 0 is 0 dBm, not "max". Carried offset by
+       MESH_UI_ANY_TX_POWER_BIAS, because a preset list mixing signs does not step. */
+    MESH_UI_FIELD_LORA_ANY_TX_POWER,
     /*
      * LoRaConfig.ignore_incoming: up to three node numbers whose packets this radio drops as
      * though they were out of range.
@@ -1300,9 +1303,10 @@ bool mesh_ui_settings_decimal_parse(const char *text, uint32_t digits, int64_t l
 
 /* The decimal places each kind of row is held to. Named here rather than written at every
    call, because the format and the parse have to agree and they are in different files. */
-#define MESH_UI_COORD_DIGITS 7U     /* Meshtastic's fixed-point 1e-7 degrees */
-#define MESH_UI_FREQUENCY_DIGITS 4U /* megahertz to 100 Hz, which is finer than any band plan */
-#define MESH_UI_HERTZ_DIGITS 1U     /* a crystal offset, in hertz */
+#define MESH_UI_COORD_DIGITS 7U        /* Meshtastic's fixed-point 1e-7 degrees */
+#define MESH_UI_ANY_TX_POWER_BIAS 128U /* LORA_ANY_TX_POWER's number is dBm plus this */
+#define MESH_UI_FREQUENCY_DIGITS 4U    /* megahertz to 100 Hz, which is finer than any band plan */
+#define MESH_UI_HERTZ_DIGITS 1U        /* a crystal offset, in hertz */
 
 /* Coordinates as decimal degrees, to and from Meshtastic's fixed-point 1e-7 form - the decimal
    pair above at MESH_UI_COORD_DIGITS, shown to five places. An empty string is not a

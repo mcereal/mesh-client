@@ -2677,6 +2677,11 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         inkwell_str_copy(ui_settings.fw_board, sizeof ui_settings.fw_board,
                          app->meshcore.device.model);
     }
+    /* And its frequency from the kHz SELF_INFO carries, not through the record's float, which
+       above a GHz no longer holds a tenth of a kHz and would show a value the save refuses. */
+    if (app->meshcore_bound && app->meshcore.has_self) {
+        ui_settings.override_frequency_scaled = (int64_t)app->meshcore.self.frequency_khz * 10;
+    }
     /* And the name of the radio being administered, for the same reason: it is a roster fact,
        so a node that has just introduced itself renames the banner without the settings having
        moved at all. */

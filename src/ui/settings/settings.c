@@ -1077,6 +1077,12 @@ static void format_tx_power(uint32_t value, bool imperial, char *out, size_t out
     }
 }
 
+static void format_any_tx_power(uint32_t value, bool imperial, char *out, size_t out_len) {
+    (void)imperial;
+    inkcell_str_format(out, out_len, MESH_STR_VALUE_DBM,
+                       (int)((int32_t)value - (int32_t)MESH_UI_ANY_TX_POWER_BIAS));
+}
+
 static const uint32_t k_bandwidth_presets[] = {31U, 62U, 125U, 250U, 500U};
 static const uint32_t k_spread_presets[] = {7U, 8U, 9U, 10U, 11U, 12U};
 /* The whole kHz Meshtastic writes, for every bandwidth the SX126x has: 7 is 7.8, 41 is 41.7.
@@ -1085,6 +1091,15 @@ static const uint32_t k_spread_presets[] = {7U, 8U, 9U, 10U, 11U, 12U};
 static const uint32_t k_any_bandwidth_presets[] = {7U,  10U, 15U,  20U,  31U,
                                                    41U, 62U, 125U, 250U, 500U};
 static const uint32_t k_any_spread_presets[] = {5U, 6U, 7U, 8U, 9U, 10U, 11U, 12U};
+/* -9 dBm, MeshCore's floor, to 30 in single steps; a radio's own maximum is checked on save. */
+#define ANY_DBM(dbm) ((uint32_t)((int32_t)MESH_UI_ANY_TX_POWER_BIAS + (dbm)))
+static const uint32_t k_any_tx_power_presets[] = {
+    ANY_DBM(-9), ANY_DBM(-8), ANY_DBM(-7), ANY_DBM(-6), ANY_DBM(-5), ANY_DBM(-4), ANY_DBM(-3),
+    ANY_DBM(-2), ANY_DBM(-1), ANY_DBM(0),  ANY_DBM(1),  ANY_DBM(2),  ANY_DBM(3),  ANY_DBM(4),
+    ANY_DBM(5),  ANY_DBM(6),  ANY_DBM(7),  ANY_DBM(8),  ANY_DBM(9),  ANY_DBM(10), ANY_DBM(11),
+    ANY_DBM(12), ANY_DBM(13), ANY_DBM(14), ANY_DBM(15), ANY_DBM(16), ANY_DBM(17), ANY_DBM(18),
+    ANY_DBM(19), ANY_DBM(20), ANY_DBM(21), ANY_DBM(22), ANY_DBM(23), ANY_DBM(24), ANY_DBM(25),
+    ANY_DBM(26), ANY_DBM(27), ANY_DBM(28), ANY_DBM(29), ANY_DBM(30)};
 static const uint32_t k_coding_presets[] = {5U, 6U, 7U, 8U};
 static const uint32_t k_hop_presets[] = {1U, 2U, 3U, 4U, 5U, 6U, 7U};
 static const uint32_t k_tx_power_presets[] = {0U, 2U, 5U, 8U, 10U, 14U, 17U, 20U, 22U, 27U, 30U};
@@ -1923,6 +1938,12 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                         NAMED_PRESETS(k_any_spread_presets), 0U, INKCELL_STR_NONE},
                                        INKCELL_STR_NONE,
                                        format_plain},
+    [MESH_UI_FIELD_LORA_ANY_TX_POWER] = {{MESH_STR_SETTINGS_FIELD_LORA_TX_POWER,
+                                          INKSTAND_FORM_NUMBER, MESH_UI_SETTINGS_LORA, 0U, NULL,
+                                          NAMED_PRESETS(k_any_tx_power_presets), 0U,
+                                          INKCELL_STR_NONE},
+                                         INKCELL_STR_NONE,
+                                         format_any_tx_power},
     [MESH_UI_FIELD_LORA_CODING] = {{MESH_STR_SETTINGS_FIELD_LORA_CODING, INKSTAND_FORM_NUMBER,
                                     MESH_UI_SETTINGS_LORA, 0U, NULL,
                                     NAMED_PRESETS(k_coding_presets), 0U,

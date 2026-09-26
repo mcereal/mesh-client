@@ -151,10 +151,12 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `SET_ADVERT_LATLON` over what the radio reported, checked against the firmware's own bounds,
   then `APP_START` as the read-back. The answers settle into the record's `writes_acked` /
   `writes_failed`, which is what the save toast already watched. A row's 31 and 62 kHz go back
-  out as 31.25 and 62.5, the reading Meshtastic's firmware gives them. The bandwidth and spread
-  rows are MeshCore's own (`MESH_UI_FIELD_LORA_ANY_*`), stepping 7.8 kHz to 500 and SF5 to 12;
-  a frequency finer than a kHz is refused, a seventh coordinate decimal is rounded, and a link
-  lost mid-save is reported unanswered rather than as a restart.
+  out as 31.25 and 62.5, the reading Meshtastic's firmware gives them. The bandwidth, spread
+  and power rows are MeshCore's own (`MESH_UI_FIELD_LORA_ANY_*`), stepping 7.8 kHz to 500, SF5
+  to 12 and -9 dBm up in literal dBm (0 is 0, not "max"); the frequency row reads SELF_INFO's
+  kHz rather than the record's float; a frequency finer than a kHz is refused, a seventh
+  coordinate decimal is rounded, and a link lost mid-save is reported unanswered rather than as
+  a restart.
 - **A reboot is never answered.** Over a USB-serial bridge the port outlives the ESP32 behind it,
   so once the answer is overdue the conversation runs its handshake again by itself.
 - **A direct message** is pending until `PUSH_CODE_SEND_CONFIRMED` carries the four bytes the

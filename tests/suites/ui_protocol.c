@@ -463,7 +463,7 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
     size_t n = section_fields(&settings, &handshake, MESH_UI_SETTINGS_LORA, fields, 16U);
     const uint16_t lora[] = {MESH_UI_FIELD_LORA_FREQUENCY, MESH_UI_FIELD_LORA_ANY_BANDWIDTH,
                              MESH_UI_FIELD_LORA_ANY_SPREAD, MESH_UI_FIELD_LORA_CODING,
-                             MESH_UI_FIELD_LORA_TX_POWER};
+                             MESH_UI_FIELD_LORA_ANY_TX_POWER};
     MESH_TEST_FAIL_IF(n != sizeof lora / sizeof lora[0] || memcmp(fields, lora, sizeof lora) != 0,
                       "LoRa is the frequency, the three numbers and the power");
     MESH_TEST_FAIL_IF(mesh_ui_settings_number_step(MESH_UI_FIELD_LORA_ANY_BANDWIDTH, 31U, -1) !=

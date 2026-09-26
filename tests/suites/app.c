@@ -4932,17 +4932,24 @@ MESH_TEST_CASE(app_meshcore_settings_save_speaks_meshcore, unit) {
         goto cleanup;
     }
 
-    /* The power row's 0 is "max": sent as the most the radio can do, never as 0 dBm. */
+    /* Power is literal dBm: 0 is 0 dBm, a negative one goes out signed, and more than the
+       radio's maximum is refused. */
     mesh_protocol_detach(&protocol);
     memset(&wire, 0, sizeof wire);
     mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
     action.edit_count = 1U;
-    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_TX_POWER;
-    action.edits[0].number = 0U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_ANY_TX_POWER;
+    action.edits[0].number = MESH_UI_ANY_TX_POWER_BIAS + 23U;
+    mesh_app_save_settings(&app, &action, 2000U);
+    if (wire.count != 0U) {
+        failure = "more power than the radio has is not sent";
+        goto cleanup;
+    }
+    action.edits[0].number = MESH_UI_ANY_TX_POWER_BIAS - 9U;
     mesh_app_save_settings(&app, &action, 2000U);
     if (wire.count != 1U || wire.frames[0][0] != MESH_MESHCORE_CMD_SET_RADIO_TX_POWER ||
-        wire.frames[0][1] != 22U) {
-        failure = "max power goes out as the radio's maximum";
+        (int8_t)wire.frames[0][1] != -9) {
+        failure = "a negative power goes out signed";
         goto cleanup;
     }
 
@@ -5000,6 +5007,15 @@ MESH_TEST_CASE(app_meshcore_settings_save_speaks_meshcore, unit) {
         goto cleanup;
     }
     mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+
+    /* Above a GHz the record's float no longer holds a tenth of a kHz; the row reads the kHz
+       SELF_INFO carries, so a 2.4 GHz radio's frequency shows as the value it saves back. */
+    app.meshcore.self.frequency_khz = 2400003U;
+    mesh_app_publish_ui_state(&app);
+    if (app.ui_store.settings.override_frequency_scaled != 24000030) {
+        failure = "a GHz frequency is published to the kHz, not through a float";
+        goto cleanup;
+    }
 
 cleanup:
     if (app_ready) {

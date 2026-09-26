@@ -1526,13 +1526,16 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
             write.coding_rate = (uint8_t)edit->number;
             write.set_radio = true;
             break;
-        case MESH_UI_FIELD_LORA_TX_POWER:
-            /* The row's 0 is "max", Meshtastic's sentinel. MeshCore takes dBm and would set
-               0 dBm, so it goes out as the most the radio said it can do. */
-            write.tx_power_dbm =
-                edit->number == 0U ? (int8_t)self->max_tx_power_dbm : (int8_t)(uint8_t)edit->number;
+        case MESH_UI_FIELD_LORA_ANY_TX_POWER: {
+            /* dBm, signed and literal; above what the radio said it can do is refused. */
+            const int32_t dbm = (int32_t)edit->number - (int32_t)MESH_UI_ANY_TX_POWER_BIAS;
+            if (dbm < -9 || dbm > (int32_t)self->max_tx_power_dbm) {
+                return -EINVAL;
+            }
+            write.tx_power_dbm = (int8_t)dbm;
             write.set_tx_power = true;
             break;
+        }
         default:
             break;
         }
