@@ -180,11 +180,6 @@ void mesh_app_bind_protocol(struct mesh_app *app, bool meshcore) {
     inkwell_log_info("app", "Links now speak %s", mesh_protocol_name(&protocol));
 }
 
-bool mesh_app_serial_speaks_meshcore(void) {
-    const char *protocol = inkwell_env_get("PROTOCOL");
-    return protocol != NULL && strcmp(protocol, "meshcore") == 0;
-}
-
 /* Whether the BLE radio at `address` was found under MeshCore's profile. */
 static bool mesh_app_ble_speaks_meshcore(struct mesh_transport *ble, const char *address) {
     return mesh_ble_transport_device_profile(ble, address) == &mesh_ble_profile_meshcore;
@@ -207,7 +202,7 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
             mesh_serial_transport_is_connecting(transport)) {
             mesh_serial_transport_disconnect(transport);
         }
-        mesh_app_bind_protocol(app, mesh_app_serial_speaks_meshcore());
+        mesh_app_probe_begin(app, kind, identifier, inkwell_time_monotonic_ms());
         return mesh_serial_transport_connect(transport, identifier);
     }
 
@@ -219,7 +214,7 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
             mesh_tcp_transport_is_connecting(transport)) {
             mesh_tcp_transport_disconnect(transport);
         }
-        mesh_app_bind_protocol(app, mesh_app_serial_speaks_meshcore());
+        mesh_app_probe_begin(app, kind, identifier, inkwell_time_monotonic_ms());
         const int result = mesh_tcp_transport_connect(transport, identifier);
         /*
          * What the transport *adopted*, not what it was handed, and asked rather than inferred
@@ -756,7 +751,10 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     struct inkwell_serial_port_info ports[MESH_SERIAL_MAX_DEVICES];
     size_t port_count = 0U;
     for (size_t i = 0; i < all_port_count; ++i) {
-        if (mesh_serial_device_is_radio(&all_ports[i])) {
+        /* One that answered neither protocol a moment ago - a radio that talks only over the
+           air - is passed over the same way, so Bluetooth gets its turn. See app_probe.c. */
+        if (mesh_serial_device_is_radio(&all_ports[i]) &&
+            !mesh_app_probe_muted(app, all_ports[i].id, now)) {
             ports[port_count++] = all_ports[i];
         }
     }
@@ -821,7 +819,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
            connect deadline, long after the call returned 0 and this function went home. */
         app->autoconnect_tcp_retry_at_ms = now + MESH_APP_AUTOCONNECT_TCP_RETRY_MS;
         mesh_app_release_other_link(tcp);
-        mesh_app_bind_protocol(app, mesh_app_serial_speaks_meshcore());
+        mesh_app_probe_begin(app, (uint8_t)MESH_UI_DEVICE_TCP, tcp_target, now);
         const int tcp_result = mesh_tcp_transport_connect(tcp, tcp_target);
         if (tcp_result == 0) {
             inkwell_log_info("app", "Auto-connecting to %s over the network", tcp_target);
@@ -1380,6 +1378,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     mesh_app_seed_nodes_from_cache(app);
     mesh_meshcore_init(&app->meshcore, &app->session);
     app->meshcore_bound = false;
+    memset(&app->probe, 0, sizeof app->probe);
     const struct mesh_protocol protocol = mesh_session_protocol(&app->session);
     mesh_transport_registry_set_protocol(&app->transport_registry, &protocol);
 
@@ -1567,6 +1566,7 @@ int mesh_app_run(struct mesh_app *app) {
             /* Before auto-connect, not after: a retry starts the link over and clears the
                reason the last attempt failed. */
             (void)mesh_app_report_link_errors(app);
+            mesh_app_probe_tick(app, inkwell_time_monotonic_ms());
             mesh_app_autoconnect(app);
             mesh_app_publish_ui_state(app);
             result = inkwell_loop_run(&app->loop, mesh_app_turn_ms(app));

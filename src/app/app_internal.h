@@ -259,12 +259,37 @@ void mesh_app_watch_sent(struct mesh_app *app, uint32_t packet_id, const char *p
 /*
  * Which conversation the transports carry. Meshtastic's session unless the radio about to be
  * connected speaks MeshCore: a BLE radio says so by the profile the scan found it under, and a
- * serial or network link by MESHCLIENT_PROTOCOL=meshcore, since a port says nothing about the
- * firmware behind it. Called right before a connect, after any other link has been released;
- * a change detaches the conversation that was bound so nothing it queued goes to the new one.
+ * serial or network link is asked (mesh_app_probe_begin()). Called right before a connect, after
+ * any other link has been released; a change detaches the conversation that was bound so
+ * nothing it queued goes to the new one.
  */
 void mesh_app_bind_protocol(struct mesh_app *app, bool meshcore);
-bool mesh_app_serial_speaks_meshcore(void);
+
+/*
+ * A serial or network link says nothing about the firmware behind it, so it is asked: opened
+ * in the protocol it answered in last (Meshtastic for one never heard), and opened again in the
+ * other when no frame comes back in time. One that answers neither is dropped and muted for a
+ * while, so a radio that talks only over the air - MeshCore's BLE build, which is silent on its
+ * USB port - cannot hold auto-connect on a cable forever.
+ *
+ * MESHCLIENT_PROTOCOL=meshtastic|meshcore skips the question and binds that one.
+ */
+#define MESH_APP_PROBE_MESHTASTIC 0x01U
+#define MESH_APP_PROBE_MESHCORE 0x02U
+/* How long a bound protocol has, from the link being up, to produce its first frame. */
+#define MESH_APP_PROBE_WINDOW_MS 6000U
+/* How long a link that answered neither is passed over by auto-connect. */
+#define MESH_APP_PROBE_MUTE_MS 60000U
+
+/* Binds the protocol to open `identifier` with and starts the question. `kind` is
+   MESH_UI_DEVICE_SERIAL or MESH_UI_DEVICE_TCP. */
+void mesh_app_probe_begin(struct mesh_app *app, uint8_t kind, const char *identifier,
+                          uint64_t now_ms);
+/* Settles the question when a frame has arrived, or moves it on when the window is up. */
+void mesh_app_probe_tick(struct mesh_app *app, uint64_t now_ms);
+/* Whether auto-connect should pass the link remembered as `key` over for now: a USB port's
+   sysfs id, or a host as written. */
+bool mesh_app_probe_muted(const struct mesh_app *app, const char *key, uint64_t now_ms);
 struct mesh_protocol mesh_app_protocol(struct mesh_app *app);
 
 #endif /* MESH_CORE_APP_INTERNAL_H */

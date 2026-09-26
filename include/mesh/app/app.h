@@ -25,6 +25,7 @@
 #include "mesh/ui/store_archive.h"
 #include "mesh/ui/store_trends.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -51,6 +52,30 @@ struct mesh_app_mqtt_plan {
     bool active;
 };
 
+/* A stream link's radio, and which protocol it answered in. `answered` is 0 for one that
+   answered neither, which auto-connect then passes over until `mute_until_ms`. */
+#define MESH_APP_PROBE_PORTS 8U
+#define MESH_APP_PROBE_ID_MAX 64U
+struct mesh_app_probe_port {
+    char identifier[MESH_APP_PROBE_ID_MAX];
+    uint8_t answered;
+    uint64_t mute_until_ms;
+};
+
+/* The question in flight: which link, which protocols it has been asked in, and when the one
+   bound now has had long enough. `identifier` is what was connected, and empty when nothing is
+   being asked. */
+struct mesh_app_probe {
+    char identifier[MESH_APP_PROBE_ID_MAX];
+    /* What the answer is remembered under: a USB port's sysfs id, which outlives its tty. */
+    char key[MESH_APP_PROBE_ID_MAX];
+    uint8_t kind;
+    uint8_t tried;
+    uint64_t deadline_ms;
+    struct mesh_app_probe_port ports[MESH_APP_PROBE_PORTS];
+    size_t next_port;
+};
+
 struct mesh_app {
     struct mesh_app_publish_cache *publish_cache;
     struct mesh_app_config config;
@@ -65,6 +90,9 @@ struct mesh_app {
        mesh_app_bind_protocol(). */
     struct mesh_meshcore meshcore;
     bool meshcore_bound;
+    /* Which of the two a serial or network link's radio speaks, found out by asking - a port
+       says nothing about the firmware behind it. See src/app/app_probe.c. */
+    struct mesh_app_probe probe;
     struct mesh_ui_store ui_store;
     struct mesh_ui_controller ui_controller;
     struct mesh_ui_backend_cli_context ui_cli_context;

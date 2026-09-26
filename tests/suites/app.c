@@ -4599,3 +4599,226 @@ MESH_TEST_CASE(app_settings_timeout_waits_for_a_reboot_notice, unit) {
     MESH_TEST_FAIL_IF(!stale_timeout_failed, "a timeout past the reboot grace stayed pending");
     record_success(test_name);
 }
+
+/*
+ * A USB port says nothing about the firmware behind it, so the app asks: Meshtastic first, then
+ * MeshCore when no frame came back in the window. The fixture is one port whose far end is a
+ * socketpair the test writes the radio's side into; `now` is handed to the probe rather than
+ * waited out, so the window costs the suite nothing.
+ */
+struct app_probe_fixture {
+    struct mesh_app app;
+    bool app_ready;
+    int pair[2];
+    struct inkwell_serial_port_info ports[1];
+    struct inkwell_serial_mock_config serial_mock;
+    struct inkwell_ble_mock_config ble_mock;
+    char home[APP_TEST_HOME_CAP];
+};
+
+static const char *app_probe_open(struct app_probe_fixture *fx, const char *tag) {
+    memset(fx, 0, sizeof *fx);
+    fx->pair[0] = -1;
+    fx->pair[1] = -1;
+    unsetenv("MESHCLIENT_PROTOCOL");
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fx->pair) != 0) {
+        return "socketpair failed";
+    }
+    (void)fcntl(fx->pair[0], F_SETFL, O_NONBLOCK);
+    (void)fcntl(fx->pair[1], F_SETFL, O_NONBLOCK);
+    fx->ble_mock.adapter_name = "/org/bluez/hci0";
+    inkwell_ble_mock_enable(&fx->ble_mock);
+    fx->ports[0] = mesh_test_serial_device();
+    fx->serial_mock.ports = fx->ports;
+    fx->serial_mock.port_count = 1U;
+    fx->serial_mock.bound_path = "/dev/ttyUSB0";
+    fx->serial_mock.open_fd = fx->pair[0];
+    inkwell_serial_mock_enable(&fx->serial_mock);
+    if (!app_test_home(fx->home, sizeof fx->home, tag)) {
+        return "mkdtemp failed";
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    if (mesh_app_init(&fx->app, &config) != 0) {
+        return "app init failed";
+    }
+    fx->app_ready = true;
+    if (mesh_transport_registry_start_all(&fx->app.transport_registry, &fx->app.config,
+                                          &fx->app.loop) < 0) {
+        return "transport start failed";
+    }
+    mesh_serial_transport_refresh_devices(mesh_serial_transport());
+    return NULL;
+}
+
+/* Ticks the link until the port is open and the conversation has started. */
+static bool app_probe_wait_up(struct app_probe_fixture *fx) {
+    for (int i = 0; i < 20; ++i) {
+        mesh_transport_registry_tick(&fx->app.transport_registry);
+        if (mesh_app_connected_identifier() != NULL &&
+            !mesh_serial_transport_is_connecting(mesh_serial_transport())) {
+            return true;
+        }
+        mesh_test_serial_sleep_ms(20);
+    }
+    return false;
+}
+
+static void app_probe_close(struct app_probe_fixture *fx) {
+    if (fx->app_ready) {
+        mesh_app_shutdown(&fx->app);
+    }
+    inkwell_ble_mock_disable();
+    inkwell_serial_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    for (size_t i = 0; i < 2U; ++i) {
+        if (fx->pair[i] >= 0) {
+            close(fx->pair[i]);
+        }
+    }
+}
+
+MESH_TEST_CASE(app_probe_finds_meshcore_on_a_silent_meshtastic_port, unit) {
+    static struct app_probe_fixture fx;
+    const char *failure = app_probe_open(&fx, "probe_meshcore");
+    struct mesh_app *app = &fx.app;
+    char port[MESH_APP_PROBE_ID_MAX] = "";
+    if (failure != NULL) {
+        goto cleanup;
+    }
+
+    mesh_app_autoconnect(app);
+    if (app->meshcore_bound || app->probe.identifier[0] == '\0') {
+        failure = "a port never heard should be asked in Meshtastic first";
+        goto cleanup;
+    }
+    snprintf(port, sizeof port, "%s", app->probe.identifier);
+    if (!app_probe_wait_up(&fx)) {
+        failure = "the port should have opened";
+        goto cleanup;
+    }
+
+    /* Inside the window nothing moves; past it, the same port is reopened in MeshCore. */
+    const uint64_t now = test_now_ms();
+    mesh_app_probe_tick(app, now);
+    if (app->meshcore_bound) {
+        failure = "the window had not run out";
+        goto cleanup;
+    }
+    const uint64_t later = now + MESH_APP_PROBE_WINDOW_MS + 1000U;
+    mesh_app_probe_tick(app, later);
+    if (!app->meshcore_bound || strcmp(app->probe.identifier, port) != 0) {
+        failure = "a silent port should be asked again in MeshCore";
+        goto cleanup;
+    }
+    if (!app_probe_wait_up(&fx)) {
+        failure = "the port should have reopened";
+        goto cleanup;
+    }
+
+    /* Any MeshCore frame settles it: RESP_CODE_OK, framed radio-to-app. */
+    const uint8_t ok[] = {MESH_MESHCORE_FRAME_FROM_RADIO, 0x01U, 0x00U, 0x00U};
+    if (write(fx.pair[1], ok, sizeof ok) != (ssize_t)sizeof ok) {
+        failure = "failed to write the radio's answer";
+        goto cleanup;
+    }
+    (void)mesh_serial_transport_pump(mesh_serial_transport());
+    mesh_app_probe_tick(app, later + 100U);
+    if (app->probe.identifier[0] != '\0') {
+        failure = "a frame should have settled the question";
+        goto cleanup;
+    }
+
+    /* And the next connect to that port opens in MeshCore without being asked again. */
+    (void)mesh_serial_transport_disconnect(mesh_serial_transport());
+    mesh_app_bind_protocol(app, false);
+    mesh_app_probe_begin(app, (uint8_t)MESH_UI_DEVICE_SERIAL, port, later + 200U);
+    if (!app->meshcore_bound) {
+        failure = "a port that answered in MeshCore should be opened in it next time";
+        goto cleanup;
+    }
+
+cleanup:
+    app_probe_close(&fx);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* MeshCore's BLE build is silent on its USB port. It must not hold auto-connect on the cable. */
+MESH_TEST_CASE(app_probe_mutes_a_port_that_answers_neither, unit) {
+    static struct app_probe_fixture fx;
+    const char *failure = app_probe_open(&fx, "probe_mute");
+    struct mesh_app *app = &fx.app;
+    char port[MESH_APP_PROBE_ID_MAX] = "";
+    if (failure != NULL) {
+        goto cleanup;
+    }
+
+    mesh_app_autoconnect(app);
+    snprintf(port, sizeof port, "%s", app->probe.identifier);
+    if (port[0] == '\0' || !app_probe_wait_up(&fx)) {
+        failure = "auto-connect should have opened the port";
+        goto cleanup;
+    }
+    uint64_t now = test_now_ms() + MESH_APP_PROBE_WINDOW_MS + 1000U;
+    mesh_app_probe_tick(app, now);
+    if (!app->meshcore_bound || !app_probe_wait_up(&fx)) {
+        failure = "the port should have been asked in MeshCore";
+        goto cleanup;
+    }
+    now += MESH_APP_PROBE_WINDOW_MS + 1000U;
+    mesh_app_probe_tick(app, now);
+    if (mesh_app_connected_identifier() != NULL ||
+        mesh_serial_transport_is_connecting(mesh_serial_transport())) {
+        failure = "a port that answered neither should be let go";
+        goto cleanup;
+    }
+    if (!mesh_app_probe_muted(app, fx.ports[0].id, now)) {
+        failure = "and passed over for a while";
+        goto cleanup;
+    }
+    if (mesh_app_probe_muted(app, fx.ports[0].id, now + MESH_APP_PROBE_MUTE_MS + 1U)) {
+        failure = "but not for ever: a radio still booting deserves another go";
+        goto cleanup;
+    }
+
+    app->autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(app);
+    if (mesh_serial_transport_is_connecting(mesh_serial_transport())) {
+        failure = "auto-connect should pass a muted port over";
+        goto cleanup;
+    }
+
+cleanup:
+    app_probe_close(&fx);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* MESHCLIENT_PROTOCOL names the protocol outright, and nothing is asked. */
+MESH_TEST_CASE(app_probe_honours_a_forced_protocol, unit) {
+    static struct app_probe_fixture fx;
+    const char *failure = app_probe_open(&fx, "probe_forced");
+    struct mesh_app *app = &fx.app;
+    if (failure != NULL) {
+        goto cleanup;
+    }
+    setenv("MESHCLIENT_PROTOCOL", "meshcore", 1);
+    mesh_app_probe_begin(app, (uint8_t)MESH_UI_DEVICE_SERIAL, "/dev/ttyUSB0", 0U);
+    if (!app->meshcore_bound || app->probe.identifier[0] != '\0') {
+        failure = "a forced protocol is bound without a question";
+        goto cleanup;
+    }
+    setenv("MESHCLIENT_PROTOCOL", "meshtastic", 1);
+    mesh_app_probe_begin(app, (uint8_t)MESH_UI_DEVICE_SERIAL, "/dev/ttyUSB0", 0U);
+    if (app->meshcore_bound || app->probe.identifier[0] != '\0') {
+        failure = "and so is Meshtastic";
+        goto cleanup;
+    }
+
+cleanup:
+    unsetenv("MESHCLIENT_PROTOCOL");
+    app_probe_close(&fx);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

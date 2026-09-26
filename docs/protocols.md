@@ -111,9 +111,15 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   companion radio with it, and `mesh_app_link_connect()` binds MeshCore for a radio so tagged.
 - **Serial and TCP** frame as `'<'` (app to radio) or `'>'` (radio to app), a 16-bit
   *little*-endian length and the frame, at most 176 bytes: `mesh_stream_framing_meshcore`, with
-  no `wake_byte`. Nothing on a port says which firmware is behind it, so a stream link speaks
-  MeshCore only under `MESHCLIENT_PROTOCOL=meshcore`. A firmware build serves BLE *or* USB, never
-  both; on a `_ble` build the USB port carries only debug text.
+  no `wake_byte`. Nothing on a port says which firmware is behind it, so the app asks
+  (`src/app/app_probe.c`): a link opens in whatever it answered in last - Meshtastic for one never
+  heard - and reopens in the other when no frame arrives within `MESH_APP_PROBE_WINDOW_MS`. Each
+  protocol's parser ignores the other's opening, so a wrong guess costs the window and nothing
+  else. A firmware build serves BLE *or* USB, never both, and a `_ble` build says nothing at all
+  on its port - so a link that answers neither is dropped and auto-connect passes it over for
+  `MESH_APP_PROBE_MUTE_MS`, which is what lets Bluetooth have its turn. A USB port is remembered
+  by its sysfs id, not its tty, which it only gets once the driver binds.
+  `MESHCLIENT_PROTOCOL=meshtastic|meshcore` skips the question.
 - **One command at a time.** Each `CMD_*` is answered by one `RESP_CODE_*` (the contact list by a
   start, a record each and an end), and the firmware's BLE queue holds four frames, so the
   conversation queues commands and writes the next only once the last is answered.
