@@ -532,6 +532,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_NODE_ACT_VERIFY_KEY] = "Verificar la clave",
     [MESH_STR_NODE_ACT_VERIFY_AGAIN] = "Verificar de nuevo",
     [MESH_STR_NODE_ACT_ADD_CONTACT] = "Devolver a la radio",
+    [MESH_STR_NODE_ACT_ADD_HEARD] = "Añadir como contacto",
     [MESH_STR_NODE_ACT_ADMIN] = "Ajustar por radio",
     [MESH_STR_VERIFY_HEAD_WAITING] = "Verificando a %s",
     [MESH_STR_VERIFY_BODY_WAITING] =

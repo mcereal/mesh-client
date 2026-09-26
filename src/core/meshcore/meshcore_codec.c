@@ -103,7 +103,7 @@ int mesh_meshcore_decode_contact(const uint8_t *frame, size_t len,
     out->type = frame[i++];
     out->flags = frame[i++];
     out->out_path_len = frame[i++];
-    i += 64U; /* the route itself; the hop count above is all a screen shows */
+    i += MESH_MESHCORE_PATH_MAX; /* the route itself; the hop count above is all a screen shows */
     mesh_meshcore_copy_str(out->name, sizeof out->name, frame + i, MESH_MESHCORE_NAME_LEN);
     i += MESH_MESHCORE_NAME_LEN;
     out->last_advert = mesh_meshcore_u32(frame + i);
@@ -386,6 +386,37 @@ int mesh_meshcore_encode_set_channel(uint8_t index, const char *name,
     memcpy(out + 2, name, name_len);
     memcpy(out + 2 + MESH_MESHCORE_NAME_LEN, secret, MESH_MESHCORE_SECRET_LEN);
     return (int)total;
+}
+
+int mesh_meshcore_encode_contact(const struct mesh_meshcore_contact *contact, uint8_t *out,
+                                 size_t out_len) {
+    const size_t total =
+        1U + MESH_MESHCORE_PUBKEY_LEN + 3U + MESH_MESHCORE_PATH_MAX + MESH_MESHCORE_NAME_LEN + 12U;
+    if (contact == NULL || out == NULL) {
+        return -EINVAL;
+    }
+    if (out_len < total) {
+        return -ENOSPC;
+    }
+    memset(out, 0, total);
+    size_t i = 0U;
+    out[i++] = MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT;
+    memcpy(out + i, contact->public_key, MESH_MESHCORE_PUBKEY_LEN);
+    i += MESH_MESHCORE_PUBKEY_LEN;
+    out[i++] = contact->type;
+    out[i++] = contact->flags;
+    out[i++] = contact->out_path_len;
+    i += MESH_MESHCORE_PATH_MAX; /* no route carried: the radio learns one */
+    const size_t name_len = strnlen(contact->name, MESH_MESHCORE_NAME_LEN);
+    memcpy(out + i, contact->name, name_len);
+    i += MESH_MESHCORE_NAME_LEN;
+    mesh_meshcore_put_u32(out + i, contact->last_advert);
+    i += 4U;
+    mesh_meshcore_put_u32(out + i, (uint32_t)contact->latitude_e6);
+    i += 4U;
+    mesh_meshcore_put_u32(out + i, (uint32_t)contact->longitude_e6);
+    i += 4U;
+    return (int)i;
 }
 
 int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len) {
