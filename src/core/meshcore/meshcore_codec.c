@@ -407,7 +407,7 @@ int mesh_meshcore_encode_contact(const struct mesh_meshcore_contact *contact, ui
     out[i++] = contact->flags;
     out[i++] = contact->out_path_len;
     i += MESH_MESHCORE_PATH_MAX; /* no route carried: the radio learns one */
-    const size_t name_len = strnlen(contact->name, MESH_MESHCORE_NAME_LEN - 1U);
+    const size_t name_len = strnlen(contact->name, MESH_MESHCORE_NAME_LEN);
     memcpy(out + i, contact->name, name_len);
     i += MESH_MESHCORE_NAME_LEN;
     mesh_meshcore_put_u32(out + i, contact->last_advert);

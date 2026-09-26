@@ -996,11 +996,21 @@ MESH_TEST_CASE(meshcore_add_contact_from_a_heard_advert, unit) {
                           frame[33] != MESH_MESHCORE_ADV_REPEATER || frame[35] != 0xffU ||
                           memcmp(frame + 100, "Bob", 4U) != 0 ||
                           (int32_t)frame_u32(frame + 136) != 37774900 ||
+                          frame_u32(frame + 132) != 1700000100U - 60U ||
                           (int32_t)frame_u32(frame + 140) != -122419400,
-                      "by the record its advert gave, with no route");
+                      "by the record its advert gave - the sender's stamp - with no route");
     MESH_TEST_FAIL_IF(model_node(bob)->in_nodedb, "and is not a contact until the radio agrees");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     MESH_TEST_FAIL_IF(!model_node(bob)->in_nodedb, "the OK makes it one");
+    static const char k_long[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
+    const size_t long_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x70, k_long,
+                                          MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000200U);
+    feed(&protocol, advert, long_len);
+    const size_t again = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x70717273U) != 1 ||
+                          memcmp(wire.frames[again] + 100, k_long, 32U) != 0,
+                      "a name the whole 32 bytes long is sent whole");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     record_success(test_name);
 }
 

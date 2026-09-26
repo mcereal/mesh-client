@@ -272,6 +272,7 @@ uint32_t mesh_meshcore_node_id(const uint8_t *key, size_t key_len);
 
 #define MESH_MESHCORE_QUEUE_LEN 16U
 #define MESH_MESHCORE_PENDING_SENDS 8U
+#define MESH_MESHCORE_HEARD_ADVERTS 16U
 /* A command the radio has not answered in this long is given up on, and two in a row is a link
    whose far end has gone. */
 #define MESH_MESHCORE_REPLY_TIMEOUT_MS 10000U
@@ -328,6 +329,11 @@ struct mesh_meshcore {
     uint8_t channel_probe;
     /* The contact list's newest lastmod, so a refresh asks only for what changed. */
     uint32_t contacts_since;
+    /* The newest adverts from nodes the radio did not add, as they arrived: adding one sends
+       the sender's own stamp and name back, which the roster does not keep (its last_heard is
+       the radio's clock, and a stamp ahead of the sender's would refuse its next advert). */
+    struct mesh_meshcore_contact heard[MESH_MESHCORE_HEARD_ADVERTS];
+    size_t heard_next;
     bool battery_valid;
     uint16_t battery_mv;
     /*

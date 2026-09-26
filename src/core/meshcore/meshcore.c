@@ -208,6 +208,30 @@ static void mesh_meshcore_name_node(struct mesh_node_summary *node, const uint8_
     node->role = mesh_meshcore_role(adv_type);
 }
 
+/* Keeps a heard advert whole, over an older one from the same key or the oldest kept. */
+static void mesh_meshcore_keep_advert(struct mesh_meshcore *meshcore,
+                                      const struct mesh_meshcore_contact *contact) {
+    for (size_t i = 0; i < MESH_MESHCORE_HEARD_ADVERTS; ++i) {
+        if (memcmp(meshcore->heard[i].public_key, contact->public_key, MESH_MESHCORE_PUBKEY_LEN) ==
+            0) {
+            meshcore->heard[i] = *contact;
+            return;
+        }
+    }
+    meshcore->heard[meshcore->heard_next] = *contact;
+    meshcore->heard_next = (meshcore->heard_next + 1U) % MESH_MESHCORE_HEARD_ADVERTS;
+}
+
+static const struct mesh_meshcore_contact *
+mesh_meshcore_heard_advert(const struct mesh_meshcore *meshcore, const uint8_t *key) {
+    for (size_t i = 0; i < MESH_MESHCORE_HEARD_ADVERTS; ++i) {
+        if (memcmp(meshcore->heard[i].public_key, key, MESH_MESHCORE_PUBKEY_LEN) == 0) {
+            return &meshcore->heard[i];
+        }
+    }
+    return NULL;
+}
+
 static void mesh_meshcore_store_contact(struct mesh_meshcore *meshcore,
                                         const struct mesh_meshcore_contact *contact, bool synced) {
     const uint32_t id = mesh_meshcore_node_id(contact->public_key, MESH_MESHCORE_PUBKEY_LEN);
@@ -641,6 +665,7 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
            the radio does not carry. */
         struct mesh_meshcore_contact contact;
         if (mesh_meshcore_decode_contact(frame, len, &contact) == 0) {
+            mesh_meshcore_keep_advert(meshcore, &contact);
             mesh_meshcore_store_contact(meshcore, &contact, false);
             const uint32_t id = mesh_meshcore_node_id(contact.public_key, MESH_MESHCORE_PUBKEY_LEN);
             struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, id, false);
@@ -1307,18 +1332,26 @@ int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id) 
         return -EEXIST;
     }
     struct mesh_meshcore_contact contact;
-    memset(&contact, 0, sizeof contact);
-    memcpy(contact.public_key, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
-    contact.type = mesh_meshcore_adv_type(node->role);
+    const struct mesh_meshcore_contact *heard =
+        mesh_meshcore_heard_advert(meshcore, node->public_key);
+    if (heard != NULL) {
+        contact = *heard;
+    } else {
+        /* An advert from before this run: what the roster kept, and no stamp - a zero lets the
+           sender's next advert through, where a guess ahead of its clock would not. */
+        memset(&contact, 0, sizeof contact);
+        memcpy(contact.public_key, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
+        contact.type = mesh_meshcore_adv_type(node->role);
+        if (node->has_user) {
+            inkwell_str_copy(contact.name, sizeof contact.name, node->long_name);
+        }
+        if (node->position.valid) {
+            contact.latitude_e6 = node->position.latitude_i / 10;
+            contact.longitude_e6 = node->position.longitude_i / 10;
+        }
+    }
+    contact.flags = 0U;
     contact.out_path_len = MESH_MESHCORE_PATH_NONE;
-    if (node->has_user) {
-        inkwell_str_copy(contact.name, sizeof contact.name, node->long_name);
-    }
-    contact.last_advert = node->last_heard;
-    if (node->position.valid) {
-        contact.latitude_e6 = node->position.latitude_i / 10;
-        contact.longitude_e6 = node->position.longitude_i / 10;
-    }
     uint8_t frame[MESH_MESHCORE_MAX_FRAME];
     const int result = mesh_meshcore_enqueue(
         meshcore, frame, mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U);
