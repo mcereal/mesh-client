@@ -172,8 +172,10 @@ void fb_render_waypoints(struct inkcell_draw_state *state, const struct mesh_ui_
     const uint32_t places = count > 0U ? count - 1U : 0U;
 
     char title[96];
+    /* The book evicts the oldest place to make room for a newer one, and what it evicted is
+       not on the list - which is what a heading's number is for. */
     mesh_ui_chrome_list_title(title, sizeof title, inkcell_str(MESH_STR_TAB_WAYPOINTS), places,
-                              places, 0U);
+                              places, view.waypoints.dropped);
     fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     /*
