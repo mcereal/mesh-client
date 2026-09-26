@@ -78,6 +78,53 @@ MESH_TEST_CASE(trend_rungs_are_fixed_rather_than_fitted, unit) {
 }
 
 /*
+ * The gridlines land on values their labels can say, from the floor up.
+ *
+ * Every contracted airtime ceiling is a gridline, so the top label is still the rung the picture
+ * contracted to; a permille axis worded in whole percent is never ruled between two of them; and
+ * the node readings' own domains come out on the steps a person would rule them at.
+ */
+MESH_TEST_CASE(trend_ticks_rule_round_values_the_labels_can_say, unit) {
+    int32_t ticks[INKCELL_TREND_TICKS_MAX];
+
+    static const int32_t k_ceilings[] = {10, 20, 50, 100, 250, 500, 1000};
+    for (size_t i = 0U; i < sizeof k_ceilings / sizeof k_ceilings[0]; ++i) {
+        const uint32_t n = inkcell_trend_ticks((struct inkcell_scale){0, k_ceilings[i]}, 10, ticks,
+                                               INKCELL_TREND_TICKS_MAX);
+        MESH_TEST_FAIL_IF(n < 2U, "a contracted ceiling should be ruled at both ends");
+        MESH_TEST_FAIL_IF(ticks[0] != 0, "the baseline should be the first gridline");
+        MESH_TEST_FAIL_IF(ticks[n - 1U] != k_ceilings[i],
+                          "a contracted ceiling should be a gridline");
+        for (uint32_t j = 0U; j < n; ++j) {
+            MESH_TEST_FAIL_IF(ticks[j] % 10 != 0, "a permille gridline should be a whole percent");
+        }
+    }
+
+    /* The identity domain is permille said out loud: 0 to 100% in fifths. */
+    uint32_t n =
+        inkcell_trend_ticks((struct inkcell_scale){0, 0}, 10, ticks, INKCELL_TREND_TICKS_MAX);
+    MESH_TEST_FAIL_IF(n != 6U || ticks[5] != 1000, "the identity domain should rule every 20%");
+
+    n = inkcell_trend_ticks(
+        (struct inkcell_scale){INKCELL_TEMPERATURE_FLOOR, INKCELL_TEMPERATURE_CEILING}, 10, ticks,
+        INKCELL_TREND_TICKS_MAX);
+    MESH_TEST_FAIL_IF(n != 7U || ticks[1] - ticks[0] != 200,
+                      "a temperature should be ruled every twenty degrees");
+
+    n = inkcell_trend_ticks((struct inkcell_scale){INKCELL_RSSI_FLOOR, INKCELL_RSSI_CEILING}, 1,
+                            ticks, INKCELL_TREND_TICKS_MAX);
+    MESH_TEST_FAIL_IF(n != 6U || ticks[0] != INKCELL_RSSI_FLOOR || ticks[5] != INKCELL_RSSI_CEILING,
+                      "RSSI should be ruled floor to ceiling every 20 dBm");
+
+    /* A descending domain has no upward to rule, and asks for nothing past the buffer. */
+    n = inkcell_trend_ticks((struct inkcell_scale){100, 0}, 1, ticks, INKCELL_TREND_TICKS_MAX);
+    MESH_TEST_FAIL_IF(n != 1U, "a descending domain should be ruled only at its floor");
+    n = inkcell_trend_ticks((struct inkcell_scale){0, 1000}, 1, ticks, 3U);
+    MESH_TEST_FAIL_IF(n != 3U, "the count should never pass the room the caller gave");
+    record_success(test_name);
+}
+
+/*
  * The three cases where contracting would be a guess, and the domain comes back untouched.
  *
  * A descending domain reads backwards and its "ceiling" is the smaller number, so a rung picked
