@@ -4,8 +4,10 @@ Meshtastic exposes the same protobuf device API over BLE, Serial, TCP and HTTP. 
 speaks `ToRadio`/`FromRadio` once, in `struct mesh_session`, and snaps transports underneath it.
 
 A transport implements `struct mesh_transport_ops {start, stop, status, tick}` plus the optional
-`set_session` and `take_error`, and registers with `src/transport/transport_registry.c`. **The
-session never sees GATT, ttys or framing; a link never decodes a protobuf.**
+`set_protocol` and `take_error`, and registers with `src/transport/transport_registry.c`. **The
+session never sees GATT, ttys or framing; a link never decodes a protobuf.** A link talks to the
+session only through `struct mesh_protocol` (`mesh/core/protocol.h`) - see
+[`protocols.md`](protocols.md) for that seam and what a second protocol would plug into it.
 
 | Transport | State |
 |---|---|
@@ -24,9 +26,9 @@ owns is the three things that do:
 
 | | |
 |---|---|
-| the frame parser | `0x94 0xC3` is Meshtastic's and nobody else's |
-| the session | frames go to `mesh_session_handle_from_radio()`; a packet dropped unsent comes back as `mesh_session_packet_failed()` |
-| the queue's two numbers | eight slots of one Meshtastic frame each — this client's budget, passed to inkwell as storage rather than declared by it |
+| the frame parser | through the protocol's `struct mesh_stream_framing`; `0x94 0xC3` is Meshtastic's and is spelled only in `src/proto/stream_framing.c` |
+| the protocol | frames go to `mesh_protocol_receive()`; a packet dropped unsent comes back as `mesh_protocol_frame_failed()` |
+| the queue's two numbers | eight slots of one whole frame each — this client's budget, passed to inkwell as storage rather than declared by it |
 
 The seam reads as a pair: going out, `mesh_stream_link_send()` frames the packet and hands
 inkwell the bytes; going in, inkwell hands back whatever arrived and this pushes it at the

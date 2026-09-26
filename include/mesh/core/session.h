@@ -3,6 +3,7 @@
 #include "mesh/core/channel_share.h"
 #include "mesh/core/key_verification.h"
 #include "mesh/core/message.h"
+#include "mesh/core/protocol.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/store_forward.h"
 #include "mesh/core/waypoint.h"
@@ -522,9 +523,9 @@ struct mesh_handshake_status {
 
 /* Hands one ToRadio protobuf (raw, unframed) to the link. `packet_id` is the message log entry
    to mark FAILED if the packet never reaches the radio (0 when none); the link reports that
-   through mesh_session_packet_failed(). Returns 0 or a negative errno. */
-typedef int (*mesh_session_send_fn)(void *ctx, const uint8_t *packet, size_t len,
-                                    uint32_t packet_id);
+   through mesh_session_packet_failed(). Returns 0 or a negative errno. This is the protocol
+   interface's send path under the session's name - a link installs the one function either way. */
+typedef mesh_protocol_send_fn mesh_session_send_fn;
 
 /*
  * One MQTT message the radio wants published on its behalf.
@@ -606,6 +607,14 @@ struct mesh_session {
 
 /* Clears everything, message log included, and seeds the want_config nonce. */
 void mesh_session_init(struct mesh_session *session);
+
+/*
+ * This session as a link sees it: mesh/core/protocol.h's eight calls, answered by the functions
+ * below - attach, detach, begin_handshake, handle_from_radio, packet_failed, tick, link_silent
+ * and send_heartbeat - over Meshtastic's stream framing. The session is borrowed, so it must
+ * outlive every link it is handed to. A NULL session gives an unbound protocol.
+ */
+struct mesh_protocol mesh_session_protocol(struct mesh_session *session);
 
 /* Link up: install the send path. The handshake starts with mesh_session_begin_handshake(). */
 void mesh_session_attach(struct mesh_session *session, mesh_session_send_fn send, void *ctx);

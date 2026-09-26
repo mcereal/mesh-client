@@ -1344,7 +1344,8 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
        replaces the store's copy wholesale, so anything left only in the store would be lost.
        After mesh_session_init, which clears the session it is seeding. */
     mesh_app_seed_nodes_from_cache(app);
-    mesh_transport_registry_set_session(&app->transport_registry, &app->session);
+    const struct mesh_protocol protocol = mesh_session_protocol(&app->session);
+    mesh_transport_registry_set_protocol(&app->transport_registry, &protocol);
 
     return 0;
 }
@@ -1357,7 +1358,7 @@ void mesh_app_shutdown(struct mesh_app *app) {
     mesh_transport_registry_stop_all(&app->transport_registry);
     /* The transports are process-wide singletons but the session lives in `app`; leaving them
        pointed at it would dangle for anything that uses a transport after this. */
-    mesh_transport_registry_set_session(&app->transport_registry, NULL);
+    mesh_transport_registry_set_protocol(&app->transport_registry, NULL);
     free(app->publish_cache);
     app->publish_cache = NULL;
     inkcell_input_shutdown(&app->ui_input);

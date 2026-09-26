@@ -7,7 +7,8 @@
 
 /*
  * This file is what is left of the stream link after the descriptor went to inkwell: the frame
- * parser, the session, and the two callbacks that join them to a byte stream.
+ * parser, the protocol, and the two callbacks that join them to a byte stream. Which framing
+ * the parser speaks is the protocol's, so nothing below names one.
  *
  * The seam is worth reading as a pair. Going out, this frames a packet and hands inkwell the
  * bytes; going in, inkwell hands back whatever arrived and this pushes it at the parser. Neither
@@ -17,7 +18,7 @@
 static void mesh_stream_link_on_frame(const uint8_t *payload, size_t len, void *ctx) {
     struct mesh_stream_link *link = (struct mesh_stream_link *)ctx;
     link->frames_received += 1U;
-    mesh_session_handle_from_radio(link->session, payload, len);
+    mesh_protocol_receive(&link->protocol, payload, len);
 }
 
 /* Whatever sits between frames is the radio's own log. Surface it at debug, one line at a time,
@@ -53,29 +54,32 @@ static void mesh_stream_link_on_text(const uint8_t *text, size_t len, void *ctx)
    text. Registered once at init, because inkwell keeps the sink across an open/close cycle. */
 static void mesh_stream_link_on_bytes(void *userdata, const uint8_t *bytes, size_t len) {
     struct mesh_stream_link *link = (struct mesh_stream_link *)userdata;
+    if (link->framing == NULL) {
+        return;
+    }
     const struct mesh_stream_parser_callbacks callbacks = {
         .on_frame = mesh_stream_link_on_frame,
         .on_text = mesh_stream_link_on_text,
         .ctx = link,
     };
-    mesh_stream_parser_push(&link->parser, bytes, len, &callbacks);
+    link->framing->push(&link->parser, bytes, len, &callbacks);
 }
 
 /* A packet that was queued and never went out. The id is the message log's, handed to inkwell
    with the bytes and handed back here unchanged - inkwell never learns what it names. */
 static void mesh_stream_link_on_dropped(void *userdata, uint32_t packet_id) {
     struct mesh_stream_link *link = (struct mesh_stream_link *)userdata;
-    mesh_session_packet_failed(link->session, packet_id);
+    mesh_protocol_frame_failed(&link->protocol, packet_id);
 }
 
 void mesh_stream_link_init(struct mesh_stream_link *link, const char *tag,
-                           struct mesh_session *session) {
+                           const struct mesh_protocol *protocol) {
     if (link == NULL) {
         return;
     }
     memset(link, 0, sizeof *link);
     link->tag = tag != NULL ? tag : "link";
-    link->session = session;
+    mesh_stream_link_set_protocol(link, protocol);
     (void)inkwell_stream_init(&link->stream, link->tag, link->slots, MESH_STREAM_LINK_MAX_OUTBOUND,
                               link->slot_bytes, MESH_STREAM_LINK_SLOT_BYTES);
     inkwell_stream_set_sink(&link->stream, mesh_stream_link_on_bytes, mesh_stream_link_on_dropped,
@@ -83,10 +87,21 @@ void mesh_stream_link_init(struct mesh_stream_link *link, const char *tag,
     mesh_stream_parser_reset(&link->parser);
 }
 
-void mesh_stream_link_set_session(struct mesh_stream_link *link, struct mesh_session *session) {
-    if (link != NULL) {
-        link->session = session;
+void mesh_stream_link_set_protocol(struct mesh_stream_link *link,
+                                   const struct mesh_protocol *protocol) {
+    if (link == NULL) {
+        return;
     }
+    link->protocol = protocol != NULL ? *protocol : (struct mesh_protocol){NULL, NULL};
+    const struct mesh_stream_framing *framing = mesh_protocol_stream_framing(&link->protocol);
+    if (framing != NULL && (framing->push == NULL || framing->encode == NULL ||
+                            framing->max_frame > MESH_STREAM_PARSER_CAPACITY)) {
+        inkwell_log_warn(link->tag, "%s framing does not fit this link; frames are dropped",
+                         framing->name != NULL ? framing->name : "unnamed");
+        framing = NULL;
+    }
+    link->framing = framing;
+    mesh_stream_parser_reset(&link->parser);
 }
 
 bool mesh_stream_link_is_open(const struct mesh_stream_link *link) {
@@ -105,13 +120,16 @@ int mesh_stream_link_send(struct mesh_stream_link *link, const uint8_t *packet, 
     if (link == NULL) {
         return -EINVAL;
     }
+    if (link->framing == NULL) {
+        return -ENOTCONN;
+    }
     /*
-     * Framed here and not down there. The 0x94 0xC3 header is Meshtastic's, and a byte stream
-     * that knew about it would be a byte stream with one protocol's opinion in it.
+     * Framed here and not down there. A header is one protocol's, and a byte stream that knew
+     * about it would be a byte stream with one protocol's opinion in it.
      */
     uint8_t framed[MESH_STREAM_LINK_SLOT_BYTES];
     size_t written = 0U;
-    const int encoded = mesh_stream_frame_encode(packet, len, framed, sizeof framed, &written);
+    const int encoded = link->framing->encode(packet, len, framed, sizeof framed, &written);
     if (encoded < 0) {
         return encoded;
     }

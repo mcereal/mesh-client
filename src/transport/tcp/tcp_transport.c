@@ -78,9 +78,10 @@ struct mesh_tcp_transport_state {
     char configured[MESH_TCP_TARGET_MAX];
     uint64_t next_heartbeat_ms;
 
-    /* Owned only when nothing was injected; `session` is what the code uses. */
+    /* `protocol` is what the code uses; `own_session` is the Meshtastic session it falls back
+       to when nothing was handed in (tests, --list-devices), and is unused otherwise. */
     struct mesh_session own_session;
-    struct mesh_session *session;
+    struct mesh_protocol protocol;
     /*
      * Why the last connect attempt failed, waiting to be shown once - as a reason and a number
      * rather than as a sentence, because the sentence is this client's to write and not the
@@ -311,8 +312,8 @@ static void mesh_tcp_on_connected(void *userdata, const struct inkwell_tcp_conne
     }
 
     state->link_state = MESH_TCP_LINK_CONNECTED;
-    mesh_session_attach(state->session, mesh_tcp_session_send, state);
-    const int handshake = mesh_session_begin_handshake(state->session);
+    mesh_protocol_attach(&state->protocol, mesh_tcp_session_send, state);
+    const int handshake = mesh_protocol_begin(&state->protocol);
     if (handshake < 0) {
         inkwell_log_warn("tcp", "Failed to request config sync: %d", handshake);
         mesh_tcp_fail_own(state, MESH_STR_LINK_TCP_NO_ANSWER, state->target);
@@ -360,7 +361,7 @@ static void mesh_tcp_reset_link(struct mesh_tcp_transport_state *state, const ch
 
     state->link_state = MESH_TCP_LINK_DISCONNECTED;
     state->next_heartbeat_ms = 0U;
-    mesh_session_detach(state->session);
+    mesh_protocol_detach(&state->protocol);
     inkwell_tcp_connector_cancel(&state->connector);
     mesh_stream_link_close(&state->link);
     state->target[0] = '\0';
@@ -479,15 +480,16 @@ static void mesh_tcp_tick(struct mesh_transport *transport) {
 
     if (state->next_heartbeat_ms != 0U && now >= state->next_heartbeat_ms) {
         state->next_heartbeat_ms = now + MESH_TCP_HEARTBEAT_INTERVAL_MS;
-        const int beat = mesh_session_send_heartbeat(state->session);
+        /* -ENOTSUP from a protocol with no keepalive is not a failure: nothing was sent. */
+        const int beat = mesh_protocol_keepalive(&state->protocol);
         if (beat == -EIO) {
             mesh_tcp_reset_link(state, "write failed");
             return;
         }
     }
 
-    mesh_session_tick(state->session, now);
-    if (mesh_session_link_silent(state->session)) {
+    mesh_protocol_tick(&state->protocol, now);
+    if (mesh_protocol_silent(&state->protocol)) {
         mesh_tcp_reset_link(state, "radio stopped answering");
     }
 }
@@ -499,22 +501,22 @@ static int mesh_tcp_start(struct mesh_transport *transport, const struct mesh_ap
     }
 
     struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
-    /* The injected session outlives a restart; everything else is cleared. */
-    struct mesh_session *injected = state->session != &state->own_session ? state->session : NULL;
+    /* The injected protocol outlives a restart; everything else is cleared. */
+    const struct mesh_protocol injected = state->protocol;
+    const bool keep = mesh_protocol_bound(&injected) && injected.self != &state->own_session;
     memset(state, 0, sizeof *state);
-    state->session = injected;
     state->loop = loop;
     state->link_state = MESH_TCP_LINK_DISCONNECTED;
     (void)inkwell_tcp_connector_init(&state->connector, loop);
-    /* The app hands every link the same session; standalone (tests, --list-devices) each link
-       falls back to its own and initialises it here. */
-    if (state->session == NULL) {
-        state->session = &state->own_session;
+    /* The app hands every link the same protocol; standalone (tests, --list-devices) each link
+       falls back to a Meshtastic session of its own and initialises it here. */
+    if (keep) {
+        state->protocol = injected;
+    } else {
+        mesh_session_init(&state->own_session);
+        state->protocol = mesh_session_protocol(&state->own_session);
     }
-    if (state->session == &state->own_session) {
-        mesh_session_init(state->session);
-    }
-    mesh_stream_link_init(&state->link, "tcp", state->session);
+    mesh_stream_link_init(&state->link, "tcp", &state->protocol);
 
     if (!config->enable_tcp) {
         inkwell_log_info("tcp", "Network transport disabled by configuration");
@@ -563,13 +565,14 @@ static const char *mesh_tcp_status(const struct mesh_transport *transport) {
     return mesh_tcp_state_to_string(state->state);
 }
 
-static void mesh_tcp_set_session(struct mesh_transport *transport, struct mesh_session *session) {
+static void mesh_tcp_set_protocol(struct mesh_transport *transport,
+                                  const struct mesh_protocol *protocol) {
     if (transport == NULL || transport->state == NULL) {
         return;
     }
     struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
-    state->session = session;
-    mesh_stream_link_set_session(&state->link, session);
+    state->protocol = protocol != NULL ? *protocol : (struct mesh_protocol){NULL, NULL};
+    mesh_stream_link_set_protocol(&state->link, &state->protocol);
 }
 
 static bool mesh_tcp_take_error(struct mesh_transport *transport, char *out, size_t out_len) {
@@ -600,7 +603,7 @@ static const struct mesh_transport_ops k_tcp_ops = {
     .stop = mesh_tcp_stop,
     .status = mesh_tcp_status,
     .tick = mesh_tcp_tick,
-    .set_session = mesh_tcp_set_session,
+    .set_protocol = mesh_tcp_set_protocol,
     .take_error = mesh_tcp_take_error,
 };
 
@@ -670,7 +673,8 @@ struct mesh_session *mesh_tcp_transport_session(struct mesh_transport *transport
     if (transport == NULL || transport->state == NULL) {
         return NULL;
     }
-    return ((struct mesh_tcp_transport_state *)transport->state)->session;
+    struct mesh_tcp_transport_state *state = (struct mesh_tcp_transport_state *)transport->state;
+    return state->protocol.self == &state->own_session ? &state->own_session : NULL;
 }
 
 struct mesh_handshake_status mesh_tcp_transport_handshake_status(struct mesh_transport *transport) {

@@ -52,6 +52,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/mqtt_app.c
     suites/mqtt_session.c
     suites/mqtt_topic.c
+    suites/protocol.c
     suites/radio_settings.c
     suites/session.c
     suites/store_forward.c

@@ -220,8 +220,9 @@ publish and read back when that node's detail screen is opened. Both logs stand 
 | Area | Where |
 |---|---|
 | Event loop | inkwell's `src/runtime/loop.c` (`inkwell/runtime/loop.h`) - epoll (kqueue on a Mac), 32 fd sources, **no threads** |
-| Transports | `src/transport/` - registry, BLE (Meshtastic's GATT contract over inkwell's `inkwell/ble/central.h`, which is BlueZ on Linux), serial, TCP; `stream_link.c` is the half serial and TCP share, and is now the frame parser and the session over inkwell's `inkwell/net/stream.h`. A link records `struct inkwell_net_failure` and `take_error()` is where it becomes words - see [`docs/transport.md`](docs/transport.md#how-a-failure-reaches-the-user) |
+| Transports | `src/transport/` - registry, BLE (Meshtastic's GATT contract over inkwell's `inkwell/ble/central.h`, which is BlueZ on Linux), serial, TCP; `stream_link.c` is the half serial and TCP share, and is now the frame parser and the protocol over inkwell's `inkwell/net/stream.h`. A link records `struct inkwell_net_failure` and `take_error()` is where it becomes words - see [`docs/transport.md`](docs/transport.md#how-a-failure-reaches-the-user) |
 | Session | `src/core/session/session.c` - handshake, node roster, channels, message log, packet ids |
+| Protocol seam | `include/mesh/core/protocol.h` (`src/core/protocol/protocol.c`) - the eight calls a link makes; `mesh_session_protocol()` is Meshtastic's table. A link reaches its conversation only through the table; the Meshtastic session a transport embeds is its standalone fallback - see [`docs/protocols.md`](docs/protocols.md) |
 | Admin protocol | `src/core/session/radio_settings.c` - `AdminMessage` get/set queue, passkeys, NodeDB verbs |
 | Messaging | `src/core/session/message.c`, `store_forward.c`, `waypoint.c` |
 | Key trust | `src/core/session/key_verification.c` - the out-of-band ceremony behind the padlock; `add_contact` lives in `radio_settings.c` |
@@ -259,6 +260,7 @@ its include path - see the flat-header rule above.
 | `src/ui/views/` | per-screen view models - what a screen says, not how it is drawn |
 | `src/ui/backends/` | the renderers. **`fb` is the device UI**; `MESHCLIENT_UI_BACKEND=sdl` presents the same frames in a window on a dev host, and every file here is shared by both |
 | `src/core/session/` | the Meshtastic conversation: session, messaging, admin, trust, sharing |
+| `src/core/protocol/` | the interface a link talks to, whichever protocol is behind it |
 | `src/core/firmware/` | the *radio's* firmware - a different binary on a different computer |
 | `src/core/net/` | one broker connection. The hostname, the socket, the TLS session and the HTTPS request are inkwell's |
 | `src/core/update/` | the *client* updating itself |
@@ -390,6 +392,7 @@ stable release; hand edits are overwritten. See
 | [`docs/non-bugs.md`](docs/non-bugs.md) | things that look like bugs and are not, and the tests that hold them |
 | [`docs/architecture.md`](docs/architecture.md) | core design and the reasoning behind it |
 | [`docs/transport.md`](docs/transport.md) | BLE, serial, TCP, and the Brick USB workaround |
+| [`docs/protocols.md`](docs/protocols.md) | the link-to-protocol seam, and what is still Meshtastic's above it |
 | [`docs/ui.md`](docs/ui.md) | store/nav/backends, fb rendering, fonts and emoji |
 | [`docs/i18n.md`](docs/i18n.md) | the string catalog, adding a string, adding a language |
 | [`docs/mqtt.md`](docs/mqtt.md) | the MQTT client proxy and its TLS |

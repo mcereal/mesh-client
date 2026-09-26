@@ -98,15 +98,15 @@ void mesh_transport_registry_tick(struct mesh_transport_registry *registry) {
     }
 }
 
-void mesh_transport_registry_set_session(struct mesh_transport_registry *registry,
-                                         struct mesh_session *session) {
+void mesh_transport_registry_set_protocol(struct mesh_transport_registry *registry,
+                                          const struct mesh_protocol *protocol) {
     if (registry == NULL) {
         return;
     }
     for (size_t i = 0; i < registry->count; ++i) {
         struct mesh_transport *transport = registry->transports[i];
-        if (transport != NULL && transport->ops != NULL && transport->ops->set_session != NULL) {
-            transport->ops->set_session(transport, session);
+        if (transport != NULL && transport->ops != NULL && transport->ops->set_protocol != NULL) {
+            transport->ops->set_protocol(transport, protocol);
         }
     }
 }
