@@ -92,6 +92,7 @@ static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
         }
         inkwell_log_warn("meshcore", "Command %u not sent: %d", (unsigned)request->frame[0],
                          result);
+        meshcore->send_error = result;
         mesh_meshcore_mark(meshcore, request->packet_id, MESH_MESSAGE_ACK_FAILED);
         const uint8_t cmd = request->frame[0];
         mesh_meshcore_pop(meshcore);
@@ -1267,8 +1268,21 @@ int mesh_meshcore_reboot(struct mesh_meshcore *meshcore) {
     if (meshcore == NULL) {
         return -EINVAL;
     }
+    /* One is enough: a second would restart the radio again ahead of the handshake the first
+       one's silence starts. */
+    if (mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_REBOOT)) {
+        return 0;
+    }
     uint8_t frame[8];
+    meshcore->send_error = 0;
     const int result = mesh_meshcore_enqueue(meshcore, frame,
                                              mesh_meshcore_encode_reboot(frame, sizeof frame), 0U);
-    return result < 0 ? result : 1;
+    if (result < 0) {
+        return result;
+    }
+    /* Written at once and refused by the link: nothing is on its way, so say so. */
+    if (!mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_REBOOT)) {
+        return meshcore->send_error < 0 ? meshcore->send_error : -EIO;
+    }
+    return 1;
 }

@@ -334,6 +334,8 @@ struct mesh_meshcore {
        one is answered. */
     uint8_t writes_outstanding;
     int32_t write_error;
+    /* The link's answer to the last frame it refused outright, for a caller that must say so. */
+    int send_error;
 };
 
 /*

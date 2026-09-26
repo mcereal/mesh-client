@@ -857,6 +857,7 @@ MESH_TEST_CASE(meshcore_reboot_syncs_again, unit) {
     write.tx_power_dbm = 10;
     MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EBUSY,
                       "no save is queued behind it");
+    MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != 0, "nor a second reboot");
     MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_REBOOT ||
                           wire.lens[wire.count - 1U] != 7U ||
                           memcmp(wire.frames[wire.count - 1U] + 1, "reboot", 6U) != 0,
@@ -865,5 +866,14 @@ MESH_TEST_CASE(meshcore_reboot_syncs_again, unit) {
     MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_DEVICE_QUERY,
                       "the silence that follows starts the handshake over");
     MESH_TEST_FAIL_IF(mesh_protocol_silent(&protocol), "and is not counted against the link");
+
+    /* A reboot the link refuses outright was never asked for. */
+    feed(&protocol, k_device_info, sizeof k_device_info);
+    wire.refuse = true;
+    while (g_meshcore.queue_count > 0U) {
+        feed_code(&protocol, MESH_MESHCORE_RESP_ERR);
+    }
+    MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != -EAGAIN,
+                      "a reboot the link refuses is the call's answer");
     record_success(test_name);
 }
