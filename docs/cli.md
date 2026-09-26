@@ -153,7 +153,7 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_DISABLE_BLE`, `_SERIAL`, `_TCP` | turn a transport off |
 | `MESHCLIENT_PREFERRED_BLE_DEVICE`, `_SERIAL_DEVICE` | preferred node / port |
 | `MESHCLIENT_TCP_HOST` | the node to reach over the network. Not named `PREFERRED_`: the other two pick one of several things the client found, and this one *is* the link |
-| `MESHCLIENT_PROTOCOL` | `meshcore` makes serial and network links speak MeshCore's companion protocol instead of Meshtastic. A port says nothing about the firmware behind it; a BLE radio needs no knob, since the profile it advertises says which it is |
+| `MESHCLIENT_PROTOCOL` | `meshtastic` or `meshcore` fixes the protocol serial and network links speak. Unset, a link is asked in each in turn and remembered in the one it answered; a BLE radio needs neither, since the profile it advertises says which it is |
 | `MESHCLIENT_AUTOCONNECT` | `0` stops the foreground loop connecting on its own |
 | `MESHCLIENT_MQTT_PROXY` | `0` stops the client holding a broker connection for a radio that asks for one. The whole arrangement is otherwise the *radio's* decision — see [`mqtt.md`](mqtt.md) — so this is the only say the Brick has in it |
 | `MESHCLIENT_BLE_RELEASE_WAIT_MS` | how long a BLE connect waits for the kernel to release the previous link, 0–60000, default 5000; a link still held after that is stranded, and the controller is reset |

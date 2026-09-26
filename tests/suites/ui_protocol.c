@@ -15,9 +15,12 @@
 
 #include "inkcell/ui/input.h"
 #include "mesh/core/meshcore.h"
+#include "mesh/core/message.h"
 #include "mesh/core/protocol.h"
 #include "mesh/core/session.h"
+#include "mesh/i18n/strings.h"
 #include "mesh/ui/commands.h"
+#include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/protocols.h"
 #include "mesh/ui/settings.h"
@@ -332,6 +335,69 @@ MESH_TEST_CASE(ui_protocol_pin_shortcut_follows_the_protocol, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (action.type == MESH_UI_ACTION_TOGGLE_FAVORITE) {
         failure = "and X sends no favourite toggle for one";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* The counter under the draft is the cap the typing is held to, and it is the link's: a
+   MeshCore channel message is shorter than a direct one, and both are shorter than Meshtastic's
+   payload. Settings carry it into the nav, which is all the compose screen reads. */
+MESH_TEST_CASE(ui_protocol_draft_cap_follows_the_link, unit) {
+    static struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    store.nav.target_node = MESH_MESSAGE_BROADCAST_ADDR;
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) != MESH_UI_DRAFT_MAX - 1U,
+                      "Meshtastic's draft holds the whole payload");
+
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.protocol = (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
+    settings.direct_text_max = 160U;
+    settings.channel_text_max = 150U;
+    mesh_ui_store_set_settings(&store, &settings);
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) != 150U,
+                      "a channel message is held to the channel's limit");
+    store.nav.target_node = 0x40414243U;
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) != 160U, "a direct one to the node's");
+    store.nav.keyboard_channel_url = true;
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) != MESH_UI_DRAFT_MAX - 1U,
+                      "a link being typed is not a message");
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/* The Waypoints row stays - every row under it is counted from it - but on a protocol with no
+   waypoints a press says so rather than opening a list whose only row makes a Meshtastic one. */
+MESH_TEST_CASE(ui_protocol_waypoints_row_follows_the_protocol, unit) {
+    const char *failure = NULL;
+    static struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_WAYPOINTS_ROW;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    store.settings.protocol_lacks = MESH_UI_FEATURE_WAYPOINTS;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (store.nav.waypoints_open) {
+        failure = "a protocol without waypoints does not open the list";
+        goto cleanup;
+    }
+    if (strcmp(store.nav.toast.text, inkcell_str(MESH_STR_TOAST_NO_WAYPOINTS)) != 0) {
+        failure = "and the press says why";
+        goto cleanup;
+    }
+
+    store.settings.protocol_lacks = 0U;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.waypoints_open) {
+        failure = "Meshtastic opens it";
         goto cleanup;
     }
 

@@ -25,6 +25,7 @@
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/nodes.h"
+#include "mesh/ui/settings.h"
 #include "mesh/ui/trust.h"
 #include "mesh/ui/units.h"
 
@@ -833,12 +834,15 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
             continue;
         }
         if (i == MESH_UI_NODES_WAYPOINTS_ROW) {
-            /* Never dim, unlike the map row above it: the list always ends in the row that
-               makes a place, so there is always something to press it for. */
+            /* Dim only on a protocol with no waypoints: otherwise the list always ends in the
+               row that makes a place, so there is always something to press it for. */
             const struct inkcell_fb_list_item places_row = {
                 .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_POSITION},
                 .label = inkcell_str(MESH_STR_TAB_WAYPOINTS),
                 .label_cols = control_label_cols,
+                .tone = mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_WAYPOINTS)
+                            ? INKCELL_TONE_NORMAL
+                            : INKCELL_TONE_DIM,
                 .trailing = {.kind = INKCELL_FB_TRAILING_ICON, .icon = INKCELL_ICON_CHEVRON},
                 .value = places_line,
             };

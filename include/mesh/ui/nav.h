@@ -213,6 +213,11 @@ struct mesh_ui_nav {
     uint32_t cursor[MESH_UI_SCREEN_COUNT];
     uint32_t target_node;
     uint8_t target_channel;
+    /* The most bytes a message may carry on the link, to a node and on a channel; 0 is the
+       Meshtastic payload the draft is sized for. The store's copy of mesh_ui_settings's, so
+       mesh_ui_nav_draft_cap() can answer from the nav alone. */
+    uint16_t direct_text_max;
+    uint16_t channel_text_max;
     /* Messages tab: a thread is open (cursor[MESSAGES] indexes its messages) rather than the
        conversation list, whose position is parked in conversation_list_cursor meanwhile. */
     bool thread_open;

@@ -20,6 +20,7 @@
 
 #include "nav_internal.h"
 
+#include "mesh/core/message.h"
 #include "mesh/ui/channel_share.h"
 #include "mesh/ui/contact_share.h"
 #include "mesh/ui/route.h"
@@ -160,6 +161,15 @@ size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
            port on it. A longer one is refused by mesh_tcp_target_split() after the typing, so
            it is refused during the typing instead. */
         return MESH_UI_NETWORK_HOST_MAX - 1U;
+    }
+    /* A message: whatever the link's protocol carries to where compose sends. */
+    if (!nav->keyboard_channel_url && !nav->keyboard_contact_url) {
+        const uint16_t link_max = nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
+                                      ? nav->channel_text_max
+                                      : nav->direct_text_max;
+        if (link_max != 0U && link_max < MESH_UI_DRAFT_MAX - 1U) {
+            return link_max;
+        }
     }
     /* A channel link has no cap of its own: what can be typed is the draft, and a link longer
        than that is one nobody was going to type. It is checked when the key is pressed rather

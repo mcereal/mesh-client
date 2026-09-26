@@ -914,6 +914,16 @@ static uint32_t mesh_meshcore_timestamp(struct mesh_meshcore *meshcore) {
     return now;
 }
 
+size_t mesh_meshcore_text_max(const struct mesh_meshcore *meshcore, uint32_t dest) {
+    if (dest != MESH_MESSAGE_BROADCAST_ADDR) {
+        return MESH_MESHCORE_TEXT_MAX;
+    }
+    const size_t name = (meshcore != NULL && meshcore->has_self) ? strlen(meshcore->self.name)
+                                                                 : MESH_MESHCORE_NAME_LEN;
+    const size_t prefix = name + 2U; /* ": " */
+    return prefix < MESH_MESHCORE_TEXT_MAX ? MESH_MESHCORE_TEXT_MAX - prefix : 0U;
+}
+
 int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8_t channel,
                             const char *text, uint32_t *out_packet_id) {
     if (meshcore == NULL || text == NULL || text[0] == '\0') {
@@ -922,7 +932,7 @@ int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8
     if (meshcore->send == NULL) {
         return -ENOTCONN;
     }
-    if (strlen(text) > MESH_MESHCORE_TEXT_MAX) {
+    if (strlen(text) > mesh_meshcore_text_max(meshcore, dest)) {
         return -EMSGSIZE;
     }
     /* A direct message's timestamp is part of what the recipient's ack is computed over, so

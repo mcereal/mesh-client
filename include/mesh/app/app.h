@@ -25,6 +25,7 @@
 #include "mesh/ui/store_archive.h"
 #include "mesh/ui/store_trends.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -51,6 +52,30 @@ struct mesh_app_mqtt_plan {
     bool active;
 };
 
+/* A stream link's radio, and which protocol it answered in. `answered` is 0 for one that
+   answered neither, which auto-connect then passes over until `mute_until_ms`. */
+#define MESH_APP_PROBE_PORTS 8U
+#define MESH_APP_PROBE_ID_MAX 64U
+struct mesh_app_probe_port {
+    char identifier[MESH_APP_PROBE_ID_MAX];
+    uint8_t answered;
+    uint64_t mute_until_ms;
+};
+
+/* The question in flight: which link, which protocols it has been asked in, and when the one
+   bound now has had long enough. `identifier` is what was connected, and empty when nothing is
+   being asked. */
+struct mesh_app_probe {
+    char identifier[MESH_APP_PROBE_ID_MAX];
+    /* What the answer is remembered under: a USB port's sysfs id, which outlives its tty. */
+    char key[MESH_APP_PROBE_ID_MAX];
+    uint8_t kind;
+    uint8_t tried;
+    uint64_t deadline_ms;
+    struct mesh_app_probe_port ports[MESH_APP_PROBE_PORTS];
+    size_t next_port;
+};
+
 struct mesh_app {
     struct mesh_app_publish_cache *publish_cache;
     struct mesh_app_config config;
@@ -65,6 +90,9 @@ struct mesh_app {
        mesh_app_bind_protocol(). */
     struct mesh_meshcore meshcore;
     bool meshcore_bound;
+    /* Which of the two a serial or network link's radio speaks, found out by asking - a port
+       says nothing about the firmware behind it. See src/app/app_probe.c. */
+    struct mesh_app_probe probe;
     struct mesh_ui_store ui_store;
     struct mesh_ui_controller ui_controller;
     struct mesh_ui_backend_cli_context ui_cli_context;
@@ -325,6 +353,16 @@ int mesh_app_run(struct mesh_app *app);
 /* Copies the transports' discovery, handshake, message and settings state into the UI store.
    mesh_app_run() calls it every loop turn; exposed for tests. */
 void mesh_app_publish_ui_state(struct mesh_app *app);
+
+/*
+ * Binds the conversation the radio behind `identifier` speaks, ahead of connecting to it: by
+ * the profile the scan found it under over BLE, and by asking over serial and TCP - the probe
+ * mesh_app_probe_tick() then settles. `kind` is an enum mesh_ui_device_kind. For a caller that
+ * drives its own connect, like the one-shot CLI; the UI's connects already do this.
+ */
+void mesh_app_bind_link(struct mesh_app *app, uint8_t kind, const char *identifier);
+/* Settles or moves on the question mesh_app_bind_link() asked. Once a loop turn. */
+void mesh_app_probe_tick(struct mesh_app *app, uint64_t now_ms);
 
 /* One step of the foreground connect policy. With no pointer and, outside the MinUI backend,
    no way to pick a row, the device has to connect on its own: the preferred node when it is in
