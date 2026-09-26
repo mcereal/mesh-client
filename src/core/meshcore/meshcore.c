@@ -765,6 +765,17 @@ static void mesh_meshcore_apply_write(struct mesh_meshcore *meshcore, const uint
     mesh_meshcore_store_settings(meshcore);
 }
 
+/* Seconds since the epoch: ours when it is credible, else the radio's as read at the handshake
+   and advanced since, else 0. */
+static uint32_t mesh_meshcore_clock_now(const struct mesh_meshcore *meshcore) {
+    uint32_t now = inkwell_time_wall_credible_s();
+    if (now == 0U && meshcore->radio_clock != 0U) {
+        const uint64_t elapsed = inkwell_time_monotonic_ms() - meshcore->radio_clock_at_ms;
+        now = meshcore->radio_clock + (uint32_t)(elapsed / 1000U);
+    }
+    return now;
+}
+
 /* The roster's entry for `node_id`, or NULL; a lookup, never an add. */
 static const struct mesh_node_summary *
 mesh_meshcore_roster_node(const struct mesh_meshcore *meshcore, uint32_t node_id) {
@@ -914,7 +925,7 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
                    rather than sinking to the bottom of a full roster. */
                 contact.last_advert = 0U;
                 contact.lastmod = mesh_meshcore_roster_node(meshcore, id) == NULL
-                                      ? inkwell_time_wall_credible_s()
+                                      ? mesh_meshcore_clock_now(meshcore)
                                       : 0U;
                 mesh_meshcore_store_contact(meshcore, &contact, false);
                 inkwell_log_info("meshcore", "Added contact 0x%08x", id);
@@ -1190,11 +1201,7 @@ bool mesh_meshcore_ready(const struct mesh_meshcore *meshcore) {
  * of the same text in the same second would be dropped by the mesh as a duplicate.
  */
 static uint32_t mesh_meshcore_timestamp(struct mesh_meshcore *meshcore) {
-    uint32_t now = inkwell_time_wall_credible_s();
-    if (now == 0U && meshcore->radio_clock != 0U) {
-        const uint64_t elapsed = inkwell_time_monotonic_ms() - meshcore->radio_clock_at_ms;
-        now = meshcore->radio_clock + (uint32_t)(elapsed / 1000U);
-    }
+    uint32_t now = mesh_meshcore_clock_now(meshcore);
     if (now == 0U) {
         return 0U;
     }

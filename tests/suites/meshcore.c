@@ -1010,12 +1010,14 @@ MESH_TEST_CASE(meshcore_add_contact_from_a_heard_advert, unit) {
     MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x80818283U) != 1, "Carol is added");
     MESH_TEST_FAIL_IF(mesh_session_model_drop_node(g_meshcore.model, 0x80818283U) != 0,
                       "and dropped from the roster while the add waits");
+    /* A Brick with no network time has the radio's clock, read at the handshake. */
+    g_meshcore.radio_clock = 1700000500U;
+    g_meshcore.radio_clock_at_ms = inkwell_time_monotonic_ms();
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     MESH_TEST_FAIL_IF(model_node(0x80818283U) == NULL || !model_node(0x80818283U)->in_nodedb ||
                           strcmp(model_node(0x80818283U)->long_name, "Carol") != 0,
                       "the OK puts her back, a contact, by the name sent");
-    MESH_TEST_FAIL_IF(inkwell_time_wall_credible_s() != 0U &&
-                          model_node(0x80818283U)->last_heard == 0U,
+    MESH_TEST_FAIL_IF(model_node(0x80818283U)->last_heard == 0U,
                       "and heard as of the OK, not never");
     static const char k_long[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
     const size_t long_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x70, k_long,
