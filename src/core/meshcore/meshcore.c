@@ -208,6 +208,37 @@ static void mesh_meshcore_name_node(struct mesh_node_summary *node, const uint8_
     node->role = mesh_meshcore_role(adv_type);
 }
 
+/* Keeps a heard advert whole, over an older one from the same key or else the one kept longest
+   ago - a node heard again is the newest, not left where it was first kept. */
+static void mesh_meshcore_keep_advert(struct mesh_meshcore *meshcore,
+                                      const struct mesh_meshcore_contact *contact) {
+    size_t slot = 0U;
+    for (size_t i = 0; i < MESH_MESHCORE_HEARD_ADVERTS; ++i) {
+        if (meshcore->heard_age[i] != 0U &&
+            memcmp(meshcore->heard[i].public_key, contact->public_key, MESH_MESHCORE_PUBKEY_LEN) ==
+                0) {
+            slot = i;
+            break;
+        }
+        if (meshcore->heard_age[i] < meshcore->heard_age[slot]) {
+            slot = i;
+        }
+    }
+    meshcore->heard[slot] = *contact;
+    meshcore->heard_age[slot] = ++meshcore->heard_clock;
+}
+
+static const struct mesh_meshcore_contact *
+mesh_meshcore_heard_advert(const struct mesh_meshcore *meshcore, const uint8_t *key) {
+    for (size_t i = 0; i < MESH_MESHCORE_HEARD_ADVERTS; ++i) {
+        if (meshcore->heard_age[i] != 0U &&
+            memcmp(meshcore->heard[i].public_key, key, MESH_MESHCORE_PUBKEY_LEN) == 0) {
+            return &meshcore->heard[i];
+        }
+    }
+    return NULL;
+}
+
 static void mesh_meshcore_store_contact(struct mesh_meshcore *meshcore,
                                         const struct mesh_meshcore_contact *contact, bool synced) {
     const uint32_t id = mesh_meshcore_node_id(contact->public_key, MESH_MESHCORE_PUBKEY_LEN);
@@ -641,6 +672,7 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
            the radio does not carry. */
         struct mesh_meshcore_contact contact;
         if (mesh_meshcore_decode_contact(frame, len, &contact) == 0) {
+            mesh_meshcore_keep_advert(meshcore, &contact);
             mesh_meshcore_store_contact(meshcore, &contact, false);
             const uint32_t id = mesh_meshcore_node_id(contact.public_key, MESH_MESHCORE_PUBKEY_LEN);
             struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, id, false);
@@ -731,6 +763,29 @@ static void mesh_meshcore_apply_write(struct mesh_meshcore *meshcore, const uint
     /* And onto what the screens read, so the save shows even if the read-back never lands. */
     mesh_meshcore_store_self(meshcore);
     mesh_meshcore_store_settings(meshcore);
+}
+
+/* Seconds since the epoch: ours when it is credible, else the radio's as read at the handshake
+   and advanced since, else 0. */
+static uint32_t mesh_meshcore_clock_now(const struct mesh_meshcore *meshcore) {
+    uint32_t now = inkwell_time_wall_credible_s();
+    if (now == 0U && meshcore->radio_clock != 0U) {
+        const uint64_t elapsed = inkwell_time_monotonic_ms() - meshcore->radio_clock_at_ms;
+        now = meshcore->radio_clock + (uint32_t)(elapsed / 1000U);
+    }
+    return now;
+}
+
+/* The roster's entry for `node_id`, or NULL; a lookup, never an add. */
+static const struct mesh_node_summary *
+mesh_meshcore_roster_node(const struct mesh_meshcore *meshcore, uint32_t node_id) {
+    const struct mesh_handshake_status *status = &meshcore->model->handshake;
+    for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (status->nodes[i].node_id == node_id) {
+            return &status->nodes[i];
+        }
+    }
+    return NULL;
 }
 
 /* The answer to the command at the head of the queue. */
@@ -851,6 +906,30 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
                 mesh_meshcore_apply_write(meshcore, request->frame, request->len);
             }
             mesh_meshcore_settle_write(meshcore, 0);
+        } else if (cmd == MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT && request != NULL &&
+                   (size_t)request->len + 4U <= MESH_MESHCORE_MAX_FRAME) {
+            /* Only now is it on the radio's list, and so a node a direct message can reach. The
+               record sent is stored as the radio now holds it, which also brings the node back
+               if an advert pushed it off the roster while the add was waiting. */
+            uint8_t record[MESH_MESHCORE_MAX_FRAME];
+            memset(record, 0, sizeof record);
+            memcpy(record, request->frame, request->len);
+            record[0] = MESH_MESHCORE_RESP_CONTACT;
+            struct mesh_meshcore_contact contact;
+            if (mesh_meshcore_decode_contact(record, (size_t)request->len + 4U, &contact) == 0) {
+                const uint32_t id =
+                    mesh_meshcore_node_id(contact.public_key, MESH_MESHCORE_PUBKEY_LEN);
+                /* The sender's stamp is its own clock, not when we heard it. A node still on
+                   the roster keeps its heard time; one brought back is heard as of now, the
+                   radio's lastmod for it too, so it keeps its place among the recently heard
+                   rather than sinking to the bottom of a full roster. */
+                contact.last_advert = 0U;
+                contact.lastmod = mesh_meshcore_roster_node(meshcore, id) == NULL
+                                      ? mesh_meshcore_clock_now(meshcore)
+                                      : 0U;
+                mesh_meshcore_store_contact(meshcore, &contact, false);
+                inkwell_log_info("meshcore", "Added contact 0x%08x", id);
+            }
         } else if (cmd == MESH_MESHCORE_CMD_REMOVE_CONTACT && request != NULL &&
                    request->len == 1U + MESH_MESHCORE_PUBKEY_LEN) {
             /* Only now: a refused or unanswered removal leaves the contact on the radio, and
@@ -979,6 +1058,9 @@ static int mesh_meshcore_begin(void *self) {
     /* A fresh connection asks for every contact: the model may hold nodes from another radio's
        list, and "since" is only meaningful against the list it came from. */
     meshcore->contacts_since = 0U;
+    /* And the adverts kept for adding are this connection's: one from before may be older than
+       what the sender now stamps, and would hold its next advert back as a replay. */
+    memset(meshcore->heard_age, 0, sizeof meshcore->heard_age);
     /* And no channel slot is editable until this walk has read it again: the table outlives
        the link, and a slot left over from the last one - a walk refused before reaching it -
        would be written back over whatever the radio holds now. */
@@ -1118,24 +1200,8 @@ bool mesh_meshcore_ready(const struct mesh_meshcore *meshcore) {
  * there is a clock at all, because the timestamp is part of the encrypted payload and a repeat
  * of the same text in the same second would be dropped by the mesh as a duplicate.
  */
-/* The roster's entry for `node_id`, or NULL; a lookup, never an add. */
-static const struct mesh_node_summary *
-mesh_meshcore_roster_node(const struct mesh_meshcore *meshcore, uint32_t node_id) {
-    const struct mesh_handshake_status *status = &meshcore->model->handshake;
-    for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
-        if (status->nodes[i].node_id == node_id) {
-            return &status->nodes[i];
-        }
-    }
-    return NULL;
-}
-
 static uint32_t mesh_meshcore_timestamp(struct mesh_meshcore *meshcore) {
-    uint32_t now = inkwell_time_wall_credible_s();
-    if (now == 0U && meshcore->radio_clock != 0U) {
-        const uint64_t elapsed = inkwell_time_monotonic_ms() - meshcore->radio_clock_at_ms;
-        now = meshcore->radio_clock + (uint32_t)(elapsed / 1000U);
-    }
+    uint32_t now = mesh_meshcore_clock_now(meshcore);
     if (now == 0U) {
         return 0U;
     }
@@ -1263,6 +1329,62 @@ int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_i
                               mesh_meshcore_encode_key(MESH_MESHCORE_CMD_REMOVE_CONTACT,
                                                        node->public_key, frame, sizeof frame),
                               0U);
+    return result < 0 ? result : 1;
+}
+
+/* The advert type a roster role came from: mesh_meshcore_role() the other way. */
+static uint8_t mesh_meshcore_adv_type(uint32_t role) {
+    switch (role) {
+    case MESH_MESHCORE_DEVICE_ROLE_REPEATER:
+        return MESH_MESHCORE_ADV_REPEATER;
+    case MESH_MESHCORE_DEVICE_ROLE_SENSOR:
+        return MESH_MESHCORE_ADV_SENSOR;
+    case MESH_MESHCORE_DEVICE_ROLE_CLIENT_BASE:
+        return MESH_MESHCORE_ADV_ROOM;
+    default:
+        return MESH_MESHCORE_ADV_CHAT;
+    }
+}
+
+int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id) {
+    if (meshcore == NULL || node_id == 0U || node_id == meshcore->self_node) {
+        return -EINVAL;
+    }
+    /* The roster is the last radio's until the handshake is through, as for a removal. */
+    if (!mesh_meshcore_ready(meshcore)) {
+        return -ENOTCONN;
+    }
+    const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, node_id);
+    if (node == NULL || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN) {
+        return -ENOENT;
+    }
+    if (node->in_nodedb) {
+        return -EEXIST;
+    }
+    struct mesh_meshcore_contact contact;
+    const struct mesh_meshcore_contact *heard =
+        mesh_meshcore_heard_advert(meshcore, node->public_key);
+    if (heard != NULL) {
+        contact = *heard;
+    } else {
+        /* An advert from before this run: what the roster kept, and no stamp - a zero lets the
+           sender's next advert through, where a guess ahead of its clock would not. */
+        memset(&contact, 0, sizeof contact);
+        memcpy(contact.public_key, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
+        contact.type = mesh_meshcore_adv_type(node->role);
+        if (node->has_user) {
+            inkwell_str_copy(contact.name, sizeof contact.name, node->long_name);
+        }
+        if (node->position.valid) {
+            contact.latitude_e6 = node->position.latitude_i / 10;
+            contact.longitude_e6 = node->position.longitude_i / 10;
+        }
+    }
+    contact.flags = 0U;
+    contact.out_path_len = MESH_MESHCORE_PATH_NONE;
+    uint8_t frame[MESH_MESHCORE_MAX_FRAME];
+    const int result = mesh_meshcore_enqueue(
+        meshcore, frame, mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U);
     return result < 0 ? result : 1;
 }
 

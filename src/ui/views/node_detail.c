@@ -1418,8 +1418,11 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
          */
         const enum mesh_ui_key_trust key_trust = mesh_ui_key_trust_of(node);
         if (key_trust != MESH_UI_KEY_TRUST_NONE) {
-            if (!node->in_nodedb && node_actions_offer(lacks, MESH_UI_FEATURE_CONTACT_LINKS)) {
-                rows_action(&rows, MESH_STR_NODE_ACT_ADD_CONTACT,
+            /* Where the flags are missing the radio's list is contacts, and a node off it was
+               heard rather than dropped - so the row says what it does there: add it. */
+            if (!node->in_nodedb && node_actions_offer(lacks, MESH_UI_FEATURE_NODE_ADD)) {
+                rows_action(&rows,
+                            flags ? MESH_STR_NODE_ACT_ADD_CONTACT : MESH_STR_NODE_ACT_ADD_HEARD,
                             inkcell_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_ADD_CONTACT);
             }
             /* Already verified is not a reason to hide the row. A key that changed is exactly

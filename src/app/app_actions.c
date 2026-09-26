@@ -1426,7 +1426,8 @@ static void on_add_contact(struct mesh_app *app, const struct mesh_ui_action *ac
 
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
-    const int result = mesh_session_add_contact(&app->session, action->dest);
+    const int result = app->meshcore_bound ? mesh_meshcore_add_contact(&app->meshcore, action->dest)
+                                           : mesh_session_add_contact(&app->session, action->dest);
     if (result > 0) {
         /* "Sent", not "added": the radio's database may be full, and what settles whether
            the entry landed is this node's next NodeInfo rather than the ack for this

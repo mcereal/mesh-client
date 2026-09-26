@@ -1023,6 +1023,7 @@ MESH_STR_ENTRY(NODE_ACT_VERIFY_AGAIN,     "Verify it again")
    node: the whole point is that the radio's does not. Kept under MESH_UI_NODE_LABEL_MAX, which
    is 20 bytes and cuts silently - "Put back on the radio" arrived as "Put back on the rad". */
 MESH_STR_ENTRY(NODE_ACT_ADD_CONTACT,      "Put back on radio")
+MESH_STR_ENTRY(NODE_ACT_ADD_HEARD,        "Add as contact")
 /*
  * Open the Settings tab against *this* node's radio instead of our own, over the mesh.
  *

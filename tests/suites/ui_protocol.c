@@ -174,6 +174,8 @@ MESH_TEST_CASE(ui_protocol_node_sheet_offers_what_the_protocol_has, unit) {
                                        MESH_UI_NODE_ACTIONS_MAX);
     MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE),
                       "a heard node the radio never added is no contact to remove");
+    MESH_TEST_FAIL_IF(!has_verb(items, count, MESH_UI_NODE_ACTION_ADD_CONTACT),
+                      "but one it can add");
     node.in_nodedb = true;
     count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
                                        MESH_UI_NODE_ACTIONS_MAX);
@@ -181,6 +183,8 @@ MESH_TEST_CASE(ui_protocol_node_sheet_offers_what_the_protocol_has, unit) {
                           has_verb(items, count, MESH_UI_NODE_ACTION_FAVORITE) ||
                           has_verb(items, count, MESH_UI_NODE_ACTION_MUTE),
                       "MeshCore offers remove without the flags beside it");
+    MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_ADD_CONTACT),
+                      "and a contact is not offered as one to add");
     node.public_key_len = 6U;
     count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
                                        MESH_UI_NODE_ACTIONS_MAX);

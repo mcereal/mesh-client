@@ -366,10 +366,12 @@ enum mesh_ui_feature {
     MESH_UI_FEATURE_RADIO_MAINTENANCE = 1U << 12,
     /* Taking a node off the radio's list. */
     MESH_UI_FEATURE_NODE_REMOVE = 1U << 13,
+    /* Putting a node the radio does not carry onto its list, from the key we hold. */
+    MESH_UI_FEATURE_NODE_ADD = 1U << 14,
 };
 
 /* Every bit above: what a protocol with none of Meshtastic's verbs lacks. */
-#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_REMOVE << 1) - 1U))
+#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_ADD << 1) - 1U))
 
 /*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so the

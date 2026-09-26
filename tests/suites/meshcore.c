@@ -973,6 +973,103 @@ MESH_TEST_CASE(meshcore_remove_contact_takes_it_off_both_lists, unit) {
     record_success(test_name);
 }
 
+/* A node heard in manual-add mode is listed but not a contact; adding it sends the record the
+   advert gave - key, kind, name, stamp, position, no route - and it joins the list on OK. */
+MESH_TEST_CASE(meshcore_add_contact_from_a_heard_advert, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    uint8_t advert[160];
+    const size_t advert_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x60, "Bob",
+                                            MESH_MESHCORE_ADV_REPEATER, 0xffU, 1700000100U);
+    feed(&protocol, advert, advert_len);
+    const uint32_t bob = 0x60616263U;
+    MESH_TEST_FAIL_IF(model_node(bob) == NULL || model_node(bob)->in_nodedb,
+                      "a heard node is listed, and not a contact");
+    MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x40414243U) != -EEXIST,
+                      "a contact is not added twice");
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, bob) != 1, "a heard node is added");
+    const uint8_t *frame = wire.frames[before];
+    MESH_TEST_FAIL_IF(wire.count != before + 1U || wire.lens[before] != 144U ||
+                          frame[0] != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT || frame[1] != 0x60 ||
+                          frame[33] != MESH_MESHCORE_ADV_REPEATER || frame[35] != 0xffU ||
+                          memcmp(frame + 100, "Bob", 4U) != 0 ||
+                          (int32_t)frame_u32(frame + 136) != 37774900 ||
+                          frame_u32(frame + 132) != 1700000100U - 60U ||
+                          (int32_t)frame_u32(frame + 140) != -122419400,
+                      "by the record its advert gave - the sender's stamp - with no route");
+    MESH_TEST_FAIL_IF(model_node(bob)->in_nodedb, "and is not a contact until the radio agrees");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(!model_node(bob)->in_nodedb, "the OK makes it one");
+
+    /* A node pushed off the roster while its add waits comes back on the OK, from the record. */
+    size_t carol_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x80, "Carol",
+                                     MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000150U);
+    feed(&protocol, advert, carol_len);
+    MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x80818283U) != 1, "Carol is added");
+    MESH_TEST_FAIL_IF(mesh_session_model_drop_node(g_meshcore.model, 0x80818283U) != 0,
+                      "and dropped from the roster while the add waits");
+    /* A Brick with no network time has the radio's clock, read at the handshake. */
+    g_meshcore.radio_clock = 1700000500U;
+    g_meshcore.radio_clock_at_ms = inkwell_time_monotonic_ms();
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(model_node(0x80818283U) == NULL || !model_node(0x80818283U)->in_nodedb ||
+                          strcmp(model_node(0x80818283U)->long_name, "Carol") != 0,
+                      "the OK puts her back, a contact, by the name sent");
+    MESH_TEST_FAIL_IF(model_node(0x80818283U)->last_heard == 0U,
+                      "and heard as of the OK, not never");
+    static const char k_long[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
+    const size_t long_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x70, k_long,
+                                          MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000200U);
+    feed(&protocol, advert, long_len);
+    const size_t again = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x70717273U) != 1 ||
+                          memcmp(wire.frames[again] + 100, k_long, 32U) != 0,
+                      "a name the whole 32 bytes long is sent whole");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    record_success(test_name);
+}
+
+/* The adverts kept for adding are the newest: a node heard again is kept over one heard once. */
+MESH_TEST_CASE(meshcore_heard_adverts_keep_the_newest, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    uint8_t advert[160];
+    for (uint8_t n = 0U; n < MESH_MESHCORE_HEARD_ADVERTS; ++n) {
+        const size_t len =
+            build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, (uint8_t)(0x90U + n), "Node",
+                          MESH_MESHCORE_ADV_CHAT, 0xffU, 1700001000U + n);
+        feed(&protocol, advert, len);
+    }
+    /* The first is heard again, and then a node not heard before takes the oldest slot. */
+    size_t len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x90U, "Node",
+                               MESH_MESHCORE_ADV_CHAT, 0xffU, 1700002000U);
+    feed(&protocol, advert, len);
+    len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xB0U, "Node",
+                        MESH_MESHCORE_ADV_CHAT, 0xffU, 1700003000U);
+    feed(&protocol, advert, len);
+    size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x90919293U) != 1 ||
+                          frame_u32(wire.frames[before] + 132) != 1700002000U - 60U,
+                      "the node heard again keeps its advert");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x91929394U) != 1 ||
+                          frame_u32(wire.frames[before] + 132) != 0U,
+                      "and the one heard longest ago is the one let go");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+
+    /* A new connection keeps none of them: an advert from before it may be older than what the
+       sender now stamps, so a node heard then is added with no stamp. */
+    MESH_TEST_FAIL_IF(mesh_protocol_begin(&protocol) != 0, "the link begins again");
+    for (size_t i = 0; i < MESH_MESHCORE_HEARD_ADVERTS; ++i) {
+        MESH_TEST_FAIL_IF(g_meshcore.heard_age[i] != 0U, "and no advert is kept from before");
+    }
+    record_success(test_name);
+}
+
 /* An advert is SEND_SELF_ADVERT with 1 to flood it and 0 for the nodes in earshot. */
 MESH_TEST_CASE(meshcore_advert_is_flooded_or_not, unit) {
     struct mesh_protocol protocol;
