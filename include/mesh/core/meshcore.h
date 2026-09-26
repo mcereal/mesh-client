@@ -382,10 +382,11 @@ int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8
 /* Announces this radio: flooded across the mesh, or to the nodes in earshot only. */
 int mesh_meshcore_send_advert(struct mesh_meshcore *meshcore, bool flood);
 /*
- * Takes a contact off the radio's list, and out of the roster at once: nothing reads it back.
- * It returns on its own once the node next adverts, if the radio adds contacts by itself.
- * 1 when asked; -EINVAL for 0 or this radio, -ENOTCONN without a link, -ENOENT for a node the
- * roster does not hold a key for, -ENOBUFS when the command queue is full.
+ * Asks the radio to take a contact off its list; the roster drops it once the radio says OK,
+ * and keeps it if the radio refuses or never answers. It returns on its own once the node next
+ * adverts, if the radio adds contacts by itself. 1 when asked; -EINVAL for 0 or this radio,
+ * -ENOTCONN without a link, -ENOENT for a node that is not one of the radio's contacts,
+ * -ENOBUFS when the command queue is full.
  */
 int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_id);
 

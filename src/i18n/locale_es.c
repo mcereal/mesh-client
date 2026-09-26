@@ -1528,6 +1528,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_CONVO_MUTED_ON_RADIO] = "%.20s está silenciado en la radio",
     [MESH_STR_TOAST_MUTE_FAILED] = "No se pudo silenciar (%d)",
     [MESH_STR_TOAST_REMOVED_NODE] = "Quitado %.14s; volverá al transmitir",
+    [MESH_STR_TOAST_REMOVING_CONTACT] = "Se pidió a la radio quitar %.14s",
     [MESH_STR_TOAST_REMOVE_SELF] = "Esa es la radio a la que estás conectado",
     [MESH_STR_TOAST_REMOVE_FAILED] = "No se pudo quitar (%d)",
     [MESH_STR_TOAST_CONTACT_SENT] = "%.14s enviado a la radio",

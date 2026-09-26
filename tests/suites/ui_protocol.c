@@ -172,10 +172,22 @@ MESH_TEST_CASE(ui_protocol_node_sheet_offers_what_the_protocol_has, unit) {
     mesh_ui_protocol_features(&meshcore_protocol, NULL, &meshcore_lacks);
     count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
                                        MESH_UI_NODE_ACTIONS_MAX);
+    MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE),
+                      "a heard node the radio never added is no contact to remove");
+    node.in_nodedb = true;
+    count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
+                                       MESH_UI_NODE_ACTIONS_MAX);
     MESH_TEST_FAIL_IF(!has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE) ||
                           has_verb(items, count, MESH_UI_NODE_ACTION_FAVORITE) ||
                           has_verb(items, count, MESH_UI_NODE_ACTION_MUTE),
                       "MeshCore offers remove without the flags beside it");
+    node.public_key_len = 6U;
+    count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
+                                       MESH_UI_NODE_ACTIONS_MAX);
+    MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE),
+                      "nor is a sender known only by its key's prefix");
+    node.public_key_len = 32U;
+    node.in_nodedb = false;
 
     /* One bit, one verb: the gates are not one switch wearing several names. */
     count = mesh_ui_node_actions_build(&node, false, NULL, false, MESH_UI_FEATURE_TRACEROUTE, items,

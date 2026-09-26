@@ -813,6 +813,15 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
                 mesh_meshcore_apply_write(meshcore, request->frame, request->len);
             }
             mesh_meshcore_settle_write(meshcore, 0);
+        } else if (cmd == MESH_MESHCORE_CMD_REMOVE_CONTACT && request != NULL &&
+                   request->len == 1U + MESH_MESHCORE_PUBKEY_LEN) {
+            /* Only now: a refused or unanswered removal leaves the contact on the radio, and
+               so on the list. */
+            const uint32_t id =
+                mesh_meshcore_find_prefix(meshcore, request->frame + 1, MESH_MESHCORE_PUBKEY_LEN);
+            if (id != 0U && mesh_session_model_drop_node(meshcore->model, id) == 0) {
+                inkwell_log_info("meshcore", "Removed contact 0x%08x", id);
+            }
         }
         break;
     case MESH_MESHCORE_RESP_CURR_TIME:
@@ -1195,7 +1204,9 @@ int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_i
         return -ENOTCONN;
     }
     const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, node_id);
-    if (node == NULL || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN) {
+    /* A heard node the radio never added, and a sender known only by its key's prefix, are
+       not contacts; there is nothing on the radio to remove. */
+    if (node == NULL || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN || !node->in_nodedb) {
         return -ENOENT;
     }
     uint8_t frame[1U + MESH_MESHCORE_PUBKEY_LEN];
@@ -1204,12 +1215,7 @@ int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_i
                               mesh_meshcore_encode_key(MESH_MESHCORE_CMD_REMOVE_CONTACT,
                                                        node->public_key, frame, sizeof frame),
                               0U);
-    if (result < 0) {
-        return result;
-    }
-    (void)mesh_session_model_drop_node(meshcore->model, node_id);
-    inkwell_log_info("meshcore", "Removed contact 0x%08x", node_id);
-    return 1;
+    return result < 0 ? result : 1;
 }
 
 int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,

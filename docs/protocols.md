@@ -158,9 +158,11 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   kHz rather than the record's float; a frequency finer than a kHz is refused, a seventh
   coordinate decimal is rounded, and a link lost mid-save is reported unanswered rather than as
   a restart.
-- **A contact is removed** with `REMOVE_CONTACT` and its whole key, and leaves the roster at
-  once (`mesh_session_model_drop_node()`); a radio that adds contacts by itself takes it back at
-  its next advert.
+- **A contact is removed** with `REMOVE_CONTACT` and its whole key, and leaves the roster
+  (`mesh_session_model_drop_node()`) when the radio answers OK - a refusal or a timeout leaves it
+  listed. Only a contact is offered the row: a heard node the radio never added, or a sender
+  known by its key's prefix, has nothing on the radio to remove. A radio that adds contacts by
+  itself takes it back at its next advert.
 - **An advert** is this radio announcing its name and key now: Radio details offers it to the
   nodes in earshot or flooded across the mesh. Meshtastic has no such verb, so the two rows are
   listed by `protocol`, not by a lacked feature.

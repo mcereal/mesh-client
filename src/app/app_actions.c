@@ -948,7 +948,12 @@ static void on_remove_node(struct mesh_app *app, const struct mesh_ui_action *ac
     const int result = app->meshcore_bound
                            ? mesh_meshcore_remove_contact(&app->meshcore, action->dest)
                            : mesh_session_remove_node(&app->session, action->dest);
-    if (result > 0) {
+    if (result > 0 && app->meshcore_bound) {
+        /* Asked, not done: the node leaves the list when the radio says OK, and stays if it
+           refuses. */
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REMOVING_CONTACT, name);
+        inkwell_log_info("ui", "Asked the radio to remove contact 0x%08x", action->dest);
+    } else if (result > 0) {
         /* Says how it comes back, because the row that would have undone it has gone with
            the node. */
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REMOVED_NODE, name);

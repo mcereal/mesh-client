@@ -2870,6 +2870,7 @@ MESH_STR_ENTRY(TOAST_CONVO_UNMUTED,       "Unmuted %.20s")
 MESH_STR_ENTRY(TOAST_CONVO_MUTED_ON_RADIO, "%.20s is muted on the radio")
 /* Removing a node from the radio's database. It comes back the moment it transmits again. */
 MESH_STR_ENTRY(TOAST_REMOVED_NODE,        "Removed %.14s; back when it speaks")
+MESH_STR_ENTRY(TOAST_REMOVING_CONTACT,    "Asked the radio to drop %.14s")
 MESH_STR_ENTRY(TOAST_REMOVE_SELF,         "That is the radio you are connected to")
 MESH_STR_ENTRY(TOAST_REMOVE_FAILED,       "Remove failed (%d)")
 /* Handing a node we remember back to the radio, key and all. "Sent" rather than "added":

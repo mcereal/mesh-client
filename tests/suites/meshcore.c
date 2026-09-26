@@ -854,6 +854,12 @@ MESH_TEST_CASE(meshcore_remove_contact_takes_it_off_both_lists, unit) {
                       "this radio is not a contact of its own");
     MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, 0x12345678U) != -ENOENT,
                       "a node the roster does not hold has no key to name");
+    struct mesh_node_summary *alice = mesh_session_model_node(g_meshcore.model, 0x40414243U, false);
+    MESH_TEST_FAIL_IF(alice == NULL, "Alice is on the roster");
+    alice->in_nodedb = false;
+    MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, 0x40414243U) != -ENOENT,
+                      "a node the radio does not carry is no contact to remove");
+    alice->in_nodedb = true;
     const size_t before = wire.count;
     MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, 0x40414243U) != 1,
                       "a contact is asked off");
@@ -862,8 +868,12 @@ MESH_TEST_CASE(meshcore_remove_contact_takes_it_off_both_lists, unit) {
                           wire.lens[before] != 33U || wire.frames[before][1] != 0x40 ||
                           wire.frames[before][32] != 0x40 + 31,
                       "by its whole key");
-    MESH_TEST_FAIL_IF(model_node(0x40414243U) != NULL, "and leaves the roster at once");
+    MESH_TEST_FAIL_IF(model_node(0x40414243U) == NULL, "and stays listed until the radio agrees");
+    feed_code(&protocol, MESH_MESHCORE_RESP_ERR);
+    MESH_TEST_FAIL_IF(model_node(0x40414243U) == NULL, "a refusal leaves it on the list");
+    MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, 0x40414243U) != 1, "asked again");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(model_node(0x40414243U) != NULL, "and the radio's OK takes it off");
     MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, 0x40414243U) != -ENOENT,
                       "a second press has nothing left to remove");
     record_success(test_name);

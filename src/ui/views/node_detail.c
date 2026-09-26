@@ -1336,6 +1336,12 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
     }
     const bool flags = node_actions_offer(lacks, MESH_UI_FEATURE_NODE_FLAGS);
     const bool requests = node_actions_offer(lacks, MESH_UI_FEATURE_NODE_REQUESTS);
+    /* Where the flags are missing the radio's list is contacts, and removing is taking one off
+       it by its whole key: a heard node the radio never added, or a sender known only by a
+       prefix, has nothing there to remove. */
+    const bool removable =
+        node_actions_offer(lacks, MESH_UI_FEATURE_NODE_REMOVE) &&
+        (flags || (node->in_nodedb && node->public_key_len == sizeof node->public_key));
 
     struct node_rows rows = {
         .items = out,
@@ -1392,7 +1398,7 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
            leaves the list and there is nothing left to press to undo it. It comes back on its
            own when the node next transmits, which is why this is an arming press rather than
            the confirm overlay - the cost is a wait, not a loss. */
-        if (node_actions_offer(lacks, MESH_UI_FEATURE_NODE_REMOVE)) {
+        if (removable) {
             rows_action(&rows, MESH_STR_NODE_ACT_REMOVE,
                         inkcell_str(remove_armed ? MESH_STR_NODE_ACT_REMOVE_ARMED
                                                  : MESH_STR_COMMON_PRESS_A),
