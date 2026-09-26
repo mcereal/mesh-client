@@ -1432,10 +1432,13 @@ static void channel_summary(uint8_t role, uint8_t psk_len, char *out, size_t out
 static void build_channels(const struct mesh_ui_settings *s,
                            const struct mesh_ui_handshake_state *hs, struct item_list *list) {
     char label[MESH_UI_SETTINGS_LABEL_MAX];
+    /* A protocol this client cannot write channels for lists its slots as facts: a row that
+       opened the editor would take edits no save can send. */
+    const bool editable = mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG);
     if (s->has_channels) {
         for (uint32_t i = 0; i < MESH_UI_MAX_CHANNELS; ++i) {
             const struct mesh_ui_channel_detail *channel = &s->channels[i];
-            if (!channel->present) {
+            if (!channel->present || (!editable && channel->role == 0U)) {
                 continue;
             }
             if (channel->role == 0U) {
@@ -1444,7 +1447,8 @@ static void build_channels(const struct mesh_ui_settings *s,
             } else {
                 channel_label(channel->index, channel->name, label, sizeof label);
             }
-            struct mesh_ui_settings_item *item = item_add_named(list, label, INKSTAND_FORM_ACTION);
+            struct mesh_ui_settings_item *item =
+                item_add_named(list, label, editable ? INKSTAND_FORM_ACTION : INKSTAND_FORM_INFO);
             if (item == NULL) {
                 continue;
             }

@@ -492,6 +492,25 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
                                       MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION),
                       "and an advertised location can be cleared");
 
+    /* Channels are listed, not opened: nothing could save an edit to one. */
+    settings.has_channels = true;
+    settings.channels[0].present = true;
+    settings.channels[0].role = 1U;
+    snprintf(settings.channels[0].name, sizeof settings.channels[0].name, "%s", "Public");
+    settings.channels[1].present = true;
+    settings.channels[1].index = 1U;
+    struct mesh_ui_settings_item slots[16];
+    const uint32_t slot_count =
+        mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
+                               MESH_UI_SETTINGS_NO_CHANNEL, slots, 16U);
+    MESH_TEST_FAIL_IF(slot_count < 1U || slots[0].kind != INKSTAND_FORM_INFO,
+                      "a slot is a fact, not a row that opens the editor");
+    for (uint32_t i = 1U; i < slot_count; ++i) {
+        MESH_TEST_FAIL_IF(slots[i].kind == INKSTAND_FORM_ACTION && slots[i].number == 1U &&
+                              slots[i].field == MESH_UI_FIELD_NONE,
+                          "and an empty slot offers no set-up");
+    }
+
     MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
                                       MESH_UI_SETTINGS_ACTION_REBOOT),
                       "the radio can be rebooted");
