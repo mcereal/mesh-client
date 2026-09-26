@@ -181,6 +181,8 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP] = INKCELL_ICON_DELETE,
 
     /* Position: the pin this radio is pinned to, and taking it off again. */
+    [MESH_UI_SETTINGS_ACTION_SEND_ADVERT] = INKCELL_ICON_NEIGHBORS,
+    [MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT] = INKCELL_ICON_BROADCAST,
     [MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION] = INKCELL_ICON_POSITION,
     [MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION] = INKCELL_ICON_CLOSE,
     /* LoRa: a claim about the operator rather than about the hardware. */
@@ -296,6 +298,8 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT] = INKCELL_TONE_NORMAL,
 
     [MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_SEND_ADVERT] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT] = INKCELL_TONE_NORMAL,
 };
 
 enum inkcell_icon mesh_ui_settings_action_icon(enum mesh_ui_settings_action action) {
@@ -2878,7 +2882,9 @@ bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action) {
            action == MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP ||
-           action == MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY;
+           action == MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY ||
+           action == MESH_UI_SETTINGS_ACTION_SEND_ADVERT ||
+           action == MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT;
 }
 
 bool mesh_ui_settings_action_is_forget(enum mesh_ui_settings_action action) {

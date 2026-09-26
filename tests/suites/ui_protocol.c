@@ -164,6 +164,31 @@ MESH_TEST_CASE(ui_protocol_node_sheet_offers_what_the_protocol_has, unit) {
     MESH_TEST_FAIL_IF(count != mesh_ui_node_actions_count(&node, false, NULL, MESH_UI_FEATURES_ALL),
                       "the count the nav walks agrees with the built sheet");
 
+    /* MeshCore removes a contact, and keeps no pin, mute or ignore to offer beside it. */
+    static const struct mesh_protocol_ops k_meshcore = {.name = "meshcore"};
+    static int meshcore_self;
+    const struct mesh_protocol meshcore_protocol = {&k_meshcore, &meshcore_self};
+    uint32_t meshcore_lacks = 0U;
+    mesh_ui_protocol_features(&meshcore_protocol, NULL, &meshcore_lacks);
+    count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
+                                       MESH_UI_NODE_ACTIONS_MAX);
+    MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE),
+                      "a heard node the radio never added is no contact to remove");
+    node.in_nodedb = true;
+    count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
+                                       MESH_UI_NODE_ACTIONS_MAX);
+    MESH_TEST_FAIL_IF(!has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE) ||
+                          has_verb(items, count, MESH_UI_NODE_ACTION_FAVORITE) ||
+                          has_verb(items, count, MESH_UI_NODE_ACTION_MUTE),
+                      "MeshCore offers remove without the flags beside it");
+    node.public_key_len = 6U;
+    count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
+                                       MESH_UI_NODE_ACTIONS_MAX);
+    MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE),
+                      "nor is a sender known only by its key's prefix");
+    node.public_key_len = 32U;
+    node.in_nodedb = false;
+
     /* One bit, one verb: the gates are not one switch wearing several names. */
     count = mesh_ui_node_actions_build(&node, false, NULL, false, MESH_UI_FEATURE_TRACEROUTE, items,
                                        MESH_UI_NODE_ACTIONS_MAX);
@@ -209,6 +234,9 @@ MESH_TEST_CASE(ui_protocol_settings_hide_what_the_protocol_lacks, unit) {
     MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
                                       MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE),
                       "Meshtastic checks for the radio's firmware");
+    MESH_TEST_FAIL_IF(section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                     MESH_UI_SETTINGS_ACTION_SEND_ADVERT),
+                      "Meshtastic has no advert to send");
     const uint32_t meshtastic_root = mesh_ui_settings_root_count(&settings);
 
     /* Everything but the full configuration, whose own test is below: that bit takes every
@@ -514,6 +542,11 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
     MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
                                       MESH_UI_SETTINGS_ACTION_REBOOT),
                       "the radio can be rebooted");
+    MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                      MESH_UI_SETTINGS_ACTION_SEND_ADVERT) ||
+                          !section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                          MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT),
+                      "and can advertise itself, nearby or across the mesh");
     MESH_TEST_FAIL_IF(section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
                                      MESH_UI_SETTINGS_ACTION_SHUTDOWN) ||
                           section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,

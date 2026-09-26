@@ -25,6 +25,11 @@ foreach ($tool in @($cmake, $ninja, $compiler, $python)) {
 }
 
 $env:Path = "$ucrtBin;$(Join-Path $msysRoot 'usr\bin');$env:Path"
+# nanopb's generator runs MSYS2's protoc and its Python protobuf, and neither the grpcio-tools
+# package nor the protobuf C extension is rebuilt in step with that libprotobuf: after the 36.2
+# bump both crashed the generator ("stack smashing detected"). So grpcio-tools is not installed,
+# which sends nanopb to protoc.exe, and the runtime is the pure-Python one.
+$env:PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = 'python'
 $buildDir = Join-Path $repoRoot "build\windows-$($Configuration.ToLowerInvariant())"
 
 & $cmake -S $repoRoot -B $buildDir -G Ninja `

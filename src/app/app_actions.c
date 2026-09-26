@@ -624,6 +624,24 @@ struct radio_admin_verb {
     bool refresh_after;
 };
 
+/* MeshCore's advert. The row is only listed for MeshCore, so a press on another protocol is
+   refused rather than sent as something else. */
+static void radio_send_advert(struct mesh_app *app, bool flood, uint64_t now) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const int result =
+        app->meshcore_bound ? mesh_meshcore_send_advert(&app->meshcore, flood) : -ENOTSUP;
+    if (result >= 0) {
+        snprintf(toast, sizeof toast, "%s",
+                 inkcell_str(flood ? MESH_STR_TOAST_ADVERT_FLOOD : MESH_STR_TOAST_ADVERT_NEARBY));
+    } else if (result == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REQUEST_FAILED, result);
+        inkwell_log_warn("ui", "Advert failed: %d", result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 static const struct radio_admin_verb k_radio_admin_verbs[] = {
     {MESH_UI_SETTINGS_ACTION_REBOOT, MESH_ADMIN_REBOOT, MESH_STR_TOAST_REBOOTING, false},
     {MESH_UI_SETTINGS_ACTION_SHUTDOWN, MESH_ADMIN_SHUTDOWN, MESH_STR_TOAST_SHUTTING_DOWN, false},
@@ -707,6 +725,11 @@ static void on_radio_action(struct mesh_app *app, const struct mesh_ui_action *a
     }
     if (row == MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY) {
         radio_request_history(app, now);
+        return;
+    }
+    if (row == MESH_UI_SETTINGS_ACTION_SEND_ADVERT ||
+        row == MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT) {
+        radio_send_advert(app, row == MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT, now);
         return;
     }
 
@@ -922,8 +945,15 @@ static void on_remove_node(struct mesh_app *app, const struct mesh_ui_action *ac
 
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
-    const int result = mesh_session_remove_node(&app->session, action->dest);
-    if (result > 0) {
+    const int result = app->meshcore_bound
+                           ? mesh_meshcore_remove_contact(&app->meshcore, action->dest)
+                           : mesh_session_remove_node(&app->session, action->dest);
+    if (result > 0 && app->meshcore_bound) {
+        /* Asked, not done: the node leaves the list when the radio says OK, and stays if it
+           refuses. */
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REMOVING_CONTACT, name);
+        inkwell_log_info("ui", "Asked the radio to remove contact 0x%08x", action->dest);
+    } else if (result > 0) {
         /* Says how it comes back, because the row that would have undone it has gone with
            the node. */
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REMOVED_NODE, name);

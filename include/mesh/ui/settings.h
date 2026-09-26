@@ -680,6 +680,11 @@ enum mesh_ui_settings_action {
      * times it is most wanted. Drawn only while there is something to come back from.
      */
     MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL,
+    /* MeshCore's advert: this radio announcing itself now, to the nodes in earshot or flooded
+       across the mesh - the only way a new contact learns its key. Meshtastic has no verb for
+       it; its NodeInfo goes out on the radio's own schedule. */
+    MESH_UI_SETTINGS_ACTION_SEND_ADVERT,
+    MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT,
     /* Not an action: what the two verb tables below are sized by, so a row added above without
        a symbol or a weight is a hole in an array rather than a row that quietly draws nothing.
        Last, so no existing value moves - nav->confirm.subject carries one in a uint8_t. */

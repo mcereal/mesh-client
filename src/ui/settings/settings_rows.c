@@ -2287,6 +2287,19 @@ static void build_power_verbs(const struct mesh_ui_settings *s, bool connected,
     }
 }
 
+/* MeshCore's advert, the two ways it goes. Meshtastic has no counterpart to offer. */
+static void build_advert_verbs(const struct mesh_ui_settings *s, bool connected,
+                               struct item_list *list) {
+    if (s->protocol != (uint8_t)MESH_UI_PROTOCOL_MESHCORE) {
+        return;
+    }
+    item_heading(list, MESH_STR_HEAD_ADVERT);
+    item_radio_action(list, MESH_STR_ACTION_ADVERT_NEARBY, MESH_UI_SETTINGS_ACTION_SEND_ADVERT,
+                      connected);
+    item_radio_action(list, MESH_STR_ACTION_ADVERT_FLOOD, MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT,
+                      connected);
+}
+
 static void build_nodedb_verbs(const struct mesh_ui_settings *s, bool connected,
                                struct item_list *list) {
     if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_RADIO_MAINTENANCE)) {
@@ -2379,6 +2392,7 @@ static void build_radio_details(const struct mesh_ui_settings *s,
     }
     const bool connected = actions_connected(handshake);
     build_radio(s, handshake, list);
+    build_advert_verbs(s, connected, list);
     build_power_verbs(s, connected, list);
     build_backup_verbs(s, connected, list);
 }

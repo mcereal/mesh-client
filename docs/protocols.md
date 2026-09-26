@@ -86,7 +86,8 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `WAYPOINTS` | "Send a waypoint" on a node's sheet; the Nodes list's Waypoints row dims and a press says why, since every row under it is counted from it (`MESH_UI_NODES_LEAD_ROWS`) |
 | `TRACEROUTE` | the traceroute verb |
 | `NODE_REQUESTS` | asking a node for its name, position or telemetry |
-| `NODE_FLAGS` | pin, mute, ignore, remove |
+| `NODE_FLAGS` | pin, mute, ignore |
+| `NODE_REMOVE` | remove, on a node's sheet |
 | `REMOTE_ADMIN` | configuring a node over the mesh |
 | `KEY_VERIFICATION` | the verify-key ceremony |
 | `CHANNEL_LINKS` | the channel share QR and import rows |
@@ -157,6 +158,14 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   kHz rather than the record's float; a frequency finer than a kHz is refused, a seventh
   coordinate decimal is rounded, and a link lost mid-save is reported unanswered rather than as
   a restart.
+- **A contact is removed** with `REMOVE_CONTACT` and its whole key, and leaves the roster
+  (`mesh_session_model_drop_node()`) when the radio answers OK - a refusal or a timeout leaves it
+  listed. Only a contact is offered the row: a heard node the radio never added, or a sender
+  known by its key's prefix, has nothing on the radio to remove. A radio that adds contacts by
+  itself takes it back at its next advert.
+- **An advert** is this radio announcing its name and key now: Radio details offers it to the
+  nodes in earshot or flooded across the mesh. Meshtastic has no such verb, so the two rows are
+  listed by `protocol`, not by a lacked feature.
 - **A reboot is never answered.** Over a USB-serial bridge the port outlives the ESP32 behind it,
   so once the answer is overdue the conversation runs its handshake again by itself.
 - **A direct message** is pending until `PUSH_CODE_SEND_CONFIRMED` carries the four bytes the
@@ -164,7 +173,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
 Not yet spoken: repeater and room-server login, telemetry and status requests, trace paths,
-adding and removing contacts, contact sharing, editing channels, and the settings SELF_INFO
+adding a heard node as a contact and a contact's favourite flag, contact sharing, editing channels, and the settings SELF_INFO
 carries but the tab does not show (advert location policy, auto-add, multi-acks, telemetry
 modes). The `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
