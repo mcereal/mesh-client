@@ -1138,8 +1138,10 @@ static int mesh_ble_list_known(struct mesh_ble_transport_state *state, size_t *c
     for (size_t p = 0; p < profile_count && *count < capacity; ++p) {
         struct inkwell_ble_device found[INKWELL_ARRAY_LEN(state->devices)];
         size_t found_count = 0U;
+        /* The whole array, not what is left: duplicates are dropped below, and a query capped at
+           the free slots could spend them on radios already listed. */
         const int result = mesh_ble_list_profile(&state->central, profiles[p], found,
-                                                 capacity - *count, &found_count);
+                                                 INKWELL_ARRAY_LEN(found), &found_count);
         if (result < 0) {
             if (p == 0U) {
                 return result;
@@ -1422,6 +1424,11 @@ static void mesh_ble_notification_handler(const uint8_t *data, size_t len, void 
     /* A NOTIFY profile: the value is the frame. The central subscribes to one characteristic per
        link, so there is no asking which one this came from. */
     if (state->profile != NULL && state->profile->inbound == MESH_BLE_INBOUND_NOTIFY) {
+        if (len > state->profile->max_frame) {
+            inkwell_log_warn("ble", "%s notification of %zu bytes exceeds %zu; dropped",
+                             state->profile->name, len, state->profile->max_frame);
+            return;
+        }
         state->frames_received += 1U;
         state->bytes_received += len;
         inkwell_log_debug("ble", "%s frame notified (%zu bytes)", state->profile->name, len);

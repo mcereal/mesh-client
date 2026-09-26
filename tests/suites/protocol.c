@@ -451,6 +451,13 @@ MESH_TEST_CASE(ble_link_speaks_its_protocols_profile, unit) {
         failure = "a notified value reaches the protocol as one whole frame";
         goto cleanup;
     }
+    uint8_t oversized[173];
+    memset(oversized, 0x66, sizeof oversized);
+    inkwell_ble_mock_emit_notification(tx_path, oversized, sizeof oversized);
+    if (state.frames != 1U) {
+        failure = "a notification over the profile's own limit never reaches the protocol";
+        goto cleanup;
+    }
     if (rig.read_index != 0U) {
         failure = "a NOTIFY profile is never read";
         goto cleanup;
