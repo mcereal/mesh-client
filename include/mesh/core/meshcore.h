@@ -333,7 +333,8 @@ struct mesh_meshcore {
        the sender's own stamp and name back, which the roster does not keep (its last_heard is
        the radio's clock, and a stamp ahead of the sender's would refuse its next advert). */
     struct mesh_meshcore_contact heard[MESH_MESHCORE_HEARD_ADVERTS];
-    size_t heard_next;
+    uint32_t heard_age[MESH_MESHCORE_HEARD_ADVERTS]; /* when each was kept; 0 for an empty slot */
+    uint32_t heard_clock;
     bool battery_valid;
     uint16_t battery_mv;
     /*

@@ -208,24 +208,31 @@ static void mesh_meshcore_name_node(struct mesh_node_summary *node, const uint8_
     node->role = mesh_meshcore_role(adv_type);
 }
 
-/* Keeps a heard advert whole, over an older one from the same key or the oldest kept. */
+/* Keeps a heard advert whole, over an older one from the same key or else the one kept longest
+   ago - a node heard again is the newest, not left where it was first kept. */
 static void mesh_meshcore_keep_advert(struct mesh_meshcore *meshcore,
                                       const struct mesh_meshcore_contact *contact) {
+    size_t slot = 0U;
     for (size_t i = 0; i < MESH_MESHCORE_HEARD_ADVERTS; ++i) {
-        if (memcmp(meshcore->heard[i].public_key, contact->public_key, MESH_MESHCORE_PUBKEY_LEN) ==
-            0) {
-            meshcore->heard[i] = *contact;
-            return;
+        if (meshcore->heard_age[i] != 0U &&
+            memcmp(meshcore->heard[i].public_key, contact->public_key, MESH_MESHCORE_PUBKEY_LEN) ==
+                0) {
+            slot = i;
+            break;
+        }
+        if (meshcore->heard_age[i] < meshcore->heard_age[slot]) {
+            slot = i;
         }
     }
-    meshcore->heard[meshcore->heard_next] = *contact;
-    meshcore->heard_next = (meshcore->heard_next + 1U) % MESH_MESHCORE_HEARD_ADVERTS;
+    meshcore->heard[slot] = *contact;
+    meshcore->heard_age[slot] = ++meshcore->heard_clock;
 }
 
 static const struct mesh_meshcore_contact *
 mesh_meshcore_heard_advert(const struct mesh_meshcore *meshcore, const uint8_t *key) {
     for (size_t i = 0; i < MESH_MESHCORE_HEARD_ADVERTS; ++i) {
-        if (memcmp(meshcore->heard[i].public_key, key, MESH_MESHCORE_PUBKEY_LEN) == 0) {
+        if (meshcore->heard_age[i] != 0U &&
+            memcmp(meshcore->heard[i].public_key, key, MESH_MESHCORE_PUBKEY_LEN) == 0) {
             return &meshcore->heard[i];
         }
     }

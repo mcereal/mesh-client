@@ -1014,6 +1014,38 @@ MESH_TEST_CASE(meshcore_add_contact_from_a_heard_advert, unit) {
     record_success(test_name);
 }
 
+/* The adverts kept for adding are the newest: a node heard again is kept over one heard once. */
+MESH_TEST_CASE(meshcore_heard_adverts_keep_the_newest, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    uint8_t advert[160];
+    for (uint8_t n = 0U; n < MESH_MESHCORE_HEARD_ADVERTS; ++n) {
+        const size_t len =
+            build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, (uint8_t)(0x90U + n), "Node",
+                          MESH_MESHCORE_ADV_CHAT, 0xffU, 1700001000U + n);
+        feed(&protocol, advert, len);
+    }
+    /* The first is heard again, and then a node not heard before takes the oldest slot. */
+    size_t len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x90U, "Node",
+                               MESH_MESHCORE_ADV_CHAT, 0xffU, 1700002000U);
+    feed(&protocol, advert, len);
+    len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xB0U, "Node",
+                        MESH_MESHCORE_ADV_CHAT, 0xffU, 1700003000U);
+    feed(&protocol, advert, len);
+    size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x90919293U) != 1 ||
+                          frame_u32(wire.frames[before] + 132) != 1700002000U - 60U,
+                      "the node heard again keeps its advert");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x91929394U) != 1 ||
+                          frame_u32(wire.frames[before] + 132) != 0U,
+                      "and the one heard longest ago is the one let go");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    record_success(test_name);
+}
+
 /* An advert is SEND_SELF_ADVERT with 1 to flood it and 0 for the nodes in earshot. */
 MESH_TEST_CASE(meshcore_advert_is_flooded_or_not, unit) {
     struct mesh_protocol protocol;
