@@ -2736,6 +2736,11 @@ MESH_STR_ENTRY(TOAST_NOT_CONNECTED,       "Not connected to a node")
 MESH_STR_ENTRY(TOAST_NODE_GONE,           "That node is no longer in the list")
 MESH_STR_ENTRY(TOAST_BLE_UNAVAILABLE,     "BLE transport unavailable")
 MESH_STR_ENTRY(TOAST_BUSY_RETRY,          "Busy; try again in a moment")
+/* An edit to a LoRa row the radio ignores while "Use preset" says otherwise: the row is dimmed
+   and still takes the edit, so a manual setting can be readied before the switch is flipped. The
+   quoted name is the row's own label, "Use preset". */
+MESH_STR_ENTRY(TOAST_USED_WITHOUT_PRESET, "Used once \"Use preset\" is off")
+MESH_STR_ENTRY(TOAST_USED_WITH_PRESET,    "Used once \"Use preset\" is on")
 MESH_STR_ENTRY(TOAST_CONNECTING,          "Connecting to %.40s")
 MESH_STR_ENTRY(TOAST_CONNECT_FAILED,      "Connect failed (%d)")
 MESH_STR_ENTRY(TOAST_SENT_TO,             "Sent to %s")

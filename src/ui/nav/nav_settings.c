@@ -162,6 +162,11 @@ static void mesh_ui_nav_open_field_keyboard(struct mesh_ui_nav *nav,
     inkcell_keyboard_reset(&nav->kb);
 }
 
+static bool mesh_ui_nav_settings_edit_item(struct mesh_ui_nav *nav,
+                                           const struct mesh_ui_store *store,
+                                           const struct mesh_ui_settings_item *row,
+                                           enum inkcell_key key);
+
 /* A, Left or Right on a row of an open section. Toggles flip, enums cycle, numbers step
    through their presets, text opens the keyboard. Read-only rows ignore the press. */
 bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
@@ -171,6 +176,19 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
         item.field == MESH_UI_FIELD_NONE) {
         return false;
     }
+    const bool changed = mesh_ui_nav_settings_edit_item(nav, store, &item, key);
+    /* A dimmed row takes the edit and says when it will count - see `inactive_note`. */
+    if (changed && item.inactive && item.inactive_note != INKCELL_STR_NONE) {
+        mesh_ui_nav_raise_toast(nav, inkcell_str(item.inactive_note));
+    }
+    return changed;
+}
+
+static bool mesh_ui_nav_settings_edit_item(struct mesh_ui_nav *nav,
+                                           const struct mesh_ui_store *store,
+                                           const struct mesh_ui_settings_item *row,
+                                           enum inkcell_key key) {
+    const struct mesh_ui_settings_item item = *row;
     const enum mesh_ui_setting_field field = item.field;
     const int delta = (key == INKCELL_KEY_LEFT) ? -1 : +1;
     switch (item.kind) {

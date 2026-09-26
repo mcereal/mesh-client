@@ -1200,6 +1200,7 @@ static void build_lora(const struct mesh_ui_settings *s, struct item_list *list)
     constrain_preset_row(s, region, preset_row, 0U);
     if (preset_row != NULL) {
         preset_row->inactive = !preset_on;
+        preset_row->inactive_note = preset_on ? INKCELL_STR_NONE : MESH_STR_TOAST_USED_WITH_PRESET;
     }
     /*
      * A licensed band on a node that does not claim a licence. The firmware marks the amateur
@@ -1230,6 +1231,7 @@ static void build_lora(const struct mesh_ui_settings *s, struct item_list *list)
         struct mesh_ui_settings_item *row = item_field(list, manual[m], manual_value[m], NULL);
         if (row != NULL) {
             row->inactive = preset_on;
+            row->inactive_note = preset_on ? MESH_STR_TOAST_USED_WITHOUT_PRESET : INKCELL_STR_NONE;
         }
     }
     item_field(list, MESH_UI_FIELD_LORA_HOPS, s->hop_limit, NULL);

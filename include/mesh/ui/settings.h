@@ -833,6 +833,14 @@ struct mesh_ui_settings_item {
      */
     bool inactive;
     /*
+     * What an edit to an inactive row is told, as the snackbar the press raises: which other
+     * row decides when it is used. A dimmed row that took the edit in silence read as a
+     * control that was broken, or as a change the radio would act on at the next save - and
+     * an edit there goes on changing the value after the first press, so the first press is
+     * where the reader learns it. INKCELL_STR_NONE on every row that is not inactive.
+     */
+    inkcell_str_id inactive_note;
+    /*
      * What this row is *about*, for the leading slot: the cloud on MQTT, the shield on
      * Security. INKCELL_ICON_NONE on a row that is a setting rather than a subject, which is
      * every row of every section except the one that lists the modules.
