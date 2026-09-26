@@ -93,9 +93,11 @@ it gives itself, registered from `src/app/app.c`. See
 
 `struct mesh_session` is the conversation, independent of how the bytes travel: the
 `want_config_id` handshake, the node-summary cache, the channel table, the message log, the
-radio settings and admin queue, and packet ids. A link calls `mesh_session_attach(send_fn)`,
-hands every FromRadio to `mesh_session_handle_from_radio`, calls `mesh_session_tick` each turn,
-and detaches when the link drops (handshake and settings reset, messages survive).
+radio settings and admin queue, and packet ids. A link reaches it through
+`mesh_session_protocol()`, which wraps it in `struct mesh_protocol` (`mesh/core/protocol.h`): the
+link attaches a send function, hands every FromRadio to `receive`, ticks it each turn, and
+detaches when the link drops (handshake and settings reset, messages survive). See
+[`protocols.md`](protocols.md).
 
 ### The node roster
 

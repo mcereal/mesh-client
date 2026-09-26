@@ -23,7 +23,8 @@
 /*
  * The radio may be asleep, and its own frame parser may be mid-packet from whatever was on the
  * port before us. The Meshtastic clients send a run of bare START2 bytes, which cannot complete
- * a frame and so forces a resync, then pause before the first real packet.
+ * a frame and so forces a resync, then pause before the first real packet. Which byte that is,
+ * and whether a protocol wants the burst at all, is its framing's `wake_byte`.
  */
 #define MESH_SERIAL_WAKE_BYTES 32U
 #define MESH_SERIAL_WAKE_SETTLE_MS 100U
@@ -60,10 +61,11 @@ struct mesh_serial_transport_state {
     uint64_t wake_done_at_ms;
     uint64_t bind_deadline_ms;
 
-    /* The Meshtastic conversation itself. The link attaches to it once the port is awake. */
-    /* Owned only when nothing was injected; `session` is what the code uses. */
+    /* The conversation itself. The link attaches to it once the port is awake. `protocol` is
+       what the code uses; `own_session` is the Meshtastic session it falls back to when nothing
+       was handed in (tests, --list-devices), and is unused otherwise. */
     struct mesh_session own_session;
-    struct mesh_session *session;
+    struct mesh_protocol protocol;
     /* Why the last connect attempt failed, in words, waiting to be shown once. */
     char last_error[MESH_TRANSPORT_ERROR_MAX];
 };
@@ -175,7 +177,7 @@ static void mesh_serial_reset_link(struct mesh_serial_transport_state *state, co
     state->link_state = MESH_SERIAL_LINK_DISCONNECTED;
     state->wake_done_at_ms = 0U;
     state->bind_deadline_ms = 0U;
-    mesh_session_detach(state->session);
+    mesh_protocol_detach(&state->protocol);
     /* Unwatches and closes the descriptor, resets the parser, and marks whatever was still
        queued FAILED in the message log - the three things this used to do by hand. */
     mesh_stream_link_close(&state->link);
@@ -308,14 +310,22 @@ static int mesh_serial_open_port(struct mesh_transport *transport,
         return opened;
     }
 
-    uint8_t wake[MESH_SERIAL_WAKE_BYTES];
-    memset(wake, (int)MESH_STREAM_FRAME_START2, sizeof wake);
-    if (mesh_stream_link_write_raw(&state->link, wake, sizeof wake) < 0) {
-        inkwell_log_debug("serial", "%s: wake write failed (%s)", device->path, strerror(errno));
+    const struct mesh_stream_framing *framing = mesh_protocol_stream_framing(&state->protocol);
+    const bool wants_wake = framing != NULL && framing->wake_byte >= 0;
+    if (wants_wake) {
+        uint8_t wake[MESH_SERIAL_WAKE_BYTES];
+        memset(wake, framing->wake_byte, sizeof wake);
+        if (mesh_stream_link_write_raw(&state->link, wake, sizeof wake) < 0) {
+            inkwell_log_debug("serial", "%s: wake write failed (%s)", device->path,
+                              strerror(errno));
+        }
     }
 
+    /* WAKING either way, so the conversation always starts from tick() and never from inside
+       the connect call - a protocol with no burst just has no settle to wait out. */
     state->link_state = MESH_SERIAL_LINK_WAKING;
-    state->wake_done_at_ms = inkwell_time_monotonic_ms() + MESH_SERIAL_WAKE_SETTLE_MS;
+    state->wake_done_at_ms =
+        inkwell_time_monotonic_ms() + (wants_wake ? MESH_SERIAL_WAKE_SETTLE_MS : 0U);
     inkwell_log_info("serial", "Opened %s (%s); waking the radio", device->path, device->name);
     return 0;
 }
@@ -358,8 +368,8 @@ static void mesh_serial_finish_wake(struct mesh_serial_transport_state *state) {
     }
 
     state->link_state = MESH_SERIAL_LINK_CONNECTED;
-    mesh_session_attach(state->session, mesh_serial_session_send, state);
-    const int handshake = mesh_session_begin_handshake(state->session);
+    mesh_protocol_attach(&state->protocol, mesh_serial_session_send, state);
+    const int handshake = mesh_protocol_begin(&state->protocol);
     if (handshake < 0) {
         inkwell_log_warn("serial", "Failed to request config sync: %d", handshake);
         mesh_serial_set_error(state, MESH_STR_LINK_USB_NO_ANSWER, state->connected.path);
@@ -460,8 +470,8 @@ static void mesh_serial_tick(struct mesh_transport *transport) {
         if (mesh_stream_link_flush(&state->link) == -EIO) {
             mesh_serial_reset_link(state, "write failed");
         } else {
-            mesh_session_tick(state->session, now);
-            if (mesh_session_link_silent(state->session)) {
+            mesh_protocol_tick(&state->protocol, now);
+            if (mesh_protocol_silent(&state->protocol)) {
                 mesh_serial_reset_link(state, "radio stopped answering");
             }
         }
@@ -483,21 +493,21 @@ static int mesh_serial_start(struct mesh_transport *transport, const struct mesh
 
     struct mesh_serial_transport_state *state =
         (struct mesh_serial_transport_state *)transport->state;
-    /* The injected session outlives a restart; everything else is cleared. */
-    struct mesh_session *injected = state->session != &state->own_session ? state->session : NULL;
+    /* The injected protocol outlives a restart; everything else is cleared. */
+    const struct mesh_protocol injected = state->protocol;
+    const bool keep = mesh_protocol_bound(&injected) && injected.self != &state->own_session;
     memset(state, 0, sizeof *state);
-    state->session = injected;
     state->loop = loop;
     state->link_state = MESH_SERIAL_LINK_DISCONNECTED;
-    /* The app hands every link the same session; standalone (tests, --list-devices) each link
-       falls back to its own and initialises it here. */
-    if (state->session == NULL) {
-        state->session = &state->own_session;
+    /* The app hands every link the same protocol; standalone (tests, --list-devices) each link
+       falls back to a Meshtastic session of its own and initialises it here. */
+    if (keep) {
+        state->protocol = injected;
+    } else {
+        mesh_session_init(&state->own_session);
+        state->protocol = mesh_session_protocol(&state->own_session);
     }
-    if (state->session == &state->own_session) {
-        mesh_session_init(state->session);
-    }
-    mesh_stream_link_init(&state->link, "serial", state->session);
+    mesh_stream_link_init(&state->link, "serial", &state->protocol);
 
     if (!config->enable_serial) {
         inkwell_log_info("serial", "Serial transport disabled by configuration");
@@ -556,15 +566,15 @@ static const char *mesh_serial_status(const struct mesh_transport *transport) {
     return mesh_serial_state_to_string(state->state);
 }
 
-static void mesh_serial_set_session(struct mesh_transport *transport,
-                                    struct mesh_session *session) {
+static void mesh_serial_set_protocol(struct mesh_transport *transport,
+                                     const struct mesh_protocol *protocol) {
     if (transport == NULL || transport->state == NULL) {
         return;
     }
     struct mesh_serial_transport_state *state =
         (struct mesh_serial_transport_state *)transport->state;
-    state->session = session;
-    mesh_stream_link_set_session(&state->link, session);
+    state->protocol = protocol != NULL ? *protocol : (struct mesh_protocol){NULL, NULL};
+    mesh_stream_link_set_protocol(&state->link, &state->protocol);
 }
 
 static bool mesh_serial_take_error(struct mesh_transport *transport, char *out, size_t out_len) {
@@ -586,7 +596,7 @@ static const struct mesh_transport_ops k_serial_ops = {
     .stop = mesh_serial_stop,
     .status = mesh_serial_status,
     .tick = mesh_serial_tick,
-    .set_session = mesh_serial_set_session,
+    .set_protocol = mesh_serial_set_protocol,
     .take_error = mesh_serial_take_error,
 };
 
@@ -644,7 +654,9 @@ struct mesh_session *mesh_serial_transport_session(struct mesh_transport *transp
     if (transport == NULL || transport->state == NULL) {
         return NULL;
     }
-    return ((struct mesh_serial_transport_state *)transport->state)->session;
+    struct mesh_serial_transport_state *state =
+        (struct mesh_serial_transport_state *)transport->state;
+    return state->protocol.self == &state->own_session ? &state->own_session : NULL;
 }
 
 struct mesh_handshake_status

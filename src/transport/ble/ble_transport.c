@@ -201,11 +201,11 @@ struct mesh_ble_transport_state {
     struct mesh_ble_outbound_packet write_queue[MESH_BLE_MAX_OUTBOUND_PACKETS];
     size_t write_queue_head;
     size_t write_queue_len;
-    /* The Meshtastic conversation itself (handshake, nodes, messages, settings). The link
-       attaches to it while connected and feeds it every FromRadio packet. */
-    /* Owned only when nothing was injected; `session` is what the code uses. */
+    /* The conversation itself. The link attaches to it while connected and feeds it every
+       packet it reads. `protocol` is what the code uses; `own_session` is the Meshtastic session
+       it falls back to when nothing was handed in (tests, --list-devices). */
     struct mesh_session own_session;
-    struct mesh_session *session;
+    struct mesh_protocol protocol;
     /* Why the last connect attempt failed, in words, waiting to be shown once. A connect that
        returned 0 can still fail several seconds later from tick(), so the errno the caller saw
        cannot explain it. */
@@ -360,10 +360,10 @@ static void mesh_ble_tick(struct mesh_transport *transport) {
            scan on the same turn rather than a second later. */
         mesh_ble_sync_discovery(state);
         if (state->link_state == MESH_BLE_LINK_CONNECTED) {
-            mesh_session_tick(state->session, now);
+            mesh_protocol_tick(&state->protocol, now);
             /* BlueZ can hold a link up with nothing answering on the other end of it; the
-               admin queue is what notices, and dropping it is what lets auto-connect try. */
-            if (mesh_session_link_silent(state->session)) {
+               protocol is what notices, and dropping it is what lets auto-connect try. */
+            if (mesh_protocol_silent(&state->protocol)) {
                 mesh_ble_reset_link(state, "radio stopped answering");
             }
         }
@@ -809,13 +809,13 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     memset(&state->chars, 0, sizeof(state->chars));
     state->frames_received = 0U;
     state->bytes_received = 0U;
-    /* The app hands every link the same session; standalone (tests, --list-devices) each link
-       falls back to its own and initialises it here. */
-    if (state->session == NULL) {
-        state->session = &state->own_session;
+    /* The app hands every link the same protocol; standalone (tests, --list-devices) each link
+       falls back to a Meshtastic session of its own and initialises it here. */
+    if (!mesh_protocol_bound(&state->protocol)) {
+        state->protocol = mesh_session_protocol(&state->own_session);
     }
-    if (state->session == &state->own_session) {
-        mesh_session_init(state->session);
+    if (state->protocol.self == &state->own_session) {
+        mesh_session_init(&state->own_session);
     }
     mesh_ble_clear_write_queue(state);
 
@@ -915,7 +915,7 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     memset(&state->chars, 0, sizeof(state->chars));
     state->frames_received = 0U;
     state->bytes_received = 0U;
-    mesh_session_detach(state->session);
+    mesh_protocol_detach(&state->protocol);
     mesh_ble_clear_write_queue(state);
     state->loop = NULL;
     inkwell_log_info("ble", "BLE transport stopped");
@@ -942,11 +942,13 @@ static const char *mesh_ble_status(const struct mesh_transport *transport) {
     return mesh_ble_state_to_string(state->state);
 }
 
-static void mesh_ble_set_session(struct mesh_transport *transport, struct mesh_session *session) {
+static void mesh_ble_set_protocol(struct mesh_transport *transport,
+                                  const struct mesh_protocol *protocol) {
     if (transport == NULL || transport->state == NULL) {
         return;
     }
-    ((struct mesh_ble_transport_state *)transport->state)->session = session;
+    ((struct mesh_ble_transport_state *)transport->state)->protocol =
+        protocol != NULL ? *protocol : (struct mesh_protocol){NULL, NULL};
 }
 
 static bool mesh_ble_take_error(struct mesh_transport *transport, char *out, size_t out_len) {
@@ -967,7 +969,7 @@ static const struct mesh_transport_ops k_ble_ops = {
     .stop = mesh_ble_stop,
     .status = mesh_ble_status,
     .tick = mesh_ble_tick,
-    .set_session = mesh_ble_set_session,
+    .set_protocol = mesh_ble_set_protocol,
     .take_error = mesh_ble_take_error,
 };
 
@@ -1207,7 +1209,7 @@ static void mesh_ble_clear_write_queue(struct mesh_ble_transport_state *state) {
 
     while (state->write_queue_len > 0U) {
         struct mesh_ble_outbound_packet *packet = &state->write_queue[state->write_queue_head];
-        mesh_session_packet_failed(state->session, packet->packet_id);
+        mesh_protocol_frame_failed(&state->protocol, packet->packet_id);
         packet->packet_id = 0U;
         state->write_queue_head = (state->write_queue_head + 1U) % MESH_BLE_MAX_OUTBOUND_PACKETS;
         state->write_queue_len--;
@@ -1326,7 +1328,7 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
         state->frames_received += 1U;
         state->bytes_received += len;
         inkwell_log_debug("ble", "FromRadio packet (%zu bytes)", len);
-        mesh_session_handle_from_radio(state->session, packet, len);
+        mesh_protocol_receive(&state->protocol, packet, len);
     }
 
     /* Budget for this turn spent; yield to the event loop and come straight back. */
@@ -1701,8 +1703,8 @@ static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
     state->frames_received = 0U;
     state->bytes_received = 0U;
     inkwell_ble_process(&state->central);
-    mesh_session_attach(state->session, mesh_ble_session_send, state);
-    int handshake_result = mesh_session_begin_handshake(state->session);
+    mesh_protocol_attach(&state->protocol, mesh_ble_session_send, state);
+    int handshake_result = mesh_protocol_begin(&state->protocol);
     if (handshake_result < 0) {
         inkwell_log_warn("ble", "Failed to request config sync: %d", handshake_result);
     }
@@ -1757,7 +1759,7 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
     state->connected_address[0] = '\0';
     state->link_address[0] = '\0';
     memset(&state->chars, 0, sizeof(state->chars));
-    mesh_session_detach(state->session);
+    mesh_protocol_detach(&state->protocol);
     mesh_ble_clear_write_queue(state);
     inkwell_log_info("ble", "Disconnected from Meshtastic node (%s)", reason);
 }
@@ -2168,7 +2170,8 @@ struct mesh_session *mesh_ble_transport_session(struct mesh_transport *transport
     if (transport == NULL || transport->state == NULL) {
         return NULL;
     }
-    return ((struct mesh_ble_transport_state *)transport->state)->session;
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    return state->protocol.self == &state->own_session ? &state->own_session : NULL;
 }
 
 const struct mesh_radio_settings *mesh_ble_transport_settings(struct mesh_transport *transport) {

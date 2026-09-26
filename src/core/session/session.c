@@ -3242,3 +3242,62 @@ int mesh_session_request_history(struct mesh_session *session) {
 const struct mesh_store_forward *mesh_session_store_forward(const struct mesh_session *session) {
     return session != NULL ? &session->store_forward : NULL;
 }
+
+/* ------------------------------------------------------------------ as a link's protocol */
+
+/* The protocol interface passes `void *`; these put the session's own type back. Each is the
+   public function of the same name and nothing more, so a link driving the session through the
+   table and a test driving it directly exercise one path. */
+static void mesh_session_protocol_attach(void *self, mesh_protocol_send_fn send, void *ctx) {
+    mesh_session_attach((struct mesh_session *)self, send, ctx);
+}
+
+static void mesh_session_protocol_detach(void *self) {
+    mesh_session_detach((struct mesh_session *)self);
+}
+
+static int mesh_session_protocol_begin(void *self) {
+    return mesh_session_begin_handshake((struct mesh_session *)self);
+}
+
+static void mesh_session_protocol_receive(void *self, const uint8_t *frame, size_t len) {
+    mesh_session_handle_from_radio((struct mesh_session *)self, frame, len);
+}
+
+static void mesh_session_protocol_frame_failed(void *self, uint32_t frame_id) {
+    mesh_session_packet_failed((struct mesh_session *)self, frame_id);
+}
+
+static void mesh_session_protocol_tick(void *self, uint64_t now_ms) {
+    mesh_session_tick((struct mesh_session *)self, now_ms);
+}
+
+static bool mesh_session_protocol_silent(const void *self) {
+    return mesh_session_link_silent((const struct mesh_session *)self);
+}
+
+static int mesh_session_protocol_keepalive(void *self) {
+    return mesh_session_send_heartbeat((struct mesh_session *)self);
+}
+
+static const struct mesh_protocol_ops k_meshtastic_protocol = {
+    .name = "meshtastic",
+    .stream_framing = &mesh_stream_framing_meshtastic,
+    .attach = mesh_session_protocol_attach,
+    .detach = mesh_session_protocol_detach,
+    .begin = mesh_session_protocol_begin,
+    .receive = mesh_session_protocol_receive,
+    .frame_failed = mesh_session_protocol_frame_failed,
+    .tick = mesh_session_protocol_tick,
+    .silent = mesh_session_protocol_silent,
+    .keepalive = mesh_session_protocol_keepalive,
+};
+
+struct mesh_protocol mesh_session_protocol(struct mesh_session *session) {
+    struct mesh_protocol protocol = {NULL, NULL};
+    if (session != NULL) {
+        protocol.ops = &k_meshtastic_protocol;
+        protocol.self = session;
+    }
+    return protocol;
+}

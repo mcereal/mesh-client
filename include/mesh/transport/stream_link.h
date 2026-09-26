@@ -2,7 +2,7 @@
 
 #include "inkwell/net/stream.h"
 #include "inkwell/runtime/loop.h"
-#include "mesh/core/session.h"
+#include "mesh/core/protocol.h"
 #include "mesh/proto/stream_framing.h"
 
 #include <stdbool.h>
@@ -27,10 +27,11 @@ extern "C" {
  * program talking a protocol over a descriptor needs. What is left here is the three things
  * that do know what a radio is:
  *
- *   - the frame parser, because 0x94 0xC3 is Meshtastic's and nobody else's;
- *   - the session the frames go to;
- *   - the two numbers that size the outbound queue, which are this protocol's largest frame
- *     and how many of them this client is willing to hold while a port is not draining.
+ *   - the framing, because 0x94 0xC3 is Meshtastic's and nobody else's - which is why it is
+ *     not spelled here either, but taken from the protocol (mesh/core/protocol.h);
+ *   - the protocol the frames go to;
+ *   - the two numbers that size the outbound queue, which are the largest frame this client
+ *     parses and how many of them it is willing to hold while a port is not draining.
  *
  * A transport owns one of these, opens it with a descriptor it obtained however it likes, and
  * keeps its own connection policy to itself. pump() and flush() report a fatal error and stop;
@@ -46,7 +47,7 @@ extern "C" {
    declaring one: eight Meshtastic frames is a few kilobytes on a handheld, and would be a
    silly answer for something moving a file. */
 #define MESH_STREAM_LINK_MAX_OUTBOUND 8U
-#define MESH_STREAM_LINK_SLOT_BYTES (MESH_STREAM_FRAME_HEADER_LEN + MESH_STREAM_FRAME_MAX_PAYLOAD)
+#define MESH_STREAM_LINK_SLOT_BYTES MESH_STREAM_PARSER_CAPACITY
 
 /* What the descriptor is, which decides how a write to it is made. inkwell's enum under this
    client's spelling; see inkwell/net/stream.h for why a stream has to be told rather than
@@ -59,15 +60,18 @@ enum mesh_stream_link_kind {
 struct mesh_stream_link {
     /* The descriptor, the read bound, the outbound queue and the EPOLLOUT arithmetic. */
     struct inkwell_stream stream;
-    /* ...over storage this client sizes, because the slot is one Meshtastic frame. */
+    /* ...over storage this client sizes, because the slot is one whole frame. */
     struct inkwell_stream_slot slots[MESH_STREAM_LINK_MAX_OUTBOUND];
     uint8_t slot_bytes[MESH_STREAM_LINK_MAX_OUTBOUND * MESH_STREAM_LINK_SLOT_BYTES];
 
     struct mesh_stream_parser parser;
     size_t frames_received;
 
-    /* The conversation this link feeds. Borrowed: the transport owns it, or the app does. */
-    struct mesh_session *session;
+    /* The conversation this link feeds, and the framing it asked for. The protocol's state is
+       borrowed: the transport owns it, or the app does. `framing` is NULL while no protocol is
+       bound, and a link with none sends nothing and discards what it reads. */
+    struct mesh_protocol protocol;
+    const struct mesh_stream_framing *framing;
     /* What this link's log lines are filed under ("serial", "tcp"). Borrowed and never freed;
        callers pass a literal. */
     const char *tag;
@@ -81,11 +85,17 @@ struct mesh_stream_link_stats {
     size_t junk_bytes;
 };
 
-/* Puts the link in its closed state. Call once before any other function; `tag` and `session`
-   survive an open/close cycle, so they are set here rather than at open. */
+/* Puts the link in its closed state. Call once before any other function; `tag` and `protocol`
+   survive an open/close cycle, so they are set here rather than at open. `protocol` is copied
+   and may be NULL; the framing comes with it. */
 void mesh_stream_link_init(struct mesh_stream_link *link, const char *tag,
-                           struct mesh_session *session);
-void mesh_stream_link_set_session(struct mesh_stream_link *link, struct mesh_session *session);
+                           const struct mesh_protocol *protocol);
+/* Rebinds the link. A protocol whose framing does not fit MESH_STREAM_PARSER_CAPACITY, or that
+   has none, is bound with no framing - so it is heard by nobody - rather than overrunning the
+   parser. Call while the link is closed: a half-parsed frame of one framing is not one of the
+   next. */
+void mesh_stream_link_set_protocol(struct mesh_stream_link *link,
+                                   const struct mesh_protocol *protocol);
 
 /*
  * Adopts `fd` - which must already be open and non-blocking - and watches it for readability.
@@ -107,12 +117,12 @@ int mesh_stream_link_open_socket(struct mesh_stream_link *link, inkwell_socket s
                                  struct inkwell_loop *loop, inkwell_loop_callback callback,
                                  void *userdata);
 /* Unwatches and closes the descriptor, resets the parser, and fails every queued packet against
-   the session. Safe on a closed link. */
+   the protocol. Safe on a closed link. */
 void mesh_stream_link_close(struct mesh_stream_link *link);
 bool mesh_stream_link_is_open(const struct mesh_stream_link *link);
 
 /*
- * Reads what is ready and folds complete frames into the session, bounded so a NodeDB sync
+ * Reads what is ready and folds complete frames into the protocol, bounded so a NodeDB sync
  * cannot starve UI input. Returns the byte count, 0 when nothing was ready, or:
  *
  *   -ENOTCONN  the far end is gone (EOF), or the link is not open
@@ -124,14 +134,16 @@ int mesh_stream_link_pump(struct mesh_stream_link *link);
 /* Writes as much of the queue as the descriptor will take. Returns 0, -ENOTCONN when the link
    is closed, or -EIO on a failed write, which is fatal in the same way. */
 int mesh_stream_link_flush(struct mesh_stream_link *link);
-/* Frames one ToRadio packet, queues it and flushes. Returns 0, -ENOSPC when the queue is full,
-   -EMSGSIZE when the packet is too big to frame, -ENOTCONN, or -EIO. */
+/* Frames one packet in the protocol's framing, queues it and flushes. Returns 0, -ENOSPC when
+   the queue is full, -EMSGSIZE when the packet is too big to frame, -ENOTCONN (closed, or no
+   framing bound), or -EIO. */
 int mesh_stream_link_send(struct mesh_stream_link *link, const uint8_t *packet, size_t len,
                           uint32_t packet_id);
 /*
  * Writes `len` bytes straight at the descriptor, outside the frame queue. The one caller is the
- * serial link's wake burst, which is deliberately not a frame: a run of bare START2 bytes cannot
- * complete one, which is exactly what forces the radio's own parser to resync. Best effort, and
+ * serial link's wake burst, which is deliberately not a frame: a run of the framing's
+ * `wake_byte` cannot complete one, which is exactly what forces the radio's own parser to
+ * resync. Best effort, and
  * a short write is not retried. Returns the bytes written or a negative errno.
  */
 int mesh_stream_link_write_raw(struct mesh_stream_link *link, const uint8_t *data, size_t len);

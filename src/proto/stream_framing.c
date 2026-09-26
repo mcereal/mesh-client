@@ -3,8 +3,6 @@
 #include <errno.h>
 #include <string.h>
 
-#define MESH_STREAM_PARSER_CAPACITY (MESH_STREAM_FRAME_HEADER_LEN + MESH_STREAM_FRAME_MAX_PAYLOAD)
-
 void mesh_stream_parser_reset(struct mesh_stream_parser *parser) {
     if (parser == NULL) {
         return;
@@ -134,3 +132,11 @@ int mesh_stream_frame_encode(const uint8_t *payload, size_t payload_len, uint8_t
     *written = MESH_STREAM_FRAME_HEADER_LEN + payload_len;
     return 0;
 }
+
+const struct mesh_stream_framing mesh_stream_framing_meshtastic = {
+    .name = "meshtastic",
+    .max_frame = MESH_STREAM_FRAME_HEADER_LEN + MESH_STREAM_FRAME_MAX_PAYLOAD,
+    .push = mesh_stream_parser_push,
+    .encode = mesh_stream_frame_encode,
+    .wake_byte = (int)MESH_STREAM_FRAME_START2,
+};
