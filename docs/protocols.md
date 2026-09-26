@@ -91,7 +91,8 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `REMOTE_ADMIN` | configuring a node over the mesh |
 | `KEY_VERIFICATION` | the verify-key ceremony |
 | `CHANNEL_LINKS` | the channel share QR and import rows |
-| `CONTACT_LINKS` | the contact share and import rows, and "put back on the radio" |
+| `CONTACT_LINKS` | the contact share and import rows |
+| `NODE_ADD` | "put back on the radio" (Meshtastic) / "add as contact" (MeshCore), on a node the radio does not carry |
 | `MODULES` | the Modules row in Settings |
 | `REACTIONS` | React on X, and X itself inside a thread |
 | `RADIO_FIRMWARE` | the radio firmware check and install rows |
@@ -177,6 +178,10 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   listed. Only a contact is offered the row: a heard node the radio never added, or a sender
   known by its key's prefix, has nothing on the radio to remove. A radio that adds contacts by
   itself takes it back at its next advert.
+- **A heard node is added** with `ADD_UPDATE_CONTACT` and the record its advert gave - key, kind,
+  name, stamp, position - with no route, so the first message floods and the radio learns one. It
+  becomes a contact (`in_nodedb`) on the radio's OK. That is the one way to reach a node heard
+  while "Add heard nodes" is off.
 - **An advert** is this radio announcing its name and key now: Radio details offers it to the
   nodes in earshot or flooded across the mesh. Meshtastic has no such verb, so the two rows are
   listed by `protocol`, not by a lacked feature.
@@ -187,7 +192,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
 Not yet spoken: repeater and room-server login, telemetry and status requests, trace paths,
-adding a heard node as a contact and a contact's favourite flag, and contact sharing. The
+a contact's favourite flag, and contact sharing. The
 `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
 end.

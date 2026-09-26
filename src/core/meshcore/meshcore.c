@@ -851,6 +851,17 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
                 mesh_meshcore_apply_write(meshcore, request->frame, request->len);
             }
             mesh_meshcore_settle_write(meshcore, 0);
+        } else if (cmd == MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT && request != NULL &&
+                   request->len > MESH_MESHCORE_PUBKEY_LEN) {
+            /* Only now is it on the radio's list, and so a node a direct message can reach. */
+            const uint32_t id =
+                mesh_meshcore_find_prefix(meshcore, request->frame + 1, MESH_MESHCORE_PUBKEY_LEN);
+            struct mesh_node_summary *node =
+                id != 0U ? mesh_session_model_node(meshcore->model, id, false) : NULL;
+            if (node != NULL) {
+                node->in_nodedb = true;
+                inkwell_log_info("meshcore", "Added contact 0x%08x", id);
+            }
         } else if (cmd == MESH_MESHCORE_CMD_REMOVE_CONTACT && request != NULL &&
                    request->len == 1U + MESH_MESHCORE_PUBKEY_LEN) {
             /* Only now: a refused or unanswered removal leaves the contact on the radio, and
@@ -1263,6 +1274,54 @@ int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_i
                               mesh_meshcore_encode_key(MESH_MESHCORE_CMD_REMOVE_CONTACT,
                                                        node->public_key, frame, sizeof frame),
                               0U);
+    return result < 0 ? result : 1;
+}
+
+/* The advert type a roster role came from: mesh_meshcore_role() the other way. */
+static uint8_t mesh_meshcore_adv_type(uint32_t role) {
+    switch (role) {
+    case MESH_MESHCORE_DEVICE_ROLE_REPEATER:
+        return MESH_MESHCORE_ADV_REPEATER;
+    case MESH_MESHCORE_DEVICE_ROLE_SENSOR:
+        return MESH_MESHCORE_ADV_SENSOR;
+    case MESH_MESHCORE_DEVICE_ROLE_CLIENT_BASE:
+        return MESH_MESHCORE_ADV_ROOM;
+    default:
+        return MESH_MESHCORE_ADV_CHAT;
+    }
+}
+
+int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id) {
+    if (meshcore == NULL || node_id == 0U || node_id == meshcore->self_node) {
+        return -EINVAL;
+    }
+    /* The roster is the last radio's until the handshake is through, as for a removal. */
+    if (!mesh_meshcore_ready(meshcore)) {
+        return -ENOTCONN;
+    }
+    const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, node_id);
+    if (node == NULL || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN) {
+        return -ENOENT;
+    }
+    if (node->in_nodedb) {
+        return -EEXIST;
+    }
+    struct mesh_meshcore_contact contact;
+    memset(&contact, 0, sizeof contact);
+    memcpy(contact.public_key, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
+    contact.type = mesh_meshcore_adv_type(node->role);
+    contact.out_path_len = MESH_MESHCORE_PATH_NONE;
+    if (node->has_user) {
+        inkwell_str_copy(contact.name, sizeof contact.name, node->long_name);
+    }
+    contact.last_advert = node->last_heard;
+    if (node->position.valid) {
+        contact.latitude_e6 = node->position.latitude_i / 10;
+        contact.longitude_e6 = node->position.longitude_i / 10;
+    }
+    uint8_t frame[MESH_MESHCORE_MAX_FRAME];
+    const int result = mesh_meshcore_enqueue(
+        meshcore, frame, mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U);
     return result < 0 ? result : 1;
 }
 

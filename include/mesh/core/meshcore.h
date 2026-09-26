@@ -50,6 +50,7 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_SET_DEVICE_TIME = 6,
     MESH_MESHCORE_CMD_SEND_SELF_ADVERT = 7,
     MESH_MESHCORE_CMD_SET_ADVERT_NAME = 8,
+    MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT = 9,
     MESH_MESHCORE_CMD_SYNC_NEXT_MESSAGE = 10,
     MESH_MESHCORE_CMD_SET_RADIO_PARAMS = 11,
     MESH_MESHCORE_CMD_SET_RADIO_TX_POWER = 12,
@@ -125,6 +126,8 @@ enum mesh_meshcore_txt_type {
 /* A path length with no path: the packet came direct, or no route is known yet. Otherwise the
    low six bits are the hop count and the top two the hash size less one. */
 #define MESH_MESHCORE_PATH_NONE 0xFFU
+/* MAX_PATH_SIZE: the route a contact record carries, in bytes. */
+#define MESH_MESHCORE_PATH_MAX 64U
 #define MESH_MESHCORE_PATH_HOPS(len) ((uint8_t)((len) & 0x3FU))
 
 /* RESP_CODE_SELF_INFO, the answer to APP_START: the radio's own identity and radio settings. */
@@ -247,6 +250,10 @@ int mesh_meshcore_encode_latlon(int32_t latitude_e6, int32_t longitude_e6, uint8
 int mesh_meshcore_encode_set_channel(uint8_t index, const char *name,
                                      const uint8_t secret[MESH_MESHCORE_SECRET_LEN], uint8_t *out,
                                      size_t out_len);
+/* ADD_UPDATE_CONTACT: the contact record as RESP_CONTACT carries it - key, type, flags, path
+   length and the 64-byte path, the name in 32 bytes, the advert's timestamp, the position. */
+int mesh_meshcore_encode_contact(const struct mesh_meshcore_contact *contact, uint8_t *out,
+                                 size_t out_len);
 /* REBOOT carries the word, so a stray byte cannot reboot a radio. */
 int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len);
 
@@ -409,6 +416,15 @@ int mesh_meshcore_send_advert(struct mesh_meshcore *meshcore, bool flood);
  * radio's contacts, -ENOBUFS when the command queue is full.
  */
 int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_id);
+/*
+ * Asks the radio to make a heard node a contact, from what the roster holds of its advert: the
+ * key, the name, the kind of node and where it said it was, with no route known yet so the
+ * first message floods. The node joins the radio's list when the radio says OK. 1 when asked;
+ * -EINVAL for 0 or this radio, -ENOTCONN until the handshake has named the radio, -ENOENT for a
+ * node with no whole key, -EEXIST for one that is already a contact, -ENOBUFS when the queue is
+ * full.
+ */
+int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id);
 
 /*
  * Queues the save's commands and then APP_START, whose SELF_INFO is the read-back. Returns how
