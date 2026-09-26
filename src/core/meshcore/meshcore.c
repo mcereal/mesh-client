@@ -765,6 +765,18 @@ static void mesh_meshcore_apply_write(struct mesh_meshcore *meshcore, const uint
     mesh_meshcore_store_settings(meshcore);
 }
 
+/* The roster's entry for `node_id`, or NULL; a lookup, never an add. */
+static const struct mesh_node_summary *
+mesh_meshcore_roster_node(const struct mesh_meshcore *meshcore, uint32_t node_id) {
+    const struct mesh_handshake_status *status = &meshcore->model->handshake;
+    for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (status->nodes[i].node_id == node_id) {
+            return &status->nodes[i];
+        }
+    }
+    return NULL;
+}
+
 /* The answer to the command at the head of the queue. */
 static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t *frame,
                                    size_t len) {
@@ -894,15 +906,18 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             record[0] = MESH_MESHCORE_RESP_CONTACT;
             struct mesh_meshcore_contact contact;
             if (mesh_meshcore_decode_contact(record, (size_t)request->len + 4U, &contact) == 0) {
-                /* Heard as of now, which is the radio's lastmod for it too - not the sender's
-                   stamp, which is its own clock. A node brought back keeps its place among the
-                   recently heard rather than sinking to the bottom of a full roster. */
+                const uint32_t id =
+                    mesh_meshcore_node_id(contact.public_key, MESH_MESHCORE_PUBKEY_LEN);
+                /* The sender's stamp is its own clock, not when we heard it. A node still on
+                   the roster keeps its heard time; one brought back is heard as of now, the
+                   radio's lastmod for it too, so it keeps its place among the recently heard
+                   rather than sinking to the bottom of a full roster. */
                 contact.last_advert = 0U;
-                contact.lastmod = inkwell_time_wall_credible_s();
+                contact.lastmod = mesh_meshcore_roster_node(meshcore, id) == NULL
+                                      ? inkwell_time_wall_credible_s()
+                                      : 0U;
                 mesh_meshcore_store_contact(meshcore, &contact, false);
-                inkwell_log_info(
-                    "meshcore", "Added contact 0x%08x",
-                    mesh_meshcore_node_id(contact.public_key, MESH_MESHCORE_PUBKEY_LEN));
+                inkwell_log_info("meshcore", "Added contact 0x%08x", id);
             }
         } else if (cmd == MESH_MESHCORE_CMD_REMOVE_CONTACT && request != NULL &&
                    request->len == 1U + MESH_MESHCORE_PUBKEY_LEN) {
@@ -1174,18 +1189,6 @@ bool mesh_meshcore_ready(const struct mesh_meshcore *meshcore) {
  * there is a clock at all, because the timestamp is part of the encrypted payload and a repeat
  * of the same text in the same second would be dropped by the mesh as a duplicate.
  */
-/* The roster's entry for `node_id`, or NULL; a lookup, never an add. */
-static const struct mesh_node_summary *
-mesh_meshcore_roster_node(const struct mesh_meshcore *meshcore, uint32_t node_id) {
-    const struct mesh_handshake_status *status = &meshcore->model->handshake;
-    for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
-        if (status->nodes[i].node_id == node_id) {
-            return &status->nodes[i];
-        }
-    }
-    return NULL;
-}
-
 static uint32_t mesh_meshcore_timestamp(struct mesh_meshcore *meshcore) {
     uint32_t now = inkwell_time_wall_credible_s();
     if (now == 0U && meshcore->radio_clock != 0U) {
