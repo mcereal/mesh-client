@@ -204,6 +204,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_WAYPOINTS_ROW_COUNT_OTHER] = "%u lugares",
     [MESH_STR_WAYPOINTS_ROW_EMPTY] = "Nada compartido aún",
     [MESH_STR_TOAST_MAP_NO_FIXES] = "Nada en la malla tiene posición todavía",
+    [MESH_STR_TOAST_NO_WAYPOINTS] = "Esta malla no comparte puntos de referencia",
     [MESH_STR_MAP_TITLE] = "Mapa",
     [MESH_STR_MAP_BADGE_IN_VIEW] = "%u de %u",
     [MESH_STR_MAP_NOTHING_SELECTED] = "nada bajo la mira",

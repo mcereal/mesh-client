@@ -83,7 +83,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 
 | Feature | What disappears without it |
 |---|---|
-| `WAYPOINTS` | "Send a waypoint" on a node's sheet |
+| `WAYPOINTS` | "Send a waypoint" on a node's sheet; the Nodes list's Waypoints row dims and a press says why, since every row under it is counted from it (`MESH_UI_NODES_LEAD_ROWS`) |
 | `TRACEROUTE` | the traceroute verb |
 | `NODE_REQUESTS` | asking a node for its name, position or telemetry |
 | `NODE_FLAGS` | pin, mute, ignore, remove |
@@ -95,9 +95,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `REACTIONS` | React on X, and X itself inside a thread |
 | `RADIO_FIRMWARE` | the radio firmware check and install rows |
 
-Not gated yet: the Waypoints row at the head of the Nodes list, which is fixed row arithmetic
-(`MESH_UI_NODES_LEAD_ROWS`) rather than a filter, and the Radio tab's reboot, NodeDB and backup
-verbs. `tests/suites/ui_protocol.c` is what fails when a gate is lost.
+Not gated yet: the Radio tab's reboot, NodeDB and backup verbs. `tests/suites/ui_protocol.c` is what fails when a gate is lost.
 
 ## MeshCore
 

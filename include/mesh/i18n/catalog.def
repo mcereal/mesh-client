@@ -486,6 +486,7 @@ MESH_STR_ENTRY(WAYPOINTS_ROW_EMPTY,       "None shared yet")
 /* Raised when the row is pressed anyway - the reader who most needs the reason is the one who
    just pressed A without reading it. */
 MESH_STR_ENTRY(TOAST_MAP_NO_FIXES,        "Nothing on the mesh has a position yet")
+MESH_STR_ENTRY(TOAST_NO_WAYPOINTS,        "This mesh does not share waypoints")
 /* The map's own heading, and the badge beside it: how many markers are on the panel as it is
    framed right now, out of every one the client could place. A reader who has panned away from
    everything is told so rather than left wondering whether the map is broken. */

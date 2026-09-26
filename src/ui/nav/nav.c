@@ -1938,9 +1938,15 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                 return true;
             }
             if (cursor == MESH_UI_NODES_WAYPOINTS_ROW) {
-                /* The places, one level in. Never refused: the list always ends in its "New
-                   waypoint here" row, so there is something to stand on even on a mesh that has
-                   shared nothing. */
+                /* The places, one level in - refused only on a protocol with no waypoints at
+                   all, and out loud, as the map row is. Otherwise never: the list always ends in
+                   its "New waypoint here" row, so there is something to stand on even on a mesh
+                   that has shared nothing. The row stays rather than going, because every row
+                   below it is counted from it. */
+                if (!mesh_ui_settings_supports(&store->settings, MESH_UI_FEATURE_WAYPOINTS)) {
+                    mesh_ui_nav_raise_toast(nav, inkcell_str(MESH_STR_TOAST_NO_WAYPOINTS));
+                    return true;
+                }
                 mesh_ui_nav_open_waypoints(nav);
                 return true;
             }

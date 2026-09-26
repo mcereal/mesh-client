@@ -18,6 +18,7 @@
 #include "mesh/core/message.h"
 #include "mesh/core/protocol.h"
 #include "mesh/core/session.h"
+#include "mesh/i18n/strings.h"
 #include "mesh/ui/commands.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
@@ -366,5 +367,42 @@ MESH_TEST_CASE(ui_protocol_draft_cap_follows_the_link, unit) {
     store.nav.keyboard_channel_url = true;
     MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) != MESH_UI_DRAFT_MAX - 1U,
                       "a link being typed is not a message");
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/* The Waypoints row stays - every row under it is counted from it - but on a protocol with no
+   waypoints a press says so rather than opening a list whose only row makes a Meshtastic one. */
+MESH_TEST_CASE(ui_protocol_waypoints_row_follows_the_protocol, unit) {
+    const char *failure = NULL;
+    static struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_WAYPOINTS_ROW;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    store.settings.protocol_lacks = MESH_UI_FEATURE_WAYPOINTS;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (store.nav.waypoints_open) {
+        failure = "a protocol without waypoints does not open the list";
+        goto cleanup;
+    }
+    if (strcmp(store.nav.toast.text, inkcell_str(MESH_STR_TOAST_NO_WAYPOINTS)) != 0) {
+        failure = "and the press says why";
+        goto cleanup;
+    }
+
+    store.settings.protocol_lacks = 0U;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.waypoints_open) {
+        failure = "Meshtastic opens it";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
