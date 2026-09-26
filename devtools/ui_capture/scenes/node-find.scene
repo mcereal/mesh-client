@@ -1,0 +1,53 @@
+# The Find keyboard: a node's name typed into the heading, and what the typing has kept so far.
+#
+# Three things to watch.
+#
+#   - The query is in the app bar, as a search field, rather than in a box under a heading that
+#     said "Find a node". Nothing about the keys changes: at this scale they are at their own cap,
+#     so the room the box took is slack above them, where a keyboard keeps its slack.
+#   - The capsule beside it counts the nodes the typing keeps, through the filter the list is on -
+#     so it is the number the list will show on the way back. It turns red at none, which is the
+#     cue to take a letter back before Done empties the list.
+#   - The triggers move the caret, and the field draws it where it is: between two letters, not
+#     after the last one wherever it really was.
+
+scene demo
+scale 4
+delay 140
+clock 2026-01-15 12:00
+
+tab nodes
+hold 600
+
+# The Find row, and in. The field opens empty, saying what it is for.
+key down 2
+key a
+hold 900
+
+# "r", then "i": the count narrows as each letter lands.
+key down
+key right 3
+key a
+hold 700
+key right 4
+key a
+hold 900
+
+# "z" matches nothing, and the capsule says so in the error colour.
+key down 2
+key left 7
+key a
+hold 1100
+
+# X takes it back.
+key x
+hold 800
+
+# L2 twice: the caret walks back to the start, and the field shows it there.
+key l2
+hold 500
+key l2
+hold 1100
+
+key b
+hold 600
