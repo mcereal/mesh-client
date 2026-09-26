@@ -639,6 +639,50 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
     }
 }
 
+/*
+ * A settings command the radio took, onto the SELF_INFO the next save is built over. The
+ * read-back is queued behind it and will say the same, but a save made before it lands would
+ * otherwise carry the old values of every row it did not touch and undo this one.
+ */
+static uint32_t mesh_meshcore_u32_at(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8U) | ((uint32_t)p[2] << 16U) |
+           ((uint32_t)p[3] << 24U);
+}
+
+static void mesh_meshcore_apply_write(struct mesh_meshcore *meshcore, const uint8_t *frame,
+                                      size_t len) {
+    struct mesh_meshcore_self_info *self = &meshcore->self;
+    switch (frame[0]) {
+    case MESH_MESHCORE_CMD_SET_ADVERT_NAME: {
+        const size_t n = len - 1U < MESH_MESHCORE_NAME_LEN ? len - 1U : MESH_MESHCORE_NAME_LEN;
+        memcpy(self->name, frame + 1, n);
+        self->name[n] = '\0';
+        break;
+    }
+    case MESH_MESHCORE_CMD_SET_RADIO_PARAMS:
+        if (len >= 11U) {
+            self->frequency_khz = mesh_meshcore_u32_at(frame + 1);
+            self->bandwidth_hz = mesh_meshcore_u32_at(frame + 5);
+            self->spreading_factor = frame[9];
+            self->coding_rate = frame[10];
+        }
+        break;
+    case MESH_MESHCORE_CMD_SET_RADIO_TX_POWER:
+        if (len >= 2U) {
+            self->tx_power_dbm = frame[1];
+        }
+        break;
+    case MESH_MESHCORE_CMD_SET_ADVERT_LATLON:
+        if (len >= 9U) {
+            self->latitude_e6 = (int32_t)mesh_meshcore_u32_at(frame + 1);
+            self->longitude_e6 = (int32_t)mesh_meshcore_u32_at(frame + 5);
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 /* The answer to the command at the head of the queue. */
 static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t *frame,
                                    size_t len) {
@@ -753,6 +797,9 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         if (cmd == MESH_MESHCORE_CMD_SEND_CHANNEL_TXT_MSG) {
             mesh_meshcore_mark(meshcore, packet_id, MESH_MESSAGE_ACK_NONE);
         } else if (mesh_meshcore_is_settings_write(cmd)) {
+            if (request != NULL) {
+                mesh_meshcore_apply_write(meshcore, request->frame, request->len);
+            }
             mesh_meshcore_settle_write(meshcore, 0);
         }
         break;
@@ -1172,8 +1219,15 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
     if (settings != NULL) {
         settings->writes_sent += 1U;
     }
+    const uint32_t failed_before = settings != NULL ? settings->writes_failed : 0U;
     for (size_t i = 0; i < count; ++i) {
         (void)mesh_meshcore_enqueue(meshcore, frames[i], lens[i], 0U);
+    }
+    /* Every command refused by the link before this returns: the save settled as failed
+       already, before a caller could start watching for it, so it is this call's answer. */
+    if (settings != NULL && meshcore->writes_outstanding == 0U &&
+        settings->writes_failed != failed_before) {
+        return settings->last_write_error < 0 ? (int)settings->last_write_error : -EIO;
     }
     uint8_t frame[MESH_MESHCORE_MAX_FRAME];
     (void)mesh_meshcore_enqueue(

@@ -727,7 +727,8 @@ MESH_TEST_CASE(meshcore_settings_write_the_link_refuses_is_settled, unit) {
     write.set_name = true;
     memcpy(write.name, "Pine", 5U);
     wire.refuse = true;
-    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1, "one command");
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EAGAIN,
+                      "the link's refusal is the save's answer");
     MESH_TEST_FAIL_IF(settings->writes_failed != failed + 1U ||
                           settings->last_write_error != -EAGAIN,
                       "is refused by the link and settled as such");
@@ -791,6 +792,13 @@ MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     MESH_TEST_FAIL_IF(settings->writes_acked != acked + 1U, "the last OK settles the save");
     MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_APP_START, "and the read-back follows");
+    /* Each OK moved the baseline, so a save made before the read-back lands is built over
+       what the radio now holds rather than undoing it. */
+    MESH_TEST_FAIL_IF(
+        strcmp(g_meshcore.self.name, "Pine") != 0 || g_meshcore.self.frequency_khz != 869618U ||
+            g_meshcore.self.spreading_factor != 8U || (int8_t)g_meshcore.self.tx_power_dbm != -2 ||
+            g_meshcore.self.latitude_e6 != -33868800,
+        "the baseline follows each OK ahead of the read-back");
 
     /* A refusal fails the save with the radio's own code. */
     const uint32_t failed = settings->writes_failed;
