@@ -295,7 +295,7 @@ static void mesh_meshcore_store_settings(struct mesh_meshcore *meshcore) {
 static bool mesh_meshcore_is_settings_write(uint8_t cmd) {
     return cmd == MESH_MESHCORE_CMD_SET_ADVERT_NAME || cmd == MESH_MESHCORE_CMD_SET_RADIO_PARAMS ||
            cmd == MESH_MESHCORE_CMD_SET_RADIO_TX_POWER ||
-           cmd == MESH_MESHCORE_CMD_SET_ADVERT_LATLON;
+           cmd == MESH_MESHCORE_CMD_SET_ADVERT_LATLON || cmd == MESH_MESHCORE_CMD_SET_CHANNEL;
 }
 
 /* One command of a save answered: `error` is 0 for OK. The last answer settles the save into
@@ -352,7 +352,26 @@ static void mesh_meshcore_store_channel(struct mesh_meshcore *meshcore,
     if (mesh_session_model_set_channel(meshcore->model, &summary) < 0) {
         inkwell_log_debug("meshcore", "Channel %u is past the %u the client shows",
                           (unsigned)channel->index, (unsigned)MESH_SESSION_MAX_CHANNELS);
+        return;
     }
+    /* And the slot as a settings record, secret included, which is what the channel editor
+       starts from and what a save writes back when the key is kept. The record's name is
+       Meshtastic's twelve bytes; the full one is the summary's above. */
+    struct mesh_radio_settings *settings = mesh_session_model_settings(meshcore->model);
+    if (settings == NULL || channel->index >= MESH_RADIO_SETTINGS_MAX_CHANNELS) {
+        return;
+    }
+    meshtastic_Channel *record = &settings->channels[channel->index];
+    memset(record, 0, sizeof *record);
+    record->index = (int8_t)channel->index;
+    record->role = (meshtastic_Channel_Role)summary.role;
+    if (summary.role != MESH_MESHCORE_ROLE_DISABLED) {
+        record->has_settings = true;
+        inkwell_str_copy(record->settings.name, sizeof record->settings.name, summary.name);
+        memcpy(record->settings.psk.bytes, channel->secret, MESH_MESHCORE_SECRET_LEN);
+        record->settings.psk.size = (pb_size_t)MESH_MESHCORE_SECRET_LEN;
+    }
+    settings->has_channel[channel->index] = true;
 }
 
 /* The roster entry whose key starts with `prefix`, or 0. */
@@ -687,6 +706,16 @@ static void mesh_meshcore_apply_write(struct mesh_meshcore *meshcore, const uint
             self->longitude_e6 = (int32_t)mesh_meshcore_u32_at(frame + 5);
         }
         break;
+    case MESH_MESHCORE_CMD_SET_CHANNEL:
+        if (len >= 2U + MESH_MESHCORE_NAME_LEN + MESH_MESHCORE_SECRET_LEN) {
+            struct mesh_meshcore_channel channel;
+            memset(&channel, 0, sizeof channel);
+            channel.index = frame[1];
+            memcpy(channel.name, frame + 2, MESH_MESHCORE_NAME_LEN - 1U);
+            memcpy(channel.secret, frame + 2 + MESH_MESHCORE_NAME_LEN, MESH_MESHCORE_SECRET_LEN);
+            mesh_meshcore_store_channel(meshcore, &channel);
+        }
+        return; /* nothing of SELF_INFO's changed */
     default:
         return;
     }
@@ -941,6 +970,14 @@ static int mesh_meshcore_begin(void *self) {
     /* A fresh connection asks for every contact: the model may hold nodes from another radio's
        list, and "since" is only meaningful against the list it came from. */
     meshcore->contacts_since = 0U;
+    /* And no channel slot is editable until this walk has read it again: the table outlives
+       the link, and a slot left over from the last one - a walk refused before reaching it -
+       would be written back over whatever the radio holds now. */
+    struct mesh_radio_settings *settings = mesh_session_model_settings(meshcore->model);
+    if (settings != NULL) {
+        memset(settings->has_channel, 0, sizeof settings->has_channel);
+        memset(settings->channels, 0, sizeof settings->channels);
+    }
 
     uint8_t frame[MESH_MESHCORE_MAX_FRAME];
     int result = mesh_meshcore_enqueue(
@@ -1239,8 +1276,8 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
     }
     /* Encoded whole before anything is queued, so a value the codec refuses leaves the radio
        untouched rather than half written. */
-    uint8_t frames[4][MESH_MESHCORE_MAX_FRAME];
-    int lens[4];
+    uint8_t frames[5][MESH_MESHCORE_MAX_FRAME];
+    int lens[5];
     size_t count = 0U;
     if (write->set_name) {
         lens[count] = mesh_meshcore_encode_name(write->name, frames[count], sizeof frames[count]);
@@ -1263,6 +1300,21 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
                                                   frames[count], sizeof frames[count]);
         count += 1U;
     }
+    /* A slot the radio has, and one the handshake has read: the save starts from what it
+       read, and a slot past the walk is one no screen offers. */
+    const bool self_info =
+        write->set_name || write->set_radio || write->set_tx_power || write->set_position;
+    if (write->set_channel) {
+        if (write->channel_index >= mesh_meshcore_channel_limit(meshcore)) {
+            return -EINVAL;
+        }
+        char name[MESH_MESHCORE_NAME_LEN + 1U];
+        memcpy(name, write->channel_name, MESH_MESHCORE_NAME_LEN);
+        name[MESH_MESHCORE_NAME_LEN] = '\0';
+        lens[count] = mesh_meshcore_encode_set_channel(
+            write->channel_index, name, write->channel_secret, frames[count], sizeof frames[count]);
+        count += 1U;
+    }
     if (count == 0U) {
         return -EINVAL;
     }
@@ -1271,8 +1323,9 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
             return -EINVAL;
         }
     }
-    /* The whole save and its read-back, or none of it. */
-    if (meshcore->queue_count + count + 1U > MESH_MESHCORE_QUEUE_LEN) {
+    /* The whole save and its read-backs, or none of it. */
+    const size_t reads = (self_info ? 1U : 0U) + (write->set_channel ? 1U : 0U);
+    if (meshcore->queue_count + count + reads > MESH_MESHCORE_QUEUE_LEN) {
         return -ENOBUFS;
     }
     meshcore->writes_outstanding = (uint8_t)count;
@@ -1292,9 +1345,14 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
         return settings->last_write_error < 0 ? (int)settings->last_write_error : -EIO;
     }
     uint8_t frame[MESH_MESHCORE_MAX_FRAME];
-    (void)mesh_meshcore_enqueue(
-        meshcore, frame,
-        mesh_meshcore_encode_app_start(MESH_MESHCORE_APP_NAME, frame, sizeof frame), 0U);
+    if (self_info) {
+        (void)mesh_meshcore_enqueue(
+            meshcore, frame,
+            mesh_meshcore_encode_app_start(MESH_MESHCORE_APP_NAME, frame, sizeof frame), 0U);
+    }
+    if (write->set_channel) {
+        mesh_meshcore_request_byte(meshcore, MESH_MESHCORE_CMD_GET_CHANNEL, write->channel_index);
+    }
     return (int)count;
 }
 

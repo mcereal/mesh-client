@@ -2065,6 +2065,7 @@ MESH_STR_ENTRY(SETTINGS_TEXT_SECRET,      "********")
 MESH_STR_ENTRY(SETTINGS_KEY_NONE,         "none")
 MESH_STR_ENTRY(SETTINGS_KEY_NO_ENCRYPTION,"no encryption")
 MESH_STR_ENTRY(SETTINGS_KEY_DEFAULT,      "default key")
+MESH_STR_ENTRY(SETTINGS_KEY_FROM_NAME,    "from the #name")
 MESH_STR_ENTRY(SETTINGS_KEY_SIMPLE,       "simple key %u")
 MESH_STR_ENTRY(SETTINGS_KEY_AES,          "%.8s... (AES-%u)")
 MESH_STR_ENTRY(SETTINGS_KEY_BITS,         "%.8s... (%u-bit)")
@@ -2498,6 +2499,9 @@ MESH_STR_ENTRY(CONFIRM_TEXT_HAM_MODE,     "Renames this node to your call sign, 
 MESH_STR_ENTRY(CONFIRM_TEXT_FW_USB,       "The image downloads, then the radio restarts into its bootloader and the blocks are written over the cable. Keep it plugged in: an interrupted write leaves the bootloader running and is retried by writing again.")
 MESH_STR_ENTRY(CONFIRM_TEXT_FW_BLE,       "The image downloads, then the radio leaves the mesh and reboots into its update loader. There is no way back out of that loader except finishing, which takes about four minutes. Keep the Brick near the radio until it does.")
 MESH_STR_ENTRY(CONFIRM_TEXT_DEFAULT,      "The radio will reboot to apply this.")
+MESH_STR_ENTRY(CONFIRM_TEXT_PLAIN,        "Takes effect at once.")
+MESH_STR_ENTRY(CONFIRM_TEXT_CHANNELS_PLAIN, "Takes effect at once. A channel is its key - the name is only this radio's label for it - and a #name channel's key can be made from its name.")
+MESH_STR_ENTRY(CONFIRM_TEXT_CLEAR_PLAIN,  "The name and key are erased. A key with no copy elsewhere is gone for good.")
 /*
  * Joining a link. The headline names the mesh being joined, because that is the fact the user
  * is agreeing to and a channel's name is the only part of a link a person can read.

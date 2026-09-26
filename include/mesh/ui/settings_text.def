@@ -50,6 +50,8 @@ MESH_UI_TEXT_FIELD(MQTT_USERNAME, 63)
 MESH_UI_TEXT_FIELD(MQTT_PASSWORD, 31)
 MESH_UI_TEXT_FIELD(MQTT_ROOT, 31)
 MESH_UI_TEXT_FIELD(CHANNEL_NAME, 11)
+MESH_UI_TEXT_FIELD(CHANNEL_ANY_NAME, 31)
+MESH_UI_TEXT_FIELD(CHANNEL_ANY_KEY, 32)
 /*
  * A key is typed as hex, so it is two characters per byte of a 32-byte PSK. Written out rather
  * than as (2 * MESH_UI_PSK_MAX) because this file is read where that constant is not - nav.h

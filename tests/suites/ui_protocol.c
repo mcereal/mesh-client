@@ -520,7 +520,8 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
                                       MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION),
                       "and an advertised location can be cleared");
 
-    /* Channels are listed, not opened: nothing could save an edit to one. */
+    /* A channel slot opens its editor, and the editor is a name and a 16-byte key: no role,
+       no MQTT, no precision, no mute. Public is not cleared; a secondary slot can be. */
     settings.has_channels = true;
     settings.channels[0].present = true;
     settings.channels[0].role = 1U;
@@ -531,13 +532,29 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
     const uint32_t slot_count =
         mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
                                MESH_UI_SETTINGS_NO_CHANNEL, slots, 16U);
-    MESH_TEST_FAIL_IF(slot_count < 1U || slots[0].kind != INKSTAND_FORM_INFO,
-                      "a slot is a fact, not a row that opens the editor");
-    for (uint32_t i = 1U; i < slot_count; ++i) {
-        MESH_TEST_FAIL_IF(slots[i].kind == INKSTAND_FORM_ACTION && slots[i].number == 1U &&
-                              slots[i].field == MESH_UI_FIELD_NONE,
-                          "and an empty slot offers no set-up");
-    }
+    MESH_TEST_FAIL_IF(slot_count < 2U || slots[0].kind != INKSTAND_FORM_ACTION ||
+                          slots[1].kind != INKSTAND_FORM_ACTION || slots[1].number != 1U,
+                      "a slot opens the editor, and an empty one offers set-up");
+    struct mesh_ui_settings_item rows[16];
+    uint32_t row_count = mesh_ui_settings_items(&settings, &handshake, NULL, 0U,
+                                                MESH_UI_SETTINGS_CHANNELS, 0U, rows, 16U);
+    MESH_TEST_FAIL_IF(row_count != 2U || rows[0].field != MESH_UI_FIELD_CHANNEL_ANY_NAME ||
+                          rows[1].field != MESH_UI_FIELD_CHANNEL_ANY_KEY,
+                      "the editor is a name and a key, and Public is not cleared");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_text_max(MESH_UI_FIELD_CHANNEL_ANY_NAME) != 31U ||
+                          (mesh_ui_settings_key_choices(MESH_UI_FIELD_CHANNEL_ANY_KEY) &
+                           (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_256) |
+                            MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_NONE))) != 0U ||
+                          !mesh_ui_settings_key_len_ok(MESH_UI_FIELD_CHANNEL_ANY_KEY, 16U) ||
+                          mesh_ui_settings_key_len_ok(MESH_UI_FIELD_CHANNEL_ANY_KEY, 32U),
+                      "a name is 31 bytes and a key is 16, with no 256-bit or open choice");
+    settings.channels[1].role = 2U;
+    snprintf(settings.channels[1].name, sizeof settings.channels[1].name, "%s", "#test");
+    row_count = mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
+                                       1U, rows, 16U);
+    MESH_TEST_FAIL_IF(row_count != 3U || rows[2].kind != INKSTAND_FORM_ACTION ||
+                          rows[2].number != MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL,
+                      "and a channel in a secondary slot can be cleared");
 
     MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
                                       MESH_UI_SETTINGS_ACTION_REBOOT),
@@ -564,6 +581,25 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
                                           MESH_UI_SETTINGS_ACTION_NONE, text, sizeof text);
     MESH_TEST_FAIL_IF(strcmp(text, inkcell_str(MESH_STR_CONFIRM_TEXT_LORA_PLAIN)) != 0,
                       "the LoRa sheet promises no reboot and names no region");
+    mesh_ui_settings_confirm_for_protocol(&settings, MESH_UI_SETTINGS_CHANNELS,
+                                          MESH_UI_SETTINGS_ACTION_NONE, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, inkcell_str(MESH_STR_CONFIRM_TEXT_CHANNELS_PLAIN)) != 0,
+                      "nor does the channel sheet");
+    mesh_ui_settings_confirm_for_protocol(&settings, MESH_UI_SETTINGS_CHANNELS,
+                                          MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, inkcell_str(MESH_STR_CONFIRM_TEXT_CLEAR_PLAIN)) != 0,
+                      "and a clear names no MQTT settings or role");
+    mesh_ui_settings_confirm_for_protocol(&settings, MESH_UI_SETTINGS_USER,
+                                          MESH_UI_SETTINGS_ACTION_NONE, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, inkcell_str(MESH_STR_CONFIRM_TEXT_PLAIN)) != 0,
+                      "and no other save promises a reboot");
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_ACTION_REBOOT,
+                                  text, sizeof text);
+    char reboot[512];
+    snprintf(reboot, sizeof reboot, "%s", text);
+    mesh_ui_settings_confirm_for_protocol(&settings, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                          MESH_UI_SETTINGS_ACTION_REBOOT, text, sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, reboot) != 0, "while a verb's own sheet is left alone");
     settings.protocol_lacks = 0U;
     mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_LORA, MESH_UI_SETTINGS_ACTION_NONE, text,
                                   sizeof text);

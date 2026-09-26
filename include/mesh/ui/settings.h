@@ -313,6 +313,10 @@ enum mesh_ui_setting_field {
        writes. Last in the channel's rows because it is the one that changes nothing about what
        the channel *is* - the four before it decide who can read it and where it is bridged. */
     MESH_UI_FIELD_CHANNEL_MUTED,
+    /* A channel's name where the firmware keeps 31 bytes of it rather than Meshtastic's 11. */
+    MESH_UI_FIELD_CHANNEL_ANY_NAME,
+    /* And its key where that is 16 bytes and nothing else (kind KEY, as CHANNEL_KEY). */
+    MESH_UI_FIELD_CHANNEL_ANY_KEY,
     MESH_UI_FIELD_BT_ENABLED,
     MESH_UI_FIELD_BT_MODE,
     MESH_UI_FIELD_BT_PIN, /* text: six digits */
@@ -780,6 +784,7 @@ enum mesh_ui_psk_choice {
     MESH_UI_PSK_RANDOM_128, /* new random AES-128 */
     MESH_UI_PSK_RANDOM_256, /* new random AES-256 */
     MESH_UI_PSK_NONE,       /* no encryption */
+    MESH_UI_PSK_FROM_NAME,  /* a MeshCore hashtag channel's: SHA-256 of its "#name", cut to 16 */
     MESH_UI_PSK_TYPED,
     MESH_UI_PSK_CHOICE_COUNT,
 };

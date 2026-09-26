@@ -366,6 +366,28 @@ int mesh_meshcore_encode_latlon(int32_t latitude_e6, int32_t longitude_e6, uint8
     return 9;
 }
 
+int mesh_meshcore_encode_set_channel(uint8_t index, const char *name,
+                                     const uint8_t secret[MESH_MESHCORE_SECRET_LEN], uint8_t *out,
+                                     size_t out_len) {
+    const size_t total = 2U + MESH_MESHCORE_NAME_LEN + MESH_MESHCORE_SECRET_LEN;
+    if (out == NULL || name == NULL || secret == NULL) {
+        return -EINVAL;
+    }
+    const size_t name_len = strlen(name);
+    if (name_len >= MESH_MESHCORE_NAME_LEN) {
+        return -EMSGSIZE;
+    }
+    if (out_len < total) {
+        return -ENOSPC;
+    }
+    memset(out, 0, total);
+    out[0] = MESH_MESHCORE_CMD_SET_CHANNEL;
+    out[1] = index;
+    memcpy(out + 2, name, name_len);
+    memcpy(out + 2 + MESH_MESHCORE_NAME_LEN, secret, MESH_MESHCORE_SECRET_LEN);
+    return (int)total;
+}
+
 int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len) {
     static const char k_word[] = "reboot";
     if (out == NULL) {

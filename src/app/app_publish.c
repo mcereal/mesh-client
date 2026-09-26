@@ -2683,6 +2683,16 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_settings.override_frequency_scaled = (int64_t)app->meshcore.self.frequency_khz * 10;
         ui_settings.tx_power_max = app->meshcore.self.max_tx_power_dbm;
     }
+    /* And each channel's whole name, which the settings record - Meshtastic's twelve bytes -
+       cannot carry: the editor opens on what the radio holds, not on the first eleven bytes. */
+    if (app->meshcore_bound) {
+        for (size_t i = 0; i < MESH_UI_MAX_CHANNELS && i < MESH_SESSION_MAX_CHANNELS; ++i) {
+            struct mesh_ui_channel_detail *detail = &ui_settings.channels[i];
+            if (detail->present && i < status->channel_count && detail->role != 0U) {
+                inkwell_str_copy(detail->name, sizeof detail->name, status->channels[i].name);
+            }
+        }
+    }
     /* And the name of the radio being administered, for the same reason: it is a roster fact,
        so a node that has just introduced itself renames the banner without the settings having
        moved at all. */

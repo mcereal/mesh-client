@@ -819,6 +819,75 @@ MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {
     record_success(test_name);
 }
 
+/* A channel is one SET_CHANNEL - slot, the name in 32 bytes, the 16-byte secret - and read back
+   by GET_CHANNEL for that slot alone. Its OK lands in the roster's channel and the settings. */
+MESH_TEST_CASE(meshcore_channel_write_is_one_slot_whole, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    g_meshcore.device.max_channels = 8U;
+    const struct mesh_radio_settings *settings = mesh_session_settings(&g_model);
+    MESH_TEST_FAIL_IF(!settings->has_channel[0] || settings->channels[0].settings.psk.size != 16U ||
+                          settings->channels[0].settings.psk.bytes[0] != 0x8b,
+                      "the walk keeps each slot's secret for the editor");
+    /* A new handshake forgets every slot until its walk reads it again. */
+    mesh_protocol_detach(&protocol);
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, wire_send, &wire);
+    MESH_TEST_FAIL_IF(mesh_protocol_begin(&protocol) < 0 || settings->has_channel[0],
+                      "a reconnect's walk starts with no slot to edit");
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "and walks to ready again");
+    g_meshcore.device.max_channels = 8U;
+
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.set_channel = true;
+    write.channel_index = 2U;
+    memcpy(write.channel_name, "#a-long-hashtag-channel-name", 29U);
+    memset(write.channel_secret, 0x5a, sizeof write.channel_secret);
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1, "one command");
+    const uint8_t *frame = wire.frames[before];
+    MESH_TEST_FAIL_IF(frame[0] != MESH_MESHCORE_CMD_SET_CHANNEL || wire.lens[before] != 50U ||
+                          frame[1] != 2U ||
+                          memcmp(frame + 2, "#a-long-hashtag-channel-name", 29U) != 0 ||
+                          frame[2 + 29] != 0U || frame[34] != 0x5a || frame[49] != 0x5a,
+                      "slot, name in its field, secret");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_GET_CHANNEL ||
+                          wire.frames[wire.count - 1U][1] != 2U,
+                      "read back by its own slot, not the whole handshake");
+    MESH_TEST_FAIL_IF(strcmp(g_model.handshake.channels[2].name, "#a-long-hashtag-channel-name") !=
+                              0 ||
+                          g_model.handshake.channels[2].role != 2U,
+                      "the OK names the channel, past Meshtastic's eleven bytes");
+    MESH_TEST_FAIL_IF(!settings->has_channel[2] ||
+                          settings->channels[2].settings.psk.bytes[0] != 0x5a,
+                      "and gives the editor its secret");
+
+    /* Cleared is the same command with nothing in it, and the slot reads unused. */
+    feed_code(&protocol, MESH_MESHCORE_RESP_ERR); /* the read-back, refused: nothing changes */
+    memset(&write.channel_name, 0, sizeof write.channel_name);
+    memset(write.channel_secret, 0, sizeof write.channel_secret);
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1, "a clear");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(g_model.handshake.channels[2].role != 0U ||
+                          settings->channels[2].has_settings,
+                      "an emptied slot is unused");
+
+    char too_long[40];
+    memset(too_long, 'x', sizeof too_long);
+    memcpy(write.channel_name, too_long, sizeof write.channel_name);
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK); /* the clear's read-back */
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EINVAL,
+                      "a name that fills the field has no room for the firmware's NUL");
+    write.channel_name[0] = '\0';
+    write.channel_index = 8U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EINVAL,
+                      "and a slot past the radio's is refused");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(meshcore_settings_write_refuses_what_it_cannot_send_whole, unit) {
     struct mesh_protocol protocol;
     static struct wire wire;

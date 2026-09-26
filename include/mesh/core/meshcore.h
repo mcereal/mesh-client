@@ -61,6 +61,7 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_DEVICE_QUERY = 22,
     MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY = 30,
     MESH_MESHCORE_CMD_GET_CHANNEL = 31,
+    MESH_MESHCORE_CMD_SET_CHANNEL = 32,
 };
 
 enum mesh_meshcore_resp {
@@ -239,6 +240,12 @@ int mesh_meshcore_encode_radio_params(uint32_t frequency_khz, uint32_t bandwidth
 /* SET_ADVERT_LATLON: degrees times a million, as SELF_INFO reports them. */
 int mesh_meshcore_encode_latlon(int32_t latitude_e6, int32_t longitude_e6, uint8_t *out,
                                 size_t out_len);
+/* SET_CHANNEL: the slot, the name in a 32-byte field the firmware keeps NUL-terminated - so at
+   most 31 bytes of it, and a longer one is refused - and the 16-byte secret. The firmware has no
+   256-bit channel yet and refuses the longer frame that would carry one. */
+int mesh_meshcore_encode_set_channel(uint8_t index, const char *name,
+                                     const uint8_t secret[MESH_MESHCORE_SECRET_LEN], uint8_t *out,
+                                     size_t out_len);
 /* REBOOT carries the word, so a stray byte cannot reboot a radio. */
 int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len);
 
@@ -355,6 +362,11 @@ struct mesh_meshcore_settings_write {
     bool set_position;
     int32_t latitude_e6;
     int32_t longitude_e6;
+    /* One channel slot, whole: an empty name and an all-zero secret is an unused slot. */
+    bool set_channel;
+    uint8_t channel_index;
+    char channel_name[MESH_MESHCORE_NAME_LEN];
+    uint8_t channel_secret[MESH_MESHCORE_SECRET_LEN];
 };
 
 /* `model` is the session the conversation fills; it must outlive every link that carries this. */
