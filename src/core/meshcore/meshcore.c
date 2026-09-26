@@ -71,8 +71,12 @@ static void mesh_meshcore_mark(struct mesh_meshcore *meshcore, uint32_t packet_i
     }
 }
 
+static bool mesh_meshcore_is_settings_write(uint8_t cmd);
+static void mesh_meshcore_settle_write(struct mesh_meshcore *meshcore, int32_t error);
+
 /* Writes the head of the queue when nothing is outstanding. A write that fails is dropped and
-   the next one tried, so one refused frame cannot wedge the queue behind it. */
+   the next one tried, so one refused frame cannot wedge the queue behind it - and a settings
+   command so dropped is settled as refused, or its save would wait on it for ever. */
 static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
     while (!meshcore->awaiting && meshcore->queue_count > 0U && meshcore->send != NULL) {
         struct mesh_meshcore_request *request = mesh_meshcore_head(meshcore);
@@ -89,7 +93,11 @@ static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
         inkwell_log_warn("meshcore", "Command %u not sent: %d", (unsigned)request->frame[0],
                          result);
         mesh_meshcore_mark(meshcore, request->packet_id, MESH_MESSAGE_ACK_FAILED);
+        const uint8_t cmd = request->frame[0];
         mesh_meshcore_pop(meshcore);
+        if (mesh_meshcore_is_settings_write(cmd)) {
+            mesh_meshcore_settle_write(meshcore, result);
+        }
     }
 }
 

@@ -83,10 +83,14 @@ struct wire {
     size_t lens[32];
     uint32_t ids[32];
     size_t count;
+    bool refuse; /* the link's queue is full */
 };
 
 static int wire_send(void *ctx, const uint8_t *frame, size_t len, uint32_t frame_id) {
     struct wire *wire = ctx;
+    if (wire->refuse) {
+        return -EAGAIN;
+    }
     if (wire->count >= 32U || len > MESH_MESHCORE_MAX_FRAME) {
         return -ENOBUFS;
     }
@@ -707,6 +711,29 @@ MESH_TEST_CASE(meshcore_self_info_without_a_location_clears_the_fix, unit) {
     feed(&protocol, cleared, sizeof cleared);
     self = mesh_session_model_node(&g_model, g_meshcore.self_node, false);
     MESH_TEST_FAIL_IF(self == NULL || self->position.valid, "and the fix goes with the location");
+    record_success(test_name);
+}
+
+/* A settings command the link refuses outright is settled as refused, so the save is reported
+   and the next one is not held off behind it. */
+MESH_TEST_CASE(meshcore_settings_write_the_link_refuses_is_settled, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const struct mesh_radio_settings *settings = mesh_session_settings(&g_model);
+    const uint32_t failed = settings->writes_failed;
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.set_name = true;
+    memcpy(write.name, "Pine", 5U);
+    wire.refuse = true;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1, "one command");
+    MESH_TEST_FAIL_IF(settings->writes_failed != failed + 1U ||
+                          settings->last_write_error != -EAGAIN,
+                      "is refused by the link and settled as such");
+    wire.refuse = false;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1,
+                      "and the next save is not held behind it");
     record_success(test_name);
 }
 
