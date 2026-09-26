@@ -283,6 +283,17 @@ static uint32_t mesh_meshcore_find_prefix(const struct mesh_meshcore *meshcore,
     return 0U;
 }
 
+static const struct mesh_node_summary *
+mesh_meshcore_model_find(const struct mesh_meshcore *meshcore, uint32_t node_id) {
+    const struct mesh_handshake_status *status = &meshcore->model->handshake;
+    for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (status->nodes[i].node_id == node_id) {
+            return &status->nodes[i];
+        }
+    }
+    return NULL;
+}
+
 /* A channel message's sender, when the name it starts with is a node we know by that name. */
 static uint32_t mesh_meshcore_find_name(const struct mesh_meshcore *meshcore, const char *name) {
     const struct mesh_handshake_status *status = &meshcore->model->handshake;
@@ -339,6 +350,24 @@ static void mesh_meshcore_store_message(struct mesh_meshcore *meshcore,
     } else {
         message.to = meshcore->self_node;
         message.pki_encrypted = true;
+        /* A room server relays each post under its own key and names the author by four
+           bytes of theirs. The room stays the sender, so its posts stay one conversation, and
+           the author goes in front of the text the way a channel message carries its sender:
+           by name when the roster knows the key, by those four bytes when it does not. */
+        if (decoded->has_author) {
+            const uint32_t author = mesh_meshcore_find_prefix(meshcore, decoded->author_prefix, 4U);
+            const struct mesh_node_summary *node =
+                author != 0U ? mesh_meshcore_model_find(meshcore, author) : NULL;
+            char attributed[MESH_MESSAGE_TEXT_MAX + 1U];
+            if (node != NULL && node->has_user) {
+                snprintf(attributed, sizeof attributed, "%s: %s", node->long_name, text);
+            } else {
+                snprintf(attributed, sizeof attributed, "%02x%02x%02x%02x: %s",
+                         decoded->author_prefix[0], decoded->author_prefix[1],
+                         decoded->author_prefix[2], decoded->author_prefix[3], text);
+            }
+            snprintf(text, sizeof text, "%s", attributed);
+        }
         uint32_t from =
             mesh_meshcore_find_prefix(meshcore, decoded->sender_prefix, MESH_MESHCORE_PREFIX_LEN);
         if (from == 0U) {
@@ -398,6 +427,10 @@ static void mesh_meshcore_after_self(struct mesh_meshcore *meshcore) {
             meshcore, frame,
             mesh_meshcore_encode_u32(MESH_MESHCORE_CMD_SET_DEVICE_TIME, now, frame, sizeof frame),
             0U);
+    } else {
+        /* Then the radio's clock is the better of the two, and the one it stamps its own
+           traffic with; see mesh_meshcore_timestamp(). */
+        mesh_meshcore_request_plain(meshcore, MESH_MESHCORE_CMD_GET_DEVICE_TIME);
     }
     meshcore->phase = MESH_MESHCORE_CONTACTS;
     uint8_t frame[5];
@@ -642,6 +675,13 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             mesh_meshcore_mark(meshcore, packet_id, MESH_MESSAGE_ACK_NONE);
         }
         break;
+    case MESH_MESHCORE_RESP_CURR_TIME:
+        if (len >= 5U) {
+            meshcore->radio_clock = (uint32_t)frame[1] | ((uint32_t)frame[2] << 8U) |
+                                    ((uint32_t)frame[3] << 16U) | ((uint32_t)frame[4] << 24U);
+            meshcore->radio_clock_at_ms = inkwell_time_monotonic_ms();
+        }
+        break;
     case MESH_MESHCORE_RESP_BATT_AND_STORAGE:
         if (len >= 3U) {
             meshcore->battery_mv = (uint16_t)(frame[1] | (frame[2] << 8U));
@@ -673,6 +713,17 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         inkwell_log_debug("meshcore", "Reply %u to command %u ignored", (unsigned)code,
                           (unsigned)cmd);
         break;
+    }
+    /* A direct message whose answer was not a SENT that decoded has nothing to wait for: no ack
+       was named, so no deadline was set, and the tick only retires pending sends that have one.
+       Left alone it would sit PENDING for good and hold one of the slots. */
+    if (cmd == MESH_MESHCORE_CMD_SEND_TXT_MSG) {
+        struct mesh_meshcore_pending *pending = mesh_meshcore_pending_for(meshcore, packet_id);
+        if (pending != NULL && pending->deadline_ms == 0U) {
+            inkwell_log_info("meshcore", "Message %u: reply %u named no ack", packet_id,
+                             (unsigned)code);
+            mesh_meshcore_pending_done(meshcore, pending, MESH_MESSAGE_ACK_FAILED);
+        }
     }
     mesh_meshcore_pump(meshcore);
 }
@@ -840,6 +891,29 @@ bool mesh_meshcore_ready(const struct mesh_meshcore *meshcore) {
     return meshcore != NULL && meshcore->send != NULL && meshcore->phase == MESH_MESHCORE_READY;
 }
 
+/*
+ * What a message we send says the time is. The wall clock when it is credible; otherwise the
+ * radio's, as read at connect and advanced since; otherwise 0, which a recipient reads as "no
+ * date" - never our uptime, which it would read as a date in 1970. Strictly increasing whenever
+ * there is a clock at all, because the timestamp is part of the encrypted payload and a repeat
+ * of the same text in the same second would be dropped by the mesh as a duplicate.
+ */
+static uint32_t mesh_meshcore_timestamp(struct mesh_meshcore *meshcore) {
+    uint32_t now = inkwell_time_wall_credible_s();
+    if (now == 0U && meshcore->radio_clock != 0U) {
+        const uint64_t elapsed = inkwell_time_monotonic_ms() - meshcore->radio_clock_at_ms;
+        now = meshcore->radio_clock + (uint32_t)(elapsed / 1000U);
+    }
+    if (now == 0U) {
+        return 0U;
+    }
+    if (now <= meshcore->last_timestamp) {
+        now = meshcore->last_timestamp + 1U;
+    }
+    meshcore->last_timestamp = now;
+    return now;
+}
+
 int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8_t channel,
                             const char *text, uint32_t *out_packet_id) {
     if (meshcore == NULL || text == NULL || text[0] == '\0') {
@@ -851,12 +925,9 @@ int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8
     if (strlen(text) > MESH_MESHCORE_TEXT_MAX) {
         return -EMSGSIZE;
     }
-    /* The radio stamps a channel message's sender; a direct message's timestamp is part of
-       what the recipient's ack is computed over, so every retry must repeat it. */
-    uint32_t timestamp = inkwell_time_wall_credible_s();
-    if (timestamp == 0U) {
-        timestamp = (uint32_t)(meshcore->now_ms / 1000U);
-    }
+    /* A direct message's timestamp is part of what the recipient's ack is computed over, so
+       every retry repeats this one. */
+    const uint32_t timestamp = mesh_meshcore_timestamp(meshcore);
 
     struct mesh_message message;
     memset(&message, 0, sizeof message);

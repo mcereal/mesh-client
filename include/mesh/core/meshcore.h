@@ -300,6 +300,16 @@ struct mesh_meshcore {
     uint32_t contacts_since;
     bool battery_valid;
     uint16_t battery_mv;
+    /*
+     * The radio's clock, for a message's timestamp when ours is not credible (a Brick with no
+     * network boots into 1970). Read with GET_DEVICE_TIME and advanced by our monotonic clock;
+     * `radio_clock` is 0 until it has been read. `last_timestamp` keeps stamps strictly
+     * increasing: the timestamp is inside what is encrypted, so two identical texts sent in the
+     * same second would otherwise be one packet to every node that deduplicates.
+     */
+    uint32_t radio_clock;
+    uint64_t radio_clock_at_ms;
+    uint32_t last_timestamp;
 
     struct mesh_meshcore_pending pending[MESH_MESHCORE_PENDING_SENDS];
     uint32_t next_packet_id;

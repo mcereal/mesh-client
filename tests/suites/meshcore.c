@@ -9,6 +9,7 @@
 
 #include "framework/mesh_test.h"
 
+#include "inkwell/base/time.h"
 #include "mesh/core/meshcore.h"
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
@@ -522,5 +523,113 @@ MESH_TEST_CASE(meshcore_unanswered_commands_end_the_link, unit) {
     MESH_TEST_FAIL_IF(mesh_protocol_silent(&protocol), "one timeout is not yet a dead link");
     mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
     MESH_TEST_FAIL_IF(!mesh_protocol_silent(&protocol), "two in a row is");
+    record_success(test_name);
+}
+
+static uint32_t frame_u32(const uint8_t *bytes) {
+    return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8U) | ((uint32_t)bytes[2] << 16U) |
+           ((uint32_t)bytes[3] << 24U);
+}
+
+/*
+ * A Brick with no network has no date. Its uptime is not one either - a recipient reads it as
+ * 1970 - so a message is stamped from the radio's clock, read at connect, and stamps never
+ * repeat: the timestamp is inside the encrypted payload, and a repeated text in the same second
+ * would be one packet to a mesh that deduplicates. With neither clock, 0 says "no date".
+ */
+MESH_TEST_CASE(meshcore_stamps_from_the_radio_clock_without_ours, unit) {
+    inkwell_time_wall_set_fixed(1000U); /* a clock that has not been told the date */
+    static struct wire wire;
+    memset(&wire, 0, sizeof wire);
+    mesh_session_init(&g_model);
+    mesh_meshcore_init(&g_meshcore, &g_model);
+    const struct mesh_protocol protocol = mesh_meshcore_protocol(&g_meshcore);
+    mesh_protocol_attach(&protocol, wire_send, &wire);
+
+    uint32_t packet_id = 0U;
+    const bool undated = mesh_meshcore_send_text(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR, 0U, "a",
+                                                 &packet_id) == 0 &&
+                         frame_u32(wire.frames[wire.count - 1U] + 3) == 0U;
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+
+    (void)mesh_protocol_begin(&protocol);
+    feed(&protocol, k_device_info, sizeof k_device_info);
+    feed(&protocol, k_self_info, sizeof k_self_info);
+    const bool asked = wire_last(&wire) == MESH_MESHCORE_CMD_GET_DEVICE_TIME;
+    uint8_t clock[5] = {MESH_MESHCORE_RESP_CURR_TIME};
+    put_u32(clock + 1, 1750000000U);
+    feed(&protocol, clock, sizeof clock);
+    const bool walked_on = wire_last(&wire) == MESH_MESHCORE_CMD_GET_CONTACTS;
+    uint8_t end[5] = {MESH_MESHCORE_RESP_END_OF_CONTACTS};
+    feed(&protocol, end, sizeof end);
+
+    /* The walk is waiting on a channel; these queue behind it and are read off the queue. */
+    (void)mesh_meshcore_send_text(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR, 0U, "b", &packet_id);
+    (void)mesh_meshcore_send_text(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR, 0U, "b", &packet_id);
+    const size_t head = g_meshcore.queue_head;
+    const uint32_t first =
+        frame_u32(g_meshcore.queue[(head + 1U) % MESH_MESHCORE_QUEUE_LEN].frame + 3);
+    const uint32_t second =
+        frame_u32(g_meshcore.queue[(head + 2U) % MESH_MESHCORE_QUEUE_LEN].frame + 3);
+    inkwell_time_wall_set_fixed(0U);
+
+    MESH_TEST_FAIL_IF(!undated, "with no clock at all, a message says no date rather than 1970");
+    MESH_TEST_FAIL_IF(!asked, "with no credible clock of ours, the radio's is asked for");
+    MESH_TEST_FAIL_IF(!walked_on, "the answer moves the walk on to the contacts");
+    MESH_TEST_FAIL_IF(first < 1750000000U || first > 1750000010U,
+                      "a message is stamped from the radio's clock");
+    MESH_TEST_FAIL_IF(second != first + 1U, "two messages in one second never share a stamp");
+    record_success(test_name);
+}
+
+/*
+ * A room server relays every post under its own key, with four bytes of the author's in front of
+ * the text. The room stays the sender so its posts stay one conversation; the author is kept in
+ * front of the text, by name when the roster knows them and by those bytes when it does not.
+ */
+MESH_TEST_CASE(meshcore_room_posts_keep_their_author, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+
+    feed_code(&protocol, MESH_MESHCORE_PUSH_MSG_WAITING);
+    const uint8_t known[] = {16, 0, 0, 0, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0xFF,
+                             2,  0, 0, 0, 0,    0x40, 0x41, 0x42, 0x43, 'h',  'i'};
+    feed(&protocol, known, sizeof known);
+    const struct mesh_message *message = newest_message();
+    MESH_TEST_FAIL_IF(message == NULL || message->from != 0x70717273U ||
+                          strcmp(message->text, "Alice: hi") != 0,
+                      "from the room, and Alice's post says so");
+
+    const uint8_t stranger[] = {16, 0, 0, 0, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0xFF,
+                                2,  0, 0, 0, 0,    0xAA, 0xBB, 0xCC, 0xDD, 'y',  'o'};
+    feed(&protocol, stranger, sizeof stranger);
+    message = newest_message();
+    MESH_TEST_FAIL_IF(message == NULL || message->from != 0x70717273U ||
+                          strcmp(message->text, "aabbccdd: yo") != 0,
+                      "an author the roster does not hold is named by their key's bytes");
+    record_success(test_name);
+}
+
+/*
+ * A SENT the codec cannot read names no ack, so there is nothing to wait for: the message fails
+ * then rather than sitting PENDING with no deadline, and its slot is free again.
+ */
+MESH_TEST_CASE(meshcore_unreadable_sent_fails_the_message, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+
+    uint32_t packet_id = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, 0x40414243U, 0U, "x", &packet_id) != 0,
+                      "a direct message goes out");
+    const uint8_t truncated[] = {MESH_MESHCORE_RESP_SENT, 1};
+    feed(&protocol, truncated, sizeof truncated);
+    const struct mesh_message *message = mesh_message_log_find(&g_model.messages, packet_id);
+    MESH_TEST_FAIL_IF(message == NULL || message->ack != MESH_MESSAGE_ACK_FAILED,
+                      "the message fails");
+    for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
+        MESH_TEST_FAIL_IF(g_meshcore.pending[i].packet_id != 0U, "and gives its slot back");
+    }
     record_success(test_name);
 }
