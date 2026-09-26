@@ -1028,6 +1028,9 @@ static int mesh_meshcore_begin(void *self) {
     /* A fresh connection asks for every contact: the model may hold nodes from another radio's
        list, and "since" is only meaningful against the list it came from. */
     meshcore->contacts_since = 0U;
+    /* And the adverts kept for adding are this connection's: one from before may be older than
+       what the sender now stamps, and would hold its next advert back as a replay. */
+    memset(meshcore->heard_age, 0, sizeof meshcore->heard_age);
     /* And no channel slot is editable until this walk has read it again: the table outlives
        the link, and a slot left over from the last one - a walk refused before reaching it -
        would be written back over whatever the radio holds now. */

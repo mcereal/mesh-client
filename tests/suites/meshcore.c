@@ -1055,6 +1055,13 @@ MESH_TEST_CASE(meshcore_heard_adverts_keep_the_newest, unit) {
                           frame_u32(wire.frames[before] + 132) != 0U,
                       "and the one heard longest ago is the one let go");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+
+    /* A new connection keeps none of them: an advert from before it may be older than what the
+       sender now stamps, so a node heard then is added with no stamp. */
+    MESH_TEST_FAIL_IF(mesh_protocol_begin(&protocol) != 0, "the link begins again");
+    for (size_t i = 0; i < MESH_MESHCORE_HEARD_ADVERTS; ++i) {
+        MESH_TEST_FAIL_IF(g_meshcore.heard_age[i] != 0U, "and no advert is kept from before");
+    }
     record_success(test_name);
 }
 
