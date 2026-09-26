@@ -52,6 +52,10 @@ struct mesh_cli_peer {
 
 struct mesh_cli_link {
     struct mesh_transport *transport;
+    /* An enum mesh_ui_device_kind: which way mesh_app_bind_link() finds out the protocol. */
+    uint8_t kind;
+    /* The app's own session, which MeshCore fills as a model too - never the transport's
+       fallback, which is not the conversation once the app has bound one. */
     struct mesh_session *session;
     int (*connect)(struct mesh_transport *transport, const char *identifier);
     int (*disconnect)(struct mesh_transport *transport);
@@ -1425,7 +1429,7 @@ int main(int argc, char **argv) {
                     fprintf(stderr, "No %s node available; nothing to send through.\n",
                             use_serial ? "USB serial"
                             : use_tcp  ? "network"
-                                       : "Meshtastic BLE");
+                                       : "Bluetooth");
                     result = select_result;
                 } else {
                     result = send_text_message(&app, &link, send_text, send_dest,
@@ -1529,7 +1533,8 @@ static int select_ble_link(struct mesh_app *app, struct inkwell_ble_device *scra
     }
 
     link->transport = ble;
-    link->session = mesh_ble_transport_session(ble);
+    link->kind = (uint8_t)MESH_UI_DEVICE_BLE;
+    link->session = &app->session;
     link->connect = mesh_ble_transport_connect;
     link->disconnect = mesh_ble_transport_disconnect;
     link->is_live = cli_ble_is_live;
@@ -1603,7 +1608,8 @@ static int select_serial_link(struct mesh_app *app, const char *requested,
     }
 
     link->transport = serial;
-    link->session = mesh_serial_transport_session(serial);
+    link->kind = (uint8_t)MESH_UI_DEVICE_SERIAL;
+    link->session = &app->session;
     link->connect = mesh_serial_transport_connect;
     link->disconnect = mesh_serial_transport_disconnect;
     link->is_live = cli_serial_is_live;
@@ -1629,7 +1635,8 @@ static int select_tcp_link(struct mesh_app *app, struct mesh_cli_link *link) {
     }
 
     link->transport = tcp;
-    link->session = mesh_tcp_transport_session(tcp);
+    link->kind = (uint8_t)MESH_UI_DEVICE_TCP;
+    link->session = &app->session;
     link->connect = mesh_tcp_transport_connect;
     link->disconnect = mesh_tcp_transport_disconnect;
     link->is_live = cli_tcp_is_live;
@@ -1646,6 +1653,9 @@ static int select_tcp_link(struct mesh_app *app, struct mesh_cli_link *link) {
 /* Connects the link and pumps the loop until the config handshake settles (or we give up).
    Shared by --status and --send-text: both need MyNodeInfo before their output means anything. */
 static int connect_and_sync(struct mesh_app *app, const struct mesh_cli_link *link) {
+    /* The protocol first, as the UI's connects do: the scan's profile says it for a BLE radio,
+       and a port or a host is asked, which the probe tick below settles. */
+    mesh_app_bind_link(app, link->kind, link->peer.identifier);
     int connect_result = link->connect(link->transport, link->peer.identifier);
     if (connect_result < 0 && connect_result != -EALREADY) {
         inkwell_log_error("main", "Failed to connect to %s: %d", link->peer.identifier,
@@ -1667,9 +1677,11 @@ static int connect_and_sync(struct mesh_app *app, const struct mesh_cli_link *li
             break;
         }
 
+        mesh_app_probe_tick(app, inkwell_time_monotonic_ms());
+
         const struct mesh_handshake_status *status = mesh_session_handshake(link->session);
         if (status != NULL && !status->request_in_flight &&
-            (status->config_complete || status->has_my_info)) {
+            (status->config_complete || status->has_my_info) && app->probe.identifier[0] == '\0') {
             break;
         }
 
@@ -1750,9 +1762,13 @@ static int send_text_message(struct mesh_app *app, const struct mesh_cli_link *l
         fprintf(stderr, "Note: --ack is ignored for broadcasts.\n");
     }
 
+    /* MeshCore acks every direct message on its own, so --ack only changes how long this
+       waits for it. */
     uint32_t packet_id = 0U;
     int send_result =
-        mesh_session_send_text(link->session, dest, channel, text, want_ack, &packet_id);
+        app->meshcore_bound
+            ? mesh_meshcore_send_text(&app->meshcore, dest, channel, text, &packet_id)
+            : mesh_session_send_text(link->session, dest, channel, text, want_ack, &packet_id);
     if (send_result < 0) {
         inkwell_log_error("main", "Failed to send message: %d", send_result);
         link->disconnect(link->transport);

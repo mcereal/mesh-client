@@ -185,6 +185,18 @@ static bool mesh_app_ble_speaks_meshcore(struct mesh_transport *ble, const char 
     return mesh_ble_transport_device_profile(ble, address) == &mesh_ble_profile_meshcore;
 }
 
+void mesh_app_bind_link(struct mesh_app *app, uint8_t kind, const char *identifier) {
+    if (app == NULL) {
+        return;
+    }
+    if (kind == (uint8_t)MESH_UI_DEVICE_SERIAL || kind == (uint8_t)MESH_UI_DEVICE_TCP) {
+        mesh_app_probe_begin(app, kind, identifier, inkwell_time_monotonic_ms());
+        return;
+    }
+    app->probe.identifier[0] = '\0';
+    mesh_app_bind_protocol(app, mesh_app_ble_speaks_meshcore(mesh_ble_transport(), identifier));
+}
+
 int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t kind) {
     struct mesh_transport *transport = mesh_app_transport_for_kind(kind);
     if (transport == NULL) {
@@ -202,7 +214,7 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
             mesh_serial_transport_is_connecting(transport)) {
             mesh_serial_transport_disconnect(transport);
         }
-        mesh_app_probe_begin(app, kind, identifier, inkwell_time_monotonic_ms());
+        mesh_app_bind_link(app, kind, identifier);
         return mesh_serial_transport_connect(transport, identifier);
     }
 
@@ -214,7 +226,7 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
             mesh_tcp_transport_is_connecting(transport)) {
             mesh_tcp_transport_disconnect(transport);
         }
-        mesh_app_probe_begin(app, kind, identifier, inkwell_time_monotonic_ms());
+        mesh_app_bind_link(app, kind, identifier);
         const int result = mesh_tcp_transport_connect(transport, identifier);
         /*
          * What the transport *adopted*, not what it was handed, and asked rather than inferred
@@ -247,7 +259,7 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
         mesh_ble_transport_is_connecting(transport) || mesh_ble_transport_is_pairing(transport)) {
         mesh_ble_transport_disconnect(transport);
     }
-    mesh_app_bind_protocol(app, mesh_app_ble_speaks_meshcore(transport, identifier));
+    mesh_app_bind_link(app, kind, identifier);
     /* A connect the user asked for pairs the node when it needs it; auto-connect's own
        attempts go through mesh_ble_transport_connect() and never raise a PIN prompt. */
     return mesh_ble_transport_connect_and_pair(transport, identifier);

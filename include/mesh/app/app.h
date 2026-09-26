@@ -354,6 +354,16 @@ int mesh_app_run(struct mesh_app *app);
    mesh_app_run() calls it every loop turn; exposed for tests. */
 void mesh_app_publish_ui_state(struct mesh_app *app);
 
+/*
+ * Binds the conversation the radio behind `identifier` speaks, ahead of connecting to it: by
+ * the profile the scan found it under over BLE, and by asking over serial and TCP - the probe
+ * mesh_app_probe_tick() then settles. `kind` is an enum mesh_ui_device_kind. For a caller that
+ * drives its own connect, like the one-shot CLI; the UI's connects already do this.
+ */
+void mesh_app_bind_link(struct mesh_app *app, uint8_t kind, const char *identifier);
+/* Settles or moves on the question mesh_app_bind_link() asked. Once a loop turn. */
+void mesh_app_probe_tick(struct mesh_app *app, uint64_t now_ms);
+
 /* One step of the foreground connect policy. With no pointer and, outside the MinUI backend,
    no way to pick a row, the device has to connect on its own: the preferred node when it is in
    range, otherwise the strongest Meshtastic advertiser. Only acts in foreground mode; a no-op

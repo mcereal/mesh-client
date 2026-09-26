@@ -285,8 +285,6 @@ void mesh_app_bind_protocol(struct mesh_app *app, bool meshcore);
    MESH_UI_DEVICE_SERIAL or MESH_UI_DEVICE_TCP. */
 void mesh_app_probe_begin(struct mesh_app *app, uint8_t kind, const char *identifier,
                           uint64_t now_ms);
-/* Settles the question when a frame has arrived, or moves it on when the window is up. */
-void mesh_app_probe_tick(struct mesh_app *app, uint64_t now_ms);
 /* Whether auto-connect should pass the link remembered as `key` over for now: a USB port's
    sysfs id, or a host as written. */
 bool mesh_app_probe_muted(const struct mesh_app *app, const char *key, uint64_t now_ms);
