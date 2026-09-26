@@ -123,6 +123,24 @@ static void fb_chart_axis_end(uint8_t axis, int32_t value, char *out, size_t len
 }
 
 /*
+ * The finest step an axis in these units can put a label on without rounding it: a permille
+ * share and a tenth of a degree are both worded in whole units, so a gridline between two of
+ * those would carry the label of its neighbour. What inkcell_trend_ticks() is told as `quantum`.
+ */
+static int32_t fb_chart_axis_quantum(uint8_t axis) {
+    switch ((enum fb_chart_axis)axis) {
+    case FB_CHART_AXIS_PERMILLE:
+    case FB_CHART_AXIS_CELSIUS:
+        return 10;
+    case FB_CHART_AXIS_PERCENT:
+    case FB_CHART_AXIS_DECIBEL:
+    case FB_CHART_AXIS_DBM:
+    default:
+        return 1;
+    }
+}
+
+/*
  * What one chart screen is: the description, and nothing about how it is drawn.
  *
  * The app bar travels whole rather than as a title and a trail, because a bar is already a
@@ -202,6 +220,18 @@ static void fb_render_chart(struct inkcell_draw_state *state,
                       sizeof top);
     fb_chart_axis_end(screen->axis, scale.min, bottom, sizeof bottom);
 
+    /* And the round values between them, each worded the way the ends are, so the reader reads a
+       height off the nearest gridline rather than interpolating between the two ends. */
+    int32_t tick_values[INKCELL_TREND_TICKS_MAX];
+    char tick_words[INKCELL_TREND_TICKS_MAX][16];
+    struct inkcell_fb_chart_tick ticks[INKCELL_TREND_TICKS_MAX];
+    const uint32_t tick_count = inkcell_trend_ticks(scale, fb_chart_axis_quantum(screen->axis),
+                                                    tick_values, INKCELL_TREND_TICKS_MAX);
+    for (uint32_t i = 0U; i < tick_count; ++i) {
+        fb_chart_axis_end(screen->axis, tick_values[i], tick_words[i], sizeof tick_words[i]);
+        ticks[i] = (struct inkcell_fb_chart_tick){tick_values[i], tick_words[i]};
+    }
+
     /*
      * How far back the picture goes - which is what there turned out to be, not what was asked
      * for. The strip above the plot says the choice; this says the measurement, and on a span
@@ -235,6 +265,8 @@ static void fb_render_chart(struct inkcell_draw_state *state,
         .count = screen->count,
         .top = top,
         .bottom = bottom,
+        .ticks = ticks,
+        .tick_count = tick_count,
         .span = span[0] != '\0' ? span : NULL,
         .band = screen->band,
         .scale = scale,
@@ -272,6 +304,8 @@ static void fb_render_chart(struct inkcell_draw_state *state,
             continue;
         }
         chart.lines[i].points = &points[i];
+        /* A lone line gets the wash under it; two would overlap into a colour nobody chose. */
+        chart.lines[i].area = screen->count == 1U;
         const struct inkcell_sample *newest = inkcell_series_newest(screen->series[i]);
         if (newest != NULL && points[i].count > 0U) {
             fb_chart_reading(screen->axis, newest->value, readings[i], sizeof readings[i]);
