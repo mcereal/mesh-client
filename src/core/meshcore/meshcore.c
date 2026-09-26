@@ -712,7 +712,7 @@ static void mesh_meshcore_store_telemetry(struct mesh_meshcore *meshcore,
     }
     if (telemetry->has_current) {
         env->has_current = true;
-        env->current = telemetry->current_a;
+        env->current = telemetry->current_a * 1000.0f; /* the record's current is in mA */
     }
     if (telemetry->has_position && (telemetry->latitude_e7 != 0 || telemetry->longitude_e7 != 0)) {
         node->position.valid = true;
@@ -791,6 +791,7 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
                 mesh_meshcore_store_telemetry(meshcore, node, &telemetry);
                 inkwell_log_info("meshcore", "Readings from 0x%08x", id);
             }
+            meshcore->telemetry_until_ms = 0U;
         }
         break;
     case MESH_MESHCORE_PUSH_CONTACT_DELETED:
@@ -1018,6 +1019,13 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         break;
     case MESH_MESHCORE_RESP_SENT: {
         struct mesh_meshcore_sent sent;
+        /* A telemetry request is on its way: its answer is due within the firmware's estimate,
+           and until then a second one would orphan it. */
+        if (cmd == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ &&
+            mesh_meshcore_decode_sent(frame, len, &sent) == 0) {
+            const uint32_t wait = sent.timeout_ms > 0U ? sent.timeout_ms : 10000U;
+            meshcore->telemetry_until_ms = inkwell_time_monotonic_ms() + (uint64_t)wait + 2000U;
+        }
         struct mesh_meshcore_pending *pending = mesh_meshcore_pending_for(meshcore, packet_id);
         if (pending != NULL && mesh_meshcore_decode_sent(frame, len, &sent) == 0) {
             meshcore->now_ms = inkwell_time_monotonic_ms();
@@ -1212,6 +1220,7 @@ static int mesh_meshcore_begin(void *self) {
     /* A fresh connection asks for every contact: the model may hold nodes from another radio's
        list, and "since" is only meaningful against the list it came from. */
     meshcore->contacts_since = 0U;
+    meshcore->telemetry_until_ms = 0U;
     /* And the adverts kept for adding are this connection's: one from before may be older than
        what the sender now stamps, and would hold its next advert back as a replay. */
     memset(meshcore->heard_age, 0, sizeof meshcore->heard_age);
@@ -1580,12 +1589,23 @@ int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t nod
     if (node == NULL || !node->in_nodedb || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN) {
         return -ENOENT;
     }
+    /* The radio keeps one request outstanding and a new one orphans the last, so a second
+       waits for the first's answer or its deadline. */
+    if (meshcore->telemetry_until_ms != 0U &&
+        inkwell_time_monotonic_ms() < meshcore->telemetry_until_ms) {
+        return -EBUSY;
+    }
     uint8_t frame[4U + MESH_MESHCORE_PUBKEY_LEN];
     memset(frame, 0, sizeof frame);
     frame[0] = MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ; /* then three reserved bytes */
     memcpy(frame + 4, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
     const int result = mesh_meshcore_enqueue(meshcore, frame, (int)sizeof frame, 0U);
-    return result < 0 ? result : 0;
+    if (result < 0) {
+        return result;
+    }
+    /* Until the radio's SENT gives the real deadline: long enough for it to answer at all. */
+    meshcore->telemetry_until_ms = inkwell_time_monotonic_ms() + 30000U;
+    return 0;
 }
 
 int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,

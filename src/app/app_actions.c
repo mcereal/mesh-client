@@ -886,6 +886,8 @@ static void on_request_reading(struct mesh_app *app, const struct mesh_ui_action
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -ENOENT) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
+    } else if (result == -EBUSY) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_READINGS_BUSY));
     } else if (result == -EINVAL) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CANNOT_ASK));
     } else {

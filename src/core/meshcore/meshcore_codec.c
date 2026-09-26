@@ -565,11 +565,16 @@ int mesh_meshcore_decode_lpp(const uint8_t *lpp, size_t len, struct mesh_meshcor
             break;
         case LPP_GPS:
             if (!out->has_position) {
-                /* 0.0001 degrees in three bytes, 0.01 m in three. */
-                out->has_position = true;
-                out->latitude_e7 = lpp_value(v, 3U, true) * 1000;
-                out->longitude_e7 = lpp_value(v + 3U, 3U, true) * 1000;
-                out->altitude_m = lpp_value(v + 6U, 3U, true) / 100;
+                /* 0.0001 degrees in three bytes, 0.01 m in three; a fix off the globe is not
+                   one, and would not survive the scaling to 1e-7 degrees either. */
+                const int32_t lat = lpp_value(v, 3U, true);
+                const int32_t lon = lpp_value(v + 3U, 3U, true);
+                if (lat >= -900000 && lat <= 900000 && lon >= -1800000 && lon <= 1800000) {
+                    out->has_position = true;
+                    out->latitude_e7 = lat * 1000;
+                    out->longitude_e7 = lon * 1000;
+                    out->altitude_m = lpp_value(v + 6U, 3U, true) / 100;
+                }
             }
             break;
         default:

@@ -1366,6 +1366,14 @@ MESH_TEST_CASE(meshcore_lpp_reads_what_a_node_reports, unit) {
     MESH_TEST_FAIL_IF(t.has_voltage, "nothing after an unknown type is read");
     MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_lpp, 3U, &t) != 0 || t.has_battery,
                       "a truncated value is not read");
+    static const uint8_t k_offworld[] = {0x03, 136, 0x7F, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0, 0, 0};
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_offworld, sizeof k_offworld, &t) != 0 ||
+                          t.has_position,
+                      "a fix off the globe is not a position");
+    static const uint8_t k_current[] = {0x02, 117, 0x00, 0xFA}; /* 0.250 A */
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_current, sizeof k_current, &t) != 0 ||
+                          !t.has_current || t.current_a < 0.249f || t.current_a > 0.251f,
+                      "current in thousandths of an amp");
     /* What a Heltec V3 on v1.17.1 answered about itself: battery and MCU temperature only. */
     static const uint8_t k_heltec[] = {0x01, 0x74, 0x01, 0x9d, 0x01, 0x67, 0x01, 0x86};
     MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_heltec, sizeof k_heltec, &t) != 0 ||
@@ -1420,6 +1428,35 @@ MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
     MESH_TEST_FAIL_IF(!node->environment.valid || !node->environment.has_temperature ||
                           node->environment.temperature != 20.0f || node->environment.has_humidity,
                       "the temperature in its environment, and nothing it did not send");
+    MESH_TEST_FAIL_IF(g_meshcore.telemetry_until_ms != 0U,
+                      "the answer frees the radio for the next request");
+    static const uint8_t k_amps[] = {
+        MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE,
+        0x00,
+        0x40,
+        0x41,
+        0x42,
+        0x43,
+        0x44,
+        0x45,
+        0x02,
+        117,
+        0x00,
+        0xFA, /* 0.250 A */
+    };
+    feed(&protocol, k_amps, sizeof k_amps);
+    MESH_TEST_FAIL_IF(!node->environment.has_current || node->environment.current < 249.9f ||
+                          node->environment.current > 250.1f,
+                      "current lands in milliamps, as the record keeps it");
+
+    /* One outstanding: a second before the first's answer or deadline would orphan it. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0, "asked again");
+    feed(&protocol, k_sent, sizeof k_sent);
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != -EBUSY,
+                      "and a third waits for the second's answer");
+    g_meshcore.telemetry_until_ms = 1U; /* the deadline long past */
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0,
+                      "an answer that never came frees it at its deadline");
     record_success(test_name);
 }
 

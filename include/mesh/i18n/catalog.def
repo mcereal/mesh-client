@@ -2804,6 +2804,7 @@ MESH_STR_ENTRY(TOAST_BACKED_UP,           "Backup sent to the radio's flash")
 MESH_STR_ENTRY(TOAST_RESTORED,            "Restore sent; re-reading the settings")
 MESH_STR_ENTRY(TOAST_BACKUP_REMOVED,      "Backup deleted from the radio's flash")
 MESH_STR_ENTRY(TOAST_ALREADY_REQUESTED,   "Already requested")
+MESH_STR_ENTRY(TOAST_READINGS_BUSY,       "Still waiting on the last readings asked for")
 MESH_STR_ENTRY(TOAST_REQUEST_FAILED,      "Request failed (%d)")
 /* Asking a Store & Forward router for the traffic missed while this client was off. Two
    toasts because the press does two different things: with a router already known it asks

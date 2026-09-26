@@ -386,6 +386,9 @@ struct mesh_meshcore {
     struct mesh_meshcore_contact heard[MESH_MESHCORE_HEARD_ADVERTS];
     uint32_t heard_age[MESH_MESHCORE_HEARD_ADVERTS]; /* when each was kept; 0 for an empty slot */
     uint32_t heard_clock;
+    /* A telemetry request's answer is due until this monotonic time, 0 for none outstanding:
+       the radio keeps one, and a second would orphan the first. */
+    uint64_t telemetry_until_ms;
     bool battery_valid;
     uint16_t battery_mv;
     /*
@@ -509,7 +512,8 @@ int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id,
  * radio ask - by a TELEMETRY_RESPONSE whose battery, environment and position land on the
  * node's record. The radio keeps one request outstanding and a new one orphans the last. 0 when
  * asked; -EINVAL for 0 or this radio, -ENOTCONN until the handshake has named the radio,
- * -ENOENT for a node that is not one of the radio's contacts, -ENOBUFS when the queue is full.
+ * -ENOENT for a node that is not one of the radio's contacts, -EBUSY while the last request's
+ * answer is still due, -ENOBUFS when the queue is full.
  */
 int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t node_id);
 int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
