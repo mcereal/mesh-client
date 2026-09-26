@@ -844,6 +844,47 @@ MESH_TEST_CASE(meshcore_settings_write_refuses_what_it_cannot_send_whole, unit) 
     record_success(test_name);
 }
 
+/* Removing a contact is REMOVE_CONTACT with its whole key, and the roster lets it go at once:
+   nothing reads the list back, and it returns by itself when the node next adverts. */
+MESH_TEST_CASE(meshcore_remove_contact_takes_it_off_both_lists, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, g_meshcore.self_node) != -EINVAL,
+                      "this radio is not a contact of its own");
+    MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, 0x12345678U) != -ENOENT,
+                      "a node the roster does not hold has no key to name");
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, 0x40414243U) != 1,
+                      "a contact is asked off");
+    MESH_TEST_FAIL_IF(wire.count != before + 1U ||
+                          wire.frames[before][0] != MESH_MESHCORE_CMD_REMOVE_CONTACT ||
+                          wire.lens[before] != 33U || wire.frames[before][1] != 0x40 ||
+                          wire.frames[before][32] != 0x40 + 31,
+                      "by its whole key");
+    MESH_TEST_FAIL_IF(model_node(0x40414243U) != NULL, "and leaves the roster at once");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, 0x40414243U) != -ENOENT,
+                      "a second press has nothing left to remove");
+    record_success(test_name);
+}
+
+/* An advert is SEND_SELF_ADVERT with 1 to flood it and 0 for the nodes in earshot. */
+MESH_TEST_CASE(meshcore_advert_is_flooded_or_not, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_advert(&g_meshcore, false) != 0, "a nearby advert");
+    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_SEND_SELF_ADVERT ||
+                          wire.frames[wire.count - 1U][1] != 0U,
+                      "goes out zero-hop");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_advert(&g_meshcore, true) != 0 ||
+                          wire.frames[wire.count - 1U][1] != 1U,
+                      "and a flooded one says so");
+    record_success(test_name);
+}
+
 /* A reboot is never answered, and over a USB bridge the port stays open while the ESP32 behind
    it resets - so once the answer is overdue the conversation starts over by itself. */
 MESH_TEST_CASE(meshcore_reboot_syncs_again, unit) {

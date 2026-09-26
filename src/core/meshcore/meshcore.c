@@ -1063,6 +1063,18 @@ bool mesh_meshcore_ready(const struct mesh_meshcore *meshcore) {
  * there is a clock at all, because the timestamp is part of the encrypted payload and a repeat
  * of the same text in the same second would be dropped by the mesh as a duplicate.
  */
+/* The roster's entry for `node_id`, or NULL; a lookup, never an add. */
+static const struct mesh_node_summary *
+mesh_meshcore_roster_node(const struct mesh_meshcore *meshcore, uint32_t node_id) {
+    const struct mesh_handshake_status *status = &meshcore->model->handshake;
+    for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (status->nodes[i].node_id == node_id) {
+            return &status->nodes[i];
+        }
+    }
+    return NULL;
+}
+
 static uint32_t mesh_meshcore_timestamp(struct mesh_meshcore *meshcore) {
     uint32_t now = inkwell_time_wall_credible_s();
     if (now == 0U && meshcore->radio_clock != 0U) {
@@ -1127,14 +1139,7 @@ int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8
         (void)mesh_message_log_append(&meshcore->model->messages, &message);
         result = mesh_meshcore_enqueue(meshcore, frame, len, message.packet_id);
     } else {
-        const struct mesh_handshake_status *status = &meshcore->model->handshake;
-        const struct mesh_node_summary *node = NULL;
-        for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
-            if (status->nodes[i].node_id == dest) {
-                node = &status->nodes[i];
-                break;
-            }
-        }
+        const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, dest);
         if (node == NULL || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN) {
             return -ENOENT;
         }
@@ -1180,6 +1185,31 @@ int mesh_meshcore_send_advert(struct mesh_meshcore *meshcore, bool flood) {
                                  mesh_meshcore_encode_byte(MESH_MESHCORE_CMD_SEND_SELF_ADVERT,
                                                            flood ? 1U : 0U, frame, sizeof frame),
                                  0U);
+}
+
+int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_id) {
+    if (meshcore == NULL || node_id == 0U || node_id == meshcore->self_node) {
+        return -EINVAL;
+    }
+    if (meshcore->send == NULL) {
+        return -ENOTCONN;
+    }
+    const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, node_id);
+    if (node == NULL || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN) {
+        return -ENOENT;
+    }
+    uint8_t frame[1U + MESH_MESHCORE_PUBKEY_LEN];
+    const int result =
+        mesh_meshcore_enqueue(meshcore, frame,
+                              mesh_meshcore_encode_key(MESH_MESHCORE_CMD_REMOVE_CONTACT,
+                                                       node->public_key, frame, sizeof frame),
+                              0U);
+    if (result < 0) {
+        return result;
+    }
+    (void)mesh_session_model_drop_node(meshcore->model, node_id);
+    inkwell_log_info("meshcore", "Removed contact 0x%08x", node_id);
+    return 1;
 }
 
 int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,

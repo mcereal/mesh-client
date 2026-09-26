@@ -340,7 +340,7 @@ enum mesh_ui_feature {
     MESH_UI_FEATURE_TRACEROUTE = 1U << 1,
     /* Asking a node for its name, position or telemetry now. */
     MESH_UI_FEATURE_NODE_REQUESTS = 1U << 2,
-    /* Pin, mute, ignore and remove: flags the radio keeps per node. */
+    /* Pin, mute and ignore: flags the radio keeps per node. */
     MESH_UI_FEATURE_NODE_FLAGS = 1U << 3,
     /* Configuring another node's radio over the mesh. */
     MESH_UI_FEATURE_REMOTE_ADMIN = 1U << 4,
@@ -364,10 +364,12 @@ enum mesh_ui_feature {
     /* The radio's maintenance verbs beyond a reboot: shut down, reset the NodeDB, back up and
        restore, factory reset. */
     MESH_UI_FEATURE_RADIO_MAINTENANCE = 1U << 12,
+    /* Taking a node off the radio's list. */
+    MESH_UI_FEATURE_NODE_REMOVE = 1U << 13,
 };
 
 /* Every bit above: what a protocol with none of Meshtastic's verbs lacks. */
-#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_RADIO_MAINTENANCE << 1) - 1U))
+#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_REMOVE << 1) - 1U))
 
 /*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so the

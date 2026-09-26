@@ -779,6 +779,9 @@ void mesh_session_model_adopt_radio(struct mesh_session *session, uint32_t node_
     session->handshake.my_info.my_node_num = node_num;
 }
 
+static struct mesh_node_summary *mesh_session_find_node(struct mesh_session *session,
+                                                        uint32_t node_id);
+
 struct mesh_node_summary *mesh_session_model_node(struct mesh_session *session, uint32_t node_id,
                                                   bool synced) {
     if (session == NULL || node_id == 0U || node_id == MESH_MESSAGE_BROADCAST_ADDR) {
@@ -789,6 +792,25 @@ struct mesh_node_summary *mesh_session_model_node(struct mesh_session *session, 
         slot->sync_epoch = session->sync_epoch;
     }
     return slot;
+}
+
+int mesh_session_model_drop_node(struct mesh_session *session, uint32_t node_id) {
+    if (session == NULL) {
+        return -EINVAL;
+    }
+    struct mesh_node_summary *summary = mesh_session_find_node(session, node_id);
+    if (summary == NULL) {
+        return -ENOENT;
+    }
+    const size_t index = (size_t)(summary - session->handshake.nodes);
+    const size_t last = session->handshake.node_count - 1U;
+    if (index < last) {
+        memmove(&session->handshake.nodes[index], &session->handshake.nodes[index + 1U],
+                (last - index) * sizeof session->handshake.nodes[0]);
+    }
+    memset(&session->handshake.nodes[last], 0, sizeof session->handshake.nodes[last]);
+    session->handshake.node_count = last;
+    return 0;
 }
 
 int mesh_session_model_set_channel(struct mesh_session *session,
@@ -2486,14 +2508,7 @@ int mesh_session_remove_node(struct mesh_session *session, uint32_t node_id) {
     }
     /* Drop it here too. There is no read-back, and an entry left in place would sit in the
        list looking removed-but-present until the next connection re-syncs the NodeDB. */
-    const size_t index = (size_t)(summary - session->handshake.nodes);
-    const size_t last = session->handshake.node_count - 1U;
-    if (index < last) {
-        memmove(&session->handshake.nodes[index], &session->handshake.nodes[index + 1U],
-                (last - index) * sizeof session->handshake.nodes[0]);
-    }
-    memset(&session->handshake.nodes[last], 0, sizeof session->handshake.nodes[last]);
-    session->handshake.node_count = last;
+    (void)mesh_session_model_drop_node(session, node_id);
     inkwell_log_info("session", "Removed node 0x%08x from the NodeDB (%d requests)", node_id,
                      queued);
     return queued;

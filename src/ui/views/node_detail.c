@@ -1392,7 +1392,7 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
            leaves the list and there is nothing left to press to undo it. It comes back on its
            own when the node next transmits, which is why this is an arming press rather than
            the confirm overlay - the cost is a wait, not a loss. */
-        if (flags) {
+        if (node_actions_offer(lacks, MESH_UI_FEATURE_NODE_REMOVE)) {
             rows_action(&rows, MESH_STR_NODE_ACT_REMOVE,
                         inkcell_str(remove_armed ? MESH_STR_NODE_ACT_REMOVE_ARMED
                                                  : MESH_STR_COMMON_PRESS_A),
