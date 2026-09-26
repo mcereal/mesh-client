@@ -85,8 +85,10 @@ writes, so there is no client-side chunking either; packets cap at 512 bytes. Fr
 The Bluetooth stack is inkwell's: `inkwell/ble/central.h` is a BLE central that names a node by
 its address and a characteristic by an opaque handle, with BlueZ-over-libdbus as its Linux
 backend and a mock (`inkwell_ble_mock_enable`) — **there is no real BlueZ in CI and tests must
-not touch one.** What is Meshtastic's about it is `src/transport/ble/ble_gatt.c`: the service and
-characteristic UUIDs, and the lookup of all four at once. Built without D-Bus headers, inkwell
+not touch one.** Which service and characteristics a link uses is the protocol's
+`struct mesh_ble_profile` (`src/proto/ble_profile.c`, Meshtastic's is
+`mesh_ble_profile_meshtastic`), and `src/transport/ble/ble_gatt.c` looks one up on a radio - see
+[`protocols.md`](protocols.md#the-seam). Built without D-Bus headers, inkwell
 links a backend that refuses every call and the transport reports `disabled`.
 
 On a Mac the same transport stands on inkwell's CoreBluetooth backend, and three things read
@@ -99,7 +101,8 @@ allowed the transport waits in "Bluetooth is starting".
 
 `ble_transport.c` is the link: a state machine (`disabled` → `waiting-for-bluez` →
 `waiting-for-adapter` → `running`), service-UUID filtering, an outbound queue, and the
-FromNum-notify → FromRadio-read drain.
+FromNum-notify → FromRadio-read drain (or, for a profile whose notification is the frame, no
+drain at all).
 
 - **Bring-up is retried, not assumed.** `mesh_ble_bring_up()` runs from `start()` and then from
   `tick()` every 2 s while not `running`, because `bluetoothd` is not always on the bus when we

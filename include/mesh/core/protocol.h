@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mesh/proto/ble_profile.h"
 #include "mesh/proto/stream_framing.h"
 
 #include <stdbool.h>
@@ -27,8 +28,9 @@ extern "C" {
  *
  * What the interface deliberately does not say is what a frame *means*. A frame is an opaque
  * payload the link neither encodes nor decodes; the protocol owns that entirely, and so owns
- * which framing a stream link wraps it in (`stream_framing`), because the same serial port
- * speaks whichever protocol the firmware on the far side does.
+ * which framing a stream link wraps it in (`stream_framing`) and which GATT contract a BLE link
+ * finds it under (`ble_profile`), because the same port or radio speaks whichever protocol the
+ * firmware on the far side does.
  */
 
 /* Hands one frame (raw, unframed) to the link. `frame_id` is the protocol's handle for it,
@@ -43,6 +45,9 @@ struct mesh_protocol_ops {
     /* How a stream link wraps this protocol's frames. NULL for a protocol that only rides a
        transport with its own message boundaries (a GATT write is one frame). */
     const struct mesh_stream_framing *stream_framing;
+    /* The service and characteristics a BLE link finds this protocol under, and how frames
+       arrive on them. NULL for a protocol that does not ride BLE. */
+    const struct mesh_ble_profile *ble_profile;
 
     /* Link up: install the send path. Nothing goes out until begin(). */
     void (*attach)(void *self, mesh_protocol_send_fn send, void *send_ctx);
@@ -77,15 +82,15 @@ struct mesh_protocol {
    handed a protocol yet is an ordinary state during start-up, not a crash waiting to happen. */
 bool mesh_protocol_bound(const struct mesh_protocol *protocol);
 const char *mesh_protocol_name(const struct mesh_protocol *protocol);
-const struct mesh_stream_framing *mesh_protocol_stream_framing(
-    const struct mesh_protocol *protocol);
+const struct mesh_stream_framing *
+mesh_protocol_stream_framing(const struct mesh_protocol *protocol);
+const struct mesh_ble_profile *mesh_protocol_ble_profile(const struct mesh_protocol *protocol);
 
 void mesh_protocol_attach(const struct mesh_protocol *protocol, mesh_protocol_send_fn send,
                           void *send_ctx);
 void mesh_protocol_detach(const struct mesh_protocol *protocol);
 int mesh_protocol_begin(const struct mesh_protocol *protocol);
-void mesh_protocol_receive(const struct mesh_protocol *protocol, const uint8_t *frame,
-                           size_t len);
+void mesh_protocol_receive(const struct mesh_protocol *protocol, const uint8_t *frame, size_t len);
 void mesh_protocol_frame_failed(const struct mesh_protocol *protocol, uint32_t frame_id);
 void mesh_protocol_tick(const struct mesh_protocol *protocol, uint64_t now_ms);
 bool mesh_protocol_silent(const struct mesh_protocol *protocol);

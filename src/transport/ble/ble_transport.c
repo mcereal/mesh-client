@@ -127,6 +127,8 @@ struct mesh_ble_transport_state {
     char adapter[INKWELL_BLE_HANDLE_MAX]; /* for the log: what the stack called it */
     struct inkwell_ble_central central;
     struct inkwell_ble_device devices[16];
+    /* The profile each of `devices` was found advertising: which protocol that radio speaks. */
+    const struct mesh_ble_profile *device_profiles[16];
     size_t device_count;
     /* What the log was last told, so a restated roster is not restated again. Only the fields
        mesh_ble_reload_devices() counts as a change, which is why it is not a second
@@ -195,7 +197,10 @@ struct mesh_ble_transport_state {
     bool drain_pending;         /* more FromRadio packets may be waiting */
     uint64_t drain_retry_at_ms; /* earliest time to run the pending drain (0 = now) */
     unsigned drain_failures;    /* consecutive ReadValue failures */
-    struct mesh_ble_meshtastic_chars chars;
+    /* The GATT contract the live link was brought up under - the protocol's, taken on connect -
+       and the handles it found for it. */
+    const struct mesh_ble_profile *profile;
+    struct mesh_ble_chars chars;
     size_t frames_received;
     size_t bytes_received;
     struct mesh_ble_outbound_packet write_queue[MESH_BLE_MAX_OUTBOUND_PACKETS];
@@ -807,6 +812,7 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->pair_started_ms = 0U;
     state->notifications_enabled = false;
     memset(&state->chars, 0, sizeof(state->chars));
+    state->profile = NULL;
     state->frames_received = 0U;
     state->bytes_received = 0U;
     /* The app hands every link the same protocol; standalone (tests, --list-devices) each link
@@ -913,6 +919,7 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     state->notifications_enabled = false;
     state->drain_pending = false;
     memset(&state->chars, 0, sizeof(state->chars));
+    state->profile = NULL;
     state->frames_received = 0U;
     state->bytes_received = 0U;
     mesh_protocol_detach(&state->protocol);
@@ -1040,6 +1047,21 @@ const struct inkwell_ble_device *mesh_ble_transport_devices(struct mesh_transpor
     return state->devices;
 }
 
+const struct mesh_ble_profile *mesh_ble_transport_device_profile(struct mesh_transport *transport,
+                                                                 const char *address) {
+    if (transport == NULL || transport->state == NULL || address == NULL) {
+        return NULL;
+    }
+    const struct mesh_ble_transport_state *state =
+        (const struct mesh_ble_transport_state *)transport->state;
+    for (size_t i = 0; i < state->device_count; ++i) {
+        if (strcasecmp(state->devices[i].address, address) == 0) {
+            return state->device_profiles[i];
+        }
+    }
+    return NULL;
+}
+
 /* The remembered roster is indexed by the live one's count, so a `logged` array shorter than
    `devices` would be written past its end the first time sixteen radios were in the room. */
 _Static_assert(INKWELL_ARRAY_LEN(((struct mesh_ble_transport_state *)0)->logged) >=
@@ -1088,6 +1110,59 @@ static void mesh_ble_note_heard(struct mesh_ble_transport_state *state) {
     state->scanned_ever = true;
 }
 
+/*
+ * Every radio advertising a profile this client knows, each tagged with the profile it was found
+ * under - the known ones in order, then the bound protocol's if it is not among them. A radio
+ * found under two keeps the first, so the order of mesh_ble_known_profiles[] is the tie-break.
+ *
+ * Fails only when the first listing does: that one is what says whether the stack answered at
+ * all, and a later profile's refusal should not blank the radios the earlier ones found.
+ */
+static int mesh_ble_list_known(struct mesh_ble_transport_state *state, size_t *count) {
+    const struct mesh_ble_profile *profiles[8];
+    size_t profile_count = 0U;
+    for (size_t i = 0; i < mesh_ble_known_profile_count && profile_count < 8U; ++i) {
+        profiles[profile_count++] = mesh_ble_known_profiles[i];
+    }
+    const struct mesh_ble_profile *bound = mesh_protocol_ble_profile(&state->protocol);
+    bool known = bound == NULL;
+    for (size_t i = 0; i < profile_count && !known; ++i) {
+        known = profiles[i] == bound;
+    }
+    if (!known && profile_count < 8U) {
+        profiles[profile_count++] = bound;
+    }
+
+    *count = 0U;
+    const size_t capacity = INKWELL_ARRAY_LEN(state->devices);
+    for (size_t p = 0; p < profile_count && *count < capacity; ++p) {
+        struct inkwell_ble_device found[INKWELL_ARRAY_LEN(state->devices)];
+        size_t found_count = 0U;
+        /* The whole array, not what is left: duplicates are dropped below, and a query capped at
+           the free slots could spend them on radios already listed. */
+        const int result = mesh_ble_list_profile(&state->central, profiles[p], found,
+                                                 INKWELL_ARRAY_LEN(found), &found_count);
+        if (result < 0) {
+            if (p == 0U) {
+                return result;
+            }
+            continue;
+        }
+        for (size_t i = 0; i < found_count && *count < capacity; ++i) {
+            bool listed = false;
+            for (size_t j = 0; j < *count && !listed; ++j) {
+                listed = strcasecmp(state->devices[j].address, found[i].address) == 0;
+            }
+            if (!listed) {
+                state->devices[*count] = found[i];
+                state->device_profiles[*count] = profiles[p];
+                *count += 1U;
+            }
+        }
+    }
+    return 0;
+}
+
 static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
     if (state == NULL) {
         return 0U;
@@ -1102,8 +1177,7 @@ static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
     }
 
     size_t device_count = 0;
-    int list_result = mesh_ble_list_meshtastic(&state->central, state->devices,
-                                               INKWELL_ARRAY_LEN(state->devices), &device_count);
+    int list_result = mesh_ble_list_known(state, &device_count);
     if (list_result < 0) {
         inkwell_log_debug("ble", "Device enumeration failed: %s", strerror(-list_result));
         state->device_count = 0;
@@ -1112,7 +1186,7 @@ static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
     }
 
     if (device_count != state->device_count) {
-        inkwell_log_info("ble", "Discovered %zu meshtastic device(s)", device_count);
+        inkwell_log_info("ble", "Discovered %zu radio(s)", device_count);
     }
     state->device_count = device_count;
 
@@ -1222,7 +1296,7 @@ static void mesh_ble_clear_write_queue(struct mesh_ble_transport_state *state) {
    the link is reset here and auto-connect takes it from there. Returns the write error. */
 static int mesh_ble_flush_write_queue(struct mesh_ble_transport_state *state) {
     if (state == NULL || state->write_queue_len == 0U || !state->client_initialised ||
-        state->chars.toradio[0] == '\0') {
+        state->chars.write[0] == '\0') {
         return 0;
     }
 
@@ -1230,12 +1304,12 @@ static int mesh_ble_flush_write_queue(struct mesh_ble_transport_state *state) {
         struct mesh_ble_outbound_packet *packet = &state->write_queue[state->write_queue_head];
 
         int result =
-            inkwell_ble_write(&state->central, state->chars.toradio, packet->data, packet->length);
+            inkwell_ble_write(&state->central, state->chars.write, packet->data, packet->length);
         if (result == -EAGAIN) {
             return 0;
         }
         if (result < 0) {
-            inkwell_log_warn("ble", "ToRadio write failed: %d; dropping link", result);
+            inkwell_log_warn("ble", "GATT write failed: %d; dropping link", result);
             mesh_ble_reset_link(state, "write failed");
             return result;
         }
@@ -1253,9 +1327,10 @@ static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const u
         return -EINVAL;
     }
 
-    if (len > MESH_BLE_MAX_PACKET_SIZE) {
-        inkwell_log_warn("ble", "ToRadio packet of %zu bytes exceeds %u byte limit", len,
-                         (unsigned)MESH_BLE_MAX_PACKET_SIZE);
+    const size_t limit =
+        state->profile != NULL ? state->profile->max_frame : (size_t)MESH_BLE_MAX_PACKET_SIZE;
+    if (len > limit) {
+        inkwell_log_warn("ble", "outbound frame of %zu bytes exceeds %zu byte limit", len, limit);
         return -EMSGSIZE;
     }
 
@@ -1275,18 +1350,19 @@ static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const u
     return mesh_ble_flush_write_queue(state);
 }
 
-/* The session's send path while this link is up: one GATT write per ToRadio protobuf. */
+/* The protocol's send path while this link is up: one GATT write per frame. */
 static int mesh_ble_session_send(void *ctx, const uint8_t *packet, size_t len, uint32_t packet_id) {
     return mesh_ble_queue_packet((struct mesh_ble_transport_state *)ctx, packet, len, packet_id);
 }
 
 /*
- * Pull everything the node has queued. Meshtastic serves one FromRadio protobuf per read and an
- * empty value once the FIFO is drained; FromNum only tells us that there is something to read.
+ * Pull everything the node has queued, for a PULL profile. Meshtastic serves one FromRadio
+ * protobuf per read and an empty value once the FIFO is drained; FromNum only tells us that there
+ * is something to read. A NOTIFY profile has no read characteristic, so this does nothing there.
  */
 static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
     if (state == NULL || !state->client_initialised ||
-        state->link_state != MESH_BLE_LINK_CONNECTED || state->chars.fromradio[0] == '\0') {
+        state->link_state != MESH_BLE_LINK_CONNECTED || state->chars.read[0] == '\0') {
         return;
     }
 
@@ -1296,7 +1372,7 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
     for (size_t i = 0; i < MESH_BLE_READS_PER_TURN; ++i) {
         size_t len = 0U;
         int result =
-            inkwell_ble_read(&state->central, state->chars.fromradio, packet, sizeof(packet), &len);
+            inkwell_ble_read(&state->central, state->chars.read, packet, sizeof(packet), &len);
         if (result == -EAGAIN) {
             return; /* completion or timeout wakes us; pending is not a failed read */
         }
@@ -1342,6 +1418,21 @@ static void mesh_ble_notification_handler(const uint8_t *data, size_t len, void 
     }
 
     if (state->link_state != MESH_BLE_LINK_CONNECTED) {
+        return;
+    }
+
+    /* A NOTIFY profile: the value is the frame. The central subscribes to one characteristic per
+       link, so there is no asking which one this came from. */
+    if (state->profile != NULL && state->profile->inbound == MESH_BLE_INBOUND_NOTIFY) {
+        if (len > state->profile->max_frame) {
+            inkwell_log_warn("ble", "%s notification of %zu bytes exceeds %zu; dropped",
+                             state->profile->name, len, state->profile->max_frame);
+            return;
+        }
+        state->frames_received += 1U;
+        state->bytes_received += len;
+        inkwell_log_debug("ble", "%s frame notified (%zu bytes)", state->profile->name, len);
+        mesh_protocol_receive(&state->protocol, data, len);
         return;
     }
 
@@ -1653,30 +1744,42 @@ static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
     const char *address = state->connected_address;
 
     if (!state->subscribe_pending) {
-        struct mesh_ble_meshtastic_chars chars;
-        const int found =
-            mesh_ble_find_meshtastic_characteristics(&state->central, address, &chars);
+        /* The protocol says what to look for. The scan's tag only says what the radio
+           advertised, and a radio that speaks something else shows up here as a missing
+           characteristic. */
+        const struct mesh_ble_profile *profile = mesh_protocol_ble_profile(&state->protocol);
+        if (!mesh_ble_profile_usable(profile)) {
+            inkwell_log_warn("ble", "protocol %s has no usable BLE profile",
+                             mesh_protocol_name(&state->protocol));
+            mesh_ble_set_error(state, MESH_STR_LINK_NOT_MESHTASTIC, mesh_ble_short_label(address));
+            return -ENOTSUP;
+        }
+        struct mesh_ble_chars chars;
+        const int found = mesh_ble_find_characteristics(&state->central, address, profile, &chars);
         if (found < 0) {
-            inkwell_log_warn("ble",
-                             "%s does not expose the Meshtastic service characteristics (%d)",
-                             address, found);
+            inkwell_log_warn("ble", "%s does not expose the %s service characteristics (%d)",
+                             address, profile->name, found);
             mesh_ble_set_error(state, MESH_STR_LINK_NOT_MESHTASTIC, mesh_ble_short_label(address));
             return found;
         }
-        inkwell_log_debug("ble", "ToRadio %s", chars.toradio);
-        inkwell_log_debug("ble", "FromRadio %s", chars.fromradio);
-        inkwell_log_debug("ble", "FromNum %s", chars.fromnum);
+        inkwell_log_debug("ble", "%s write %s", profile->name, chars.write);
+        inkwell_log_debug("ble", "%s notify %s", profile->name, chars.notify);
+        if (chars.read[0] != '\0') {
+            inkwell_log_debug("ble", "%s read %s", profile->name, chars.read);
+        }
+        state->profile = profile;
         state->chars = chars;
         state->subscribe_pending = true;
     }
 
-    const int result = inkwell_ble_subscribe(&state->central, state->chars.fromnum);
+    const int result = inkwell_ble_subscribe(&state->central, state->chars.notify);
     if (result == -EAGAIN) {
         return -EAGAIN;
     }
     state->subscribe_pending = false;
     if (result < 0) {
-        inkwell_log_warn("ble", "FromNum StartNotify failed (%d); is the node paired?", result);
+        inkwell_log_warn("ble", "%s StartNotify failed (%d); is the node paired?",
+                         state->profile->name, result);
         /* The overwhelmingly common cause, and the only one the user can act on: a node in PIN
            pairing mode has to be bonded with BlueZ out of band before its characteristics will
            notify. Say so instead of printing an errno. */
@@ -1759,9 +1862,11 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
     state->connected_address[0] = '\0';
     state->link_address[0] = '\0';
     memset(&state->chars, 0, sizeof(state->chars));
+    state->profile = NULL;
     mesh_protocol_detach(&state->protocol);
     mesh_ble_clear_write_queue(state);
-    inkwell_log_info("ble", "Disconnected from Meshtastic node (%s)", reason);
+    inkwell_log_info("ble", "Disconnected from %s radio (%s)", mesh_protocol_name(&state->protocol),
+                     reason);
 }
 
 /* ---- pairing ---------------------------------------------------------------------------------

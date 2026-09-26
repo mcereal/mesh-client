@@ -4,22 +4,27 @@
  * The link's side of mesh/core/protocol.h: what a link does with a protocol it was handed, and
  * what an unbound one answers.
  *
- * The protocol and the framing below are fakes on purpose. Every other stream-link case drives
- * the Meshtastic session, which is exactly the case a hard-coded call would also pass; these are
- * the ones that fail if the link stops going through the table.
+ * The protocol, the framing and the BLE profile below are fakes on purpose. Every other link
+ * case drives the Meshtastic session, which is exactly the case a hard-coded call would also
+ * pass; these are the ones that fail if a link stops going through the table.
  */
 
 #include "framework/mesh_test.h"
+#include "support/ble_fixture.h"
 
+#include "inkwell/ble/central.h"
 #include "mesh/core/protocol.h"
 #include "mesh/core/session.h"
+#include "mesh/proto/ble_profile.h"
 #include "mesh/proto/stream_framing.h"
+#include "mesh/transport/ble.h"
 #include "mesh/transport/stream_link.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -80,6 +85,24 @@ static const struct mesh_stream_framing k_oversized_framing = {
     .wake_byte = -1,
 };
 
+/* ------------------------------------------------------------------ a BLE profile nobody ships */
+
+/* The Nordic UART shape: write RX, subscribe to TX, and every notification is a frame. Unlike
+   Meshtastic's in every UUID and in the inbound model, so a link that fell back to FromNum and
+   FromRadio would find nothing and read nothing. */
+#define FAKE_NUS_SERVICE "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define FAKE_NUS_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define FAKE_NUS_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+
+static const struct mesh_ble_profile k_fake_nus = {
+    .name = "fake-nus",
+    .service_uuid = FAKE_NUS_SERVICE,
+    .write_uuid = FAKE_NUS_RX,
+    .notify_uuid = FAKE_NUS_TX,
+    .inbound = MESH_BLE_INBOUND_NOTIFY,
+    .max_frame = 172U,
+};
+
 /* ------------------------------------------------------------------ a protocol that records */
 
 struct fake_protocol {
@@ -87,7 +110,30 @@ struct fake_protocol {
     size_t received_len;
     size_t frames;
     uint32_t failed_id;
+    mesh_protocol_send_fn send;
+    void *send_ctx;
 };
+
+static void fake_attach(void *self, mesh_protocol_send_fn send, void *send_ctx) {
+    struct fake_protocol *fake = (struct fake_protocol *)self;
+    fake->send = send;
+    fake->send_ctx = send_ctx;
+}
+
+static void fake_detach(void *self) {
+    struct fake_protocol *fake = (struct fake_protocol *)self;
+    fake->send = NULL;
+    fake->send_ctx = NULL;
+}
+
+/* Opens the way a pulled protocol does: one short command, nothing framed around it. */
+static const uint8_t k_fake_hello[] = {0x01U, 0x03U};
+
+static int fake_begin(void *self) {
+    struct fake_protocol *fake = (struct fake_protocol *)self;
+    return fake->send != NULL ? fake->send(fake->send_ctx, k_fake_hello, sizeof k_fake_hello, 0U)
+                              : -ENOTCONN;
+}
 
 static void fake_receive(void *self, const uint8_t *frame, size_t len) {
     struct fake_protocol *fake = (struct fake_protocol *)self;
@@ -105,6 +151,15 @@ static const struct mesh_protocol_ops k_fake_ops = {
     .stream_framing = &k_fake_framing,
     .receive = fake_receive,
     .frame_failed = fake_frame_failed,
+};
+
+static const struct mesh_protocol_ops k_fake_ble_ops = {
+    .name = "fake-ble",
+    .ble_profile = &k_fake_nus,
+    .attach = fake_attach,
+    .detach = fake_detach,
+    .begin = fake_begin,
+    .receive = fake_receive,
 };
 
 static const struct mesh_protocol_ops k_oversized_ops = {
@@ -146,6 +201,8 @@ MESH_TEST_CASE(protocol_unbound_answers_no_conversation, unit) {
     MESH_TEST_FAIL_IF(mesh_protocol_silent(&unbound), "an unbound protocol is not silent");
     MESH_TEST_FAIL_IF(mesh_protocol_stream_framing(&unbound) != NULL,
                       "an unbound protocol has no framing");
+    MESH_TEST_FAIL_IF(mesh_protocol_ble_profile(&unbound) != NULL,
+                      "an unbound protocol has no BLE profile");
     MESH_TEST_FAIL_IF(strcmp(mesh_protocol_name(&unbound), "none") != 0,
                       "an unbound protocol is named for log lines");
     mesh_protocol_receive(&unbound, (const uint8_t *)"x", 1U);
@@ -161,7 +218,8 @@ MESH_TEST_CASE(protocol_unbound_answers_no_conversation, unit) {
     record_success(test_name);
 }
 
-/* The Meshtastic session is one protocol among any, and brings Meshtastic's framing with it. */
+/* The Meshtastic session is one protocol among any, and brings Meshtastic's framing and GATT
+   profile with it. */
 MESH_TEST_CASE(protocol_meshtastic_session_brings_its_framing, unit) {
     static struct mesh_session session;
     mesh_session_init(&session);
@@ -176,6 +234,10 @@ MESH_TEST_CASE(protocol_meshtastic_session_brings_its_framing, unit) {
                       "the serial wake burst is still a run of START2");
     MESH_TEST_FAIL_IF(mesh_stream_framing_meshtastic.max_frame > MESH_STREAM_PARSER_CAPACITY,
                       "Meshtastic's largest frame fits the parser");
+    MESH_TEST_FAIL_IF(mesh_protocol_ble_profile(&protocol) != &mesh_ble_profile_meshtastic,
+                      "a Meshtastic session is found over BLE under Meshtastic's profile");
+    MESH_TEST_FAIL_IF(!mesh_ble_profile_usable(&mesh_ble_profile_meshtastic),
+                      "Meshtastic's profile is one a link can carry");
     MESH_TEST_FAIL_IF(mesh_protocol_begin(&protocol) != -ENOTCONN,
                       "a session with no send path cannot begin a handshake");
 
@@ -278,5 +340,147 @@ MESH_TEST_CASE(stream_link_refuses_a_framing_that_does_not_fit, unit) {
 
     mesh_stream_link_close(&link);
     (void)close(fds[1]);
+    record_success(test_name);
+}
+
+/*
+ * What a link can carry: a PULL profile needs somewhere to read from, and no profile may carry a
+ * frame larger than the link's queue slot. Refused here, a bad table fails on connect with a
+ * log line rather than as a write past a buffer.
+ */
+MESH_TEST_CASE(ble_profile_usable_refuses_what_a_link_cannot_carry, unit) {
+    MESH_TEST_FAIL_IF(!mesh_ble_profile_usable(&k_fake_nus),
+                      "a NOTIFY profile needs no read characteristic");
+    MESH_TEST_FAIL_IF(mesh_ble_profile_usable(NULL), "no profile is not usable");
+
+    struct mesh_ble_profile pull_without_read = k_fake_nus;
+    pull_without_read.inbound = MESH_BLE_INBOUND_PULL;
+    MESH_TEST_FAIL_IF(mesh_ble_profile_usable(&pull_without_read),
+                      "a PULL profile with nothing to read is refused");
+
+    struct mesh_ble_profile oversized = k_fake_nus;
+    oversized.max_frame = MESH_BLE_MAX_PACKET_SIZE + 1U;
+    MESH_TEST_FAIL_IF(mesh_ble_profile_usable(&oversized),
+                      "a frame larger than the link's slot is refused");
+
+    struct mesh_ble_profile no_write = k_fake_nus;
+    no_write.write_uuid = NULL;
+    MESH_TEST_FAIL_IF(mesh_ble_profile_usable(&no_write), "a profile with no write is refused");
+    record_success(test_name);
+}
+
+/*
+ * The BLE link scans for, connects under, writes to and hears from whatever profile its protocol
+ * names - here one shaped like the Nordic UART Service, where a notification *is* the frame.
+ *
+ * Two radios in the room, one advertising each profile: the scan tags each with the one it found,
+ * which is what will let the app choose a protocol per radio. Then a connect to the fake one must
+ * write the protocol's opening command to RX, subscribe to TX (the mock only delivers a
+ * notification on the handle the link subscribed to), and hand a notified value straight to the
+ * protocol without a single read - a link that still drained FromRadio would read, and one still
+ * subscribed to FromNum would hear nothing.
+ */
+MESH_TEST_CASE(ble_link_speaks_its_protocols_profile, unit) {
+    const char *failure = NULL;
+    struct fake_protocol state;
+    memset(&state, 0, sizeof state);
+    const struct mesh_protocol protocol = {&k_fake_ble_ops, &state};
+
+    struct mesh_test_ble_rig rig;
+    mesh_test_ble_rig_init(&rig, "AA:BB:CC:DD:EE:A1", "Companion", -40);
+    (void)mesh_test_ble_rig_add_device(&rig, "AA:BB:CC:DD:EE:A2", "Meshtastic", -50);
+    static const char *const services[] = {FAKE_NUS_SERVICE, MESH_BLE_MESHTASTIC_SERVICE_UUID};
+    rig.mock.device_service_uuids = services;
+
+    char rx_path[128];
+    char tx_path[128];
+    char fromnum_path[128];
+    snprintf(rx_path, sizeof rx_path, "%s/%s", rig.devices[0].address, FAKE_NUS_RX);
+    snprintf(tx_path, sizeof tx_path, "%s/%s", rig.devices[0].address, FAKE_NUS_TX);
+    snprintf(fromnum_path, sizeof fromnum_path, "%s/%s", rig.devices[0].address,
+             MESH_BLE_FROMNUM_UUID);
+
+    /* The transport is a process-wide singleton: whatever is bound here is unbound below, or
+       every later BLE case would run against this fake. */
+    rig.ble->ops->set_protocol(rig.ble, &protocol);
+    if (mesh_test_ble_rig_start(&rig) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_session(rig.ble) != NULL) {
+        failure = "a transport handed a protocol does not report its fallback session";
+        goto cleanup;
+    }
+
+    (void)mesh_ble_transport_refresh_devices(rig.ble);
+    if (mesh_ble_transport_device_profile(rig.ble, rig.devices[0].address) != &k_fake_nus) {
+        failure = "the companion radio is tagged with the profile it advertises";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_device_profile(rig.ble, rig.devices[1].address) !=
+        &mesh_ble_profile_meshtastic) {
+        failure = "the Meshtastic radio is still found, and tagged as Meshtastic";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_device_profile(rig.ble, "00:00:00:00:00:00") != NULL) {
+        failure = "a radio not in the listing has no profile";
+        goto cleanup;
+    }
+
+    if (mesh_ble_transport_connect(rig.ble, rig.devices[0].address) != 0 ||
+        mesh_ble_transport_connected_address(rig.ble) == NULL) {
+        failure = "connect under the protocol's profile should succeed";
+        goto cleanup;
+    }
+    if (strcmp(rig.write_path, rx_path) != 0 || rig.write_len != sizeof k_fake_hello ||
+        memcmp(rig.write_capture, k_fake_hello, sizeof k_fake_hello) != 0) {
+        failure = "the protocol's opening command goes to the profile's write characteristic, bare";
+        goto cleanup;
+    }
+
+    inkwell_ble_mock_emit_notification(fromnum_path, (const uint8_t *)"\x01\x00\x00\x00", 4U);
+    if (state.frames != 0U) {
+        failure = "the link is subscribed to the profile's characteristic, not FromNum";
+        goto cleanup;
+    }
+
+    const uint8_t notified[] = {0x83U, 0x10U, 0x20U};
+    inkwell_ble_mock_emit_notification(tx_path, notified, sizeof notified);
+    if (state.frames != 1U || state.received_len != sizeof notified ||
+        memcmp(state.received, notified, sizeof notified) != 0) {
+        failure = "a notified value reaches the protocol as one whole frame";
+        goto cleanup;
+    }
+    uint8_t oversized[173];
+    memset(oversized, 0x66, sizeof oversized);
+    inkwell_ble_mock_emit_notification(tx_path, oversized, sizeof oversized);
+    if (state.frames != 1U) {
+        failure = "a notification over the profile's own limit never reaches the protocol";
+        goto cleanup;
+    }
+    if (rig.read_index != 0U) {
+        failure = "a NOTIFY profile is never read";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_stats(rig.ble).frames_received != 1U) {
+        failure = "a notified frame is counted like a read one";
+        goto cleanup;
+    }
+
+    uint8_t too_long[173];
+    memset(too_long, 0x55, sizeof too_long);
+    if (state.send == NULL ||
+        state.send(state.send_ctx, too_long, sizeof too_long, 0U) != -EMSGSIZE) {
+        failure = "a frame over the profile's own limit is refused before it is queued";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_test_ble_rig_close(&rig);
+    rig.ble->ops->set_protocol(rig.ble, NULL);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
     record_success(test_name);
 }

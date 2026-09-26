@@ -7,15 +7,20 @@
 #include <string.h>
 #include <strings.h>
 
-int mesh_ble_list_meshtastic(struct inkwell_ble_central *central,
-                             struct inkwell_ble_device *devices, size_t capacity, size_t *count) {
-    const int result = inkwell_ble_list_by_service(central, MESH_BLE_MESHTASTIC_SERVICE_UUID,
-                                                   devices, capacity, count);
-    if (result < 0 || devices == NULL || count == NULL || *count >= capacity) {
+int mesh_ble_list_profile(struct inkwell_ble_central *central,
+                          const struct mesh_ble_profile *profile,
+                          struct inkwell_ble_device *devices, size_t capacity, size_t *count) {
+    if (profile == NULL || profile->service_uuid == NULL) {
+        return -EINVAL;
+    }
+    const int result =
+        inkwell_ble_list_by_service(central, profile->service_uuid, devices, capacity, count);
+    if (result < 0 || !profile->adopts_bonded_dfu || devices == NULL || count == NULL ||
+        *count >= capacity) {
         return result;
     }
     /*
-     * And a bonded radio whose record has lost the Meshtastic service.
+     * And a bonded radio whose record has lost the protocol's service.
      *
      * An nRF52's DFU bootloader comes up at the radio's own address, bonded, and BlueZ's GATT
      * discovery of it replaces the services on that one record - so the radio it turns back
@@ -45,37 +50,44 @@ int mesh_ble_list_meshtastic(struct inkwell_ble_central *central,
     return result;
 }
 
-int mesh_ble_find_meshtastic_characteristics(struct inkwell_ble_central *central,
-                                             const char *address,
-                                             struct mesh_ble_meshtastic_chars *out) {
-    if (central == NULL || address == NULL || out == NULL) {
+int mesh_ble_list_meshtastic(struct inkwell_ble_central *central,
+                             struct inkwell_ble_device *devices, size_t capacity, size_t *count) {
+    return mesh_ble_list_profile(central, &mesh_ble_profile_meshtastic, devices, capacity, count);
+}
+
+int mesh_ble_find_characteristics(struct inkwell_ble_central *central, const char *address,
+                                  const struct mesh_ble_profile *profile,
+                                  struct mesh_ble_chars *out) {
+    if (central == NULL || address == NULL || out == NULL || !mesh_ble_profile_usable(profile)) {
         return -EINVAL;
     }
     memset(out, 0, sizeof *out);
 
-    static const struct {
+    const struct {
         const char *uuid;
-        const char *name;
-        size_t offset;
-    } k_required[] = {
-        {MESH_BLE_TORADIO_UUID, "ToRadio", offsetof(struct mesh_ble_meshtastic_chars, toradio)},
-        {MESH_BLE_FROMRADIO_UUID, "FromRadio",
-         offsetof(struct mesh_ble_meshtastic_chars, fromradio)},
-        {MESH_BLE_FROMNUM_UUID, "FromNum", offsetof(struct mesh_ble_meshtastic_chars, fromnum)},
+        const char *role;
+        char *handle;
+    } required[] = {
+        {profile->write_uuid, "write", out->write},
+        {profile->notify_uuid, "notify", out->notify},
+        {profile->inbound == MESH_BLE_INBOUND_PULL ? profile->read_uuid : NULL, "read", out->read},
     };
-    for (size_t i = 0; i < sizeof k_required / sizeof k_required[0]; ++i) {
-        char *handle = (char *)out + k_required[i].offset;
-        const int result = inkwell_ble_find_characteristic(central, address, k_required[i].uuid,
-                                                           handle, INKWELL_BLE_HANDLE_MAX);
+    for (size_t i = 0; i < sizeof required / sizeof required[0]; ++i) {
+        if (required[i].uuid == NULL) {
+            continue;
+        }
+        const int result = inkwell_ble_find_characteristic(
+            central, address, required[i].uuid, required[i].handle, INKWELL_BLE_HANDLE_MAX);
         if (result < 0) {
-            inkwell_log_warn("ble", "%s characteristic not found on %s", k_required[i].name,
-                             address);
+            inkwell_log_warn("ble", "%s %s characteristic (%s) not found on %s", profile->name,
+                             required[i].role, required[i].uuid, address);
             return result;
         }
     }
-    if (inkwell_ble_find_characteristic(central, address, MESH_BLE_LOGRADIO_UUID, out->logradio,
-                                        sizeof out->logradio) < 0) {
-        out->logradio[0] = '\0';
+    if (profile->log_uuid != NULL &&
+        inkwell_ble_find_characteristic(central, address, profile->log_uuid, out->log,
+                                        sizeof out->log) < 0) {
+        out->log[0] = '\0';
     }
     return 0;
 }
