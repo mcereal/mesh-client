@@ -806,9 +806,22 @@ static void mesh_meshcore_write_favorite(struct mesh_meshcore *meshcore,
     } else {
         contact.flags &= (uint8_t)~MESH_MESHCORE_CONTACT_FAVORITE;
     }
+    /* At the head, where its lookup stood: a command accepted after the lookup - a removal,
+       say - still runs after the write, rather than the write undoing it. The lookup has just
+       been popped, so its slot is free, and nothing has been sent since. */
     uint8_t frame[MESH_MESHCORE_MAX_FRAME];
-    (void)mesh_meshcore_enqueue(meshcore, frame,
-                                mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U);
+    const int len = mesh_meshcore_encode_contact(&contact, frame, sizeof frame);
+    if (len < 0 || meshcore->queue_count >= MESH_MESHCORE_QUEUE_LEN) {
+        return;
+    }
+    meshcore->queue_head =
+        (meshcore->queue_head + MESH_MESHCORE_QUEUE_LEN - 1U) % MESH_MESHCORE_QUEUE_LEN;
+    struct mesh_meshcore_request *request = &meshcore->queue[meshcore->queue_head];
+    memcpy(request->frame, frame, (size_t)len);
+    request->len = (uint8_t)len;
+    request->packet_id = 0U;
+    request->favorite = MESH_MESHCORE_FAVORITE_NONE;
+    meshcore->queue_count += 1U;
 }
 
 /* The answer to the command at the head of the queue. */

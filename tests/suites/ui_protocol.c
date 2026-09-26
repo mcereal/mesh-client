@@ -378,6 +378,10 @@ MESH_TEST_CASE(ui_protocol_pin_shortcut_follows_the_protocol, unit) {
     /* Without the per-node flags a pin is a contact's favourite: a node the radio does not
        carry by its whole key has none to set. */
     store.settings.protocol_lacks = MESH_UI_FEATURE_NODE_FLAGS;
+    if (bar_offers_pin(&store, MESH_UI_FEATURE_NODE_FLAGS)) {
+        failure = "no Pin on the bar over a node that is no whole-key contact";
+        goto cleanup;
+    }
     for (uint32_t i = 0; i < store.handshake.node_count; ++i) {
         if (mesh_ui_node_pinnable(&store.handshake.nodes[i], MESH_UI_FEATURE_NODE_FLAGS)) {
             failure = "no populated node is a whole-key contact";

@@ -1128,13 +1128,16 @@ MESH_TEST_CASE(meshcore_favorite_rewrites_the_radios_record, unit) {
     MESH_TEST_FAIL_IF(mesh_meshcore_set_favorite(&g_meshcore, alice, false) != 1 ||
                           mesh_meshcore_set_favorite(&g_meshcore, bob, true) != 1,
                       "unpinning one and pinning another are both asked");
+    /* Each write goes out where its lookup stood, ahead of what was asked after it. */
     feed(&protocol, record, record_len); /* Alice's record, still 0x04 | favourite on the radio */
+    MESH_TEST_FAIL_IF(wire.frames[wire.count - 1U][0] != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT ||
+                          wire.frames[wire.count - 1U][1] != 0x40,
+                      "Alice's write goes ahead of Bob's lookup");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     uint8_t bob_record[160];
     const size_t bob_len = build_contact(bob_record, MESH_MESHCORE_RESP_CONTACT, 0x60, "Bob",
                                          MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000100U);
     feed(&protocol, bob_record, bob_len);
-    /* Alice's write goes out as Bob's lookup is answered, and Bob's once Alice's is. */
-    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     bool alice_written = false;
     bool bob_written = false;
@@ -1165,6 +1168,20 @@ MESH_TEST_CASE(meshcore_favorite_rewrites_the_radios_record, unit) {
         feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     }
     MESH_TEST_FAIL_IF(!model_node(alice)->is_favorite, "and lands once the queue drains");
+
+    /* Unpin, then remove: the write goes ahead of the removal, which is the last word. */
+    wire.count = 0U; /* the fake link keeps 32 frames, and the full queue used them */
+    MESH_TEST_FAIL_IF(mesh_meshcore_set_favorite(&g_meshcore, alice, false) != 1 ||
+                          mesh_meshcore_remove_contact(&g_meshcore, alice) != 1,
+                      "an unpin and then a removal are asked");
+    feed(&protocol, record, record_len);
+    MESH_TEST_FAIL_IF(wire.frames[wire.count - 1U][0] != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT,
+                      "the unpin's write goes first");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(wire.frames[wire.count - 1U][0] != MESH_MESHCORE_CMD_REMOVE_CONTACT,
+                      "and the removal after it, so the contact stays removed");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(model_node(alice) != NULL, "and it is gone");
     record_success(test_name);
 }
 

@@ -9,6 +9,7 @@
 #include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/route.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
@@ -208,6 +209,26 @@ static void actions_map(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_
 }
 
 /*
+ * Whether X pins on the Nodes list with the cursor at `cursor`: the node under it when there is
+ * one, the same mesh_ui_node_pinnable() the press asks. Over a lead row the keycap stays where
+ * every node can be pinned, since it is true of every other row; where only some can - a
+ * MeshCore list of contacts and heard nodes - it is named only over one that can.
+ */
+static bool mesh_ui_actions_list_pins(const struct mesh_ui_snapshot *snapshot,
+                                      const struct mesh_ui_nav *nav, uint32_t cursor) {
+    const uint32_t lacks = snapshot->settings.protocol_lacks;
+    if (cursor < MESH_UI_NODES_LEAD_ROWS) {
+        return (lacks &
+                ((uint32_t)MESH_UI_FEATURE_NODE_PIN | (uint32_t)MESH_UI_FEATURE_NODE_FLAGS)) == 0U;
+    }
+    struct mesh_ui_node_view view;
+    mesh_ui_node_view_build_query(&snapshot->handshake, (enum mesh_ui_node_filter)nav->node_filter,
+                                  nav->node_query, (enum mesh_ui_node_sort)nav->node_sort, &view);
+    return mesh_ui_node_pinnable(
+        mesh_ui_node_view_at(&snapshot->handshake, &view, cursor - MESH_UI_NODES_LEAD_ROWS), lacks);
+}
+
+/*
  * What A does on the row the cursor is on in the open node detail, or NONE.
  *
  * It asks node_detail.c rather than deciding, which is the same seam the Status arm below uses
@@ -397,8 +418,7 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
        keeps the list's word like the map row does. */
     if (nodes_cursor == MESH_UI_NODES_FIND_ROW && nav->node_query[0] != '\0') {
         command_add(bar, MESH_UI_COMMAND_CLEAR, MESH_STR_ACTION_CLEAR, INKCELL_BUTTON_X);
-    } else if (snapshot == NULL ||
-               mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_NODE_PIN)) {
+    } else if (snapshot == NULL || mesh_ui_actions_list_pins(snapshot, nav, nodes_cursor)) {
         command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
     }
     command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);
