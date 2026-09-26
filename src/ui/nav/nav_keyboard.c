@@ -108,6 +108,11 @@ bool mesh_ui_nav_kb_submit_finishes(const struct mesh_ui_nav *nav) {
            nav->keyboard_contact_url || nav->keyboard_node_query;
 }
 
+bool mesh_ui_nav_kb_node_search(const struct mesh_ui_nav *nav) {
+    return nav != NULL && nav->keyboard_open && nav->keyboard_node_query &&
+           !nav->keyboard_passkey && !nav->keyboard_verify;
+}
+
 struct inkcell_keyboard_layout mesh_ui_nav_kb_layout(const struct mesh_ui_nav *nav) {
     return (struct inkcell_keyboard_layout){
         .emoji = k_kb_emoji,

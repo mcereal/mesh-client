@@ -339,7 +339,7 @@ static void fb_render_node_search(const struct inkcell_draw_state *state,
 void fb_render_keyboard(const struct inkcell_draw_state *state,
                         const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
-    if (nav->keyboard_node_query) {
+    if (mesh_ui_nav_kb_node_search(nav)) {
         fb_render_node_search(state, snapshot, layout);
         return;
     }
