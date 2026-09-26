@@ -1579,6 +1579,11 @@ static void build_position(const struct mesh_ui_settings *s, struct item_list *l
         item_field(list, MESH_UI_FIELD_POSITION_LONGITUDE, 0U, coord);
         item_verb(list, MESH_STR_SETTINGS_SET_FIXED_POS,
                   MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION);
+        /* The location it advertises, when there is one, can be taken back off the air. */
+        if (s->has_own_position) {
+            item_verb(list, MESH_STR_SETTINGS_CLEAR_FIXED_POS,
+                      MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION);
+        }
         return;
     }
     item_field(list, MESH_UI_FIELD_POSITION_GPS_MODE, s->gps_mode, NULL);

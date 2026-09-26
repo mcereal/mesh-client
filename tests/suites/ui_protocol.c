@@ -471,6 +471,14 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
     MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_POSITION,
                                       MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION),
                       "Position sets the coordinates it lists");
+    MESH_TEST_FAIL_IF(section_offers(&settings, &handshake, MESH_UI_SETTINGS_POSITION,
+                                     MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION),
+                      "with nothing advertised there is nothing to clear");
+    settings.has_own_position = true;
+    settings.own_latitude_i = 330000000;
+    MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_POSITION,
+                                      MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION),
+                      "and an advertised location can be cleared");
 
     MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
                                       MESH_UI_SETTINGS_ACTION_REBOOT),

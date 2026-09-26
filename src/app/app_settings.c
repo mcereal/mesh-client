@@ -1278,7 +1278,13 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
     const struct mesh_ui_settings *ui = &app->ui_store.settings;
     int result = 0;
 
-    if (clearing) {
+    if (clearing && app->meshcore_bound) {
+        /* MeshCore has no fixed-position flag: its advert location is cleared by writing 0,0. */
+        struct mesh_meshcore_settings_write write;
+        memset(&write, 0, sizeof write);
+        write.set_position = true;
+        result = mesh_meshcore_write_settings(&app->meshcore, &write);
+    } else if (clearing) {
         result = mesh_session_clear_fixed_position(&app->session);
     } else {
         int32_t latitude = ui->has_own_position ? ui->own_latitude_i : 0;
@@ -1498,7 +1504,11 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
                 scaled <= 0) {
                 return -EINVAL;
             }
-            /* Ten-thousandths of a MHz to kHz. */
+            /* Ten-thousandths of a MHz to kHz, which is all the command carries: a finer
+               value is refused rather than saved as a different frequency. */
+            if (scaled % 10 != 0) {
+                return -EINVAL;
+            }
             write.frequency_khz = (uint32_t)(scaled / 10);
             write.set_radio = true;
             break;

@@ -4946,6 +4946,29 @@ MESH_TEST_CASE(app_meshcore_settings_save_speaks_meshcore, unit) {
         goto cleanup;
     }
 
+    /* MeshCore carries whole kHz: a finer frequency is refused, not rounded. */
+    mesh_protocol_detach(&protocol);
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_FREQUENCY;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "869.6185");
+    mesh_app_save_settings(&app, &action, 3000U);
+    if (wire.count != 0U) {
+        failure = "a frequency below a kHz is not sent truncated";
+        goto cleanup;
+    }
+
+    /* Clearing the position is the advert location written as 0,0. */
+    struct mesh_ui_action clear;
+    memset(&clear, 0, sizeof clear);
+    clear.number = (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION;
+    mesh_app_save_fixed_position(&app, &clear, 4000U);
+    if (wire.count != 1U || wire.frames[0][0] != MESH_MESHCORE_CMD_SET_ADVERT_LATLON ||
+        app_le32(wire.frames[0] + 1) != 0U || app_le32(wire.frames[0] + 5) != 0U) {
+        failure = "a clear goes out as MeshCore's 0,0 location";
+        goto cleanup;
+    }
+
 cleanup:
     if (app_ready) {
         mesh_protocol_detach(&protocol);
