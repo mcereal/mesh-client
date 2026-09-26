@@ -2660,7 +2660,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     /* flatten_settings() zeroes the struct, so the client's own facts go in after it. */
     mesh_app_flatten_client_info(app, &ui_settings.client);
     /* And which protocol the link speaks: the one the transports were handed in app.c. */
-    const struct mesh_protocol protocol = mesh_session_protocol(&app->session);
+    const struct mesh_protocol protocol = mesh_app_protocol(app);
     mesh_ui_protocol_features(&protocol, &ui_settings.protocol, &ui_settings.protocol_lacks);
     mesh_app_flatten_firmware(app, &ui_settings);
     /* And the name of the radio being administered, for the same reason: it is a roster fact,

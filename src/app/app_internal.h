@@ -256,4 +256,15 @@ uint8_t mesh_app_primary_channel(const struct mesh_handshake_status *status);
 /* Starts watching a sent packet so its delivery result can be announced once. */
 void mesh_app_watch_sent(struct mesh_app *app, uint32_t packet_id, const char *peer);
 
+/*
+ * Which conversation the transports carry. Meshtastic's session unless the radio about to be
+ * connected speaks MeshCore: a BLE radio says so by the profile the scan found it under, and a
+ * serial or network link by MESHCLIENT_PROTOCOL=meshcore, since a port says nothing about the
+ * firmware behind it. Called right before a connect, after any other link has been released;
+ * a change detaches the conversation that was bound so nothing it queued goes to the new one.
+ */
+void mesh_app_bind_protocol(struct mesh_app *app, bool meshcore);
+bool mesh_app_serial_speaks_meshcore(void);
+struct mesh_protocol mesh_app_protocol(struct mesh_app *app);
+
 #endif /* MESH_CORE_APP_INTERNAL_H */

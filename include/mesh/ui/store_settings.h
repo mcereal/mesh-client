@@ -330,6 +330,7 @@ struct mesh_ui_region_presets {
 enum mesh_ui_protocol {
     MESH_UI_PROTOCOL_MESHTASTIC = 0, /* zero on purpose: see above */
     MESH_UI_PROTOCOL_OTHER,          /* a protocol this UI has no name for yet */
+    MESH_UI_PROTOCOL_MESHCORE,
 };
 
 enum mesh_ui_feature {

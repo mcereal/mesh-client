@@ -445,11 +445,30 @@ static void on_connect(struct mesh_app *app, const struct mesh_ui_action *action
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
+/* A message or a reply, through whichever conversation holds the link. MeshCore has no
+   threading and no reactions, so a reply goes as a plain message and a reaction - which the
+   protocol's feature row keeps off the screen - is refused rather than sent as a bubble. */
+static int mesh_app_send_message(struct mesh_app *app, const struct mesh_ui_action *action,
+                                 uint32_t *packet_id) {
+    const bool broadcast = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
+    if (app->meshcore_bound) {
+        if (action->is_reaction) {
+            return -ENOTSUP;
+        }
+        return mesh_meshcore_send_text(&app->meshcore, action->dest, action->channel, action->text,
+                                       packet_id);
+    }
+    return action->is_reaction
+               ? mesh_session_send_reaction(&app->session, action->dest, action->channel,
+                                            action->text, action->reply_id, packet_id)
+               : mesh_session_send_reply(&app->session, action->dest, action->channel, action->text,
+                                         !broadcast, action->reply_id, packet_id);
+}
+
 static void on_send_text(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
 
-    const bool broadcast = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
     uint32_t packet_id = 0U;
     /*
      * Three sends behind one action: a reaction names its target and asks for nothing back,
@@ -457,12 +476,7 @@ static void on_send_text(struct mesh_app *app, const struct mesh_ui_action *acti
      * message with no target. The session tells them apart on the wire; the difference
      * here is which of the three the nav filled in.
      */
-    const int result =
-        action->is_reaction
-            ? mesh_session_send_reaction(&app->session, action->dest, action->channel, action->text,
-                                         action->reply_id, &packet_id)
-            : mesh_session_send_reply(&app->session, action->dest, action->channel, action->text,
-                                      !broadcast, action->reply_id, &packet_id);
+    const int result = mesh_app_send_message(app, action, &packet_id);
     if (result == 0 && action->is_reaction) {
         /* A tapback has no bubble and nothing to wait for, so it is not watched: there is
            no delivery mark for a report to land on. */
@@ -507,13 +521,10 @@ static void on_resend(struct mesh_app *app, const struct mesh_ui_action *action)
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
 
-    const bool broadcast = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
     uint32_t packet_id = 0U;
     /* Never a reaction: one is drawn on the message it names rather than as a bubble, so it is
        filtered out of the thread and can never be the row under the cursor. */
-    const int result =
-        mesh_session_send_reply(&app->session, action->dest, action->channel, action->text,
-                                !broadcast, action->reply_id, &packet_id);
+    const int result = mesh_app_send_message(app, action, &packet_id);
     if (result == 0) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESENT_TO,
                            app->ui_store.nav.target_name);

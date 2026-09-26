@@ -20,8 +20,10 @@
 #include "inkwell/net/fetch.h"
 #include "inkwell/runtime/crash.h"
 #include "mesh/core/ca_roots.h"
+#include "mesh/core/meshcore.h"
 #include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/proto/ble_profile.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
 #include "mesh/transport/tcp.h"
@@ -161,6 +163,33 @@ bool mesh_app_canned_path(const struct mesh_app *app, char *out, size_t out_len)
     return snprintf(slash + 1, room, "%s", "canned.txt") < (int)room;
 }
 
+struct mesh_protocol mesh_app_protocol(struct mesh_app *app) {
+    return app->meshcore_bound ? mesh_meshcore_protocol(&app->meshcore)
+                               : mesh_session_protocol(&app->session);
+}
+
+void mesh_app_bind_protocol(struct mesh_app *app, bool meshcore) {
+    if (app->meshcore_bound == meshcore) {
+        return;
+    }
+    const struct mesh_protocol previous = mesh_app_protocol(app);
+    mesh_protocol_detach(&previous);
+    app->meshcore_bound = meshcore;
+    const struct mesh_protocol protocol = mesh_app_protocol(app);
+    mesh_transport_registry_set_protocol(&app->transport_registry, &protocol);
+    inkwell_log_info("app", "Links now speak %s", mesh_protocol_name(&protocol));
+}
+
+bool mesh_app_serial_speaks_meshcore(void) {
+    const char *protocol = inkwell_env_get("PROTOCOL");
+    return protocol != NULL && strcmp(protocol, "meshcore") == 0;
+}
+
+/* Whether the BLE radio at `address` was found under MeshCore's profile. */
+static bool mesh_app_ble_speaks_meshcore(struct mesh_transport *ble, const char *address) {
+    return mesh_ble_transport_device_profile(ble, address) == &mesh_ble_profile_meshcore;
+}
+
 int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t kind) {
     struct mesh_transport *transport = mesh_app_transport_for_kind(kind);
     if (transport == NULL) {
@@ -178,6 +207,7 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
             mesh_serial_transport_is_connecting(transport)) {
             mesh_serial_transport_disconnect(transport);
         }
+        mesh_app_bind_protocol(app, mesh_app_serial_speaks_meshcore());
         return mesh_serial_transport_connect(transport, identifier);
     }
 
@@ -189,6 +219,7 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
             mesh_tcp_transport_is_connecting(transport)) {
             mesh_tcp_transport_disconnect(transport);
         }
+        mesh_app_bind_protocol(app, mesh_app_serial_speaks_meshcore());
         const int result = mesh_tcp_transport_connect(transport, identifier);
         /*
          * What the transport *adopted*, not what it was handed, and asked rather than inferred
@@ -221,6 +252,7 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
         mesh_ble_transport_is_connecting(transport) || mesh_ble_transport_is_pairing(transport)) {
         mesh_ble_transport_disconnect(transport);
     }
+    mesh_app_bind_protocol(app, mesh_app_ble_speaks_meshcore(transport, identifier));
     /* A connect the user asked for pairs the node when it needs it; auto-connect's own
        attempts go through mesh_ble_transport_connect() and never raise a PIN prompt. */
     return mesh_ble_transport_connect_and_pair(transport, identifier);
@@ -789,6 +821,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
            connect deadline, long after the call returned 0 and this function went home. */
         app->autoconnect_tcp_retry_at_ms = now + MESH_APP_AUTOCONNECT_TCP_RETRY_MS;
         mesh_app_release_other_link(tcp);
+        mesh_app_bind_protocol(app, mesh_app_serial_speaks_meshcore());
         const int tcp_result = mesh_tcp_transport_connect(tcp, tcp_target);
         if (tcp_result == 0) {
             inkwell_log_info("app", "Auto-connecting to %s over the network", tcp_target);
@@ -938,6 +971,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
                          target->name, target->address, (int)target->rssi);
     }
 
+    mesh_app_bind_protocol(app, mesh_app_ble_speaks_meshcore(ble, target->address));
     int result = mesh_ble_transport_connect(ble, target->address);
     if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {
         if (result == 0) {
@@ -1344,6 +1378,8 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
        replaces the store's copy wholesale, so anything left only in the store would be lost.
        After mesh_session_init, which clears the session it is seeding. */
     mesh_app_seed_nodes_from_cache(app);
+    mesh_meshcore_init(&app->meshcore, &app->session);
+    app->meshcore_bound = false;
     const struct mesh_protocol protocol = mesh_session_protocol(&app->session);
     mesh_transport_registry_set_protocol(&app->transport_registry, &protocol);
 

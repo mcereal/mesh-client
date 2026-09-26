@@ -23,6 +23,7 @@ const struct mesh_ble_profile mesh_ble_profile_meshcore = {
 
 const struct mesh_ble_profile *const mesh_ble_known_profiles[] = {
     &mesh_ble_profile_meshtastic,
+    &mesh_ble_profile_meshcore,
 };
 
 const size_t mesh_ble_known_profile_count =

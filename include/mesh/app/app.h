@@ -13,6 +13,7 @@
 #include "mesh/core/config.h"
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
+#include "mesh/core/meshcore.h"
 #include "mesh/core/session.h"
 #include "mesh/core/updater.h"
 #include "mesh/transport/transport.h"
@@ -59,6 +60,11 @@ struct mesh_app {
        start, so switching between BLE and USB keeps the message log and reuses one node cache
        rather than each link keeping its own. */
     struct mesh_session session;
+    /* The MeshCore conversation, which keeps what it learns in `session` as a model. Bound to
+       the transports instead of the session when the radio being connected speaks it; see
+       mesh_app_bind_protocol(). */
+    struct mesh_meshcore meshcore;
+    bool meshcore_bound;
     struct mesh_ui_store ui_store;
     struct mesh_ui_controller ui_controller;
     struct mesh_ui_backend_cli_context ui_cli_context;
