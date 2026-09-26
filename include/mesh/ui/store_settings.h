@@ -453,6 +453,8 @@ struct mesh_ui_settings {
     uint8_t hop_limit;
     bool tx_enabled;
     int8_t tx_power;
+    /* The most the radio says it can transmit, in dBm; 0 when it does not say (Meshtastic). */
+    uint8_t tx_power_max;
     bool ignore_mqtt;
     bool config_ok_to_mqtt;
     /*

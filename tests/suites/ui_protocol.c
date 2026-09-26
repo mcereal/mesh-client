@@ -470,6 +470,14 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
                               20U ||
                           mesh_ui_settings_number_step(MESH_UI_FIELD_LORA_ANY_SPREAD, 7U, -1) != 6U,
                       "and its bandwidth and spread reach below Meshtastic's modem");
+    settings.tx_power_max = 22U;
+    struct mesh_ui_settings_item items[16];
+    const uint32_t count =
+        mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                               MESH_UI_SETTINGS_NO_CHANNEL, items, 16U);
+    MESH_TEST_FAIL_IF(count != sizeof lora / sizeof lora[0] ||
+                          items[count - 1U].ceiling != MESH_UI_ANY_TX_POWER_BIAS + 22U,
+                      "and its power stops at what the radio says it can do");
     n = section_fields(&settings, &handshake, MESH_UI_SETTINGS_USER, fields, 16U);
     MESH_TEST_FAIL_IF(n != 1U || fields[0] != MESH_UI_FIELD_USER_LONG_NAME, "User is one name");
     MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_POSITION,

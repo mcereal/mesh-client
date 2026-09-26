@@ -210,7 +210,7 @@ static bool mesh_ui_nav_settings_edit_item(struct mesh_ui_nav *nav,
     }
     case INKSTAND_FORM_NUMBER: {
         const uint32_t next = mesh_ui_settings_number_step(field, item.number, delta);
-        if (next == item.number) {
+        if (next == item.number || (item.ceiling != 0U && delta > 0 && next > item.ceiling)) {
             return false;
         }
         return mesh_ui_nav_edit_set(nav, store, field, next, NULL);

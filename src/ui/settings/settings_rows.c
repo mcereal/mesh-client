@@ -1201,8 +1201,12 @@ static void build_lora_plain(const struct mesh_ui_settings *s, struct item_list 
     item_field(list, MESH_UI_FIELD_LORA_ANY_BANDWIDTH, s->bandwidth, NULL);
     item_field(list, MESH_UI_FIELD_LORA_ANY_SPREAD, s->spread_factor, NULL);
     item_field(list, MESH_UI_FIELD_LORA_CODING, s->coding_rate, NULL);
-    item_field(list, MESH_UI_FIELD_LORA_ANY_TX_POWER,
-               (uint32_t)((int32_t)MESH_UI_ANY_TX_POWER_BIAS + s->tx_power), NULL);
+    struct mesh_ui_settings_item *power =
+        item_field(list, MESH_UI_FIELD_LORA_ANY_TX_POWER,
+                   (uint32_t)((int32_t)MESH_UI_ANY_TX_POWER_BIAS + s->tx_power), NULL);
+    if (power != NULL && s->tx_power_max != 0U) {
+        power->ceiling = MESH_UI_ANY_TX_POWER_BIAS + s->tx_power_max;
+    }
 }
 
 static void build_lora(const struct mesh_ui_settings *s, struct item_list *list) {

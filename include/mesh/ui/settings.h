@@ -814,6 +814,10 @@ struct mesh_ui_settings_item {
      * a row showing something it should not be. Such a row says so instead - see `conflict`.
      */
     uint32_t choices;
+    /* A NUMBER row's highest value right now, 0 for the field's whole scale: the radio's own
+       limit, which the field table cannot know. Right stops there; a value already above it
+       is shown, as `choices` does, and Left still walks down from it. */
+    uint32_t ceiling;
     /*
      * The row is showing a value that disagrees with another row's, and the radio will not
      * honour the pair.
