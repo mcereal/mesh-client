@@ -99,6 +99,30 @@ struct mesh_stream_framing {
 /* 0x94 0xC3, a big-endian length, one protobuf - the functions above, as a table. */
 extern const struct mesh_stream_framing mesh_stream_framing_meshtastic;
 
+/*
+ * MeshCore's companion framing: one direction byte, a 16-bit *little*-endian length, the frame.
+ *
+ *     '<' len_lo len_hi <frame>      app to radio
+ *     '>' len_lo len_hi <frame>      radio to app
+ *
+ * The direction byte is the only marker, so the parser reads '>' as a header and everything
+ * else as junk, exactly as the Meshtastic parser reads 0x94. The firmware refuses a frame
+ * longer than MAX_FRAME_SIZE (src/helpers/BaseSerialInterface.h), and a header claiming more
+ * is taken for junk and resynced past. No wake burst: the firmware's receiver is a three-state
+ * machine that a stray byte cannot wedge.
+ */
+#define MESH_MESHCORE_FRAME_TO_RADIO '<'
+#define MESH_MESHCORE_FRAME_FROM_RADIO '>'
+#define MESH_MESHCORE_FRAME_HEADER_LEN 3U
+#define MESH_MESHCORE_FRAME_MAX_PAYLOAD 176U
+
+void mesh_meshcore_parser_push(struct mesh_stream_parser *parser, const uint8_t *data, size_t len,
+                               const struct mesh_stream_parser_callbacks *callbacks);
+int mesh_meshcore_frame_encode(const uint8_t *payload, size_t payload_len, uint8_t *out,
+                               size_t out_len, size_t *written);
+
+extern const struct mesh_stream_framing mesh_stream_framing_meshcore;
+
 #ifdef __cplusplus
 }
 #endif

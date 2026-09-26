@@ -12,6 +12,15 @@ const struct mesh_ble_profile mesh_ble_profile_meshtastic = {
     .adopts_bonded_dfu = true,
 };
 
+const struct mesh_ble_profile mesh_ble_profile_meshcore = {
+    .name = "meshcore",
+    .service_uuid = MESH_BLE_NUS_SERVICE_UUID,
+    .write_uuid = MESH_BLE_NUS_RX_UUID,
+    .notify_uuid = MESH_BLE_NUS_TX_UUID,
+    .inbound = MESH_BLE_INBOUND_NOTIFY,
+    .max_frame = 176U,
+};
+
 const struct mesh_ble_profile *const mesh_ble_known_profiles[] = {
     &mesh_ble_profile_meshtastic,
 };
