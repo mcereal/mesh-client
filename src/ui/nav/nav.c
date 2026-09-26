@@ -2749,7 +2749,8 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
                 nav->node_detail_open
                     ? mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node)
                     : mesh_ui_nav_node_at_row(nav, store, nav->cursor[nav->screen]);
-            if (node != NULL && node->node_id != 0U && !mesh_ui_nav_node_is_self(store, node)) {
+            if (node != NULL && node->node_id != 0U && !mesh_ui_nav_node_is_self(store, node) &&
+                mesh_ui_settings_supports(&store->settings, MESH_UI_FEATURE_NODE_FLAGS)) {
                 mesh_ui_nav_fill_favorite(out_action, node);
             }
             return changed;

@@ -122,12 +122,18 @@ MESH_TEST_CASE(ui_protocol_node_sheet_offers_what_the_protocol_has, unit) {
     uint32_t count =
         mesh_ui_node_actions_build(&node, false, NULL, false, 0U, items, MESH_UI_NODE_ACTIONS_MAX);
     static const enum mesh_ui_node_action k_meshtastic_only[] = {
-        MESH_UI_NODE_ACTION_FAVORITE,          MESH_UI_NODE_ACTION_TRACEROUTE,
-        MESH_UI_NODE_ACTION_REQUEST_INFO,      MESH_UI_NODE_ACTION_REQUEST_POSITION,
-        MESH_UI_NODE_ACTION_REQUEST_TELEMETRY, MESH_UI_NODE_ACTION_MUTE,
-        MESH_UI_NODE_ACTION_IGNORE,            MESH_UI_NODE_ACTION_REMOVE,
-        MESH_UI_NODE_ACTION_ADD_CONTACT,       MESH_UI_NODE_ACTION_VERIFY_KEY,
-        MESH_UI_NODE_ACTION_ADMIN,             MESH_UI_NODE_ACTION_WAYPOINT,
+        MESH_UI_NODE_ACTION_FAVORITE,
+        MESH_UI_NODE_ACTION_TRACEROUTE,
+        MESH_UI_NODE_ACTION_REQUEST_INFO,
+        MESH_UI_NODE_ACTION_REQUEST_POSITION,
+        MESH_UI_NODE_ACTION_REQUEST_TELEMETRY,
+        MESH_UI_NODE_ACTION_MUTE,
+        MESH_UI_NODE_ACTION_IGNORE,
+        MESH_UI_NODE_ACTION_REMOVE,
+        MESH_UI_NODE_ACTION_ADD_CONTACT,
+        MESH_UI_NODE_ACTION_VERIFY_KEY,
+        MESH_UI_NODE_ACTION_ADMIN,
+        MESH_UI_NODE_ACTION_WAYPOINT,
     };
     for (size_t i = 0; i < sizeof k_meshtastic_only / sizeof k_meshtastic_only[0]; ++i) {
         MESH_TEST_FAIL_IF(!has_verb(items, count, k_meshtastic_only[i]),
@@ -143,8 +149,8 @@ MESH_TEST_CASE(ui_protocol_node_sheet_offers_what_the_protocol_has, unit) {
                       "the count the nav walks agrees with the built sheet");
 
     /* One bit, one verb: the gates are not one switch wearing several names. */
-    count = mesh_ui_node_actions_build(&node, false, NULL, false, MESH_UI_FEATURE_TRACEROUTE,
-                                       items, MESH_UI_NODE_ACTIONS_MAX);
+    count = mesh_ui_node_actions_build(&node, false, NULL, false, MESH_UI_FEATURE_TRACEROUTE, items,
+                                       MESH_UI_NODE_ACTIONS_MAX);
     MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_TRACEROUTE) ||
                           !has_verb(items, count, MESH_UI_NODE_ACTION_ADMIN),
                       "lacking traceroute hides traceroute and nothing else");
@@ -260,6 +266,59 @@ MESH_TEST_CASE(ui_protocol_reactions_follow_the_protocol, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (!store.nav.reaction_open) {
         failure = "and does for Meshtastic, from the same bubble";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* Whether the bar the store would draw now puts Pin on X, for a protocol lacking `lacks`. */
+static bool bar_offers_pin(struct mesh_ui_store *store, uint32_t lacks) {
+    static struct mesh_ui_snapshot snapshot;
+    (void)mesh_ui_store_consume_updates(store, &snapshot);
+    snapshot.settings.protocol_lacks = lacks;
+    struct mesh_ui_command_set commands;
+    mesh_ui_commands_for(&snapshot, &commands);
+    return mesh_ui_commands_find(&commands, MESH_UI_COMMAND_PIN) != NULL;
+}
+
+/*
+ * X on the Nodes list is the one-press pin, the sheet's "Pinned to top" row without the
+ * drill-down - and it is the radio's favourite flag, so it follows NODE_FLAGS exactly as the row
+ * does. A shortcut left behind would be the same Meshtastic verb through a side door.
+ */
+MESH_TEST_CASE(ui_protocol_pin_shortcut_follows_the_protocol, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_LEAD_ROWS + 1U;
+    if (!bar_offers_pin(&store, 0U)) {
+        failure = "Meshtastic's Nodes list offers Pin on a node";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_TOGGLE_FAVORITE) {
+        failure = "X pins the node under the cursor for Meshtastic";
+        goto cleanup;
+    }
+
+    store.settings.protocol_lacks = MESH_UI_FEATURE_NODE_FLAGS;
+    if (bar_offers_pin(&store, MESH_UI_FEATURE_NODE_FLAGS)) {
+        failure = "no Pin on the bar for a protocol without node flags";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type == MESH_UI_ACTION_TOGGLE_FAVORITE) {
+        failure = "and X sends no favourite toggle for one";
         goto cleanup;
     }
 

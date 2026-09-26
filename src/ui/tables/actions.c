@@ -322,7 +322,10 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
          * groups and the press has never had nowhere to go.
          */
         command_add(bar, MESH_UI_COMMAND_GROUPS, MESH_STR_ACTION_GROUPS, INKCELL_BUTTON_LEFT_RIGHT);
-        command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
+        if (snapshot == NULL ||
+            mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_NODE_FLAGS)) {
+            command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
+        }
         command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);
         commands_add_help(snapshot, bar);
         commands_add_tabs(bar);
@@ -392,7 +395,8 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
        keeps the list's word like the map row does. */
     if (nodes_cursor == MESH_UI_NODES_FIND_ROW && nav->node_query[0] != '\0') {
         command_add(bar, MESH_UI_COMMAND_CLEAR, MESH_STR_ACTION_CLEAR, INKCELL_BUTTON_X);
-    } else {
+    } else if (snapshot == NULL ||
+               mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_NODE_FLAGS)) {
         command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
     }
     command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);
