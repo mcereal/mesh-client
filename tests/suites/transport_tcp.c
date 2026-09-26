@@ -4,6 +4,7 @@
 
 #include "inkwell/base/time.h"
 
+#include "../../src/app/app_internal.h"
 #include "framework/mesh_test.h"
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
@@ -1538,6 +1539,93 @@ MESH_TEST_CASE(tcp_link_is_published_as_a_network_device, unit) {
 cleanup:
     if (failure != NULL) {
         record_failure(test_name, failure);
+    }
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    tcp_test_radio_close(&radio);
+    if (home_made) {
+        rmdir(home_dir);
+    }
+}
+
+/*
+ * A host that answered neither protocol is muted for longer than the network arm's own retry
+ * timer, and a fresh question would lift the mute - so the arm has to ask the mute first, or a
+ * dead host is tried twice as often as promised and each try costs both probe windows.
+ */
+MESH_TEST_CASE(tcp_autoconnect_passes_over_a_muted_host, unit) {
+    struct tcp_test_radio radio;
+    tcp_test_radio_init(&radio);
+    static struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    const char *failure = NULL;
+    bool app_ready = false;
+    char home_dir[] = "/tmp/mesh_tcp_mutedXXXXXX";
+    bool home_made = false;
+
+    if (!tcp_test_radio_listen(&radio)) {
+        record_failure(test_name, "could not listen on the loopback");
+        goto cleanup;
+    }
+    if (mkdtemp(home_dir) == NULL) {
+        record_failure(test_name, "mkdtemp failed");
+        goto cleanup;
+    }
+    home_made = true;
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+    unsetenv("MESHCLIENT_PROTOCOL");
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_ble = false;
+    config.enable_serial = false;
+    config.enable_tcp = true;
+    snprintf(config.preferred_tcp_host, sizeof config.preferred_tcp_host, "%s", radio.target);
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    struct mesh_transport *tcp = mesh_tcp_transport();
+
+    const uint64_t now = inkwell_time_monotonic_ms();
+    snprintf(app.probe.ports[0].identifier, sizeof app.probe.ports[0].identifier, "%s",
+             radio.target);
+    app.probe.ports[0].answered = 0U;
+    app.probe.ports[0].mute_until_ms = now + MESH_APP_PROBE_MUTE_MS;
+    app.autoconnect_retry_at_ms = 0U;
+    app.autoconnect_tcp_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (mesh_tcp_transport_is_connecting(tcp) || mesh_tcp_transport_connected_target(tcp) != NULL) {
+        failure = "a muted host is passed over even when its own retry is due";
+        goto cleanup;
+    }
+    if (!mesh_app_probe_muted(&app, radio.target, now)) {
+        failure = "and the mute is left standing";
+        goto cleanup;
+    }
+
+    app.probe.ports[0].mute_until_ms = 0U;
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (!mesh_tcp_transport_is_connecting(tcp) &&
+        mesh_tcp_transport_connected_target(tcp) == NULL) {
+        failure = "once the mute has run out the host is tried again";
+        goto cleanup;
+    }
+
+cleanup:
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
     }
     if (app_ready) {
         mesh_app_shutdown(&app);

@@ -814,7 +814,10 @@ void mesh_app_autoconnect(struct mesh_app *app) {
      */
     struct mesh_transport *tcp = mesh_tcp_transport();
     const char *tcp_target = mesh_tcp_transport_configured_target(tcp);
-    if (tcp_target != NULL && now >= app->autoconnect_tcp_retry_at_ms) {
+    /* Not while a host that answered neither protocol is muted: its own retry timer is shorter
+       than the mute, and a new question would lift it. See app_probe.c. */
+    if (tcp_target != NULL && now >= app->autoconnect_tcp_retry_at_ms &&
+        !mesh_app_probe_muted(app, tcp_target, now)) {
         /* Stamped before the attempt, not after it: most of the ways this fails do so on the
            connect deadline, long after the call returned 0 and this function went home. */
         app->autoconnect_tcp_retry_at_ms = now + MESH_APP_AUTOCONNECT_TCP_RETRY_MS;
