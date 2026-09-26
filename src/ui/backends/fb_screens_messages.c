@@ -23,6 +23,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/chrome.h"
 #include "mesh/ui/delivery.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
@@ -66,17 +67,15 @@ void fb_render_conversations(struct inkcell_draw_state *state,
     mesh_ui_store_view(snapshot, &view);
 
     /* The list always has rows - All traffic and New message are there with nothing else - so
-       the heading counts only the conversations, and an empty client is said on the rows
-       themselves rather than by a screen the list could never reach. */
+       an empty client is said on the rows themselves rather than by a screen the list could
+       never reach. Every conversation there is is on it, so the heading is the name alone (see
+       mesh_ui_chrome_list_title()); what the ring dropped is said in the thread it was dropped
+       from, where the messages are. */
     const uint32_t count = mesh_ui_nav_conversation_count(&view);
     const uint32_t threads = mesh_ui_nav_conversation_threads(&view);
     char title[96];
-    if (threads == 0U && snapshot->messages.dropped == 0U) {
-        snprintf(title, sizeof title, "%s", inkcell_str(MESH_STR_TAB_MESSAGES));
-    } else {
-        inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_MESSAGES), threads,
-                               snapshot->messages.dropped);
-    }
+    mesh_ui_chrome_list_title(title, sizeof title, inkcell_str(MESH_STR_TAB_MESSAGES), threads,
+                              threads, 0U);
     fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     /*
@@ -700,14 +699,7 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
     /* The view's own count of what is behind the top of it, not the transport ring's: a
        conversation drawn from the card has the messages the ring evicted, and saying "+30 older"
        over thirty messages the reader can scroll to is the opposite of what the line is for. */
-    if (nav->inbox) {
-        inkcell_fb_title_count(title, sizeof title, convo, count, messages.dropped);
-    } else if (messages.dropped > 0U) {
-        inkcell_str_format(title, sizeof title, MESH_STR_THREAD_TITLE_OLDER, convo,
-                           (unsigned)messages.dropped);
-    } else {
-        snprintf(title, sizeof title, "%s", convo);
-    }
+    mesh_ui_chrome_list_title(title, sizeof title, convo, count, count, messages.dropped);
     /*
      * No overline, and the kind of conversation is the badge rather than a word in the title.
      * A channel's name already starts with a '#' and every bubble under it is tagged, so a trail

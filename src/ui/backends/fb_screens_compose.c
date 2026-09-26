@@ -18,6 +18,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/chrome.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/nodes.h"
@@ -185,7 +186,8 @@ void fb_render_picker(struct inkcell_draw_state *state, const struct mesh_ui_sna
 
     const uint32_t count = mesh_ui_nav_picker_count(&view);
     char title[96];
-    inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_PICKER_TITLE), count, 0U);
+    mesh_ui_chrome_list_title(title, sizeof title, inkcell_str(MESH_STR_PICKER_TITLE), count, count,
+                              0U);
     fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
     if (count == 0U) {
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_MESSAGES,

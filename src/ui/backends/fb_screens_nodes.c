@@ -18,6 +18,7 @@
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/chrome.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/map.h"
@@ -563,10 +564,6 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
     mesh_ui_node_view_build_query(hs, filter, nav->node_query, sort, &view_rows);
     const uint32_t count = view_rows.count;
     char title[96];
-    /* Counted from the rows this screen is about to draw, so the two numbers are always in the
-       same scope: the session roster holds twice what the UI carries, and a title reading
-       "128 nodes, 200 off radio" would be arithmetic no screen should show. */
-    const uint32_t off_radio = mesh_ui_handshake_off_radio(hs);
     /*
      * Three things can be bigger than this list, and the honest "of" is whichever is biggest.
      * The radio's database is one; the roster is the second, and it is the one that used to go
@@ -586,16 +583,12 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
     if (held > known) {
         known = held;
     }
-    if (known > count) {
-        inkcell_str_format(title, sizeof title, MESH_STR_NODES_TITLE_OF, count, known);
-    } else if (off_radio > 0U) {
-        /* The count the Status screen shows is the radio's; this one is ours, and after a
-           NodeDB reset the two are nothing alike. Saying how much of the gap is nodes only we
-           remember is what keeps "81 here, 2 there" from reading as a bug. */
-        inkcell_str_format(title, sizeof title, MESH_STR_NODES_TITLE_OFF_RADIO, count, off_radio);
-    } else {
-        inkcell_fb_title_count(title, sizeof title, inkcell_str(MESH_STR_TAB_NODES), count, 0U);
-    }
+    /* With nothing held back the heading is the name alone, as on every list: the rows are
+       there to be counted. A node only this client remembers says so on its own row, and the
+       Status screen's roster card says how many there are, so the gap between the radio's
+       count and this list's is explained where each number is. */
+    mesh_ui_chrome_list_title(title, sizeof title, inkcell_str(MESH_STR_TAB_NODES), count, known,
+                              0U);
     fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     const uint32_t me = hs->has_my_info ? hs->my_info.node_num : 0U;

@@ -284,10 +284,13 @@ MESH_STR_ENTRY(MESSAGES_UNREAD_OVERFLOW,  "99+")
 /* A thread with nothing in it. The first is the shared inbox, the second one conversation. */
 MESH_STR_ENTRY(THREAD_EMPTY_INBOX,        "No messages yet. B goes back to the list.")
 MESH_STR_ENTRY(THREAD_EMPTY,              "Nothing here yet. Y writes one, B goes back.")
-/* A thread's title when older messages have been dropped from the ring: the conversation, then
-   how many. Whether it is a channel or one node is the badge beside the title - the two words
-   below. */
-MESH_STR_ENTRY(THREAD_TITLE_OLDER,        "%s (+%u older)")
+/* The two things a list's heading may add to its name - see mesh_ui_chrome_list_title(), which
+   is the one rule for every list. The first is a list holding some back - a filter, a cap, a
+   roster still arriving - as how many are on it of how many there are; the second is older
+   entries dropped off the top. A bare total is neither and is not said: the rows are right
+   there, and the scroll rail says when there are more of them. */
+MESH_STR_ENTRY(LIST_TITLE_OF,             "%s (%u of %u)")
+MESH_STR_ENTRY(LIST_TITLE_OLDER,          "%s (+%u older)")
 MESH_STR_ENTRY(THREAD_KIND_CHANNEL,       "channel")
 MESH_STR_ENTRY(THREAD_KIND_DIRECT,        "direct")
 /* The line across the transcript where the reader stopped last time, drawn in the same slot the
@@ -337,7 +340,6 @@ MESH_STR_ENTRY(WAYPOINTS_NEW,             "New waypoint here")
    rather than a fragment because it is read as one - it sits under the row's own name, where a
    place would say who shared it, not in the column that measures a range. */
 MESH_STR_ENTRY(WAYPOINTS_NEW_NEEDS_FIX,   "This radio has no position yet")
-MESH_STR_ENTRY(WAYPOINTS_TITLE_COUNT,     "Waypoints (%u)")
 /* A waypoint whose sender left the name empty, which the wire allows. */
 MESH_STR_ENTRY(WAYPOINTS_UNNAMED,         "Unnamed place")
 /* The list row's second line: who shared it, and how long ago we heard it. */
@@ -417,9 +419,6 @@ MESH_STR_ENTRY(NODES_EMPTY_DISCONNECTED,  "Connect to a node to see the mesh.")
 MESH_STR_ENTRY(NODES_GONE,                "That node is no longer in the list.")
 MESH_STR_ENTRY(NODES_PICK,                "Open a node to see it here.")
 MESH_STR_ENTRY(NODES_DETAIL_EMPTY,        "Nothing reported for this node yet.")
-/* Titles: how many of the radio's NodeDB we hold, or how many we keep that it has evicted. */
-MESH_STR_ENTRY(NODES_TITLE_OF,            "Nodes (%u of %u)")
-MESH_STR_ENTRY(NODES_TITLE_OFF_RADIO,     "Nodes (%u, %u off radio)")
 /* The filter chips on the list's first row - see include/mesh/ui/nodes.h for why there are
    three of them and why there is not a fourth. One word each: they are chips in a strip that
    has to fit across the panel beside two others, and the strip drops the words before it drops

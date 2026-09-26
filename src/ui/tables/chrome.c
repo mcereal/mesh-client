@@ -1,13 +1,16 @@
 #include "mesh/ui/chrome.h"
 
+#include "inkcell/i18n/strings.h"
 #include "inkcell/ui/actions.h"
 
 #include "mesh/core/firmware_update.h"
 #include "mesh/core/updater.h"
+#include "mesh/i18n/strings.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /*
@@ -195,4 +198,22 @@ bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_
     }
 
     return false;
+}
+
+void mesh_ui_chrome_list_title(char *out, size_t out_len, const char *name, uint32_t shown,
+                               uint32_t exist, uint32_t older) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    if (name == NULL) {
+        name = "";
+    }
+    if (exist > shown) {
+        inkcell_str_format(out, out_len, MESH_STR_LIST_TITLE_OF, name, (unsigned)shown,
+                           (unsigned)exist);
+    } else if (older > 0U) {
+        inkcell_str_format(out, out_len, MESH_STR_LIST_TITLE_OLDER, name, (unsigned)older);
+    } else {
+        snprintf(out, out_len, "%s", name);
+    }
 }

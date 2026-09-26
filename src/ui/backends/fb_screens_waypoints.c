@@ -17,6 +17,7 @@
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/chrome.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/waypoints.h"
@@ -171,11 +172,8 @@ void fb_render_waypoints(struct inkcell_draw_state *state, const struct mesh_ui_
     const uint32_t places = count > 0U ? count - 1U : 0U;
 
     char title[96];
-    if (places > 0U) {
-        inkcell_str_format(title, sizeof title, MESH_STR_WAYPOINTS_TITLE_COUNT, places);
-    } else {
-        inkwell_str_copy(title, sizeof title, inkcell_str(MESH_STR_TAB_WAYPOINTS));
-    }
+    mesh_ui_chrome_list_title(title, sizeof title, inkcell_str(MESH_STR_TAB_WAYPOINTS), places,
+                              places, 0U);
     fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     /*
