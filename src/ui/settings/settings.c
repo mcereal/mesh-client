@@ -503,12 +503,25 @@ static bool root_row_is_remote_only(enum mesh_ui_settings_section section) {
     return section == MESH_UI_SETTINGS_RADIO || section == MESH_UI_SETTINGS_ACTIONS;
 }
 
+/* The sections a protocol without Meshtastic's full configuration still has: a name, the
+   radio's numbers, a position and a channel table. */
+static bool root_row_is_core(enum mesh_ui_settings_section section) {
+    return section == MESH_UI_SETTINGS_ABOUT || section == ROOT_HEADING ||
+           section == MESH_UI_SETTINGS_USER || section == MESH_UI_SETTINGS_LORA ||
+           section == MESH_UI_SETTINGS_POSITION || section == MESH_UI_SETTINGS_CHANNELS;
+}
+
 /* Whether the top level lists `section` for these settings: a remote-only row only while a
-   remote node is being configured, and Modules only for a protocol that has them. */
+   remote node is being configured, Modules only for a protocol that has them, and the core
+   sections only for one without Meshtastic's full configuration. */
 static bool root_row_listed(const struct mesh_ui_settings *settings,
                             enum mesh_ui_settings_section section) {
     const bool remote = settings != NULL && settings->admin_dest != 0U;
     if (!remote && root_row_is_remote_only(section)) {
+        return false;
+    }
+    if (!mesh_ui_settings_supports(settings, MESH_UI_FEATURE_FULL_CONFIG) &&
+        !root_row_is_core(section)) {
         return false;
     }
     return section != MESH_UI_SETTINGS_MODULES ||
@@ -1937,6 +1950,13 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                            0U, MESH_STR_SETTINGS_NOTE_LORA_OVERRIDE_FREQ},
                                           INKCELL_STR_NONE,
                                           NULL},
+    /* MeshCore's frequency: not an override of a slot, because there are no slots - the one
+       number the radio is on. */
+    [MESH_UI_FIELD_LORA_FREQUENCY] = {{MESH_STR_SETTINGS_FIELD_LORA_FREQUENCY, INKSTAND_FORM_TEXT,
+                                       MESH_UI_SETTINGS_LORA, MESH_UI_TEXT_LIMIT_LORA_FREQUENCY,
+                                       NULL, NO_PRESETS, 0U, MESH_STR_SETTINGS_NOTE_LORA_FREQUENCY},
+                                      INKCELL_STR_NONE,
+                                      NULL},
     [MESH_UI_FIELD_LORA_FREQUENCY_TRIM] = {{MESH_STR_SETTINGS_FIELD_LORA_FREQUENCY_TRIM,
                                             INKSTAND_FORM_TEXT, MESH_UI_SETTINGS_LORA,
                                             MESH_UI_TEXT_LIMIT_LORA_FREQUENCY_TRIM, NULL,
@@ -2940,6 +2960,19 @@ void mesh_ui_settings_confirm_add_subject(const struct mesh_ui_settings *setting
     }
     inkcell_str_format(text + at, text_len - at, MESH_STR_CONFIRM_TEXT_REMOTE,
                        settings->admin_dest_name);
+}
+
+void mesh_ui_settings_confirm_for_protocol(const struct mesh_ui_settings *settings,
+                                           enum mesh_ui_settings_section section,
+                                           enum mesh_ui_settings_action action, char *text,
+                                           size_t text_len) {
+    if (text == NULL || text_len == 0U || action != MESH_UI_SETTINGS_ACTION_NONE ||
+        mesh_ui_settings_supports(settings, MESH_UI_FEATURE_FULL_CONFIG)) {
+        return;
+    }
+    if (section == MESH_UI_SETTINGS_LORA) {
+        snprintf(text, text_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_LORA_PLAIN));
+    }
 }
 
 void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,

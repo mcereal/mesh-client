@@ -19,6 +19,7 @@
 #include "inkwell/ble/central.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
+#include "mesh/core/meshcore.h"
 #include "mesh/core/message.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
@@ -4819,6 +4820,124 @@ MESH_TEST_CASE(app_probe_honours_a_forced_protocol, unit) {
 cleanup:
     unsetenv("MESHCLIENT_PROTOCOL");
     app_probe_close(&fx);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* What a MeshCore link was handed, for the save test below. */
+struct app_meshcore_wire {
+    uint8_t frames[8][MESH_MESHCORE_MAX_FRAME];
+    size_t lens[8];
+    size_t count;
+};
+
+static int app_meshcore_capture(void *ctx, const uint8_t *frame, size_t len, uint32_t frame_id) {
+    (void)frame_id;
+    struct app_meshcore_wire *wire = ctx;
+    if (wire->count >= 8U || len > MESH_MESHCORE_MAX_FRAME) {
+        return -ENOBUFS;
+    }
+    memcpy(wire->frames[wire->count], frame, len);
+    wire->lens[wire->count++] = len;
+    return 0;
+}
+
+static uint32_t app_le32(const uint8_t *bytes) {
+    return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8U) | ((uint32_t)bytes[2] << 16U) |
+           ((uint32_t)bytes[3] << 24U);
+}
+
+/*
+ * A Settings save on a MeshCore link is MeshCore's commands, not an AdminMessage: the edited
+ * rows over what the radio reported. The bandwidth row is Meshtastic's whole kHz, and 62 is
+ * 62.5 kHz on the air - a radio sent 62000 Hz would be on a bandwidth nobody else is. A value
+ * the firmware would refuse is refused here with nothing sent, and the radio's OK is announced
+ * as saved, without Meshtastic's warning of a restart.
+ */
+MESH_TEST_CASE(app_meshcore_settings_save_speaks_meshcore, unit) {
+    const char *failure = NULL;
+    static struct mesh_app app;
+    static struct app_meshcore_wire wire;
+    memset(&app, 0, sizeof app);
+    memset(&wire, 0, sizeof wire);
+    bool app_ready = false;
+    struct mesh_protocol protocol = {NULL, NULL};
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "meshcore_save")) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_ble = false;
+    config.enable_serial = false;
+    config.enable_tcp = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    mesh_app_bind_protocol(&app, true);
+    protocol = mesh_meshcore_protocol(&app.meshcore);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+    app.meshcore.has_self = true;
+    app.meshcore.self.frequency_khz = 910525U;
+    app.meshcore.self.bandwidth_hz = 250000U;
+    app.meshcore.self.spreading_factor = 10U;
+    app.meshcore.self.coding_rate = 5U;
+    app.meshcore.self.tx_power_dbm = 20U;
+    app.meshcore.self.max_tx_power_dbm = 22U;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = (uint8_t)MESH_UI_SETTINGS_LORA;
+    action.edit_count = 1U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_SPREAD;
+    action.edits[0].number = 13U;
+    mesh_app_save_settings(&app, &action, 1000U);
+    if (wire.count != 0U) {
+        failure = "a spread factor the firmware refuses is not sent";
+        goto cleanup;
+    }
+
+    action.edit_count = 2U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_BANDWIDTH;
+    action.edits[0].number = 62U;
+    action.edits[1].field = (uint16_t)MESH_UI_FIELD_LORA_FREQUENCY;
+    snprintf(action.edits[1].text, sizeof action.edits[1].text, "%s", "869.618");
+    mesh_app_save_settings(&app, &action, 1000U);
+    if (wire.count != 1U || wire.frames[0][0] != MESH_MESHCORE_CMD_SET_RADIO_PARAMS) {
+        failure = "a LoRa save goes out as MeshCore's radio command";
+        goto cleanup;
+    }
+    if (app_le32(wire.frames[0] + 1) != 869618U || app_le32(wire.frames[0] + 5) != 62500U ||
+        wire.frames[0][9] != 10U || wire.frames[0][10] != 5U) {
+        failure = "the edited rows over what the radio had, and 62 kHz as 62.5";
+        goto cleanup;
+    }
+    if (!app.settings_save_pending) {
+        failure = "the save is being watched for its answer";
+        goto cleanup;
+    }
+
+    const uint8_t ok = MESH_MESHCORE_RESP_OK;
+    mesh_protocol_receive(&protocol, &ok, 1U);
+    mesh_app_track_settings_save(&app, mesh_session_settings(&app.session), true);
+    char expected[MESH_UI_NAV_TOAST_MAX];
+    inkcell_str_format(expected, sizeof expected, MESH_STR_TOAST_SAVED_SECTION,
+                       mesh_ui_settings_section_name(MESH_UI_SETTINGS_LORA));
+    if (app.settings_save_pending || strcmp(app.ui_store.nav.toast.text, expected) != 0) {
+        failure = "the radio's OK is announced as saved, with no restart promised";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_protocol_detach(&protocol);
+        mesh_app_shutdown(&app);
+    }
+    unsetenv("MESHCLIENT_UI_BACKEND");
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

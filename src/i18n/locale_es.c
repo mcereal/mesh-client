@@ -776,6 +776,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_SETTINGS_FIELD_LORA_OVERRIDE_DUTY] = "Ciclo libre",
     [MESH_STR_SETTINGS_FIELD_LORA_CHANNEL_NUM] = "Ranura",
     [MESH_STR_SETTINGS_FIELD_LORA_OVERRIDE_FREQ] = "Frecuencia fija",
+    [MESH_STR_SETTINGS_FIELD_LORA_FREQUENCY] = "Frecuencia",
     [MESH_STR_SETTINGS_FIELD_LORA_FREQUENCY_TRIM] = "Ajuste de frec.",
     [MESH_STR_SETTINGS_FIELD_LORA_IGNORE_NODE_0] = "Ignorado 1",
     [MESH_STR_SETTINGS_FIELD_LORA_IGNORE_NODE_1] = "Ignorado 2",
@@ -1307,6 +1308,10 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TEXT_CHANNELS] =
         "La radio se reiniciará. Una nueva clave o nombre mueve esta radio a otro canal: los demás "
         "nodos necesitan los mismos ajustes para seguir comunicándose con ella.",
+    [MESH_STR_CONFIRM_TEXT_LORA_PLAIN] =
+        "Se aplica al instante. Una frecuencia, ancho de banda, factor de dispersión o tasa de "
+        "codificación distinta a la de las otras radios la desconecta de la red, y una frecuencia "
+        "fuera de tu plan de bandas puede ser ilegal.",
     [MESH_STR_CONFIRM_TEXT_LORA] =
         "La radio se reiniciará. Una región o preajuste distinto al de los otros nodos la "
         "desconecta de la red. Transmitir en una región incorrecta puede ser ilegal. Desactivar la "
@@ -1588,6 +1593,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_SAVE_NO_REPLY] = "Sin respuesta al guardar %s; X para comprobar",
     [MESH_STR_TOAST_SAVE_REJECTED] = "%s rechazado (error %d)",
     [MESH_STR_TOAST_SAVED_MAY_RESTART] = "%s guardado; la radio puede reiniciarse",
+    [MESH_STR_TOAST_SAVED_SECTION] = "%s guardado",
     [MESH_STR_TOAST_RESTARTING_APPLY] = "Radio reiniciando para aplicar; reconectando",
     [MESH_STR_SAVE_SECTION_FIXED_POS] = "Posición fija",
     [MESH_STR_SAVE_SECTION_POSITION] = "Posición",

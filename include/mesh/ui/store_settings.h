@@ -356,10 +356,18 @@ enum mesh_ui_feature {
     MESH_UI_FEATURE_REACTIONS = 1U << 9,
     /* Checking for and installing the radio's own firmware. */
     MESH_UI_FEATURE_RADIO_FIRMWARE = 1U << 10,
+    /* Meshtastic's configuration beyond an owner's name, the four LoRa numbers, the transmit
+       power and a position: every other section, the region and its presets, the hop limit,
+       the MQTT and ham rows. Without it Settings lists User, LoRa, Position and Channels, each
+       cut to what the protocol has. */
+    MESH_UI_FEATURE_FULL_CONFIG = 1U << 11,
+    /* The radio's maintenance verbs beyond a reboot: shut down, reset the NodeDB, back up and
+       restore, factory reset. */
+    MESH_UI_FEATURE_RADIO_MAINTENANCE = 1U << 12,
 };
 
 /* Every bit above: what a protocol with none of Meshtastic's verbs lacks. */
-#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_RADIO_FIRMWARE << 1) - 1U))
+#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_RADIO_MAINTENANCE << 1) - 1U))
 
 /*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so the

@@ -344,6 +344,7 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_LORA_OVERRIDE_DUTY,
     MESH_UI_FIELD_LORA_CHANNEL_NUM,    /* text: a slot number, 0 = worked out from the region */
     MESH_UI_FIELD_LORA_OVERRIDE_FREQ,  /* text: MHz, 0 = use the slot above */
+    MESH_UI_FIELD_LORA_FREQUENCY,      /* text: MHz, the one frequency (a protocol with no slots) */
     MESH_UI_FIELD_LORA_FREQUENCY_TRIM, /* text: Hz, a crystal's error either way */
     /*
      * LoRaConfig.ignore_incoming: up to three node numbers whose packets this radio drops as
@@ -1201,6 +1202,16 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
                                     enum mesh_ui_settings_action action, char *out, size_t out_len);
 void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
                                    enum mesh_ui_settings_action action, char *out, size_t out_len);
+/*
+ * Replaces a body the call above filled in with the protocol's own, where the protocol's radio
+ * does something else on that save: a LoRa save on a radio without Meshtastic's configuration
+ * neither reboots it nor has a region or a preset to get wrong - what it costs is a frequency
+ * the other radios are not on.
+ */
+void mesh_ui_settings_confirm_for_protocol(const struct mesh_ui_settings *settings,
+                                           enum mesh_ui_settings_section section,
+                                           enum mesh_ui_settings_action action, char *text,
+                                           size_t text_len);
 /*
  * Adds the sentence naming *which* radio, to a body the call above has already filled in.
  *
