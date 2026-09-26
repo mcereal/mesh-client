@@ -149,7 +149,9 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
        the bubble under the cursor, X puts an emoji on it, and Y writes to the conversation. */
     if (has_bubble) {
         command_add(bar, MESH_UI_COMMAND_REPLY, MESH_STR_ACTION_REPLY, INKCELL_BUTTON_A);
-        command_add(bar, MESH_UI_COMMAND_REACT, MESH_STR_ACTION_REACT, INKCELL_BUTTON_X);
+        if (mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_REACTIONS)) {
+            command_add(bar, MESH_UI_COMMAND_REACT, MESH_STR_ACTION_REACT, INKCELL_BUTTON_X);
+        }
     }
     command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);
     command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
@@ -320,7 +322,10 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
          * groups and the press has never had nowhere to go.
          */
         command_add(bar, MESH_UI_COMMAND_GROUPS, MESH_STR_ACTION_GROUPS, INKCELL_BUTTON_LEFT_RIGHT);
-        command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
+        if (snapshot == NULL ||
+            mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_NODE_FLAGS)) {
+            command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
+        }
         command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);
         commands_add_help(snapshot, bar);
         commands_add_tabs(bar);
@@ -390,7 +395,8 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
        keeps the list's word like the map row does. */
     if (nodes_cursor == MESH_UI_NODES_FIND_ROW && nav->node_query[0] != '\0') {
         command_add(bar, MESH_UI_COMMAND_CLEAR, MESH_STR_ACTION_CLEAR, INKCELL_BUTTON_X);
-    } else {
+    } else if (snapshot == NULL ||
+               mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_NODE_FLAGS)) {
         command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
     }
     command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);

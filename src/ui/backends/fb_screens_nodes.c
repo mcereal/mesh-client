@@ -444,10 +444,10 @@ void fb_render_node_actions(struct inkcell_draw_state *state,
     }
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ACTIONS_MAX];
-    const uint32_t count =
-        mesh_ui_node_actions_build(node, hs->has_my_info && node->node_id == hs->my_info.node_num,
-                                   mesh_ui_snapshot_traceroute_view(snapshot, node->node_id),
-                                   nav->node_remove_armed, items, MESH_UI_NODE_ACTIONS_MAX);
+    const uint32_t count = mesh_ui_node_actions_build(
+        node, hs->has_my_info && node->node_id == hs->my_info.node_num,
+        mesh_ui_snapshot_traceroute_view(snapshot, node->node_id), nav->node_remove_armed,
+        snapshot->settings.protocol_lacks, items, MESH_UI_NODE_ACTIONS_MAX);
     if (count == 0U) {
         return;
     }

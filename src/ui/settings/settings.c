@@ -492,27 +492,42 @@ static const enum mesh_ui_settings_section k_modules[] = {
     MESH_UI_SETTINGS_CANNED,
 };
 
+bool mesh_ui_settings_supports(const struct mesh_ui_settings *settings,
+                               enum mesh_ui_feature feature) {
+    return settings == NULL || (settings->protocol_lacks & (uint32_t)feature) == 0U;
+}
+
 /* The rows of k_root that only a remote node's administration lists: see the header. The radio
    on the link keeps both on the Radio tab, as MESH_UI_SETTINGS_RADIO_DETAILS. */
 static bool root_row_is_remote_only(enum mesh_ui_settings_section section) {
     return section == MESH_UI_SETTINGS_RADIO || section == MESH_UI_SETTINGS_ACTIONS;
 }
 
-uint32_t mesh_ui_settings_root_count(const struct mesh_ui_settings *settings) {
+/* Whether the top level lists `section` for these settings: a remote-only row only while a
+   remote node is being configured, and Modules only for a protocol that has them. */
+static bool root_row_listed(const struct mesh_ui_settings *settings,
+                            enum mesh_ui_settings_section section) {
     const bool remote = settings != NULL && settings->admin_dest != 0U;
+    if (!remote && root_row_is_remote_only(section)) {
+        return false;
+    }
+    return section != MESH_UI_SETTINGS_MODULES ||
+           mesh_ui_settings_supports(settings, MESH_UI_FEATURE_MODULES);
+}
+
+uint32_t mesh_ui_settings_root_count(const struct mesh_ui_settings *settings) {
     uint32_t count = 0U;
     for (size_t i = 0; i < INKWELL_ARRAY_LEN(k_root); ++i) {
-        count += (remote || !root_row_is_remote_only(k_root[i])) ? 1U : 0U;
+        count += root_row_listed(settings, k_root[i]) ? 1U : 0U;
     }
     return count;
 }
 
 enum mesh_ui_settings_section mesh_ui_settings_root_at(const struct mesh_ui_settings *settings,
                                                        uint32_t row) {
-    const bool remote = settings != NULL && settings->admin_dest != 0U;
     uint32_t at = 0U;
     for (size_t i = 0; i < INKWELL_ARRAY_LEN(k_root); ++i) {
-        if (!remote && root_row_is_remote_only(k_root[i])) {
+        if (!root_row_listed(settings, k_root[i])) {
             continue;
         }
         if (at++ == row) {

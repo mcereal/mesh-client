@@ -1324,6 +1324,11 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
                                      const struct mesh_ui_handshake_state *handshake,
                                      enum mesh_ui_settings_section section);
 
+/* Whether the protocol on the link has `feature` (store_settings.h). True for NULL settings,
+   which is the Meshtastic this client has always assumed. */
+bool mesh_ui_settings_supports(const struct mesh_ui_settings *settings,
+                               enum mesh_ui_feature feature);
+
 /*
  * Why a section has no rows - and, the part that matters to whoever is looking at it, whether
  * pressing X could change that.

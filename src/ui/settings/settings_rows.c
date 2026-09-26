@@ -1027,7 +1027,7 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
                       ? s->fw_board
                       : mesh_radio_hw_model_name(s->hw_model, buffer, sizeof buffer));
     }
-    if (link_firmware) {
+    if (link_firmware && mesh_ui_settings_supports(s, MESH_UI_FEATURE_RADIO_FIRMWARE)) {
         build_radio_firmware(s, list);
     }
     /*
@@ -1097,6 +1097,9 @@ static void build_user(const struct mesh_ui_settings *s, struct item_list *list)
      * add_contact needs - unlike a channel import it overwrites no table and so needs no
      * settled reading of one.
      */
+    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_CONTACT_LINKS)) {
+        return;
+    }
     if (s->contact_url[0] != '\0' || s->admin_ok) {
         item_heading(list, MESH_STR_USER_CONTACT_HEAD);
     }
@@ -1447,7 +1450,7 @@ static void build_channels(const struct mesh_ui_settings *s,
      * arrived under the user's cursor. The share row needs the extra half - there has to be a
      * link, which a radio with no primary does not have - and that is what the empty test is.
      */
-    if (s->channels_settled) {
+    if (s->channels_settled && mesh_ui_settings_supports(s, MESH_UI_FEATURE_CHANNEL_LINKS)) {
         if (s->share_url[0] != '\0') {
             item_verb(list, MESH_STR_CHANNELS_SHARE_ROW, MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS);
         }
