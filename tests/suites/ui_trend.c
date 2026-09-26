@@ -116,9 +116,11 @@ MESH_TEST_CASE(trend_ticks_rule_round_values_the_labels_can_say, unit) {
     MESH_TEST_FAIL_IF(n != 6U || ticks[0] != INKCELL_RSSI_FLOOR || ticks[5] != INKCELL_RSSI_CEILING,
                       "RSSI should be ruled floor to ceiling every 20 dBm");
 
-    /* A descending domain has no upward to rule, and asks for nothing past the buffer. */
+    /* A descending domain is ruled from its floor downwards, and the count never passes the
+       buffer the caller gave. */
     n = inkcell_trend_ticks((struct inkcell_scale){100, 0}, 1, ticks, INKCELL_TREND_TICKS_MAX);
-    MESH_TEST_FAIL_IF(n != 1U, "a descending domain should be ruled only at its floor");
+    MESH_TEST_FAIL_IF(n != 6U || ticks[0] != 100 || ticks[5] != 0,
+                      "a descending domain should be ruled from its floor down to its ceiling");
     n = inkcell_trend_ticks((struct inkcell_scale){0, 1000}, 1, ticks, 3U);
     MESH_TEST_FAIL_IF(n != 3U, "the count should never pass the room the caller gave");
     record_success(test_name);
