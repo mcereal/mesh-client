@@ -690,6 +690,26 @@ MESH_TEST_CASE(meshcore_self_info_projects_the_settings, unit) {
     record_success(test_name);
 }
 
+/* A read-back with no advert location clears the fix the radio's own record held, so the
+   Position rows do not show - and a save does not send back - coordinates the radio dropped. */
+MESH_TEST_CASE(meshcore_self_info_without_a_location_clears_the_fix, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const struct mesh_node_summary *self =
+        mesh_session_model_node(&g_model, g_meshcore.self_node, false);
+    MESH_TEST_FAIL_IF(self == NULL || !self->position.valid, "the captured radio has a fix");
+
+    MESH_TEST_FAIL_IF(mesh_meshcore_refresh_settings(&g_meshcore) != 1, "a refresh is asked");
+    uint8_t cleared[sizeof k_self_info];
+    memcpy(cleared, k_self_info, sizeof cleared);
+    memset(cleared + 36, 0, 8U); /* lat_e6, lon_e6 */
+    feed(&protocol, cleared, sizeof cleared);
+    self = mesh_session_model_node(&g_model, g_meshcore.self_node, false);
+    MESH_TEST_FAIL_IF(self == NULL || self->position.valid, "and the fix goes with the location");
+    record_success(test_name);
+}
+
 /* A save is each group's command and then APP_START, whose SELF_INFO is the read-back; the
    answers settle into the write counters the app's save toast watches. */
 MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {

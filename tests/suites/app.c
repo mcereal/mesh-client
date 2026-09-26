@@ -4932,6 +4932,20 @@ MESH_TEST_CASE(app_meshcore_settings_save_speaks_meshcore, unit) {
         goto cleanup;
     }
 
+    /* The power row's 0 is "max": sent as the most the radio can do, never as 0 dBm. */
+    mesh_protocol_detach(&protocol);
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
+    action.edit_count = 1U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_LORA_TX_POWER;
+    action.edits[0].number = 0U;
+    mesh_app_save_settings(&app, &action, 2000U);
+    if (wire.count != 1U || wire.frames[0][0] != MESH_MESHCORE_CMD_SET_RADIO_TX_POWER ||
+        wire.frames[0][1] != 22U) {
+        failure = "max power goes out as the radio's maximum";
+        goto cleanup;
+    }
+
 cleanup:
     if (app_ready) {
         mesh_protocol_detach(&protocol);

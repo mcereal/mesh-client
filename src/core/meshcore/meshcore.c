@@ -236,6 +236,10 @@ static void mesh_meshcore_store_self(struct mesh_meshcore *meshcore) {
         node->position.valid = true;
         node->position.latitude_i = self->latitude_e6 * 10;
         node->position.longitude_i = self->longitude_e6 * 10;
+    } else {
+        /* No advert location: cleared on the radio, perhaps by another app, so the fix this
+           record held is no longer the radio's and must not be shown or saved back. */
+        memset(&node->position, 0, sizeof node->position);
     }
 }
 
