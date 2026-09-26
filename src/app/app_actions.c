@@ -804,8 +804,17 @@ static void on_toggle_favorite(struct mesh_app *app, const struct mesh_ui_action
     const bool favorite = (action->number != 0U);
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
-    const int result = mesh_session_set_node_favorite(&app->session, action->dest, favorite);
-    if (result > 0) {
+    const int result = app->meshcore_bound
+                           ? mesh_meshcore_set_favorite(&app->meshcore, action->dest, favorite)
+                           : mesh_session_set_node_favorite(&app->session, action->dest, favorite);
+    if (result > 0 && app->meshcore_bound) {
+        /* Asked, not done: the radio's record is read and written back first, and the row
+           follows its OK. */
+        inkcell_str_format(toast, sizeof toast,
+                           favorite ? MESH_STR_TOAST_PINNING : MESH_STR_TOAST_UNPINNING, name);
+        inkwell_log_info("ui", "Asked to %s contact 0x%08x", favorite ? "pin" : "unpin",
+                         action->dest);
+    } else if (result > 0) {
         inkcell_str_format(toast, sizeof toast,
                            favorite ? MESH_STR_TOAST_PINNED : MESH_STR_TOAST_UNPINNED, name);
         inkwell_log_info("ui", "%s node 0x%08x from the Nodes tab",

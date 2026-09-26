@@ -164,7 +164,7 @@ MESH_TEST_CASE(ui_protocol_node_sheet_offers_what_the_protocol_has, unit) {
     MESH_TEST_FAIL_IF(count != mesh_ui_node_actions_count(&node, false, NULL, MESH_UI_FEATURES_ALL),
                       "the count the nav walks agrees with the built sheet");
 
-    /* MeshCore removes a contact, and keeps no pin, mute or ignore to offer beside it. */
+    /* MeshCore removes and pins a contact, and keeps no mute or ignore to offer beside them. */
     static const struct mesh_protocol_ops k_meshcore = {.name = "meshcore"};
     static int meshcore_self;
     const struct mesh_protocol meshcore_protocol = {&k_meshcore, &meshcore_self};
@@ -172,23 +172,26 @@ MESH_TEST_CASE(ui_protocol_node_sheet_offers_what_the_protocol_has, unit) {
     mesh_ui_protocol_features(&meshcore_protocol, NULL, &meshcore_lacks);
     count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
                                        MESH_UI_NODE_ACTIONS_MAX);
-    MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE),
-                      "a heard node the radio never added is no contact to remove");
+    MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE) ||
+                          has_verb(items, count, MESH_UI_NODE_ACTION_FAVORITE),
+                      "a heard node the radio never added is no contact to remove or pin");
     MESH_TEST_FAIL_IF(!has_verb(items, count, MESH_UI_NODE_ACTION_ADD_CONTACT),
                       "but one it can add");
     node.in_nodedb = true;
     count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
                                        MESH_UI_NODE_ACTIONS_MAX);
     MESH_TEST_FAIL_IF(!has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE) ||
-                          has_verb(items, count, MESH_UI_NODE_ACTION_FAVORITE) ||
-                          has_verb(items, count, MESH_UI_NODE_ACTION_MUTE),
-                      "MeshCore offers remove without the flags beside it");
+                          !has_verb(items, count, MESH_UI_NODE_ACTION_FAVORITE) ||
+                          has_verb(items, count, MESH_UI_NODE_ACTION_MUTE) ||
+                          has_verb(items, count, MESH_UI_NODE_ACTION_IGNORE),
+                      "MeshCore offers remove and pin on a contact, without mute or ignore");
     MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_ADD_CONTACT),
                       "and a contact is not offered as one to add");
     node.public_key_len = 6U;
     count = mesh_ui_node_actions_build(&node, false, NULL, false, meshcore_lacks, items,
                                        MESH_UI_NODE_ACTIONS_MAX);
-    MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE),
+    MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_REMOVE) ||
+                          has_verb(items, count, MESH_UI_NODE_ACTION_FAVORITE),
                       "nor is a sender known only by its key's prefix");
     node.public_key_len = 32U;
     node.in_nodedb = false;
@@ -337,8 +340,8 @@ static bool bar_offers_pin(struct mesh_ui_store *store, uint32_t lacks) {
 
 /*
  * X on the Nodes list is the one-press pin, the sheet's "Pinned to top" row without the
- * drill-down - and it is the radio's favourite flag, so it follows NODE_FLAGS exactly as the row
- * does. A shortcut left behind would be the same Meshtastic verb through a side door.
+ * drill-down - and it is the radio's favourite flag, so it follows mesh_ui_node_pinnable() exactly
+ * as the row does. A shortcut left behind would be the same verb through a side door.
  */
 MESH_TEST_CASE(ui_protocol_pin_shortcut_follows_the_protocol, unit) {
     const char *failure = NULL;
@@ -360,15 +363,54 @@ MESH_TEST_CASE(ui_protocol_pin_shortcut_follows_the_protocol, unit) {
         goto cleanup;
     }
 
-    store.settings.protocol_lacks = MESH_UI_FEATURE_NODE_FLAGS;
-    if (bar_offers_pin(&store, MESH_UI_FEATURE_NODE_FLAGS)) {
-        failure = "no Pin on the bar for a protocol without node flags";
+    store.settings.protocol_lacks = MESH_UI_FEATURE_NODE_PIN;
+    if (bar_offers_pin(&store, MESH_UI_FEATURE_NODE_PIN)) {
+        failure = "no Pin on the bar for a protocol without pinning";
         goto cleanup;
     }
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (action.type == MESH_UI_ACTION_TOGGLE_FAVORITE) {
         failure = "and X sends no favourite toggle for one";
+        goto cleanup;
+    }
+
+    /* Without the per-node flags a pin is a contact's favourite: a node the radio does not
+       carry by its whole key has none to set. */
+    /* Nor on this radio's own detail, whose press refuses to pin ourselves. */
+    {
+        static struct mesh_ui_snapshot detail;
+        (void)mesh_ui_store_consume_updates(&store, &detail);
+        detail.handshake = store.handshake; /* consumed already, by the bar above */
+        detail.handshake_valid = true;
+        detail.settings.protocol_lacks = 0U;
+        detail.nav.screen = MESH_UI_SCREEN_NODES;
+        detail.nav.node_detail_open = true;
+        detail.nav.node_detail_node = detail.handshake.my_info.node_num;
+        struct mesh_ui_command_set commands;
+        mesh_ui_commands_for(&detail, &commands);
+        if (!detail.handshake.has_my_info ||
+            mesh_ui_commands_find(&commands, MESH_UI_COMMAND_PIN) != NULL) {
+            failure = "no Pin on this radio's own detail";
+            goto cleanup;
+        }
+    }
+
+    store.settings.protocol_lacks = MESH_UI_FEATURE_NODE_FLAGS;
+    if (bar_offers_pin(&store, MESH_UI_FEATURE_NODE_FLAGS)) {
+        failure = "no Pin on the bar over a node that is no whole-key contact";
+        goto cleanup;
+    }
+    for (uint32_t i = 0; i < store.handshake.node_count; ++i) {
+        if (mesh_ui_node_pinnable(&store.handshake.nodes[i], MESH_UI_FEATURE_NODE_FLAGS)) {
+            failure = "no populated node is a whole-key contact";
+            goto cleanup;
+        }
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type == MESH_UI_ACTION_TOGGLE_FAVORITE) {
+        failure = "X sends no favourite toggle for a node that is no contact";
         goto cleanup;
     }
 

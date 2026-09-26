@@ -129,6 +129,8 @@ enum mesh_meshcore_txt_type {
 /* MAX_PATH_SIZE: the route a contact record carries, in bytes. */
 #define MESH_MESHCORE_PATH_MAX 64U
 #define MESH_MESHCORE_PATH_HOPS(len) ((uint8_t)((len) & 0x3FU))
+/* A contact's flags: bit 0 is the favourite; the bits above it are what it may ask for. */
+#define MESH_MESHCORE_CONTACT_FAVORITE 0x01U
 
 /* RESP_CODE_SELF_INFO, the answer to APP_START: the radio's own identity and radio settings. */
 struct mesh_meshcore_self_info {
@@ -167,6 +169,7 @@ struct mesh_meshcore_contact {
     uint8_t type; /* enum mesh_meshcore_adv_type */
     uint8_t flags;
     uint8_t out_path_len; /* MESH_MESHCORE_PATH_NONE when no route is known */
+    uint8_t out_path[MESH_MESHCORE_PATH_MAX];
     char name[MESH_MESHCORE_NAME_LEN + 1U];
     uint32_t last_advert; /* the advert's own timestamp, on the sender's clock */
     int32_t latitude_e6;
@@ -292,6 +295,16 @@ struct mesh_meshcore_request {
     uint8_t len;
     /* The message log entry this command carries, 0 for none. */
     uint32_t packet_id;
+    /* A GET_CONTACT_BY_KEY asked for a favourite: what to write back when the record arrives,
+       one of enum mesh_meshcore_favorite_intent. Kept with the lookup, so two pins in flight
+       are two lookups that each know their own answer. */
+    uint8_t favorite;
+};
+
+enum mesh_meshcore_favorite_intent {
+    MESH_MESHCORE_FAVORITE_NONE = 0,
+    MESH_MESHCORE_FAVORITE_SET = 1,
+    MESH_MESHCORE_FAVORITE_CLEAR = 2,
 };
 
 /* One direct message waiting for its ack. */
@@ -432,6 +445,15 @@ int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_i
  * full.
  */
 int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id);
+/*
+ * Marks a contact the radio's favourite, or not: bit 0 of its flags, which the radio's own
+ * apps pin and which an auto-add that finds the list full will not overwrite. The radio's
+ * record is read back first and written whole with only that bit changed; the roster's flag
+ * follows the radio's OK. 1 when asked, 0 when the flag is already so; -EINVAL for 0 or this
+ * radio, -ENOTCONN until the handshake has named the radio, -ENOENT for a node that is not one
+ * of the radio's contacts, -ENOBUFS when the command queue is full.
+ */
+int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id, bool favorite);
 
 /*
  * Queues the save's commands and then APP_START, whose SELF_INFO is the read-back. Returns how

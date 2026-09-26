@@ -1327,6 +1327,14 @@ static bool node_actions_offer(uint32_t lacks, enum mesh_ui_feature feature) {
     return (lacks & (uint32_t)feature) == 0U;
 }
 
+bool mesh_ui_node_pinnable(const struct mesh_ui_node_summary *node, uint32_t lacks) {
+    /* Without the per-node flags a pin is a contact's favourite, and the radio has that record
+       only for a node it carries by its whole key. */
+    return node != NULL && node_actions_offer(lacks, MESH_UI_FEATURE_NODE_PIN) &&
+           (node_actions_offer(lacks, MESH_UI_FEATURE_NODE_FLAGS) ||
+            (node->in_nodedb && node->public_key_len == sizeof node->public_key));
+}
+
 uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, bool is_self,
                                     const struct mesh_ui_traceroute *trace, bool remove_armed,
                                     uint32_t lacks, struct mesh_ui_node_item *out,
@@ -1357,7 +1365,7 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
     if (!is_self) {
         rows_action(&rows, MESH_STR_NODE_ACT_MESSAGE, NULL, MESH_UI_NODE_ACTION_MESSAGE);
         /* Pinning our own node would be meaningless - it already ranks above everything. */
-        if (flags) {
+        if (mesh_ui_node_pinnable(node, lacks)) {
             rows_toggle(&rows, MESH_STR_NODE_ACT_PIN, node->is_favorite,
                         MESH_UI_NODE_ACTION_FAVORITE);
         }

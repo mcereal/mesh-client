@@ -404,6 +404,10 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
                                     uint32_t lacks, struct mesh_ui_node_item *out,
                                     uint32_t capacity);
 
+/* Whether `node` can be pinned under `lacks`: the detail's row, and X on the list and the
+   detail, all ask this. */
+bool mesh_ui_node_pinnable(const struct mesh_ui_node_summary *node, uint32_t lacks);
+
 /* Verbs the node would offer. Zero is a node with no sheet - see the builder above. */
 uint32_t mesh_ui_node_actions_count(const struct mesh_ui_node_summary *node, bool is_self,
                                     const struct mesh_ui_traceroute *trace, uint32_t lacks);

@@ -102,8 +102,8 @@ static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
     }
 }
 
-static int mesh_meshcore_enqueue(struct mesh_meshcore *meshcore, const uint8_t *frame, int len,
-                                 uint32_t packet_id) {
+static int mesh_meshcore_enqueue_tagged(struct mesh_meshcore *meshcore, const uint8_t *frame,
+                                        int len, uint32_t packet_id, uint8_t favorite) {
     if (len < 0) {
         return len;
     }
@@ -118,6 +118,7 @@ static int mesh_meshcore_enqueue(struct mesh_meshcore *meshcore, const uint8_t *
     memcpy(request->frame, frame, (size_t)len);
     request->len = (uint8_t)len;
     request->packet_id = packet_id;
+    request->favorite = favorite;
     meshcore->queue_count += 1U;
     /* Alone in an idle queue it is written now, and a link that refuses it outright leaves
        nothing on its way: that refusal is this call's answer, not a success. */
@@ -128,6 +129,12 @@ static int mesh_meshcore_enqueue(struct mesh_meshcore *meshcore, const uint8_t *
         return meshcore->send_error < 0 ? meshcore->send_error : -EIO;
     }
     return 0;
+}
+
+static int mesh_meshcore_enqueue(struct mesh_meshcore *meshcore, const uint8_t *frame, int len,
+                                 uint32_t packet_id) {
+    return mesh_meshcore_enqueue_tagged(meshcore, frame, len, packet_id,
+                                        MESH_MESHCORE_FAVORITE_NONE);
 }
 
 static bool mesh_meshcore_queued(const struct mesh_meshcore *meshcore, uint8_t cmd) {
@@ -248,6 +255,7 @@ static void mesh_meshcore_store_contact(struct mesh_meshcore *meshcore,
     }
     mesh_meshcore_name_node(node, contact->public_key, contact->name, contact->type);
     node->in_nodedb = true;
+    node->is_favorite = (contact->flags & MESH_MESHCORE_CONTACT_FAVORITE) != 0U;
     /* lastmod is the radio's clock, which we set; the advert's own stamp is the sender's. */
     const uint32_t heard = contact->lastmod != 0U ? contact->lastmod : contact->last_advert;
     if (heard > node->last_heard) {
@@ -547,6 +555,14 @@ static uint8_t mesh_meshcore_channel_limit(const struct mesh_meshcore *meshcore)
 static void mesh_meshcore_ready_now(struct mesh_meshcore *meshcore) {
     meshcore->phase = MESH_MESHCORE_READY;
     mesh_session_model_sync_complete(meshcore->model);
+    /* A favourite is a flag on the radio's contact record: a node the sync left off the list
+       has no record to carry one, and one still shown pinned could never be unpinned. */
+    struct mesh_handshake_status *roster = &meshcore->model->handshake;
+    for (size_t i = 0; i < roster->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (!roster->nodes[i].in_nodedb) {
+            roster->nodes[i].is_favorite = false;
+        }
+    }
     inkwell_log_info("meshcore", "Synced: %zu nodes, %zu channels",
                      meshcore->model->handshake.node_count,
                      meshcore->model->handshake.channel_count);
@@ -688,6 +704,7 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
             struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, id, false);
             if (node != NULL) {
                 node->in_nodedb = false;
+                node->is_favorite = false; /* the flag went with the record */
             }
         }
         break;
@@ -788,6 +805,34 @@ mesh_meshcore_roster_node(const struct mesh_meshcore *meshcore, uint32_t node_id
     return NULL;
 }
 
+/* The record just read back for a favourite asked for: written whole, one bit changed. */
+static void mesh_meshcore_write_favorite(struct mesh_meshcore *meshcore,
+                                         const struct mesh_meshcore_contact *record,
+                                         uint8_t intent) {
+    struct mesh_meshcore_contact contact = *record;
+    if (intent == MESH_MESHCORE_FAVORITE_SET) {
+        contact.flags |= MESH_MESHCORE_CONTACT_FAVORITE;
+    } else {
+        contact.flags &= (uint8_t)~MESH_MESHCORE_CONTACT_FAVORITE;
+    }
+    /* At the head, where its lookup stood: a command accepted after the lookup - a removal,
+       say - still runs after the write, rather than the write undoing it. The lookup has just
+       been popped, so its slot is free, and nothing has been sent since. */
+    uint8_t frame[MESH_MESHCORE_MAX_FRAME];
+    const int len = mesh_meshcore_encode_contact(&contact, frame, sizeof frame);
+    if (len < 0 || meshcore->queue_count >= MESH_MESHCORE_QUEUE_LEN) {
+        return;
+    }
+    meshcore->queue_head =
+        (meshcore->queue_head + MESH_MESHCORE_QUEUE_LEN - 1U) % MESH_MESHCORE_QUEUE_LEN;
+    struct mesh_meshcore_request *request = &meshcore->queue[meshcore->queue_head];
+    memcpy(request->frame, frame, (size_t)len);
+    request->len = (uint8_t)len;
+    request->packet_id = 0U;
+    request->favorite = MESH_MESHCORE_FAVORITE_NONE;
+    meshcore->queue_count += 1U;
+}
+
 /* The answer to the command at the head of the queue. */
 static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t *frame,
                                    size_t len) {
@@ -795,6 +840,10 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
     struct mesh_meshcore_request *request = mesh_meshcore_head(meshcore);
     const uint32_t packet_id = request != NULL && meshcore->awaiting ? request->packet_id : 0U;
     const uint8_t code = frame[0];
+    /* A favourite's record, written back once its lookup has left the queue - so the slot
+       the lookup held is there for the write. */
+    struct mesh_meshcore_contact favorite_record;
+    uint8_t favorite_intent = MESH_MESHCORE_FAVORITE_NONE;
 
     /* The contact list is several frames to one command; only its end closes it. */
     if (code == MESH_MESHCORE_RESP_CONTACTS_START) {
@@ -804,6 +853,12 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         struct mesh_meshcore_contact contact;
         if (mesh_meshcore_decode_contact(frame, len, &contact) == 0) {
             mesh_meshcore_store_contact(meshcore, &contact, cmd == MESH_MESHCORE_CMD_GET_CONTACTS);
+            if (cmd == MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY && meshcore->awaiting &&
+                request->favorite != MESH_MESHCORE_FAVORITE_NONE &&
+                memcmp(contact.public_key, request->frame + 1, MESH_MESHCORE_PUBKEY_LEN) == 0) {
+                favorite_record = contact;
+                favorite_intent = request->favorite;
+            }
         }
         if (cmd != MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY) {
             return;
@@ -816,6 +871,9 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
     }
     mesh_meshcore_pop(meshcore);
     meshcore->timeouts = 0U;
+    if (favorite_intent != MESH_MESHCORE_FAVORITE_NONE) {
+        mesh_meshcore_write_favorite(meshcore, &favorite_record, favorite_intent);
+    }
 
     switch (code) {
     case MESH_MESHCORE_RESP_DEVICE_INFO:
@@ -908,9 +966,10 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             mesh_meshcore_settle_write(meshcore, 0);
         } else if (cmd == MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT && request != NULL &&
                    (size_t)request->len + 4U <= MESH_MESHCORE_MAX_FRAME) {
-            /* Only now is it on the radio's list, and so a node a direct message can reach. The
-               record sent is stored as the radio now holds it, which also brings the node back
-               if an advert pushed it off the roster while the add was waiting. */
+            /* Only now is it on the radio's list, and so a node a direct message can reach, and
+               only now is a favourite changed. The record sent is stored as the radio now holds
+               it, which also brings the node back if an advert pushed it off the roster while
+               the add was waiting. */
             uint8_t record[MESH_MESHCORE_MAX_FRAME];
             memset(record, 0, sizeof record);
             memcpy(record, request->frame, request->len);
@@ -919,16 +978,21 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             if (mesh_meshcore_decode_contact(record, (size_t)request->len + 4U, &contact) == 0) {
                 const uint32_t id =
                     mesh_meshcore_node_id(contact.public_key, MESH_MESHCORE_PUBKEY_LEN);
+                const struct mesh_node_summary *was = mesh_meshcore_roster_node(meshcore, id);
+                const bool favorite = (contact.flags & MESH_MESHCORE_CONTACT_FAVORITE) != 0U;
+                if (was == NULL || !was->in_nodedb) {
+                    inkwell_log_info("meshcore", "Added contact 0x%08x", id);
+                } else if (was->is_favorite != favorite) {
+                    inkwell_log_info("meshcore", "%s contact 0x%08x",
+                                     favorite ? "Pinned" : "Unpinned", id);
+                }
                 /* The sender's stamp is its own clock, not when we heard it. A node still on
                    the roster keeps its heard time; one brought back is heard as of now, the
                    radio's lastmod for it too, so it keeps its place among the recently heard
                    rather than sinking to the bottom of a full roster. */
                 contact.last_advert = 0U;
-                contact.lastmod = mesh_meshcore_roster_node(meshcore, id) == NULL
-                                      ? mesh_meshcore_clock_now(meshcore)
-                                      : 0U;
+                contact.lastmod = was == NULL ? mesh_meshcore_clock_now(meshcore) : 0U;
                 mesh_meshcore_store_contact(meshcore, &contact, false);
-                inkwell_log_info("meshcore", "Added contact 0x%08x", id);
             }
         } else if (cmd == MESH_MESHCORE_CMD_REMOVE_CONTACT && request != NULL &&
                    request->len == 1U + MESH_MESHCORE_PUBKEY_LEN) {
@@ -1382,9 +1446,33 @@ int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id) 
     }
     contact.flags = 0U;
     contact.out_path_len = MESH_MESHCORE_PATH_NONE;
+    memset(contact.out_path, 0, sizeof contact.out_path);
     uint8_t frame[MESH_MESHCORE_MAX_FRAME];
     const int result = mesh_meshcore_enqueue(
         meshcore, frame, mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U);
+    return result < 0 ? result : 1;
+}
+
+int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id, bool favorite) {
+    if (meshcore == NULL || node_id == 0U || node_id == meshcore->self_node) {
+        return -EINVAL;
+    }
+    if (!mesh_meshcore_ready(meshcore)) {
+        return -ENOTCONN;
+    }
+    const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, node_id);
+    if (node == NULL || !node->in_nodedb || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN) {
+        return -ENOENT;
+    }
+    if (node->is_favorite == favorite) {
+        return 0;
+    }
+    uint8_t frame[1U + MESH_MESHCORE_PUBKEY_LEN];
+    const int result = mesh_meshcore_enqueue_tagged(
+        meshcore, frame,
+        mesh_meshcore_encode_key(MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY, node->public_key, frame,
+                                 sizeof frame),
+        0U, favorite ? MESH_MESHCORE_FAVORITE_SET : MESH_MESHCORE_FAVORITE_CLEAR);
     return result < 0 ? result : 1;
 }
 

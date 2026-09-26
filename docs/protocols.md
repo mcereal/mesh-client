@@ -86,7 +86,8 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `WAYPOINTS` | "Send a waypoint" on a node's sheet; the Nodes list's Waypoints row dims and a press says why, since every row under it is counted from it (`MESH_UI_NODES_LEAD_ROWS`) |
 | `TRACEROUTE` | the traceroute verb |
 | `NODE_REQUESTS` | asking a node for its name, position or telemetry |
-| `NODE_FLAGS` | pin, mute, ignore |
+| `NODE_FLAGS` | mute, ignore - and pin on a node that is not a whole-key contact |
+| `NODE_PIN` | pin, on the sheet and as X on the list and the detail |
 | `NODE_REMOVE` | remove, on a node's sheet |
 | `REMOTE_ADMIN` | configuring a node over the mesh |
 | `KEY_VERIFICATION` | the verify-key ceremony |
@@ -182,6 +183,10 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   name, stamp, position - with no route, so the first message floods and the radio learns one. It
   becomes a contact (`in_nodedb`) on the radio's OK. That is the one way to reach a node heard
   while "Add heard nodes" is off.
+- **A contact is pinned** by bit 0 of its flags, MeshCore's favourite, which an auto-add that
+  finds the list full will not overwrite. An update replaces the whole record, route included,
+  so `GET_CONTACT_BY_KEY` reads it first and `ADD_UPDATE_CONTACT` writes it back with that bit
+  alone changed; the row follows the radio's OK.
 - **An advert** is this radio announcing its name and key now: Radio details offers it to the
   nodes in earshot or flooded across the mesh. Meshtastic has no such verb, so the two rows are
   listed by `protocol`, not by a lacked feature.
@@ -192,7 +197,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
 Not yet spoken: repeater and room-server login, telemetry and status requests, trace paths,
-a contact's favourite flag, and contact sharing. The
+and contact sharing. The
 `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
 end.
