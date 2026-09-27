@@ -112,8 +112,13 @@ enum mesh_ui_radio_page {
 #define MESH_UI_NAV_TOAST_QUEUE INKSTAND_TOAST_QUEUE
 #define MESH_UI_CANNED_MAX 16U
 #define MESH_UI_CANNED_TEXT_MAX 64U
-/* Upstream Data.payload caps at 233 bytes; the draft and action text hold that plus a NUL. */
-#define MESH_UI_DRAFT_MAX 234U
+/*
+ * The draft and an action's text: the longest thing typed into the keyboard, NUL included. That
+ * is a link, not a message - MeshCore's signed card is `meshcore://` and 175 bytes in hex, 361
+ * characters - so a message is held to its own payload (MESH_UI_MESSAGE_TEXT_MAX) by the cap
+ * rather than by this buffer.
+ */
+#define MESH_UI_DRAFT_MAX 384U
 /* Unsent drafts kept for conversations other than the open one. See `parked_drafts`. */
 #define MESH_UI_PARKED_DRAFTS 4U
 /*

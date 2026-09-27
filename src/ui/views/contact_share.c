@@ -9,6 +9,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/proto/contact_url.h"
 #include "mesh/proto/meshcore_url.h"
+#include "mesh/ui/nav.h"
 #include "mesh/ui/store_settings.h"
 
 #include <stdio.h>
@@ -67,6 +68,12 @@ static void contact_name(const meshtastic_SharedContact *contact, char *out, siz
 _Static_assert(CONTACT_ID_MAX >= sizeof(((meshtastic_User *)0)->id) &&
                    CONTACT_ID_MAX >= sizeof("0123456789ab"),
                "a contact id holds either app's spelling of one");
+
+/* The keyboard, the parked link and the action that carries it all hold a draft: the longest
+   card has to fit, or it is cut before it is read and the radio is handed half an advert. */
+_Static_assert(MESH_UI_DRAFT_MAX >=
+                   sizeof(MESH_MESHCORE_URL_CARD_PREFIX) + 2U * MESH_MESHCORE_CARD_MAX,
+               "a draft is too short for the longest MeshCore contact card");
 
 struct contact_reading {
     bool meshcore;

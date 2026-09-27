@@ -634,8 +634,8 @@ static void mesh_ui_nav_fill_favorite(struct mesh_ui_action *action,
  * with it because a retry of a reply is still an answer to the same message - re-aiming it at
  * the attempt that failed would thread the conversation to its own ghost.
  *
- * `text` is MESH_UI_DRAFT_MAX and a message's is MESH_UI_MESSAGE_TEXT_MAX, which are the same
- * number for the same reason: both are what one Data payload holds.
+ * `text` is MESH_UI_DRAFT_MAX, which is at least a message's MESH_UI_MESSAGE_TEXT_MAX: the draft
+ * also holds the links typed into it, and a message is what one Data payload holds.
  */
 static void mesh_ui_nav_fill_resend(struct mesh_ui_action *action,
                                     const struct mesh_ui_message *message) {
