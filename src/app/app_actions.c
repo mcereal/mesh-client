@@ -1975,6 +1975,14 @@ static void on_list_firmware_boards(struct mesh_app *app, const struct mesh_ui_a
                          port->id[0] != '\0' ? port->id : port->path);
         mesh_app_probe_hold(app, app->firmware_blank_port, now + MESH_APP_PROBE_MUTE_MS);
         inkwell_log_info("ui", "Listing boards for the silent radio on %s", port->path);
+        /* A radio up over the air is put down: the answer is now this port's, and what comes
+           up on it once it is written is the link to have. Auto-connect waits on the answer. */
+        struct mesh_transport *const transport = mesh_app_active_transport();
+        if (transport == mesh_ble_transport()) {
+            (void)mesh_ble_transport_disconnect(transport);
+        } else if (transport == mesh_tcp_transport()) {
+            (void)mesh_tcp_transport_disconnect(transport);
+        }
     }
     firmware_check_toast(app, result, now);
 }

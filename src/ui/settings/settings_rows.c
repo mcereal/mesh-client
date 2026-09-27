@@ -962,21 +962,7 @@ static void build_radio_firmware_silent(const struct mesh_ui_settings *s, struct
  * documents are 200 KB over whatever wifi a handheld has. Neither has a fraction - the reply
  * has no length until it arrives - so it is the indeterminate bar both times.
  */
-static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_list *list) {
-    if (!s->fw_supported) {
-        /* A build with no TLS. Said once rather than offering a press that cannot run. */
-        item_str(list, MESH_STR_FW_LATEST, INKSTAND_FORM_INFO, MESH_STR_ABOUT_UPDATES_UNAVAILABLE);
-        return;
-    }
-    if (build_radio_firmware_running(s, list)) {
-        return;
-    }
-    /* A radio half-written is the recovery below, whatever it answers; one that says nothing
-       and was never touched is offered its board. */
-    if (s->fw_silent_port[0] != '\0' && !s->fw_radio_in_loader) {
-        build_radio_firmware_silent(s, list);
-        return;
-    }
+static void build_radio_firmware_linked(const struct mesh_ui_settings *s, struct item_list *list) {
     /*
      * Which of upstream's two lists a check will read. Above the status row for the reason
      * About's own channel row sits above its status: it decides which question the press below
@@ -1095,6 +1081,31 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
               s->fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE
                   ? MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE
                   : MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB);
+}
+
+static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_list *list) {
+    if (!s->fw_supported) {
+        /* A build with no TLS. Said once rather than offering a press that cannot run. */
+        item_str(list, MESH_STR_FW_LATEST, INKSTAND_FORM_INFO, MESH_STR_ABOUT_UPDATES_UNAVAILABLE);
+        return;
+    }
+    if (build_radio_firmware_running(s, list)) {
+        return;
+    }
+    /* A radio half-written is the recovery below, whatever it answers; one that says nothing
+       and was never touched is offered its board. */
+    const bool silent = s->fw_silent_port[0] != '\0' && !s->fw_radio_in_loader;
+    if (silent && (s->fw_silent_asked || !s->has_metadata)) {
+        build_radio_firmware_silent(s, list);
+        return;
+    }
+    build_radio_firmware_linked(s, list);
+    /* The same port beside a radio up over the air, which the rows above are about: only the
+       press, which puts that radio down and makes the answer this port's. */
+    if (silent) {
+        item_text(list, MESH_STR_FW_SILENT_RADIO, INKSTAND_FORM_INFO, s->fw_silent_port);
+        item_verb(list, MESH_STR_FW_CHOOSE_BOARD, MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS);
+    }
 }
 
 static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_handshake_state *hs,

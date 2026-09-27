@@ -176,10 +176,13 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
        stays usable with nothing connected: the section list still draws (About is the only
        row not greyed out) and opening About still works. Modules is let through for the
        reason the section list itself is - it is a list of what exists, not a read of the
-       radio, and each of its rows says "not loaded" on its own. */
+       radio, and each of its rows says "not loaded" on its own. Radio details is let through
+       for a radio on USB that answers nothing: its firmware rows are the page. */
+    const bool silent_radio =
+        section == MESH_UI_SETTINGS_RADIO_DETAILS && settings->fw_silent_port[0] != '\0';
     if (!settings->loaded && (handshake == NULL || !handshake->has_my_info) && section_open &&
         section != MESH_UI_SETTINGS_ABOUT && section != MESH_UI_SETTINGS_MODULES &&
-        section != MESH_UI_SETTINGS_NODE_LISTS) {
+        section != MESH_UI_SETTINGS_NODE_LISTS && !silent_radio) {
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_SETTINGS,
                               inkcell_str(MESH_STR_SETTINGS_EMPTY_DISCONNECT));
         return;
