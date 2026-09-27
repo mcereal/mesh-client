@@ -744,11 +744,24 @@ static void mesh_app_handoff_reject(struct mesh_app *app, const char *address) {
              address);
 }
 
+/* The name a moved radio will advertise is the one it last answered to: a rename acknowledged
+   while the image was still coming down is on the radio, and the scan has to look for it. */
+static void mesh_app_handoff_follow_name(struct mesh_app *app) {
+    if (app->firmware_ble_handoff[0] == '\0' || !app->meshcore_bound || !app->meshcore.has_self ||
+        memcmp(app->meshcore.self.public_key, app->firmware_ble_handoff_key,
+               sizeof app->firmware_ble_handoff_key) != 0) {
+        return;
+    }
+    snprintf(app->firmware_ble_handoff, sizeof app->firmware_ble_handoff, "%s%s",
+             MESH_BLE_MESHCORE_NAME_PREFIX, app->meshcore.self.name);
+}
+
 void mesh_app_autoconnect(struct mesh_app *app) {
     if (app == NULL || app->autoconnect_disabled || app->autoconnect_held ||
         app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
         return;
     }
+    mesh_app_handoff_follow_name(app);
     /* Derived rather than held: a download that fails lifts this by failing. Pairing it with a
        flag would leave a radio unreachable after a failed install until something remembered to
        clear it. */

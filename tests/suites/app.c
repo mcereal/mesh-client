@@ -2122,6 +2122,31 @@ MESH_TEST_CASE(app_handoff_retries_an_impostor_bond_before_the_next_candidate, u
         goto cleanup;
     }
 
+    /* A rename the radio acknowledged before the cable went is the name it will advertise. */
+    (void)mesh_ble_transport_disconnect(ble);
+    snprintf(app.firmware_ble_handoff, sizeof app.firmware_ble_handoff, "%s", "MeshCore-Old");
+    memset(app.firmware_ble_handoff_key, 0x5A, sizeof app.firmware_ble_handoff_key);
+    app.meshcore_bound = true;
+    app.meshcore.has_self = true;
+    memset(app.meshcore.self.public_key, 0x5A, sizeof app.meshcore.self.public_key);
+    snprintf(app.meshcore.self.name, sizeof app.meshcore.self.name, "%s", "Desk");
+    app.autoconnect_retry_at_ms = UINT64_MAX;
+    mesh_app_autoconnect(&app);
+    if (strcmp(app.firmware_ble_handoff, "MeshCore-Desk") != 0) {
+        failure = "the handoff looks for the name the radio last answered to";
+        goto cleanup;
+    }
+    /* Another radio's answer is not this one being renamed. */
+    app.meshcore.self.public_key[0] ^= 0xFFU;
+    snprintf(app.meshcore.self.name, sizeof app.meshcore.self.name, "%s", "Other");
+    mesh_app_autoconnect(&app);
+    app.meshcore_bound = false;
+    app.meshcore.has_self = false;
+    if (strcmp(app.firmware_ble_handoff, "MeshCore-Desk") != 0) {
+        failure = "a radio with another key does not rename the handoff";
+        goto cleanup;
+    }
+
 cleanup:
     if (app_ready) {
         mesh_app_shutdown(&app);
