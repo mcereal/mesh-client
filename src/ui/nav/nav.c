@@ -16,6 +16,7 @@
 
 #include "inkstand/nav/dialog.h"
 #include "mesh/core/message.h"
+#include "mesh/ui/channel_share.h"
 #include "mesh/ui/devices.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/help.h"
@@ -870,7 +871,8 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
      * screen says so rather than drawing an empty square, but leaving it standing would be a
      * level the user has to back out of to find out there was nothing in it.
      */
-    if (nav->share_open && store->settings.share_url[0] == '\0') {
+    if (nav->share_open &&
+        !mesh_ui_channel_share_link(&store->settings, nav->settings_channel, NULL, 0U)) {
         nav->share_open = false;
         moved = true;
     }

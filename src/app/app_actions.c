@@ -23,6 +23,7 @@
 
 #include "app_internal.h"
 
+#include "inkwell/base/wipe.h"
 #include "inkwell/runtime/crash.h"
 #include "mesh/core/version.h"
 #include "mesh/geo/coords.h"
@@ -2029,14 +2030,71 @@ struct app_action_entry {
  * overwritten is whatever is on the radio at this moment. Parsing twice is the cheap half of
  * that; the nav's parse decided whether to raise the sheet at all.
  */
+/* The settings-save bookkeeping an import starts, so the Settings tab says "saving" while its
+   writes are in flight and reports the first the radio refuses. */
+static void import_save_started(struct mesh_app *app, uint64_t now) {
+    const struct mesh_radio_settings *radio = mesh_session_settings(&app->session);
+    app->settings_save_pending = true;
+    app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
+    app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
+    app->settings_reboot_generation_seen = app->session.reboot_generation;
+    app->settings_save_started_ms = now;
+    snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s",
+             inkcell_str(MESH_STR_SETTINGS_SECTION_CHANNELS));
+}
+
+/* A MeshCore channel link, to a MeshCore radio: one channel, into the first free slot. */
+static void import_meshcore_channel(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = inkwell_time_monotonic_ms();
+
+    struct mesh_meshcore_channel_link link;
+    if (!mesh_meshcore_channel_url_decode(action->text, &link)) {
+        meshtastic_ChannelSet other;
+        mesh_ui_store_set_toast(&app->ui_store, now,
+                                inkcell_str(mesh_channel_url_decode(action->text, &other, NULL)
+                                                ? MESH_STR_TOAST_CHANNEL_LINK_OTHER
+                                                : MESH_STR_TOAST_IMPORT_NOT_A_LINK));
+        return;
+    }
+    uint8_t slot = 0U;
+    const int result = mesh_meshcore_import_channel(&app->meshcore, link.name, link.secret, &slot);
+    if (result > 0) {
+        import_save_started(app, now);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CHANNEL_JOINING, link.name,
+                           (unsigned)slot);
+    } else if (result == -EEXIST) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_IMPORT_NO_CHANGE));
+    } else if (result == -ENOSPC) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CHANNEL_SLOTS_FULL));
+    } else if (result == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else if (result == -EBUSY) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_BUSY_RETRY));
+    } else {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_IMPORT_FAILED));
+        inkwell_log_warn("ui", "Channel import failed: %d", result);
+    }
+    inkwell_wipe(&link, sizeof link);
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 static void on_import_channels(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
 
+    if (app->meshcore_bound) {
+        import_meshcore_channel(app, action);
+        return;
+    }
     meshtastic_ChannelSet set;
     bool add = false;
     if (!mesh_channel_url_decode(action->text, &set, &add)) {
-        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_IMPORT_NOT_A_LINK));
+        struct mesh_meshcore_channel_link other;
+        mesh_ui_store_set_toast(&app->ui_store, now,
+                                inkcell_str(mesh_meshcore_channel_url_decode(action->text, &other)
+                                                ? MESH_STR_TOAST_CHANNEL_LINK_OTHER
+                                                : MESH_STR_TOAST_IMPORT_NOT_A_LINK));
         return;
     }
 
@@ -2048,14 +2106,7 @@ static void on_import_channels(struct mesh_app *app, const struct mesh_ui_action
          * same counters is what makes the Settings tab say "saving" while they are in flight
          * and report the first one that the radio refuses.
          */
-        const struct mesh_radio_settings *radio = mesh_session_settings(&app->session);
-        app->settings_save_pending = true;
-        app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
-        app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
-        app->settings_reboot_generation_seen = app->session.reboot_generation;
-        app->settings_save_started_ms = now;
-        snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s",
-                 inkcell_str(MESH_STR_SETTINGS_SECTION_CHANNELS));
+        import_save_started(app, now);
         inkcell_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_IMPORT_QUEUED_ONE,
                                   (uint32_t)set.settings_count, (unsigned)set.settings_count);
     } else if (queued == 0) {

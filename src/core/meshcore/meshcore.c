@@ -2163,3 +2163,61 @@ int mesh_meshcore_reboot(struct mesh_meshcore *meshcore) {
                                              mesh_meshcore_encode_reboot(frame, sizeof frame), 0U);
     return result < 0 ? result : 1;
 }
+
+int mesh_meshcore_import_channel(struct mesh_meshcore *meshcore, const char *name,
+                                 const uint8_t secret[MESH_MESHCORE_SECRET_LEN],
+                                 uint8_t *out_slot) {
+    if (meshcore == NULL || name == NULL || secret == NULL || name[0] == '\0' ||
+        strlen(name) >= MESH_MESHCORE_NAME_LEN) {
+        return -EINVAL;
+    }
+    if (!mesh_meshcore_ready(meshcore)) {
+        return -ENOTCONN;
+    }
+    const struct mesh_handshake_status *status = &meshcore->model->handshake;
+    const struct mesh_radio_settings *settings = mesh_session_model_settings(meshcore->model);
+    if (settings == NULL) {
+        return -ENOTCONN;
+    }
+    /* Only the slots the sync read: one never read cannot be told from a free one. */
+    const uint8_t limit = mesh_meshcore_channel_limit(meshcore);
+    int free_slot = -1;
+    for (size_t slot = 0;
+         slot < limit && slot < MESH_RADIO_SETTINGS_MAX_CHANNELS && slot < status->channel_count;
+         ++slot) {
+        if (!settings->has_channel[slot]) {
+            continue;
+        }
+        const meshtastic_Channel *record = &settings->channels[slot];
+        if (record->role == MESH_MESHCORE_ROLE_DISABLED) {
+            if (free_slot < 0) {
+                free_slot = (int)slot;
+            }
+            continue;
+        }
+        /* The same secret under the same name is already this radio's channel. */
+        if (record->settings.psk.size == MESH_MESHCORE_SECRET_LEN &&
+            memcmp(record->settings.psk.bytes, secret, MESH_MESHCORE_SECRET_LEN) == 0 &&
+            strcmp(status->channels[slot].name, name) == 0) {
+            if (out_slot != NULL) {
+                *out_slot = (uint8_t)slot;
+            }
+            return -EEXIST;
+        }
+    }
+    if (free_slot < 0) {
+        return -ENOSPC;
+    }
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.set_channel = true;
+    write.channel_index = (uint8_t)free_slot;
+    inkwell_str_copy(write.channel_name, sizeof write.channel_name, name);
+    memcpy(write.channel_secret, secret, MESH_MESHCORE_SECRET_LEN);
+    const int result = mesh_meshcore_write_settings(meshcore, &write);
+    inkwell_wipe(write.channel_secret, sizeof write.channel_secret);
+    if (result > 0 && out_slot != NULL) {
+        *out_slot = (uint8_t)free_slot;
+    }
+    return result;
+}

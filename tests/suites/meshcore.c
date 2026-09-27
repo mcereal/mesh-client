@@ -1838,6 +1838,47 @@ MESH_TEST_CASE(meshcore_path_discovery_is_the_traceroute, unit) {
     record_success(test_name);
 }
 
+/* A MeshCore channel link joins one channel: into the first slot the sync read as unused, as a
+   SET_CHANNEL save, and not at all when a slot already holds that name and secret or when every
+   slot read is in use. */
+MESH_TEST_CASE(meshcore_channel_link_joins_a_free_slot, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    static const uint8_t k_public[16] = {0x8b}; /* the fixture's: 0x8b, then zeros */
+    static const uint8_t k_owls[16] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    uint8_t slot = 0xFFU;
+    const struct mesh_radio_settings *settings = mesh_session_settings(&g_model);
+    MESH_TEST_FAIL_IF(settings == NULL || settings->channels[0].settings.psk.size != 16U ||
+                          memcmp(settings->channels[0].settings.psk.bytes, k_public, 16U) != 0,
+                      "the fixture's Public is slot 0");
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_channel(&g_meshcore, "Public", k_public, &slot) !=
+                              -EEXIST ||
+                          slot != 0U,
+                      "the channel it is already on is refused, and named");
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_channel(&g_meshcore, "Owls", k_owls, &slot) != -ENOSPC,
+                      "its one slot is in use");
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_channel(&g_meshcore, "", k_owls, &slot) != -EINVAL,
+                      "a link with no name names nothing a slot could hold");
+
+    /* A second slot the sync read as unused. */
+    g_meshcore.device.max_channels = 2U;
+    struct mesh_channel_summary unused;
+    memset(&unused, 0, sizeof unused);
+    unused.index = 1U;
+    MESH_TEST_FAIL_IF(mesh_session_model_set_channel(&g_model, &unused) < 0, "slot 1 is read");
+    mesh_session_model_settings(&g_model)->has_channel[1] = true;
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_channel(&g_meshcore, "Owls", k_owls, &slot) <= 0 ||
+                          slot != 1U,
+                      "a new channel goes into the free slot");
+    MESH_TEST_FAIL_IF(wire.count == 0U || wire.frames[0][0] != MESH_MESHCORE_CMD_SET_CHANNEL ||
+                          wire.frames[0][1] != 1U || memcmp(wire.frames[0] + 2, "Owls", 5U) != 0 ||
+                          memcmp(wire.frames[0] + 34, k_owls, 16U) != 0,
+                      "as SET_CHANNEL: the slot, the name and the secret");
+    record_success(test_name);
+}
+
 /* A login queued behind a reboot is still the open request once the handshake starts over:
    it is written first, and its SENT arms the deadline its answer is held to. */
 MESH_TEST_CASE(meshcore_request_outlives_a_reboot_restart, unit) {

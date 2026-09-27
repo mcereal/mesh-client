@@ -16,10 +16,22 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct mesh_ui_settings;
+
+/*
+ * The link the share screen draws: this radio's whole set as Meshtastic's (`share_url`), or on
+ * MeshCore - whose link is one channel - slot `slot`'s name and secret as the MeshCore app's.
+ * False, with `out` empty, when there is nothing to share: no set yet, or a slot that is unused
+ * or holds a name the link cannot carry. `out` may be NULL to ask only whether there is one.
+ */
+bool mesh_ui_channel_share_link(const struct mesh_ui_settings *settings, uint8_t slot, char *out,
+                                size_t out_len);
 
 /*
  * The line under the QR code: how many channels it carries and what to do with it.
@@ -31,8 +43,9 @@ extern "C" {
  */
 bool mesh_ui_channel_share_summary(const char *url, char *out, size_t out_len);
 
-/* True when the text is a Meshtastic channel link this client can act on. What the nav asks
-   when the keyboard closes, to decide whether to raise the sheet or say it is not a link. */
+/* True when the text is a channel link this client can act on - Meshtastic's or MeshCore's.
+   What the nav asks when the keyboard closes, to decide whether to raise the sheet or say it is
+   not a link; which radio it suits is the app's to say. */
 bool mesh_ui_channel_link_valid(const char *text);
 
 /*

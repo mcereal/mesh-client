@@ -2253,9 +2253,13 @@ MESH_STR_ENTRY(CHANNELS_KEY_ODD,          "odd key")
 MESH_STR_ENTRY(CHANNELS_CLEAR_ROW,        "Clear this slot")
 MESH_STR_ENTRY(CHANNELS_SHARE_ROW,        "Share these channels")
 MESH_STR_ENTRY(CHANNELS_IMPORT_ROW,       "Add from a link")
+/* On MeshCore, whose link is one channel: under that channel's own rows. */
+MESH_STR_ENTRY(CHANNELS_SHARE_ONE_ROW,    "Share this channel")
 MESH_STR_ENTRY(SHARE_TITLE,               "Share channels")
+MESH_STR_ENTRY(SHARE_TITLE_ONE,           "Share channel")
 /* Under the code. Says what is in it and what to do with it, in that order. */
 MESH_STR_PLURAL_ENTRY(SHARE_SUMMARY,      "%u channel. Scan it with the Meshtastic app to join.", "%u channels. Scan them with the Meshtastic app to join.")
+MESH_STR_ENTRY(SHARE_SUMMARY_MESHCORE,    "%s. Scan it with the MeshCore app to join.")
 /* The radio has not sent its channel table, or has sent one with no primary in it. */
 MESH_STR_ENTRY(SHARE_NOTHING,             "Nothing to share yet: this radio has not sent its channels.")
 /* A link too long for the largest code this client draws. Not reachable with eight slots and
@@ -2555,6 +2559,7 @@ MESH_STR_ENTRY(CONFIRM_TEXT_CLEAR_PLAIN,  "The name and key are erased. A key wi
  */
 MESH_STR_ENTRY(CONFIRM_TITLE_IMPORT,      "Join %s?")
 MESH_STR_PLURAL_ENTRY(CONFIRM_TEXT_IMPORT, "The link carries %u channel and this radio's LoRa settings. It replaces every channel on this radio and the radio will reboot; nodes on the old channels can no longer reach it.", "The link carries %u channels and this radio's LoRa settings. They replace every channel on this radio and the radio will reboot; nodes on the old channels can no longer reach it.")
+MESH_STR_ENTRY(CONFIRM_TEXT_IMPORT_MESHCORE, "It is added to a free channel slot; the channels already on this radio stay as they are.")
 /* The sheet in front of a typed contact link. The headline names the node, because the name is
    the part of a link a person can read and the part they were told to look for; the paragraph
    says the one thing adding a contact does *not* do, which is vouch for it. */
@@ -2845,10 +2850,14 @@ MESH_STR_ENTRY(TOAST_HISTORY_FAILED,      "Could not ask for the missed messages
 MESH_STR_PLURAL_ENTRY(TOAST_FORGOT_NODES, "Forgot %d node; pins kept", "Forgot %d nodes; pins kept")
 /* Channel sharing. The refusal says which of the two things went wrong, because "that is not a
    link" and "there is no radio to put it on" are fixed in different places. */
-MESH_STR_ENTRY(TOAST_IMPORT_NOT_A_LINK,   "Not a Meshtastic channel link")
+MESH_STR_ENTRY(TOAST_IMPORT_NOT_A_LINK,   "Not a channel link")
 MESH_STR_PLURAL_ENTRY(TOAST_IMPORT_QUEUED, "Joining: %u channel being written", "Joining: %u channels being written")
 MESH_STR_ENTRY(TOAST_IMPORT_FAILED,       "Could not write the channels to the radio")
 MESH_STR_ENTRY(TOAST_IMPORT_NO_CHANGE,    "This radio is already on those channels")
+/* A MeshCore channel link: one channel, into the first free slot. */
+MESH_STR_ENTRY(TOAST_CHANNEL_JOINING,     "Joining %s in slot %u")
+MESH_STR_ENTRY(TOAST_CHANNEL_SLOTS_FULL,  "Every channel slot is in use; clear one first")
+MESH_STR_ENTRY(TOAST_CHANNEL_LINK_OTHER,  "That channel link is for another kind of radio")
 /*
  * The contact link's four answers. "%s" is the node's name, or a stand-in when the link carried
  * none.

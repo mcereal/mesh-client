@@ -101,14 +101,16 @@ MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
     MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHCORE,
                       "MeshCore is published under its own name");
     MESH_TEST_FAIL_IF((lacks & MESH_UI_FEATURE_WAYPOINTS) == 0U ||
-                          (lacks & MESH_UI_FEATURE_REMOTE_ADMIN) == 0U ||
-                          (lacks & MESH_UI_FEATURE_CHANNEL_LINKS) == 0U,
-                      "MeshCore lacks waypoints, Meshtastic's admin and its channel links");
-    MESH_TEST_FAIL_IF((lacks & MESH_UI_FEATURE_CONTACT_LINKS) != 0U ||
-                          (lacks & MESH_UI_FEATURE_NODE_LOGIN) != 0U ||
-                          (lacks & MESH_UI_FEATURE_NODE_STATUS) != 0U,
-                      "and shares contacts in its own app's link, and logs in to a repeater and "
-                      "asks its status");
+                          (lacks & MESH_UI_FEATURE_REMOTE_ADMIN) == 0U,
+                      "MeshCore lacks waypoints and Meshtastic's admin");
+    MESH_TEST_FAIL_IF(
+        (lacks & MESH_UI_FEATURE_CONTACT_LINKS) != 0U ||
+            (lacks & MESH_UI_FEATURE_CHANNEL_LINKS) != 0U ||
+            (lacks & MESH_UI_FEATURE_TRACEROUTE) != 0U ||
+            (lacks & MESH_UI_FEATURE_NODE_LOGIN) != 0U ||
+            (lacks & MESH_UI_FEATURE_NODE_STATUS) != 0U,
+        "and shares contacts and channels in its own app's links, traces a route, and "
+        "logs in to a repeater and asks its status");
 
     const struct mesh_protocol none = {NULL, NULL};
     mesh_ui_protocol_features(&none, &id, &lacks);
@@ -884,6 +886,51 @@ MESH_TEST_CASE(ui_protocol_meshcore_offers_contact_links, unit) {
                           !section_offers(&settings, &handshake, MESH_UI_SETTINGS_USER,
                                           MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT),
                       "then this radio's link to show, and a stranger's to add");
+    record_success(test_name);
+}
+
+/* A MeshCore link is one channel, so the share row is under each channel in use rather than at
+   the head of the list; the import row stays at the head, and the set's share row does not
+   appear. Pressing a channel's share row opens the share screen on that slot. */
+MESH_TEST_CASE(ui_protocol_meshcore_shares_one_channel_at_a_time, unit) {
+    static struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.protocol = (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
+    static const struct mesh_protocol_ops k_meshcore = {.name = "meshcore"};
+    static int meshcore_self;
+    const struct mesh_protocol meshcore_protocol = {&k_meshcore, &meshcore_self};
+    uint32_t lacks = 0U;
+    mesh_ui_protocol_features(&meshcore_protocol, NULL, &lacks);
+    settings.protocol_lacks = lacks;
+    settings.has_channels = true;
+    settings.channels_settled = true;
+    settings.channels[0].present = true;
+    settings.channels[0].role = 1U;
+    snprintf(settings.channels[0].name, sizeof settings.channels[0].name, "%s", "Public");
+    settings.channels[0].psk_len = 16U;
+    settings.channels[1].present = true; /* read, and unused */
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.link_up = true;
+
+    MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS,
+                                      MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS) ||
+                          section_offers(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS,
+                                         MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS),
+                      "the list offers an import and no set to share");
+    static struct mesh_ui_settings_item items[64];
+    bool shared[2] = {false, false};
+    for (uint8_t slot = 0; slot < 2U; ++slot) {
+        const uint32_t count = mesh_ui_settings_items(&settings, &handshake, NULL, 0U,
+                                                      MESH_UI_SETTINGS_CHANNELS, slot, items, 64U);
+        for (uint32_t i = 0; i < count; ++i) {
+            shared[slot] = shared[slot] ||
+                           (items[i].kind == INKSTAND_FORM_ACTION &&
+                            items[i].number == (uint32_t)MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS);
+        }
+    }
+    MESH_TEST_FAIL_IF(!shared[0] || shared[1], "a channel in use shares itself; an unused one not");
     record_success(test_name);
 }
 

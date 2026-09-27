@@ -94,7 +94,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `NODE_REMOVE` | remove, on a node's sheet |
 | `REMOTE_ADMIN` | configuring a node over the mesh |
 | `KEY_VERIFICATION` | the verify-key ceremony |
-| `CHANNEL_LINKS` | the channel share QR and import rows |
+| `CHANNEL_LINKS` | the channel share QR and import rows (on MeshCore, one channel to a link) |
 | `CONTACT_LINKS` | the contact share and import rows (Meshtastic's `meshtastic.org/v/#` link, or the MeshCore app's `meshcore://contact/add`) |
 | `NODE_ADD` | "put back on the radio" (Meshtastic) / "add as contact" (MeshCore), on a node the radio does not carry |
 | `MODULES` | the Modules row in Settings |
@@ -203,6 +203,11 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   post counts - the same length, so the contact's kind picks the reading. They land on the
   node's `relay` group, the battery on `metrics`. A node answers only a client on its access
   list, so silence is said as "log in to it first".
+- **A channel link** is the MeshCore app's `meshcore://channel/add?name=...&secret=<32 hex>`:
+  one channel, where Meshtastic's link is the whole set. So each channel in use has its own
+  share row, drawn from that slot's name and secret, and a typed link joins one channel into the
+  first slot the sync read as unused - a `SET_CHANNEL` save - leaving the others as they are. A
+  slot already holding that name and secret is "already on it"; no free slot is refused.
 - **A traceroute** is `SEND_PATH_DISCOVERY_REQ` by the whole key, flooded, answered by
   `PATH_DISCOVERY_RESPONSE`: the path our flood took out and the path the answer took back, each
   a length byte (hop count in the low six bits, bytes per hop less one in the top two) and the
@@ -230,7 +235,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `RESP_CODE_SENT` named. It is tried three times with the same timestamp - the last after
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
-Not yet spoken: a trace along a given path, channel links and the signed contact card. The
+Not yet spoken: a trace along a given path and the signed contact card. The
 `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
 end.

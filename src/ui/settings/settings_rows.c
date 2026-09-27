@@ -28,6 +28,7 @@
 #include "mesh/core/updater.h"
 #include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/channel_share.h"
 #include "mesh/ui/units.h"
 
 #include <inttypes.h>
@@ -1553,6 +1554,12 @@ static void build_channel(const struct mesh_ui_settings *s, uint8_t slot, struct
            slot is in use), no MQTT, no position precision, no mute on the radio. */
         item_field(list, MESH_UI_FIELD_CHANNEL_ANY_NAME, 0U, channel->name);
         item_key_field(list, MESH_UI_FIELD_CHANNEL_ANY_KEY, channel->psk, channel->psk_len);
+        /* One channel to a MeshCore link, so the share is this slot's rather than the set's. */
+        if (mesh_ui_settings_supports(s, MESH_UI_FEATURE_CHANNEL_LINKS) &&
+            mesh_ui_channel_share_link(s, slot, NULL, 0U)) {
+            item_verb(list, MESH_STR_CHANNELS_SHARE_ONE_ROW,
+                      MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS);
+        }
         if (channel->role == 2U) {
             item_verb(list, MESH_STR_CHANNELS_CLEAR_ROW, MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL);
         }
