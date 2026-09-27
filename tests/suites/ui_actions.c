@@ -323,7 +323,22 @@ MESH_TEST_CASE(actions_overlays_win_over_the_screen, unit) {
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_CANCEL,
                       "A on a ringed Cancel must say cancel, not confirm");
+    /* Its two answers sit side by side, so Left and Right choose; Up and Down do nothing. */
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_LEFT_RIGHT) !=
+                              MESH_STR_ACTION_CHOOSE ||
+                          actions_label_for(&bar, INKCELL_BUTTON_UP_DOWN) != INKCELL_STR_NONE,
+                      "the confirm sheet chooses with Left and Right");
     snapshot.nav.confirm.cursor = INKSTAND_DIALOG_ACCEPT;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_LEFT_RIGHT) != MESH_STR_ACTION_CHOOSE,
+                      "and on its accept button too");
+    /* Stacked by a narrow panel or a long label, the same two answers are Up and Down. */
+    snapshot.nav.confirm_stacked = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_UP_DOWN) != MESH_STR_ACTION_CHOOSE ||
+                          actions_label_for(&bar, INKCELL_BUTTON_LEFT_RIGHT) != INKCELL_STR_NONE,
+                      "a stacked sheet chooses with Up and Down");
+    snapshot.nav.confirm_stacked = false;
 
     snapshot.nav.confirm.open = false;
     mesh_ui_actions_for(&snapshot, &bar);

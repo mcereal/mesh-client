@@ -16,6 +16,7 @@
 /* For mesh_ui_node_signal_heard(): whether a node's SNR is a measurement of its own link. A
    question about a node summary rather than about the screen the header is named for, and the
    one answer to it - the trend kept here and the bar drawn there must not decide it apart. */
+#include "mesh/ui/focus.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 
@@ -1452,8 +1453,24 @@ void mesh_ui_store_set_page_rows(struct mesh_ui_store *store, uint32_t rows) {
 }
 
 void mesh_ui_store_set_focus_map(struct mesh_ui_store *store, const struct inkcell_focus_map *map) {
-    if (store != NULL) {
-        store->focus = map;
+    if (store == NULL) {
+        return;
+    }
+    store->focus = map;
+    /* Stacked when neither answer shares a line with the other; a frame without both keeps
+       what the last one said. */
+    struct inkcell_focus_rect cancel;
+    struct inkcell_focus_rect accept;
+    if (store->nav.confirm.open && map != NULL &&
+        inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_DIALOG + INKSTAND_DIALOG_CANCEL,
+                              &cancel) &&
+        inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_DIALOG + INKSTAND_DIALOG_ACCEPT,
+                              &accept)) {
+        const bool stacked = cancel.y >= accept.y + accept.h || accept.y >= cancel.y + cancel.h;
+        if (stacked != store->nav.confirm_stacked) {
+            store->nav.confirm_stacked = stacked;
+            mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+        }
     }
 }
 

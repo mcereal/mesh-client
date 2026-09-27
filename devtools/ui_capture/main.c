@@ -2710,8 +2710,11 @@ static int verb_detection(struct inkstand_scene *scene, char *rest, void *userda
 
 /* ---- the host ---------------------------------------------------------------------------- */
 
+/* The last frame read back before the next, as the device's controller does: what the store
+   derives from where things were drawn - which way a sheet's answers lie - is a scene's too. */
 static bool uicap_drain(void *userdata, void *snapshot) {
     struct uicap *cap = userdata;
+    mesh_ui_store_set_focus_map(&cap->store, inkcell_capture_state(cap->capture)->focus);
     return mesh_ui_store_consume_updates(&cap->store, snapshot);
 }
 

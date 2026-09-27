@@ -15,20 +15,30 @@
 #include <stddef.h>
 #include <string.h>
 
-/* The store, as the scheduler sees it: a descriptor, a drain and a nudge. */
+static void mesh_ui_controller_read_frame(struct mesh_ui_controller *controller);
+
+/*
+ * The store, as the scheduler sees it: a descriptor, a drain and a nudge.
+ *
+ * Each frame reads the last one back first, as a press does, so what the store derives from
+ * where things were drawn - which way a sheet's answers lie, and so which keys the bar offers
+ * to choose between them - is right on the frame after they first appear, not after a press.
+ */
 static bool mesh_ui_controller_drain(void *userdata, void *snapshot) {
-    return mesh_ui_store_consume_updates((struct mesh_ui_store *)userdata,
-                                         (struct mesh_ui_snapshot *)snapshot);
+    struct mesh_ui_controller *controller = (struct mesh_ui_controller *)userdata;
+    mesh_ui_controller_read_frame(controller);
+    return mesh_ui_store_consume_updates(controller->store, (struct mesh_ui_snapshot *)snapshot);
 }
 
-/* A timer frame re-presents the last snapshot, and nothing in it changed. */
+/* A timer frame re-presents the last snapshot, and nothing in it changed - unless reading the
+   frame back just did, which marks the store and brings the next frame. */
 static void mesh_ui_controller_unchanged(void *userdata, void *snapshot) {
-    (void)userdata;
+    mesh_ui_controller_read_frame((struct mesh_ui_controller *)userdata);
     ((struct mesh_ui_snapshot *)snapshot)->update_flags = MESH_UI_UPDATE_NONE;
 }
 
 static void mesh_ui_controller_refresh(void *userdata) {
-    mesh_ui_store_request_refresh((struct mesh_ui_store *)userdata);
+    mesh_ui_store_request_refresh(((struct mesh_ui_controller *)userdata)->store);
 }
 
 int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_ui_store *store,
@@ -51,7 +61,7 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
         .drain = mesh_ui_controller_drain,
         .unchanged = mesh_ui_controller_unchanged,
         .refresh = mesh_ui_controller_refresh,
-        .source_userdata = store,
+        .source_userdata = controller,
         .interval_ms = MESH_UI_FRAME_INTERVAL_MS,
     };
     const int result = inkstand_frame_scheduler_init(&controller->frames, &frames);
