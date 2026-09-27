@@ -962,8 +962,10 @@ void mesh_app_flatten_traceroute(const struct mesh_handshake_status *status,
                                                 src->snr, src->snr_count, src->route_hash,
                                                 src->hash_size, src->target, dst->forward);
     /* The way back is only drawn when the firmware measured it; an empty route_back with no
-       readings would otherwise render as a bare two-stop path that says nothing. */
-    if (src->snr_back_count > 0U || src->back_count > 0U) {
+       readings would otherwise render as a bare two-stop path that says nothing. MeshCore's
+       reads no SNR, so a leg it decoded says so by its width - and one with no hops is an
+       answer that came straight back, which is worth drawing. */
+    if (src->snr_back_count > 0U || src->back_count > 0U || src->back_hash_size > 0U) {
         dst->back_count = mesh_app_flatten_route(
             status, src->target, src->route_back, src->back_count, src->snr_back,
             src->snr_back_count, src->back_hash, src->back_hash_size, my_node, dst->back);

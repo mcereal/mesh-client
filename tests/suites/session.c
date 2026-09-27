@@ -724,6 +724,13 @@ MESH_TEST_CASE(session_meshcore_route_names_hops_by_their_hash, unit) {
     for (uint8_t i = 0; i < ui.forward_count; ++i) {
         MESH_TEST_FAIL_IF(ui.forward[i].has_snr, "a path discovery reads no SNR");
     }
+    /* An answer that came straight back crossed no repeater, and is still a way back. */
+    trace.back_count = 0U;
+    trace.back_hash_size = 1U;
+    mesh_app_flatten_traceroute(mesh_session_handshake(&session), &trace, 0x1111U, &ui);
+    MESH_TEST_FAIL_IF(ui.back_count != 2U || ui.back[0].node_id != 0x3333U ||
+                          ui.back[1].node_id != 0x1111U,
+                      "a direct way back is the target, then us");
     record_success(test_name);
 }
 
