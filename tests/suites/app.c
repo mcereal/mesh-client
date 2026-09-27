@@ -2157,6 +2157,87 @@ cleanup:
     record_success(test_name);
 }
 
+/* A radio moved to Bluetooth with a fixed PIN is paired with that PIN rather than by asking
+   for it - once, for the radio the handoff is connecting to, and never for any other. */
+MESH_TEST_CASE(app_handoff_answers_pairing_with_the_kept_pin, unit) {
+    const char *failure = NULL;
+    bool app_ready = false;
+    uint32_t submitted = 0U;
+    struct inkwell_ble_device mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:01", .name = "MeshCore-Desk", .rssi = -40, .paired = false},
+    };
+    struct inkwell_ble_mock_config mock_config = {.adapter_name = "/org/bluez/hci0",
+                                                  .devices = mock_devices,
+                                                  .device_count = 1U,
+                                                  .pair_requests_passkey = true,
+                                                  .pair_passkey_capture = &submitted};
+    inkwell_ble_mock_enable(&mock_config);
+
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "handpin")) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_serial = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    struct mesh_transport *ble = mesh_ble_transport();
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect_and_pair(ble, mock_devices[0].address) != 0) {
+        failure = "the pairing starts";
+        goto cleanup;
+    }
+    struct mesh_ble_pairing_request request;
+    if (!mesh_ble_transport_pairing_request(ble, &request)) {
+        failure = "the radio asks for its PIN";
+        goto cleanup;
+    }
+
+    snprintf(app.firmware_ble_handoff, sizeof app.firmware_ble_handoff, "%s", "MeshCore-Desk");
+    app.firmware_ble_handoff_pin = 482913U;
+    if (mesh_app_handoff_answer_pin(&app, ble, &request) || submitted != 0U) {
+        failure = "a radio the handoff did not connect to is the user's to answer";
+        goto cleanup;
+    }
+    snprintf(app.firmware_ble_handoff_bonded, sizeof app.firmware_ble_handoff_bonded, "%s",
+             mock_devices[0].address);
+    app.firmware_ble_handoff_pin = 0U;
+    if (mesh_app_handoff_answer_pin(&app, ble, &request) || submitted != 0U) {
+        failure = "a random PIN is on the radio's screen, not in this client";
+        goto cleanup;
+    }
+    app.firmware_ble_handoff_pin = 482913U;
+    if (!mesh_app_handoff_answer_pin(&app, ble, &request) || submitted != 482913U) {
+        failure = "the handoff's radio is paired with the PIN it kept";
+        goto cleanup;
+    }
+    submitted = 0U;
+    if (mesh_app_handoff_answer_pin(&app, ble, &request) || submitted != 0U) {
+        failure = "and only once: a PIN that did not take is not typed again";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    inkwell_ble_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 /* MeshCore's Pairing and PIN rows are one u32 on the wire, settled the same whichever edit
    came first. */
 MESH_TEST_CASE(app_meshcore_pin_from_pairing_and_typed, unit) {

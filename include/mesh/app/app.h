@@ -179,6 +179,10 @@ struct mesh_app {
     /* A radio the handoff bonded for the first time, whose bond goes if its key is wrong. */
     char firmware_ble_handoff_bonded[18];
     char firmware_ble_handoff_wrong[MESH_APP_HANDOFF_WRONG_MAX][18];
+    /* The fixed PIN the radio reported before it moved, 0 for a random one on its screen; and
+       the address it was typed for, once - a PIN that did not take is the user's to answer. */
+    uint32_t firmware_ble_handoff_pin;
+    char firmware_ble_handoff_pin_used[18];
     /* Whether an install stopped the transports and owes them back. A flag rather than a
        question, because "stopped" and "stopped by us" are not the same state and only the
        second one should be restarted. */

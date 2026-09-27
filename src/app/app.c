@@ -754,6 +754,34 @@ static void mesh_app_handoff_follow_name(struct mesh_app *app) {
     }
     snprintf(app->firmware_ble_handoff, sizeof app->firmware_ble_handoff, "%s%s",
              MESH_BLE_MESHCORE_NAME_PREFIX, app->meshcore.self.name);
+    /* And its PIN, which is as much the radio's to change before the cable goes. */
+    if (app->meshcore.has_device) {
+        app->firmware_ble_handoff_pin = app->meshcore.device.ble_pin;
+    }
+}
+
+bool mesh_app_handoff_answer_pin(struct mesh_app *app, struct mesh_transport *ble,
+                                 const struct mesh_ble_pairing_request *request) {
+    if (app == NULL || request == NULL || app->firmware_ble_handoff[0] == '\0' ||
+        app->firmware_ble_handoff_pin == 0U ||
+        request->kind != (uint8_t)INKWELL_BLE_AGENT_REQUEST_PASSKEY) {
+        return false;
+    }
+    /* Only for a radio the handoff is connecting to, and only once for it. */
+    if (strcmp(request->address, app->firmware_ble_handoff_tried) != 0 &&
+        strcmp(request->address, app->firmware_ble_handoff_bonded) != 0) {
+        return false;
+    }
+    if (strcmp(request->address, app->firmware_ble_handoff_pin_used) == 0) {
+        return false;
+    }
+    if (mesh_ble_transport_submit_passkey(ble, app->firmware_ble_handoff_pin) != 0) {
+        return false;
+    }
+    snprintf(app->firmware_ble_handoff_pin_used, sizeof app->firmware_ble_handoff_pin_used, "%s",
+             request->address);
+    inkwell_log_info("app", "Answered %s's pairing with the PIN it kept", request->label);
+    return true;
 }
 
 void mesh_app_autoconnect(struct mesh_app *app) {
