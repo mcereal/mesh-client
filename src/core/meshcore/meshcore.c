@@ -3,6 +3,7 @@
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
+#include "inkwell/base/wipe.h"
 
 #include "mesh/core/message.h"
 #include "mesh/core/radio_settings.h"
@@ -64,7 +65,7 @@ static void mesh_meshcore_pop(struct mesh_meshcore *meshcore) {
        after the pop, and nothing reads a login's. */
     struct mesh_meshcore_request *head = &meshcore->queue[meshcore->queue_head];
     if (head->frame[0] == MESH_MESHCORE_CMD_SEND_LOGIN) {
-        memset(head, 0, sizeof *head);
+        inkwell_wipe(head, sizeof *head);
     }
     meshcore->queue_head = (meshcore->queue_head + 1U) % MESH_MESHCORE_QUEUE_LEN;
     meshcore->queue_count -= 1U;
@@ -1294,7 +1295,7 @@ static void mesh_meshcore_detach(void *self) {
     mesh_meshcore_request_ended(meshcore, meshcore->request_until_ms != 0U
                                               ? MESH_MESHCORE_ANSWER_SILENT
                                               : MESH_MESHCORE_ANSWER_UNSENT);
-    memset(meshcore->queue, 0, sizeof meshcore->queue);
+    inkwell_wipe(meshcore->queue, sizeof meshcore->queue);
     meshcore->send = NULL;
     meshcore->send_ctx = NULL;
     meshcore->queue_head = 0U;
@@ -1756,7 +1757,7 @@ int mesh_meshcore_login(struct mesh_meshcore *meshcore, uint32_t node_id, const 
     }
     const int result = mesh_meshcore_ask(
         meshcore, frame, 1U + MESH_MESHCORE_PUBKEY_LEN + password_len, node_id, node->public_key);
-    memset(frame, 0, sizeof frame);
+    inkwell_wipe(frame, sizeof frame);
     return result;
 }
 

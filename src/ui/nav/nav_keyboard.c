@@ -17,6 +17,7 @@
 
 #include "inkwell/base/array.h"
 #include "inkwell/base/text.h"
+#include "inkwell/base/wipe.h"
 
 #include "nav_internal.h"
 
@@ -297,7 +298,7 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         nav->login_name[0] = '\0';
         /* All of it, not just what the parked draft covers: whatever of a password it does not
            would otherwise sit in the buffer past the restored text's end. */
-        memset(nav->draft, 0, sizeof nav->draft);
+        inkwell_wipe(nav->draft, sizeof nav->draft);
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
         nav->draft_saved[0] = '\0';
         /* Back on the node's sheet it was raised from, a level of the Nodes tab. */
@@ -516,7 +517,7 @@ static bool mesh_ui_nav_commit_login(struct mesh_ui_nav *nav, struct mesh_ui_act
         action->dest = nav->login_node;
         inkwell_str_copy(action->text, sizeof action->text, nav->draft);
     }
-    memset(nav->draft, 0, sizeof nav->draft);
+    inkwell_wipe(nav->draft, sizeof nav->draft);
     mesh_ui_nav_keyboard_close(nav);
     return true;
 }

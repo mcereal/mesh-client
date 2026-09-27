@@ -6,6 +6,7 @@
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
+#include "inkwell/base/wipe.h"
 #include "inkwell/runtime/loop.h"
 #include "inkwell/runtime/timer.h"
 #include "inkwell/runtime/wake.h"
@@ -1284,7 +1285,9 @@ static void mesh_ble_clear_write_queue(struct mesh_ble_transport_state *state) {
     while (state->write_queue_len > 0U) {
         struct mesh_ble_outbound_packet *packet = &state->write_queue[state->write_queue_head];
         mesh_protocol_frame_failed(&state->protocol, packet->packet_id);
-        packet->packet_id = 0U;
+        /* Zeroed, not just retired: a frame can carry a secret (a MeshCore login's password),
+           and a slot is otherwise only overwritten when the ring comes round to it. */
+        inkwell_wipe(packet, sizeof *packet);
         state->write_queue_head = (state->write_queue_head + 1U) % MESH_BLE_MAX_OUTBOUND_PACKETS;
         state->write_queue_len--;
     }
@@ -1314,7 +1317,7 @@ static int mesh_ble_flush_write_queue(struct mesh_ble_transport_state *state) {
             return result;
         }
 
-        packet->packet_id = 0U;
+        inkwell_wipe(packet, sizeof *packet); /* as in mesh_ble_clear_write_queue() */
         state->write_queue_head = (state->write_queue_head + 1U) % MESH_BLE_MAX_OUTBOUND_PACKETS;
         state->write_queue_len--;
     }

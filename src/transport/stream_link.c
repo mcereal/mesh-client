@@ -1,6 +1,7 @@
 #include "mesh/transport/stream_link.h"
 
 #include "inkwell/base/log.h"
+#include "inkwell/base/wipe.h"
 
 #include <errno.h>
 #include <string.h>
@@ -133,7 +134,11 @@ int mesh_stream_link_send(struct mesh_stream_link *link, const uint8_t *packet, 
     if (encoded < 0) {
         return encoded;
     }
-    return inkwell_stream_send(&link->stream, framed, written, packet_id);
+    const int result = inkwell_stream_send(&link->stream, framed, written, packet_id);
+    /* The stream keeps its own copy until it is written and then wipes it; this one goes now,
+       since a frame can carry a secret (a MeshCore login's password). */
+    inkwell_wipe(framed, sizeof framed);
+    return result;
 }
 
 int mesh_stream_link_write_raw(struct mesh_stream_link *link, const uint8_t *data, size_t len) {
