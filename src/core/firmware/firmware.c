@@ -495,6 +495,7 @@ void mesh_firmware_forget(struct mesh_firmware *firmware) {
     firmware->other_build = false;
     firmware->twin[0] = '\0';
     firmware->blank = false;
+    firmware->blank_board[0] = '\0';
     firmware->choices.count = 0U;
     firmware_recompute_blocker(firmware);
     firmware_set(firmware, MESH_FIRMWARE_IDLE, "");
@@ -643,6 +644,7 @@ static void firmware_begin(struct mesh_firmware *firmware, enum mesh_firmware_so
     firmware->other_build = false;
     firmware->twin[0] = '\0';
     firmware->blank = false;
+    firmware->blank_board[0] = '\0';
     firmware->choices.count = 0U;
     firmware->now_ms = now_ms;
     /* The old answer is gone, so the refusal that went with it is too - recomputed now rather
@@ -767,21 +769,51 @@ int mesh_firmware_list_blank(struct mesh_firmware *firmware, uint64_t now_ms) {
     return firmware_start_meshcore_config(firmware);
 }
 
-int mesh_firmware_check_blank(struct mesh_firmware *firmware, const char *device, uint64_t now_ms) {
+/* A board chosen for a silent radio, with its answer to come from `source`'s documents under
+   `twin`, that firmware's name for it. */
+static int firmware_begin_blank(struct mesh_firmware *firmware, enum mesh_firmware_source source,
+                                const char *device, const char *twin, uint64_t now_ms) {
     const int ready =
-        firmware_switch_ready(firmware, device != NULL && device[0] != '\0' ? device : NULL);
+        firmware_switch_ready(firmware, device != NULL && device[0] != '\0' ? twin : NULL);
     if (ready != 0) {
         return ready;
     }
-    /* Copied out first: `device` may be one of the `choices` the begin forgets. */
+    /* Copied out first: `device` may be one of the `choices`, or the `blank_board`, the begin
+       forgets. */
     char chosen[MESH_FIRMWARE_TARGET_MAX];
+    char named[MESH_FIRMWARE_TARGET_MAX];
     inkwell_str_copy(chosen, sizeof chosen, device);
-    firmware_begin(firmware, MESH_FIRMWARE_SOURCE_MESHCORE, 0U, "", "", now_ms);
+    inkwell_str_copy(named, sizeof named, twin);
+    firmware_begin(firmware, source, 0U, "", "", now_ms);
     firmware->blank = true;
     firmware->switching = true;
-    inkwell_str_copy(firmware->twin, sizeof firmware->twin, chosen);
-    inkwell_log_info("firmware", "A silent radio chosen as \"%s\"; looking for its build", chosen);
-    return firmware_start_meshcore_config(firmware);
+    inkwell_str_copy(firmware->blank_board, sizeof firmware->blank_board, chosen);
+    inkwell_str_copy(firmware->twin, sizeof firmware->twin, named);
+    inkwell_log_info("firmware", "A silent radio chosen as \"%s\"; looking for its %s build",
+                     chosen, source == MESH_FIRMWARE_SOURCE_MESHCORE ? "MeshCore" : "Meshtastic");
+    return 0;
+}
+
+int mesh_firmware_check_blank(struct mesh_firmware *firmware, const char *device, uint64_t now_ms) {
+    const int result =
+        firmware_begin_blank(firmware, MESH_FIRMWARE_SOURCE_MESHCORE, device, device, now_ms);
+    return result != 0 ? result : firmware_start_meshcore_config(firmware);
+}
+
+int mesh_firmware_check_blank_meshtastic(struct mesh_firmware *firmware, const char *device,
+                                         uint64_t now_ms) {
+    const int result =
+        firmware_begin_blank(firmware, MESH_FIRMWARE_SOURCE_MESHTASTIC, device,
+                             mesh_firmware_meshcore_target_for_device(device), now_ms);
+    if (result != 0) {
+        return result;
+    }
+    if (firmware_get(firmware, firmware_hardware_url(), "Accept: application/json",
+                     MESH_FIRMWARE_HARDWARE_MAX, firmware_on_hardware) != 0) {
+        return -EIO;
+    }
+    firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING, inkcell_str(MESH_STR_FW_STATE_IDENTIFYING));
+    return 0;
 }
 
 int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const char *running,

@@ -3251,6 +3251,7 @@ MESH_STR_ENTRY(FW_CHOOSE_BOARD,           "Choose its board")
 MESH_STR_ENTRY(FW_BOARDS_HEAD,            "MeshCore boards")
 MESH_STR_ENTRY(FW_CHOSEN_BOARD,           "Chosen board")
 MESH_STR_ENTRY(FW_BLANK_INSTALL,          "Install MeshCore")
+MESH_STR_ENTRY(FW_BLANK_INSTALL_MESHTASTIC, "Install Meshtastic")
 /* A MeshCore radio on a cable moved to its Bluetooth companion build: the press that asks for
    it, the answer's label (the version is the value) and the install. */
 MESH_STR_ENTRY(FW_BLUETOOTH_CHECK,        "Check the Bluetooth build")

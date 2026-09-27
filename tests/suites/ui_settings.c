@@ -4976,6 +4976,22 @@ MESH_TEST_CASE(ui_settings_radio_details_fits_at_its_longest, unit) {
  * ends where it always does. Once one is picked the press is the whole-flash install, under
  * the switch's sheet - and there is no check to run on a radio that says nothing.
  */
+/* Whether the Radio details page has a row pressing `action` labelled by `label`. */
+static bool silent_row_says(const struct mesh_ui_settings *settings,
+                            enum mesh_ui_settings_action action, inkcell_str_id label) {
+    const uint32_t count = mesh_ui_settings_item_count(
+        settings, NULL, MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL);
+    struct mesh_ui_settings_item item;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (mesh_ui_settings_item(settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)action && strcmp(item.label, inkcell_str(label)) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 MESH_TEST_CASE(ui_settings_radio_details_chooses_a_silent_radios_board, unit) {
     struct mesh_ui_settings settings;
     memset(&settings, 0, sizeof settings);
@@ -5046,6 +5062,26 @@ MESH_TEST_CASE(ui_settings_radio_details_chooses_a_silent_radios_board, unit) {
     }
     MESH_TEST_FAIL_IF(!install, "the whole-flash install is offered, under the switch's sheet");
     MESH_TEST_FAIL_IF(!rechoose, "and the board can be chosen again");
+
+    /* A board with a Meshtastic twin can be turned to it, and the answer then names it. */
+    settings.fw_blank_other = true;
+    MESH_TEST_FAIL_IF(!silent_row_says(&settings, MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH,
+                                       MESH_STR_FW_SWITCH_TO_MESHTASTIC) ||
+                          !silent_row_says(&settings,
+                                           MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH,
+                                           MESH_STR_FW_BLANK_INSTALL),
+                      "MeshCore's answer offers Meshtastic's");
+    settings.fw_switch_to_meshcore = false;
+    MESH_TEST_FAIL_IF(!silent_row_says(&settings, MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH,
+                                       MESH_STR_FW_SWITCH_TO_MESHCORE) ||
+                          !silent_row_says(&settings,
+                                           MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH,
+                                           MESH_STR_FW_BLANK_INSTALL_MESHTASTIC),
+                      "and Meshtastic's installs as Meshtastic, with MeshCore's a press away");
+    settings.fw_blank_other = false;
+    MESH_TEST_FAIL_IF(silent_row_says(&settings, MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH,
+                                      MESH_STR_FW_SWITCH_TO_MESHCORE),
+                      "a board with no twin is offered no other firmware");
     record_success(test_name);
 }
 

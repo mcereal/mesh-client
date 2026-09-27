@@ -832,6 +832,35 @@ MESH_TEST_CASE(firmware_blank_lists_the_boards_then_answers_for_the_one_picked, 
         failure = "a pick with no name is no pick";
         goto cleanup;
     }
+
+    /* The same board's Meshtastic build instead, through the twin table - asked with the very
+       name the begin forgets. */
+    if (mesh_firmware_check_blank_meshtastic(firmware, firmware->blank_board, 0U) != 0 ||
+        !firmware_settle(&harness)) {
+        failure = "the Meshtastic answer for the chosen board should start and finish";
+        goto cleanup;
+    }
+    const struct mesh_firmware_board *const twin = mesh_firmware_board(firmware);
+    if (firmware->state != MESH_FIRMWARE_AVAILABLE || twin == NULL ||
+        firmware->source != MESH_FIRMWARE_SOURCE_MESHTASTIC || !firmware->blank ||
+        strcmp(firmware->blank_board, "Heltec v3") != 0 || strcmp(twin->target, "heltec-v3") != 0 ||
+        twin->path != MESH_FIRMWARE_PATH_USB || firmware->release.manifest_url[0] == '\0' ||
+        !firmware->release.wipe || firmware->blocker != MESH_FIRMWARE_BLOCKER_NONE) {
+        failure = "Meshtastic's heltec-v3 build, as its whole flash, still for the Heltec v3";
+        goto cleanup;
+    }
+    if (mesh_firmware_check_blank(firmware, firmware->blank_board, 0U) != 0 ||
+        !firmware_settle(&harness) || firmware->source != MESH_FIRMWARE_SOURCE_MESHCORE ||
+        mesh_firmware_board(firmware) == NULL ||
+        strcmp(mesh_firmware_board(firmware)->target, "Heltec_v3_companion_radio_usb") != 0) {
+        failure = "and back to MeshCore's the same way";
+        goto cleanup;
+    }
+    if (mesh_firmware_check_blank_meshtastic(firmware, "Heltec v2", 0U) != -ENOENT ||
+        mesh_firmware_check_blank_meshtastic(firmware, "", 0U) != -ENOENT) {
+        failure = "a board with no twin has no Meshtastic answer";
+        goto cleanup;
+    }
     mesh_firmware_forget(firmware);
     if (firmware->blank || firmware->choices.count != 0U ||
         firmware->blocker != MESH_FIRMWARE_BLOCKER_NO_RADIO) {

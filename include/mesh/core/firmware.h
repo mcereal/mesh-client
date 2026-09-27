@@ -154,9 +154,12 @@ struct mesh_firmware {
      * The answer is for a radio on a cable that answers neither protocol - a MeshCore BLE
      * build, a repeater, an erased flash - so nothing it said went into it and no link holds
      * it: the board is the one somebody chose from `choices`. Always a switch as well, since
-     * whatever is on the flash is unknown and the whole of it is written.
+     * whatever is on the flash is unknown and the whole of it is written. `blank_board` is the
+     * board chosen, by the flasher's name, whichever firmware's answer is held - `twin` is that
+     * firmware's name for it.
      */
     bool blank;
+    char blank_board[MESH_FIRMWARE_TARGET_MAX];
     struct mesh_firmware_choices choices;
 
     /*
@@ -264,6 +267,10 @@ int mesh_firmware_check_switch_to_meshtastic(struct mesh_firmware *firmware, con
  */
 int mesh_firmware_list_blank(struct mesh_firmware *firmware, uint64_t now_ms);
 int mesh_firmware_check_blank(struct mesh_firmware *firmware, const char *device, uint64_t now_ms);
+/* The same board's newest Meshtastic release instead, found through the twin table as a switch
+   is: -ENOENT for a board with no twin there. Otherwise as mesh_firmware_check_blank(). */
+int mesh_firmware_check_blank_meshtastic(struct mesh_firmware *firmware, const char *device,
+                                         uint64_t now_ms);
 
 /* Enforces the per-document timeout and keeps the fetch moving. Call every loop turn. */
 void mesh_firmware_tick(struct mesh_firmware *firmware, uint64_t now_ms);
