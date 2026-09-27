@@ -1598,6 +1598,38 @@ MESH_TEST_CASE(meshcore_login_is_answered_and_shares_the_lock, unit) {
     MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_UNSENT ||
                           mesh_meshcore_login(&g_meshcore, alice, "") != 0,
                       "a refusal to send is said so, and frees the radio");
+    feed(&protocol, k_err, sizeof k_err);
+
+    /* A password does not outlive its frame in the queue. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "hunter2") != 0, "a password");
+    feed(&protocol, k_sent, sizeof k_sent);
+    for (size_t i = 0; i < MESH_MESHCORE_QUEUE_LEN; ++i) {
+        const struct mesh_meshcore_request *slot = &g_meshcore.queue[i];
+        for (size_t at = 0; at + 7U <= sizeof slot->frame; ++at) {
+            MESH_TEST_FAIL_IF(memcmp(slot->frame + at, "hunter2", 7U) == 0,
+                              "the queue keeps no copy of a password once it is answered");
+        }
+    }
+    feed(&protocol, k_guest, sizeof k_guest);
+
+    /* Queued behind another command, a login the link then refuses to take was never asked. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_advert(&g_meshcore, false) != 0, "something ahead");
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "") != 0, "queued behind it");
+    wire.refuse = true;
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    wire.refuse = false;
+    MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_UNSENT ||
+                          mesh_meshcore_login(&g_meshcore, alice, "") != 0,
+                      "a write the link refused ends the request, and frees the radio");
+
+    /* And the link dropping while one is answered ends it too, rather than leaving it open. */
+    feed(&protocol, k_sent, sizeof k_sent);
+    const uint32_t before_drop = g_meshcore.notices;
+    mesh_protocol_detach(&protocol);
+    MESH_TEST_FAIL_IF(g_meshcore.notices != before_drop + 1U ||
+                          g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_SILENT ||
+                          g_meshcore.request_cmd != 0U,
+                      "a request the link took with it is said to have gone unanswered");
     record_success(test_name);
 }
 

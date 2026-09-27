@@ -59,6 +59,13 @@ static void mesh_meshcore_pop(struct mesh_meshcore *meshcore) {
     if (meshcore->queue_count == 0U) {
         return;
     }
+    /* A login's frame carries its password, and a slot is otherwise only overwritten when the
+       ring comes round to it again. Only that one: a reply is read against its request's frame
+       after the pop, and nothing reads a login's. */
+    struct mesh_meshcore_request *head = &meshcore->queue[meshcore->queue_head];
+    if (head->frame[0] == MESH_MESHCORE_CMD_SEND_LOGIN) {
+        memset(head, 0, sizeof *head);
+    }
     meshcore->queue_head = (meshcore->queue_head + 1U) % MESH_MESHCORE_QUEUE_LEN;
     meshcore->queue_count -= 1U;
     meshcore->awaiting = false;
@@ -73,6 +80,8 @@ static void mesh_meshcore_mark(struct mesh_meshcore *meshcore, uint32_t packet_i
 
 static bool mesh_meshcore_is_settings_write(uint8_t cmd);
 static void mesh_meshcore_settle_write(struct mesh_meshcore *meshcore, int32_t error);
+static bool mesh_meshcore_is_remote(uint8_t cmd);
+static void mesh_meshcore_request_ended(struct mesh_meshcore *meshcore, uint8_t answer);
 
 /* Writes the head of the queue when nothing is outstanding. A write that fails is dropped and
    the next one tried, so one refused frame cannot wedge the queue behind it - and a settings
@@ -98,6 +107,10 @@ static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
         mesh_meshcore_pop(meshcore);
         if (mesh_meshcore_is_settings_write(cmd)) {
             mesh_meshcore_settle_write(meshcore, result);
+        }
+        /* A request to another node the link would not take was never asked. */
+        if (mesh_meshcore_is_remote(cmd) && cmd == meshcore->request_cmd) {
+            mesh_meshcore_request_ended(meshcore, MESH_MESHCORE_ANSWER_UNSENT);
         }
     }
 }
@@ -1276,6 +1289,12 @@ static void mesh_meshcore_detach(void *self) {
     while (meshcore->writes_outstanding > 0U) {
         mesh_meshcore_settle_write(meshcore, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
     }
+    /* And a request to another node: its answer can no longer reach us. Asked, it went
+       unanswered; still queued, it was never sent. */
+    mesh_meshcore_request_ended(meshcore, meshcore->request_until_ms != 0U
+                                              ? MESH_MESHCORE_ANSWER_SILENT
+                                              : MESH_MESHCORE_ANSWER_UNSENT);
+    memset(meshcore->queue, 0, sizeof meshcore->queue);
     meshcore->send = NULL;
     meshcore->send_ctx = NULL;
     meshcore->queue_head = 0U;
