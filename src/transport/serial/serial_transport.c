@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
 
 #include "mesh/i18n/strings.h"
@@ -612,6 +613,38 @@ const char *mesh_serial_transport_connected_port(struct mesh_transport *transpor
         return NULL;
     }
     return state->connected.path;
+}
+
+int mesh_serial_transport_touch_bootloader(struct mesh_transport *transport) {
+    const char *const connected = mesh_serial_transport_connected_port(transport);
+    if (connected == NULL) {
+        return -ENOTCONN;
+    }
+    char path[sizeof((struct inkwell_serial_port_info *)0)->path];
+    inkwell_str_copy(path, sizeof path, connected);
+    /* The link's descriptor first: a second open of one tty shares its line settings with the
+       first, and the rate is the whole message. */
+    (void)mesh_serial_transport_disconnect(transport);
+    const int fd = inkwell_serial_open(path, MESH_SERIAL_TOUCH_BAUD);
+    if (fd < 0) {
+        inkwell_log_warn("serial", "Could not reopen %s at %u baud: %s", path,
+                         MESH_SERIAL_TOUCH_BAUD, strerror(-fd));
+        return fd;
+    }
+    /* The rate set again explicitly, since an open's termios constant is not every platform's
+       last word on a CDC port's line coding; then DTR down, which is the touch. */
+    int result = inkwell_serial_set_baud(fd, MESH_SERIAL_TOUCH_BAUD);
+    if (result == 0) {
+        result = inkwell_serial_set_lines(fd, false, false);
+    }
+    inkwell_serial_close(fd);
+    if (result < 0) {
+        inkwell_log_warn("serial", "The 1200-baud touch on %s failed: %s", path, strerror(-result));
+        return result;
+    }
+    inkwell_log_info("serial", "Touched %s at %u baud for its bootloader", path,
+                     MESH_SERIAL_TOUCH_BAUD);
+    return 0;
 }
 
 const struct inkwell_serial_port_info *

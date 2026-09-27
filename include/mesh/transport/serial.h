@@ -53,6 +53,15 @@ const char *mesh_serial_transport_connected_id(struct mesh_transport *transport)
 /* The connected port as the scan described it, or NULL when the link is down. */
 const struct inkwell_serial_port_info *
 mesh_serial_transport_connected_device(struct mesh_transport *transport);
+/*
+ * Sends the connected board into its UF2 bootloader by the "1200-baud touch": lets go of the
+ * link, opens the port again at 1200 baud and drops DTR. The Adafruit nRF52 core both
+ * protocols build on reads that as "reset into the bootloader", which is how a board is reached
+ * when there is no admin verb to ask it with - MeshCore has none. Returns 0 once the touch is
+ * sent, which is not the board having gone: that is the port disappearing, which the install
+ * watches for. -ENOTCONN with no link.
+ */
+int mesh_serial_transport_touch_bootloader(struct mesh_transport *transport);
 /* True between the port opening and the handshake going out. */
 bool mesh_serial_transport_is_connecting(struct mesh_transport *transport);
 

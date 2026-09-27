@@ -106,7 +106,7 @@ bool mesh_firmware_board_takes(const struct mesh_firmware_board *board,
        and the one every other reader of `path` already trusts. */
     return board != NULL && bus != MESH_FIRMWARE_PATH_NONE &&
            (board->path == bus ||
-            (bus == MESH_FIRMWARE_PATH_BLE &&
+            (bus == MESH_FIRMWARE_PATH_BLE && !board->meshcore &&
              mesh_firmware_architecture_uses_nordic_dfu(board->architecture) &&
              mesh_firmware_nordic_dfu_available()) ||
             (bus == MESH_FIRMWARE_PATH_USB &&

@@ -49,9 +49,12 @@ MESH_TEST_CASE(firmware_meshcore_matches_through_the_alias_and_never_guesses, un
     MESH_TEST_FAIL_IF(strcmp(boards.entries[0].target, "RAK_4631_companion_radio_usb") != 0 ||
                           strcmp(boards.entries[0].architecture, "nrf52840") != 0,
                       "an nRF52 build");
-    MESH_TEST_FAIL_IF(boards.entries[0].path != MESH_FIRMWARE_PATH_NONE,
-                      "with no path from here until its bootloader can be reached without an "
-                      "admin verb");
+    MESH_TEST_FAIL_IF(boards.entries[0].path != MESH_FIRMWARE_PATH_USB ||
+                          !mesh_firmware_board_takes(&boards.entries[0], MESH_FIRMWARE_PATH_USB),
+                      "over USB, through the bootloader a 1200-baud touch reaches");
+    MESH_TEST_FAIL_IF(!boards.entries[0].meshcore ||
+                          mesh_firmware_board_takes(&boards.entries[0], MESH_FIRMWARE_PATH_BLE),
+                      "and never over BLE, where Nordic DFU arms a radio by asking it");
 
     /* One device, two builds - with a display and without - and the radio's name does not
        say which. */

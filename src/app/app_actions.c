@@ -72,6 +72,11 @@ static int mesh_app_firmware_interval(struct inkwell_ble_central *central, const
  */
 static int mesh_app_firmware_arm_usb(void *userdata) {
     struct mesh_app *const app = (struct mesh_app *)userdata;
+    /* MeshCore has no verb for it, so its board is touched instead: the link lets go of the
+       port and the rate it is reopened at is the request. */
+    if (app->meshcore_bound) {
+        return mesh_serial_transport_touch_bootloader(mesh_serial_transport());
+    }
     const int queued = mesh_session_radio_action(&app->session, MESH_ADMIN_ENTER_DFU_MODE);
     return queued < 0 ? queued : 0;
 }

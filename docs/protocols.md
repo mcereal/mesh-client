@@ -247,6 +247,9 @@ end.
   flasher's device list turns DEVICE_INFO's model string into a build, by name ignoring case or
   through the alias table there, then the newest `companion-v*` tag and that release's asset
   list name the file. The build is the one the radio runs now: `_usb` over serial, `_ble` over
-  BLE. An ESP32 companion is written over USB through its ROM, as any ESP32 is. An nRF52 has
-  no path yet, because reaching its UF2 bootloader needs a step MeshCore has no admin verb for.
-  The T114 is one flasher entry with two builds, so it is the ambiguous refusal.
+  BLE. Both chips install over USB. An ESP32 companion is written through its ROM, as any ESP32
+  is. An nRF52 has no admin verb to send it to its UF2 bootloader, so the link lets go and the
+  port is reopened at 1200 baud with DTR dropped - the Adafruit core's "1200-baud touch"
+  (`mesh_serial_transport_touch_bootloader()`) - and the drive it comes back as is written as a
+  Meshtastic one's is. Neither goes over BLE: Nordic DFU arms a radio by asking it. The T114 is
+  one flasher entry with two builds, so it is the ambiguous refusal.
