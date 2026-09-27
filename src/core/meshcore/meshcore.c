@@ -82,6 +82,7 @@ static void mesh_meshcore_mark(struct mesh_meshcore *meshcore, uint32_t packet_i
 static bool mesh_meshcore_is_settings_write(uint8_t cmd);
 static void mesh_meshcore_settle_write(struct mesh_meshcore *meshcore, int32_t error);
 static bool mesh_meshcore_is_remote(uint8_t cmd);
+static uint8_t mesh_meshcore_adv_type(uint32_t role);
 static void mesh_meshcore_request_ended(struct mesh_meshcore *meshcore, uint8_t answer);
 
 /* Writes the head of the queue when nothing is outstanding. A write that fails is dropped and
@@ -167,7 +168,8 @@ static bool mesh_meshcore_queued(const struct mesh_meshcore *meshcore, uint8_t c
 /* The commands the radio answers for with a push from the node asked: one outstanding at a
    time, since each clears whatever the last left pending (clearPendingReqs()). */
 static bool mesh_meshcore_is_remote(uint8_t cmd) {
-    return cmd == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ || cmd == MESH_MESHCORE_CMD_SEND_LOGIN;
+    return cmd == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ || cmd == MESH_MESHCORE_CMD_SEND_LOGIN ||
+           cmd == MESH_MESHCORE_CMD_SEND_STATUS_REQ;
 }
 
 /* The request is over: the lock is free, and `notice` says how it went. */
@@ -793,6 +795,49 @@ static void mesh_meshcore_store_telemetry(struct mesh_meshcore *meshcore,
     }
 }
 
+/* A repeater's or room server's status: its counters on `relay`, its battery where every
+   node's is. Each answer is the whole of it, so what an older firmware left out goes. */
+static void mesh_meshcore_store_status(struct mesh_meshcore *meshcore,
+                                       struct mesh_node_summary *node,
+                                       const struct mesh_meshcore_status *status) {
+    const uint32_t now = mesh_meshcore_clock_now(meshcore);
+    if (now > node->last_heard) {
+        node->last_heard = now;
+    }
+    if (status->battery_mv != 0U) {
+        node->metrics.valid = true;
+        node->metrics.time = now;
+        node->metrics.has_voltage = true;
+        node->metrics.voltage = (float)status->battery_mv / 1000.0f;
+    }
+    struct mesh_node_relay *relay = &node->relay;
+    memset(relay, 0, sizeof *relay);
+    relay->valid = true;
+    relay->time = now;
+    relay->uptime_seconds = status->uptime_secs;
+    relay->tx_queue_len = status->tx_queue_len;
+    relay->noise_floor = status->noise_floor;
+    relay->last_rssi = status->last_rssi;
+    relay->last_snr = (float)status->last_snr_q4 / 4.0f;
+    relay->packets_recv = status->packets_recv;
+    relay->packets_sent = status->packets_sent;
+    relay->recv_flood = status->recv_flood;
+    relay->recv_direct = status->recv_direct;
+    relay->sent_flood = status->sent_flood;
+    relay->sent_direct = status->sent_direct;
+    relay->flood_dups = status->flood_dups;
+    relay->direct_dups = status->direct_dups;
+    relay->air_time_secs = status->air_time_secs;
+    relay->err_events = status->err_events;
+    relay->has_rx_air_time = status->has_rx_air_time;
+    relay->rx_air_time_secs = status->rx_air_time_secs;
+    relay->has_recv_errors = status->has_recv_errors;
+    relay->recv_errors = status->recv_errors;
+    relay->has_posts = status->has_posts;
+    relay->posted = status->posted;
+    relay->post_pushes = status->post_pushes;
+}
+
 /* ---------------------------------------------------------------------------- receiving */
 
 static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t *frame,
@@ -882,6 +927,25 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
         if (len >= 2U + MESH_MESHCORE_PREFIX_LEN) {
             mesh_meshcore_request_answered(meshcore, frame + 2, MESH_MESHCORE_CMD_SEND_LOGIN,
                                            MESH_MESHCORE_ANSWER_REFUSED);
+        }
+        break;
+    case MESH_MESHCORE_PUSH_STATUS_RESPONSE:
+        /* 0x00, the answering node's key prefix, then its stats as they lie in its memory. */
+        if (len >= 2U + MESH_MESHCORE_PREFIX_LEN) {
+            const uint32_t id =
+                mesh_meshcore_find_prefix(meshcore, frame + 2, MESH_MESHCORE_PREFIX_LEN);
+            struct mesh_node_summary *node =
+                id != 0U ? mesh_session_model_node(meshcore->model, id, false) : NULL;
+            struct mesh_meshcore_status status;
+            if (node != NULL &&
+                mesh_meshcore_decode_status(frame + 2U + MESH_MESHCORE_PREFIX_LEN,
+                                            len - 2U - MESH_MESHCORE_PREFIX_LEN,
+                                            mesh_meshcore_adv_type(node->role), &status) == 0) {
+                mesh_meshcore_store_status(meshcore, node, &status);
+                inkwell_log_info("meshcore", "Status from 0x%08x", id);
+            }
+            mesh_meshcore_request_answered(meshcore, frame + 2, MESH_MESHCORE_CMD_SEND_STATUS_REQ,
+                                           MESH_MESHCORE_ANSWER_STATUS);
         }
         break;
     case MESH_MESHCORE_PUSH_CONTACT_DELETED:
@@ -1691,7 +1755,8 @@ int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id) 
 static int mesh_meshcore_ask(struct mesh_meshcore *meshcore, const uint8_t *frame, size_t len,
                              uint32_t node_id, const uint8_t *key) {
     if (mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ) ||
-        mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_LOGIN)) {
+        mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_LOGIN) ||
+        mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_STATUS_REQ)) {
         return -EBUSY;
     }
     const uint64_t now_ms = inkwell_time_monotonic_ms();
@@ -1737,6 +1802,18 @@ int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t nod
     memset(frame, 0, sizeof frame);
     frame[0] = MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ; /* then three reserved bytes */
     memcpy(frame + 4, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
+    return mesh_meshcore_ask(meshcore, frame, sizeof frame, node_id, node->public_key);
+}
+
+int mesh_meshcore_request_status(struct mesh_meshcore *meshcore, uint32_t node_id) {
+    const struct mesh_node_summary *node = NULL;
+    const int whom = mesh_meshcore_ask_whom(meshcore, node_id, &node);
+    if (whom < 0) {
+        return whom;
+    }
+    uint8_t frame[1U + MESH_MESHCORE_PUBKEY_LEN];
+    frame[0] = MESH_MESHCORE_CMD_SEND_STATUS_REQ;
+    memcpy(frame + 1, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
     return mesh_meshcore_ask(meshcore, frame, sizeof frame, node_id, node->public_key);
 }
 

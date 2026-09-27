@@ -214,6 +214,19 @@ static int mesh_ui_store_save_handshake(FILE *file,
                                     node->host.has_load ? 1U : 0U, node->host.load1,
                                     node->host.load5, node->host.load15);
         }
+        if (node->relay.valid) {
+            const struct mesh_ui_node_relay *relay = &node->relay;
+            mesh_ui_store_write_row(
+                file, MESH_UI_STORE_KEY_NODE_RELAY, i,
+                "%u,%u,%u,%d,%d,%f,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u", relay->time,
+                relay->uptime_seconds, (unsigned)relay->tx_queue_len, (int)relay->noise_floor,
+                (int)relay->last_rssi, (double)relay->last_snr, relay->packets_recv,
+                relay->packets_sent, relay->recv_flood, relay->recv_direct, relay->sent_flood,
+                relay->sent_direct, (unsigned)relay->flood_dups, (unsigned)relay->direct_dups,
+                relay->air_time_secs, (unsigned)relay->err_events, relay->has_rx_air_time ? 1U : 0U,
+                relay->rx_air_time_secs, relay->has_recv_errors ? 1U : 0U, relay->recv_errors,
+                relay->has_posts ? 1U : 0U, (unsigned)relay->posted, (unsigned)relay->post_pushes);
+        }
     }
 
     return 0;
@@ -903,6 +916,43 @@ static void load_node_health(struct mesh_ui_node_summary *node, const char *valu
     node->health = health;
 }
 
+static void load_node_relay(struct mesh_ui_node_summary *node, const char *value) {
+    if (node == NULL) {
+        return;
+    }
+    struct mesh_ui_node_relay relay = {0};
+    const struct inkstand_field fields[] = {
+        INKSTAND_FIELD(&relay.time),
+        INKSTAND_FIELD(&relay.uptime_seconds),
+        INKSTAND_FIELD(&relay.tx_queue_len),
+        INKSTAND_FIELD(&relay.noise_floor),
+        INKSTAND_FIELD(&relay.last_rssi),
+        INKSTAND_FIELD(&relay.last_snr),
+        INKSTAND_FIELD(&relay.packets_recv),
+        INKSTAND_FIELD(&relay.packets_sent),
+        INKSTAND_FIELD(&relay.recv_flood),
+        INKSTAND_FIELD(&relay.recv_direct),
+        INKSTAND_FIELD(&relay.sent_flood),
+        INKSTAND_FIELD(&relay.sent_direct),
+        INKSTAND_FIELD(&relay.flood_dups),
+        INKSTAND_FIELD(&relay.direct_dups),
+        INKSTAND_FIELD(&relay.air_time_secs),
+        INKSTAND_FIELD(&relay.err_events),
+        INKSTAND_FIELD(&relay.has_rx_air_time),
+        INKSTAND_FIELD(&relay.rx_air_time_secs),
+        INKSTAND_FIELD(&relay.has_recv_errors),
+        INKSTAND_FIELD(&relay.recv_errors),
+        INKSTAND_FIELD(&relay.has_posts),
+        INKSTAND_FIELD(&relay.posted),
+        INKSTAND_FIELD(&relay.post_pushes),
+    };
+    if (!cache_fields(value, fields, INKWELL_ARRAY_LEN(fields))) {
+        return;
+    }
+    relay.valid = true;
+    node->relay = relay;
+}
+
 static void load_node_host(struct mesh_ui_node_summary *node, const char *value) {
     if (node == NULL) {
         return;
@@ -1287,6 +1337,9 @@ static void load_line(struct mesh_ui_store_cache *cache, const char *key, char *
         break;
     case MESH_UI_STORE_KEY_NODE_HOST:
         load_node_host(cache_node(cache, index), value);
+        break;
+    case MESH_UI_STORE_KEY_NODE_RELAY:
+        load_node_relay(cache_node(cache, index), value);
         break;
 
     case MESH_UI_STORE_KEY_MESSAGES:

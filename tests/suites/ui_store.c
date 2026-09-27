@@ -194,6 +194,12 @@ MESH_TEST_CASE(ui_store_persistence, unit) {
     handshake.nodes[0].host.valid = true;
     handshake.nodes[0].host.has_diskfree = true;
     handshake.nodes[0].host.diskfree_mib = 4096U;
+    handshake.nodes[0].relay.valid = true;
+    handshake.nodes[0].relay.noise_floor = -118;
+    handshake.nodes[0].relay.last_snr = -6.25f;
+    handshake.nodes[0].relay.packets_recv = 70000U;
+    handshake.nodes[0].relay.has_posts = true;
+    handshake.nodes[0].relay.post_pushes = 9U;
     /* A neighbour list is a header line plus one line per entry, so the roundtrip has to prove
        both come back and that the count is re-derived from the entries rather than trusted. */
     handshake.nodes[0].neighbors.valid = true;
@@ -356,6 +362,13 @@ MESH_TEST_CASE(ui_store_persistence, unit) {
     if (!node->host.valid || node->host.diskfree_mib != 4096U || node->host.has_freemem) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "node host metrics did not survive the cache");
+        return;
+    }
+    if (!node->relay.valid || node->relay.noise_floor != -118 || node->relay.last_snr != -6.25f ||
+        node->relay.packets_recv != 70000U || !node->relay.has_posts ||
+        node->relay.post_pushes != 9U || node->relay.has_rx_air_time) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "a repeater's status did not survive the cache");
         return;
     }
     if (!node->neighbors.valid || node->neighbors.count != 2U ||
@@ -1558,6 +1571,9 @@ MESH_TEST_CASE(ui_store_cache_keys_round_trip, unit) {
     node->host.load1 = 12U;
     node->host.load5 = 9U;
     node->host.load15 = 4U;
+    node->relay.valid = true;
+    node->relay.time = 1749000007U;
+    node->relay.noise_floor = -112;
     mesh_ui_store_set_handshake(&store, &handshake);
 
     struct mesh_ui_message_list messages;

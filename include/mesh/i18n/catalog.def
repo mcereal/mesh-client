@@ -887,6 +887,8 @@ MESH_STR_ENTRY(NODE_HEAD_POWER,           "Power")
 MESH_STR_ENTRY(NODE_HEAD_AIR_QUALITY,     "Air quality")
 MESH_STR_ENTRY(NODE_HEAD_HEALTH,          "Health")
 MESH_STR_ENTRY(NODE_HEAD_HOST,            "Host")
+/* A MeshCore repeater's or room server's own counters, from a status request. */
+MESH_STR_ENTRY(NODE_HEAD_RELAY,           "Repeater status")
 MESH_STR_ENTRY(NODE_HEAD_NEIGHBOURS,      "Neighbours")
 MESH_STR_ENTRY(NODE_HEAD_HEARD_BY,        "Heard by")
 MESH_STR_ENTRY(NODE_HEAD_ROUTE_OUT,       "Route out")
@@ -946,6 +948,20 @@ MESH_STR_ENTRY(NODE_SPO2,                 "SpO2")
 MESH_STR_ENTRY(NODE_FREE_MEMORY,          "Free memory")
 MESH_STR_ENTRY(NODE_FREE_DISK,            "Free disk")
 MESH_STR_ENTRY(NODE_LOAD,                 "Load")
+/* A repeater's status: its packet counts since boot, by how each was routed. */
+MESH_STR_ENTRY(NODE_PACKETS_RECV,         "Received")
+MESH_STR_ENTRY(NODE_PACKETS_SENT,         "Sent")
+MESH_STR_ENTRY(NODE_DUPLICATES,           "Duplicates")
+MESH_STR_ENTRY(NODE_NOISE_FLOOR,          "Noise floor")
+/* The signal of the last packet the repeater itself received, not ours of it. */
+MESH_STR_ENTRY(NODE_LAST_RX,              "Last packet in")
+MESH_STR_ENTRY(NODE_AIRTIME_TX,           "Airtime sending")
+MESH_STR_ENTRY(NODE_AIRTIME_RX,           "Airtime receiving")
+MESH_STR_ENTRY(NODE_TX_QUEUE,             "Send queue")
+MESH_STR_ENTRY(NODE_ERRORS,               "Errors")
+MESH_STR_ENTRY(NODE_RECV_ERRORS,          "Receive errors")
+/* A room server's: posts it holds, and how many times it has pushed one to a member. */
+MESH_STR_ENTRY(NODE_POSTS,                "Posts")
 /* The row standing in for a neighbour list that came back empty. */
 MESH_STR_ENTRY(NODE_NEIGHBOURS_NONE,      "None")
 MESH_STR_ENTRY(NODE_HEARS_NO_ONE,         "hears no one")
@@ -1037,6 +1053,7 @@ MESH_STR_ENTRY(NODE_ACT_ADMIN,            "Configure by radio")
    else. The keyboard's heading names the node; a blank password is a guest's. */
 MESH_STR_ENTRY(NODE_ACT_LOGIN,            "Log in")
 MESH_STR_ENTRY(LOGIN_PROMPT,              "Password for %.20s")
+MESH_STR_ENTRY(NODE_ACT_REQUEST_STATUS,   "Ask for status")
 
 /* ---- the key verification sheet ------------------------------------------------------------
  *
@@ -1116,6 +1133,9 @@ MESH_STR_ENTRY(NODE_VAL_MEGABYTES,        "%u MB")
 MESH_STR_ENTRY(NODE_VAL_GIGABYTES,        "%.1f GB")
 /* A Linux load average: one, five and fifteen minutes. */
 MESH_STR_ENTRY(NODE_VAL_LOAD,             "%.2f %.2f %.2f")
+MESH_STR_ENTRY(NODE_VAL_FLOOD_DIRECT,     "%u flood, %u direct")
+MESH_STR_ENTRY(NODE_VAL_RSSI_SNR,         "%d dBm, %.1f dB")
+MESH_STR_ENTRY(NODE_VAL_POSTS,            "%u (%u pushed)")
 /* A battery channel on a multi-cell power sensor, numbered from 1. */
 MESH_STR_ENTRY(NODE_POWER_CHANNEL,        "Channel %u")
 
@@ -2871,11 +2891,14 @@ MESH_STR_ENTRY(TOAST_ASKED_POSITION,      "Asked %.20s for its position")
 MESH_STR_ENTRY(TOAST_ASKED_TELEMETRY,     "Asked %.20s for its telemetry")
 MESH_STR_ENTRY(TOAST_LOGGING_IN,          "Logging in to %.20s")
 MESH_STR_ENTRY(TOAST_LOGGING_IN_GUEST,    "Logging in to %.20s as a guest")
+MESH_STR_ENTRY(TOAST_ASKED_STATUS,        "Asked %.20s for its status")
 /* How a request to a MeshCore node ended, when its answer - or the lack of one - arrives. */
 MESH_STR_ENTRY(TOAST_LOGGED_IN,           "Logged in to %.20s")
 MESH_STR_ENTRY(TOAST_LOGGED_IN_ADMIN,     "Logged in to %.20s as admin")
 MESH_STR_ENTRY(TOAST_LOGIN_REFUSED,       "%.20s refused the password")
 MESH_STR_ENTRY(TOAST_NO_ANSWER,           "%.20s did not answer")
+/* A repeater answers a status request only from a client logged in to it. */
+MESH_STR_ENTRY(TOAST_NO_STATUS,           "%.20s did not answer; log in to it first")
 MESH_STR_ENTRY(TOAST_NOT_SENT,            "The radio could not send that to %.20s")
 MESH_STR_ENTRY(TOAST_STILL_SYNCING,       "Still syncing; try again in a moment")
 MESH_STR_ENTRY(TOAST_CANNOT_ASK,          "Cannot ask this node")

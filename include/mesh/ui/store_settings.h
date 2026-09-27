@@ -377,10 +377,12 @@ enum mesh_ui_feature {
     /* Logging in to a repeater or a room server among the radio's contacts: MeshCore's alone,
        and so the one bit Meshtastic lacks. */
     MESH_UI_FEATURE_NODE_LOGIN = 1U << 17,
+    /* Asking a repeater or a room server for its own counters: MeshCore's SEND_STATUS_REQ. */
+    MESH_UI_FEATURE_NODE_STATUS = 1U << 18,
 };
 
 /* Every bit above: what a protocol this client has no row for lacks. */
-#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_LOGIN << 1) - 1U))
+#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_STATUS << 1) - 1U))
 
 /*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so the

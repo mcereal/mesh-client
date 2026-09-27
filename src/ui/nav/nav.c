@@ -1645,13 +1645,23 @@ static bool mesh_ui_nav_node_action_run(struct mesh_ui_nav *nav, const struct me
     }
     if (item->action == MESH_UI_NODE_ACTION_REQUEST_INFO ||
         item->action == MESH_UI_NODE_ACTION_REQUEST_POSITION ||
-        item->action == MESH_UI_NODE_ACTION_REQUEST_TELEMETRY) {
+        item->action == MESH_UI_NODE_ACTION_REQUEST_TELEMETRY ||
+        item->action == MESH_UI_NODE_ACTION_REQUEST_STATUS) {
         if (action != NULL) {
-            action->type = item->action == MESH_UI_NODE_ACTION_REQUEST_POSITION
-                               ? MESH_UI_ACTION_REQUEST_POSITION
-                               : (item->action == MESH_UI_NODE_ACTION_REQUEST_TELEMETRY
-                                      ? MESH_UI_ACTION_REQUEST_TELEMETRY
-                                      : MESH_UI_ACTION_REQUEST_NODE_INFO);
+            switch (item->action) {
+            case MESH_UI_NODE_ACTION_REQUEST_POSITION:
+                action->type = MESH_UI_ACTION_REQUEST_POSITION;
+                break;
+            case MESH_UI_NODE_ACTION_REQUEST_TELEMETRY:
+                action->type = MESH_UI_ACTION_REQUEST_TELEMETRY;
+                break;
+            case MESH_UI_NODE_ACTION_REQUEST_STATUS:
+                action->type = MESH_UI_ACTION_REQUEST_STATUS;
+                break;
+            default:
+                action->type = MESH_UI_ACTION_REQUEST_NODE_INFO;
+                break;
+            }
             action->dest = node->node_id;
         }
         return false; /* the row redraws if and when the node answers */

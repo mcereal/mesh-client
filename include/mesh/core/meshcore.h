@@ -63,6 +63,7 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE = 20,
     MESH_MESHCORE_CMD_DEVICE_QUERY = 22,
     MESH_MESHCORE_CMD_SEND_LOGIN = 26,
+    MESH_MESHCORE_CMD_SEND_STATUS_REQ = 27,
     MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY = 30,
     MESH_MESHCORE_CMD_GET_CHANNEL = 31,
     MESH_MESHCORE_CMD_SET_CHANNEL = 32,
@@ -98,6 +99,7 @@ enum mesh_meshcore_push {
     MESH_MESHCORE_PUSH_MSG_WAITING = 0x83,
     MESH_MESHCORE_PUSH_LOGIN_SUCCESS = 0x85,
     MESH_MESHCORE_PUSH_LOGIN_FAIL = 0x86,
+    MESH_MESHCORE_PUSH_STATUS_RESPONSE = 0x87,
     MESH_MESHCORE_PUSH_LOG_RX_DATA = 0x88,
     MESH_MESHCORE_PUSH_NEW_ADVERT = 0x8A,
     MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE = 0x8B,
@@ -210,6 +212,42 @@ struct mesh_meshcore_telemetry {
     int32_t altitude_m;
 };
 
+/*
+ * A repeater's or room server's own counters: the stats struct a STATUS_RESPONSE carries,
+ * copied out of the node's memory as it lies there, little-endian. The first 48 bytes are the
+ * same for both kinds; what follows is a repeater's receive airtime and errors, or a room
+ * server's post counts, and an older firmware sends less of either.
+ */
+#define MESH_MESHCORE_STATUS_LEN 48U
+
+struct mesh_meshcore_status {
+    uint16_t battery_mv;
+    uint16_t tx_queue_len;
+    int16_t noise_floor; /* dBm */
+    int16_t last_rssi;   /* dBm, of the last packet it received */
+    uint32_t packets_recv;
+    uint32_t packets_sent;
+    uint32_t air_time_secs; /* spent transmitting, since boot */
+    uint32_t uptime_secs;
+    uint32_t sent_flood;
+    uint32_t sent_direct;
+    uint32_t recv_flood;
+    uint32_t recv_direct;
+    uint16_t err_events;
+    int16_t last_snr_q4; /* SNR x4 */
+    uint16_t direct_dups;
+    uint16_t flood_dups;
+    /* A repeater's tail. */
+    bool has_rx_air_time;
+    uint32_t rx_air_time_secs;
+    bool has_recv_errors;
+    uint32_t recv_errors;
+    /* A room server's. */
+    bool has_posts;
+    uint16_t posted;
+    uint16_t post_pushes;
+};
+
 /* One queued message out of SYNC_NEXT_MESSAGE, in any of the four shapes it arrives in. */
 struct mesh_meshcore_message {
     bool channel;
@@ -297,6 +335,13 @@ int mesh_meshcore_encode_contact(const struct mesh_meshcore_contact *contact, ui
  * -EINVAL for a NULL argument.
  */
 int mesh_meshcore_decode_lpp(const uint8_t *lpp, size_t len, struct mesh_meshcore_telemetry *out);
+/*
+ * A STATUS_RESPONSE's stats, from after the push's key prefix: the shared 48 bytes, then the
+ * tail `adv_type` says the node's kind writes (enum mesh_meshcore_adv_type), as much of it as
+ * arrived. 0, or -EBADMSG for fewer than MESH_MESHCORE_STATUS_LEN bytes.
+ */
+int mesh_meshcore_decode_status(const uint8_t *stats, size_t len, uint8_t adv_type,
+                                struct mesh_meshcore_status *out);
 /* REBOOT carries the word, so a stray byte cannot reboot a radio. */
 int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len);
 
@@ -370,11 +415,12 @@ enum mesh_meshcore_answer {
     MESH_MESHCORE_ANSWER_REFUSED,      /* the password was not one it takes */
     MESH_MESHCORE_ANSWER_SILENT,       /* no answer by the radio's deadline */
     MESH_MESHCORE_ANSWER_UNSENT,       /* the radio would not send it */
+    MESH_MESHCORE_ANSWER_STATUS,       /* its status arrived */
 };
 
 struct mesh_meshcore_notice {
     uint32_t node_id;
-    uint8_t cmd;    /* the request: SEND_LOGIN or SEND_TELEMETRY_REQ */
+    uint8_t cmd;    /* the request: SEND_LOGIN, SEND_STATUS_REQ or SEND_TELEMETRY_REQ */
     uint8_t answer; /* enum mesh_meshcore_answer */
 };
 
@@ -407,8 +453,8 @@ struct mesh_meshcore {
     struct mesh_meshcore_contact heard[MESH_MESHCORE_HEARD_ADVERTS];
     uint32_t heard_age[MESH_MESHCORE_HEARD_ADVERTS]; /* when each was kept; 0 for an empty slot */
     uint32_t heard_clock;
-    /* A request to another node - a login or its readings - is answered until this monotonic
-       time, 0 for none outstanding: the radio keeps one, and any new one orphans it. */
+    /* A request to another node - a login, its status or its readings - is answered until this
+       monotonic time, 0 for none outstanding: the radio keeps one, and any new one orphans it. */
     uint64_t request_until_ms;
     uint8_t request_cmd;                              /* which of them */
     uint32_t request_node;                            /* asked of whom */
@@ -526,8 +572,8 @@ int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id,
 /*
  * Asks a contact for its readings now: SEND_TELEMETRY_REQ, answered - if the node lets this
  * radio ask - by a TELEMETRY_RESPONSE whose battery, environment and position land on the
- * node's record. The radio keeps one request outstanding - this, or a login - and a new one
- * orphans the last; how it ended is `notice`. 0 when asked; -EINVAL for 0 or this radio,
+ * node's record. The radio keeps one request outstanding - this, a status or a login - and a
+ * new one orphans the last; how it ended is `notice`. 0 when asked; -EINVAL for 0 or this radio,
  * -ENOTCONN until the handshake has named the radio, -ENOENT for a node that is not one of the
  * radio's contacts, -EBUSY while the last request's answer is still due, -ENOBUFS when the
  * queue is full.
@@ -541,6 +587,14 @@ int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t nod
  * than MESH_MESHCORE_PASSWORD_MAX.
  */
 int mesh_meshcore_login(struct mesh_meshcore *meshcore, uint32_t node_id, const char *password);
+/*
+ * Asks a repeater or room server among the radio's contacts for its status: SEND_STATUS_REQ,
+ * answered by a STATUS_RESPONSE whose counters land on the node's record (its `relay`, and its
+ * battery and uptime). A node answers only a client on its access list, so one not logged in to
+ * first says nothing. The same one request as mesh_meshcore_request_telemetry(), and the same
+ * returns.
+ */
+int mesh_meshcore_request_status(struct mesh_meshcore *meshcore, uint32_t node_id);
 /*
  * Asks the radio to make a contact of a node known only from a link: its whole key, its name and
  * the kind of node it is (enum mesh_meshcore_adv_type), with no route and no advert stamp, so the

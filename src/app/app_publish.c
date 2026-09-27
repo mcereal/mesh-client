@@ -354,6 +354,31 @@ static void mesh_app_copy_node_detail(const struct mesh_node_summary *src,
     dst->host.load5 = src->host.load5;
     dst->host.load15 = src->host.load15;
 
+    dst->relay.valid = src->relay.valid;
+    dst->relay.time = src->relay.time;
+    dst->relay.uptime_seconds = src->relay.uptime_seconds;
+    dst->relay.tx_queue_len = src->relay.tx_queue_len;
+    dst->relay.noise_floor = src->relay.noise_floor;
+    dst->relay.last_rssi = src->relay.last_rssi;
+    dst->relay.last_snr = src->relay.last_snr;
+    dst->relay.packets_recv = src->relay.packets_recv;
+    dst->relay.packets_sent = src->relay.packets_sent;
+    dst->relay.recv_flood = src->relay.recv_flood;
+    dst->relay.recv_direct = src->relay.recv_direct;
+    dst->relay.sent_flood = src->relay.sent_flood;
+    dst->relay.sent_direct = src->relay.sent_direct;
+    dst->relay.flood_dups = src->relay.flood_dups;
+    dst->relay.direct_dups = src->relay.direct_dups;
+    dst->relay.air_time_secs = src->relay.air_time_secs;
+    dst->relay.err_events = src->relay.err_events;
+    dst->relay.has_rx_air_time = src->relay.has_rx_air_time;
+    dst->relay.rx_air_time_secs = src->relay.rx_air_time_secs;
+    dst->relay.has_recv_errors = src->relay.has_recv_errors;
+    dst->relay.recv_errors = src->relay.recv_errors;
+    dst->relay.has_posts = src->relay.has_posts;
+    dst->relay.posted = src->relay.posted;
+    dst->relay.post_pushes = src->relay.post_pushes;
+
     dst->neighbors.valid = src->neighbors.valid;
     dst->neighbors.time = src->neighbors.time;
     dst->neighbors.broadcast_interval_secs = src->neighbors.broadcast_interval_secs;
@@ -489,6 +514,31 @@ static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
     dst->host.load1 = src->host.load1;
     dst->host.load5 = src->host.load5;
     dst->host.load15 = src->host.load15;
+
+    dst->relay.valid = src->relay.valid;
+    dst->relay.time = src->relay.time;
+    dst->relay.uptime_seconds = src->relay.uptime_seconds;
+    dst->relay.tx_queue_len = src->relay.tx_queue_len;
+    dst->relay.noise_floor = src->relay.noise_floor;
+    dst->relay.last_rssi = src->relay.last_rssi;
+    dst->relay.last_snr = src->relay.last_snr;
+    dst->relay.packets_recv = src->relay.packets_recv;
+    dst->relay.packets_sent = src->relay.packets_sent;
+    dst->relay.recv_flood = src->relay.recv_flood;
+    dst->relay.recv_direct = src->relay.recv_direct;
+    dst->relay.sent_flood = src->relay.sent_flood;
+    dst->relay.sent_direct = src->relay.sent_direct;
+    dst->relay.flood_dups = src->relay.flood_dups;
+    dst->relay.direct_dups = src->relay.direct_dups;
+    dst->relay.air_time_secs = src->relay.air_time_secs;
+    dst->relay.err_events = src->relay.err_events;
+    dst->relay.has_rx_air_time = src->relay.has_rx_air_time;
+    dst->relay.rx_air_time_secs = src->relay.rx_air_time_secs;
+    dst->relay.has_recv_errors = src->relay.has_recv_errors;
+    dst->relay.recv_errors = src->relay.recv_errors;
+    dst->relay.has_posts = src->relay.has_posts;
+    dst->relay.posted = src->relay.posted;
+    dst->relay.post_pushes = src->relay.post_pushes;
 
     dst->neighbors.valid = src->neighbors.valid;
     dst->neighbors.time = src->neighbors.time;
@@ -1835,7 +1885,8 @@ static void mesh_app_report_meshcore_answers(struct mesh_app *app) {
         what = MESH_STR_TOAST_LOGIN_REFUSED;
         break;
     case MESH_MESHCORE_ANSWER_SILENT:
-        what = MESH_STR_TOAST_NO_ANSWER;
+        what = notice->cmd == MESH_MESHCORE_CMD_SEND_STATUS_REQ ? MESH_STR_TOAST_NO_STATUS
+                                                                : MESH_STR_TOAST_NO_ANSWER;
         break;
     case MESH_MESHCORE_ANSWER_UNSENT:
         what = MESH_STR_TOAST_NOT_SENT;

@@ -11,6 +11,10 @@ static uint32_t mesh_meshcore_u32(const uint8_t *bytes) {
 
 static int32_t mesh_meshcore_i32(const uint8_t *bytes) { return (int32_t)mesh_meshcore_u32(bytes); }
 
+static uint16_t mesh_meshcore_u16(const uint8_t *bytes) {
+    return (uint16_t)((uint16_t)bytes[0] | (uint16_t)((uint16_t)bytes[1] << 8U));
+}
+
 static void mesh_meshcore_put_u32(uint8_t *out, uint32_t value) {
     out[0] = (uint8_t)(value & 0xFFU);
     out[1] = (uint8_t)((value >> 8U) & 0xFFU);
@@ -582,6 +586,47 @@ int mesh_meshcore_decode_lpp(const uint8_t *lpp, size_t len, struct mesh_meshcor
             break;
         }
         i += 2U + size;
+    }
+    return 0;
+}
+
+int mesh_meshcore_decode_status(const uint8_t *stats, size_t len, uint8_t adv_type,
+                                struct mesh_meshcore_status *out) {
+    if (stats == NULL || out == NULL || len < MESH_MESHCORE_STATUS_LEN) {
+        return -EBADMSG;
+    }
+    memset(out, 0, sizeof *out);
+    out->battery_mv = mesh_meshcore_u16(stats + 0);
+    out->tx_queue_len = mesh_meshcore_u16(stats + 2);
+    out->noise_floor = (int16_t)mesh_meshcore_u16(stats + 4);
+    out->last_rssi = (int16_t)mesh_meshcore_u16(stats + 6);
+    out->packets_recv = mesh_meshcore_u32(stats + 8);
+    out->packets_sent = mesh_meshcore_u32(stats + 12);
+    out->air_time_secs = mesh_meshcore_u32(stats + 16);
+    out->uptime_secs = mesh_meshcore_u32(stats + 20);
+    out->sent_flood = mesh_meshcore_u32(stats + 24);
+    out->sent_direct = mesh_meshcore_u32(stats + 28);
+    out->recv_flood = mesh_meshcore_u32(stats + 32);
+    out->recv_direct = mesh_meshcore_u32(stats + 36);
+    out->err_events = mesh_meshcore_u16(stats + 40);
+    out->last_snr_q4 = (int16_t)mesh_meshcore_u16(stats + 42);
+    out->direct_dups = mesh_meshcore_u16(stats + 44);
+    out->flood_dups = mesh_meshcore_u16(stats + 46);
+    /* The tails are the same length and differ in kind, so only the node's own tells them
+       apart: a room server's posts read as a repeater's airtime would be a nonsense figure. */
+    if (adv_type == MESH_MESHCORE_ADV_REPEATER) {
+        if (len >= MESH_MESHCORE_STATUS_LEN + 4U) {
+            out->has_rx_air_time = true;
+            out->rx_air_time_secs = mesh_meshcore_u32(stats + 48);
+        }
+        if (len >= MESH_MESHCORE_STATUS_LEN + 8U) {
+            out->has_recv_errors = true;
+            out->recv_errors = mesh_meshcore_u32(stats + 52);
+        }
+    } else if (adv_type == MESH_MESHCORE_ADV_ROOM && len >= MESH_MESHCORE_STATUS_LEN + 4U) {
+        out->has_posts = true;
+        out->posted = mesh_meshcore_u16(stats + 48);
+        out->post_pushes = mesh_meshcore_u16(stats + 50);
     }
     return 0;
 }

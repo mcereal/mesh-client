@@ -134,6 +134,7 @@ static const enum inkcell_icon k_action_icons[] = {
     [MESH_UI_NODE_ACTION_ADMIN] = INKCELL_ICON_SETTINGS,
     /* The padlock: a password is what the row asks for. */
     [MESH_UI_NODE_ACTION_LOGIN] = INKCELL_ICON_ENCRYPTED,
+    [MESH_UI_NODE_ACTION_REQUEST_STATUS] = INKCELL_ICON_STATUS,
 };
 
 /*
@@ -186,6 +187,7 @@ static const enum inkcell_tone k_action_tones[] = {
      */
     [MESH_UI_NODE_ACTION_ADMIN] = INKCELL_TONE_WARNING,
     [MESH_UI_NODE_ACTION_LOGIN] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_REQUEST_STATUS] = INKCELL_TONE_NORMAL,
 };
 
 static enum inkcell_icon action_icon(enum mesh_ui_node_action action) {
@@ -1107,6 +1109,50 @@ static void node_rows_host(struct node_rows *rows, const struct mesh_ui_node_sum
     rows_text(rows, MESH_STR_NODE_REPORTED, age);
 }
 
+/* A MeshCore repeater's or room server's own counters, from its answer to a status request.
+   Its battery is in the power group with every other node's. */
+static void node_rows_relay(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                            uint32_t now) {
+    const struct mesh_ui_node_relay *relay = &node->relay;
+    if (!relay->valid) {
+        return;
+    }
+    rows_heading(rows, MESH_STR_NODE_HEAD_RELAY, INKCELL_ICON_STATUS);
+    char span[32];
+    mesh_ui_format_duration(relay->uptime_seconds, span, sizeof span);
+    rows_text(rows, MESH_STR_NODE_UPTIME, span);
+    /* By route rather than with the total too: three ten-digit counts do not fit a row, and
+       the total is all but their sum. */
+    rows_info(rows, MESH_STR_NODE_PACKETS_RECV, MESH_STR_NODE_VAL_FLOOD_DIRECT, relay->recv_flood,
+              relay->recv_direct);
+    rows_info(rows, MESH_STR_NODE_PACKETS_SENT, MESH_STR_NODE_VAL_FLOOD_DIRECT, relay->sent_flood,
+              relay->sent_direct);
+    rows_info(rows, MESH_STR_NODE_DUPLICATES, MESH_STR_NODE_VAL_FLOOD_DIRECT,
+              (unsigned)relay->flood_dups, (unsigned)relay->direct_dups);
+    rows_info(rows, MESH_STR_NODE_NOISE_FLOOR, MESH_STR_NODE_VAL_RSSI, (int)relay->noise_floor);
+    rows_info(rows, MESH_STR_NODE_LAST_RX, MESH_STR_NODE_VAL_RSSI_SNR, (int)relay->last_rssi,
+              (double)relay->last_snr);
+    mesh_ui_format_duration(relay->air_time_secs, span, sizeof span);
+    rows_text(rows, MESH_STR_NODE_AIRTIME_TX, span);
+    if (relay->has_rx_air_time) {
+        mesh_ui_format_duration(relay->rx_air_time_secs, span, sizeof span);
+        rows_text(rows, MESH_STR_NODE_AIRTIME_RX, span);
+    }
+    rows_info(rows, MESH_STR_NODE_TX_QUEUE, MESH_STR_NODE_VAL_NUMBER,
+              (unsigned)relay->tx_queue_len);
+    rows_info(rows, MESH_STR_NODE_ERRORS, MESH_STR_NODE_VAL_NUMBER, (unsigned)relay->err_events);
+    if (relay->has_recv_errors) {
+        rows_info(rows, MESH_STR_NODE_RECV_ERRORS, MESH_STR_NODE_VAL_NUMBER, relay->recv_errors);
+    }
+    if (relay->has_posts) {
+        rows_info(rows, MESH_STR_NODE_POSTS, MESH_STR_NODE_VAL_POSTS, (unsigned)relay->posted,
+                  (unsigned)relay->post_pushes);
+    }
+    char age[24];
+    mesh_ui_format_age(relay->time, now, age, sizeof age);
+    rows_text(rows, MESH_STR_NODE_REPORTED, age);
+}
+
 /*
  * The mesh as a graph, which is the one thing a neighbour list gives that nothing else does.
  *
@@ -1347,6 +1393,12 @@ bool mesh_ui_node_loginable(const struct mesh_ui_node_summary *node, uint32_t la
            node->public_key_len == sizeof node->public_key;
 }
 
+bool mesh_ui_node_statusable(const struct mesh_ui_node_summary *node, uint32_t lacks) {
+    return node != NULL && node_actions_offer(lacks, MESH_UI_FEATURE_NODE_STATUS) &&
+           (node->role == 4U || node->role == 12U) && node->in_nodedb &&
+           node->public_key_len == sizeof node->public_key;
+}
+
 uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, bool is_self,
                                     const struct mesh_ui_traceroute *trace, bool remove_armed,
                                     uint32_t lacks, struct mesh_ui_node_item *out,
@@ -1410,6 +1462,10 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
         if (mesh_ui_node_loginable(node, lacks)) {
             rows_action(&rows, MESH_STR_NODE_ACT_LOGIN, inkcell_str(MESH_STR_COMMON_PRESS_A),
                         MESH_UI_NODE_ACTION_LOGIN);
+        }
+        if (mesh_ui_node_statusable(node, lacks)) {
+            rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_STATUS,
+                        inkcell_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_REQUEST_STATUS);
         }
         /* Muting is the gentle one of the three below: the node's traffic still arrives and
            still shows in its conversation, the radio just stops announcing it. The wire verb
@@ -1578,6 +1634,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
     node_rows_air_quality(&rows, node, now);
     node_rows_health(&rows, node, now);
     node_rows_host(&rows, node, now);
+    node_rows_relay(&rows, node, now);
     node_rows_neighbors(&rows, node, roster, now);
 
     return rows.count;

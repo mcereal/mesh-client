@@ -75,6 +75,7 @@ MESH_STORE_KEY_ROW(NODE_POWER, "node_power")
 MESH_STORE_KEY_ROW(NODE_AIR, "node_air")
 MESH_STORE_KEY_ROW(NODE_HEALTH, "node_health")
 MESH_STORE_KEY_ROW(NODE_HOST, "node_host")
+MESH_STORE_KEY_ROW(NODE_RELAY, "node_relay")
 
 /* ---- the message log ---------------------------------------------------------------------- */
 
