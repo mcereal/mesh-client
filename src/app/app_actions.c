@@ -124,7 +124,9 @@ static bool mesh_app_firmware_radio_ready(void *userdata) {
     if (mesh_app_firmware_bus() != update->path) {
         return false;
     }
-    if (!meshcore && update->hw_model != 0U && (uint32_t)metadata->hw_model != update->hw_model) {
+    /* And a Meshtastic radio only for a Meshtastic board, which always names a model: an
+       install with none was chosen for MeshCore. */
+    if (!meshcore && (update->hw_model == 0U || (uint32_t)metadata->hw_model != update->hw_model)) {
         return false;
     }
     /* The USB path names the port by the transport's own id rather than by the row's label, for

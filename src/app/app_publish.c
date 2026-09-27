@@ -1193,7 +1193,14 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     const meshtastic_DeviceMetadata *const radio =
         mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
     const uint32_t model = radio != NULL ? (uint32_t)radio->hw_model : 0U;
-    if (app->meshcore_bound) {
+    /* An answer from the other protocol's documents is about another radio whatever it said,
+       and is dropped the moment the link speaks the other one - not once the new radio has
+       described itself, which leaves the old image installable through the handshake. */
+    const enum mesh_firmware_source speaking =
+        app->meshcore_bound ? MESH_FIRMWARE_SOURCE_MESHCORE : MESH_FIRMWARE_SOURCE_MESHTASTIC;
+    if (firmware->state != MESH_FIRMWARE_IDLE && firmware->source != speaking) {
+        mesh_firmware_forget(firmware);
+    } else if (app->meshcore_bound) {
         /* A MeshCore radio names itself in DEVICE_INFO, and until it has there is nothing to
            hold an answer against. */
         if (app->meshcore.has_device &&
