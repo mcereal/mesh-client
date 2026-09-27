@@ -159,9 +159,20 @@ MESH_TEST_CASE(ui_click_a_bubble_selects_and_a_sheet_keeps_the_screen_under_it, 
             action.type != MESH_UI_ACTION_NONE,
         click_close(&store, capture), "a click under a sheet should go nowhere");
 
+    /* The delete is a button of its own under the faces, and still the place after the last
+       face - so a click on it is the first of its two presses, exactly as A there is. */
+    const uint32_t delete_place = mesh_ui_nav_reaction_row_count() - 1U;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS + delete_place, &action),
+        click_close(&store, capture), "the sheet drew no box for its delete");
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.message_delete_armed || !store.nav.reaction_open ||
+                                  action.type != MESH_UI_ACTION_NONE,
+                              click_close(&store, capture),
+                              "a click on the delete should arm it and delete nothing yet");
+
     MESH_TEST_FAIL_IF_CLEANUP(
         !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS + 1U, &action),
-        click_close(&store, capture), "the sheet drew no box for its second row");
+        click_close(&store, capture), "the sheet drew no box for its second face");
     MESH_TEST_FAIL_IF_CLEANUP(
         action.type != MESH_UI_ACTION_SEND_TEXT || !action.is_reaction || action.reply_id != 12U ||
             strcmp(action.text, mesh_ui_reaction_emoji(1)) != 0,

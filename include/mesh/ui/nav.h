@@ -290,7 +290,13 @@ struct mesh_ui_nav {
      * keycap that does nothing on most rows.
      */
     bool reaction_open;
+    /* Which face is chosen, or the delete (mesh_ui_nav_reaction_row_is_delete()). The faces
+       are one row walked by Left and Right, and the delete is the row under them. */
     uint32_t reaction_cursor;
+    /* The face the cursor last stood on, so Up from the delete goes back to it rather than to
+       the first face - leaving the delete is changing one's mind about deleting, not about
+       which face to send. */
+    uint32_t reaction_face;
     /* The delete row has been pressed once. A second press on it carries the delete out, and
        anything else stands it back down - the conversation list's X does exactly this, and a
        press that throws messages away should cost the same two presses wherever it is. */
@@ -1337,8 +1343,10 @@ void mesh_ui_nav_target_avatar(const struct mesh_ui_store *store, uint32_t node,
 uint32_t mesh_ui_nav_compose_row_count(void);
 
 /*
- * Rows on the bubble sheet: one per emoji in the fixed set (include/mesh/ui/reactions.h), plus
- * the delete on the end.
+ * Places on the bubble sheet: one per emoji in the fixed set (include/mesh/ui/reactions.h), plus
+ * the delete on the end. The faces are drawn as one row of tiles and the delete as a row under
+ * them, but the cursor is still one index over all of them - which is what a click registers
+ * against, and what keeps the delete the last place rather than a second axis.
  */
 uint32_t mesh_ui_nav_reaction_row_count(void);
 

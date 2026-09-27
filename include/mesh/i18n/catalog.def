@@ -1541,7 +1541,7 @@ MESH_STR_ENTRY(HELP_LABEL_REACTION_SEND,  "What it costs")
 MESH_STR_ENTRY(HELP_LABEL_REACTION_DELETE, "Deleting a message")
 MESH_STR_ENTRY(HELP_NOTE_REACTION,        "A tapback is an emoji aimed at one message. It draws as a chip on the message it names rather than as a bubble of its own, so it answers without taking a line of the conversation.")
 MESH_STR_ENTRY(HELP_NOTE_REACTION_SEND,   "One small packet, sent without asking to be acknowledged - so it earns no delivery mark and costs the mesh no retry. The set is fixed so that every client can draw what you sent.")
-MESH_STR_ENTRY(HELP_NOTE_REACTION_DELETE, "The last row throws this message away, and it takes two presses. It removes your copy only - the mesh cannot recall a message, so everyone who heard it still has it. Tapbacks on it go with it.")
+MESH_STR_ENTRY(HELP_NOTE_REACTION_DELETE, "The button under the faces throws the message away, in two presses. It removes your copy only - the mesh cannot recall a message, so everyone who heard it still has it. Tapbacks on it go with it.")
 
 /* Nodes. */
 MESH_STR_ENTRY(HELP_LABEL_NODES_FILTER,   "The filter row")

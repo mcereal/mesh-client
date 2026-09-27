@@ -2484,7 +2484,7 @@ MESH_TEST_CASE(ui_nav_delete_message, unit) {
         goto cleanup;
     }
 
-    /* The delete is the last row, so the cursor does not open on it. */
+    /* The delete is the last place, so the cursor does not open on it. */
     const uint32_t rows = mesh_ui_nav_reaction_row_count();
     if (!mesh_ui_nav_reaction_row_is_delete(rows - 1U) ||
         mesh_ui_nav_reaction_row_is_delete(store.nav.reaction_cursor)) {
@@ -2540,6 +2540,92 @@ MESH_TEST_CASE(ui_nav_delete_message, unit) {
     }
     if (store.nav.reaction_open || store.nav.message_delete_armed) {
         failure = "the sheet should close and the arming go with it";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The tapback sheet's faces are one row and the delete is under it: Left and Right choose a
+ * face, Down and Up move between sending one and deleting. Neither axis wraps - off the last
+ * face onto the first is a cursor the reader has to count to find again, and off the delete onto
+ * a face is a delete one press from a send - and Up from the delete goes back to the face the
+ * reader left rather than to the first.
+ */
+MESH_TEST_CASE(ui_nav_reaction_faces_are_a_row_and_the_delete_is_under_it, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (!store.nav.reaction_open || store.nav.reaction_cursor != 0U) {
+        failure = "X on a bubble should open the sheet on the first face";
+        goto cleanup;
+    }
+
+    const uint32_t faces = (uint32_t)mesh_ui_reaction_count();
+    if (mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action) ||
+        store.nav.reaction_cursor != 0U) {
+        failure = "Left on the first face should go nowhere, not wrap to the last";
+        goto cleanup;
+    }
+    for (uint32_t i = 0U; i < faces + 2U; ++i) {
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    }
+    if (store.nav.reaction_cursor != faces - 1U || !store.nav.reaction_open) {
+        failure = "Right should walk the faces and stop on the last, never onto the delete";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
+    const uint32_t face = store.nav.reaction_cursor;
+    if (face != faces - 3U) {
+        failure = "Left should step back one face at a time";
+        goto cleanup;
+    }
+
+    /* Up on the faces has nowhere to go; Down is the one way onto the delete. */
+    if (mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action) ||
+        store.nav.reaction_cursor != face) {
+        failure = "Up on the faces should go nowhere";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    if (!mesh_ui_nav_reaction_row_is_delete(store.nav.reaction_cursor)) {
+        failure = "one Down from any face should land on the delete";
+        goto cleanup;
+    }
+    if (mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action) ||
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action) ||
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action) ||
+        !mesh_ui_nav_reaction_row_is_delete(store.nav.reaction_cursor)) {
+        failure = "on the delete, Left, Right and Down should go nowhere";
+        goto cleanup;
+    }
+
+    /* Armed, then Up: the arming stands down and the cursor is back on the face it left. */
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    if (store.nav.message_delete_armed || store.nav.reaction_cursor != face) {
+        failure = "Up from the delete should stand it down and return to the face it left";
+        goto cleanup;
+    }
+
+    memset(&action, 0, sizeof action);
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action) ||
+        action.type != MESH_UI_ACTION_SEND_TEXT || !action.is_reaction ||
+        strcmp(action.text, mesh_ui_reaction_emoji(face)) != 0) {
+        failure = "A should send the face the cursor came back to";
         goto cleanup;
     }
 
