@@ -247,6 +247,75 @@ MESH_TEST_CASE(protocol_meshtastic_session_brings_its_framing, unit) {
     record_success(test_name);
 }
 
+/* ------------------------------------------------------------------ the tap */
+
+struct tap_link {
+    size_t sends;
+    int answer; /* what the link's send returns */
+};
+
+static int tap_link_send(void *ctx, const uint8_t *frame, size_t len, uint32_t frame_id) {
+    (void)frame;
+    (void)len;
+    (void)frame_id;
+    struct tap_link *link = (struct tap_link *)ctx;
+    link->sends += 1U;
+    return link->answer;
+}
+
+static void tap_moved(void *ctx) { *(size_t *)ctx += 1U; }
+
+/*
+ * The tap is the protocol a link is handed in place of the real one, so it has to *be* the
+ * real one to the link - the same framing, profile and name, the same optional calls missing -
+ * and count every frame either way on top.
+ */
+MESH_TEST_CASE(protocol_tap_counts_frames_and_is_otherwise_the_protocol, unit) {
+    struct fake_protocol state;
+    memset(&state, 0, sizeof state);
+    const struct mesh_protocol inner = {&k_fake_ble_ops, &state};
+    struct mesh_protocol_tap tap;
+    memset(&tap, 0, sizeof tap);
+    size_t moved = 0U;
+    tap.on_traffic = tap_moved;
+    tap.ctx = &moved;
+    const struct mesh_protocol tapped = mesh_protocol_tap_bind(&tap, &inner);
+
+    MESH_TEST_FAIL_IF(!mesh_protocol_bound(&tapped), "a tap over a protocol is a protocol");
+    MESH_TEST_FAIL_IF(mesh_protocol_ble_profile(&tapped) != &k_fake_nus ||
+                          strcmp(mesh_protocol_name(&tapped), "fake-ble") != 0,
+                      "a link reads the inner protocol's profile and name through the tap");
+    MESH_TEST_FAIL_IF(mesh_protocol_keepalive(&tapped) != -ENOTSUP,
+                      "an optional call the inner protocol lacks is still missing");
+
+    struct tap_link link = {0U, 0};
+    mesh_protocol_attach(&tapped, tap_link_send, &link);
+    MESH_TEST_FAIL_IF(mesh_protocol_begin(&tapped) != 0 || link.sends != 1U,
+                      "the inner protocol's frames reach the link's own send");
+    MESH_TEST_FAIL_IF(tap.sent != 1U || moved != 1U, "and a frame the link took is counted");
+
+    link.answer = -EIO;
+    MESH_TEST_FAIL_IF(mesh_protocol_begin(&tapped) != -EIO,
+                      "the link's refusal reaches the protocol unchanged");
+    MESH_TEST_FAIL_IF(tap.sent != 1U || moved != 1U, "and a frame that never left is not counted");
+
+    mesh_protocol_receive(&tapped, (const uint8_t *)"ab", 2U);
+    MESH_TEST_FAIL_IF(state.frames != 1U || state.received_len != 2U,
+                      "a frame off the link reaches the inner protocol");
+    MESH_TEST_FAIL_IF(tap.received != 1U || moved != 2U, "and is counted on the way");
+
+    mesh_protocol_detach(&tapped);
+    MESH_TEST_FAIL_IF(state.send != NULL || tap.send != NULL,
+                      "detaching drops the send path on both sides of the tap");
+    MESH_TEST_FAIL_IF(mesh_protocol_begin(&tapped) != -ENOTCONN,
+                      "so nothing can go out through it");
+
+    const struct mesh_protocol unbound = {NULL, NULL};
+    const struct mesh_protocol none = mesh_protocol_tap_bind(&tap, &unbound);
+    MESH_TEST_FAIL_IF(mesh_protocol_bound(&none), "a tap over nothing is no protocol");
+    record_success(test_name);
+}
+
 /*
  * The stream link frames and parses in whatever its protocol asks for. Both directions, over a
  * framing that is not Meshtastic's, so a link that still called mesh_stream_frame_encode() or

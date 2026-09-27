@@ -38,6 +38,8 @@
  *   config                 a radio that has answered the config handshake
  *   syncing [on|off]       a config replay still running, partway through the roster; `off`
  *                          finishes it
+ *   traffic out|in [COUNT]  frames crossing the link, COUNT at once (default 1) - what lights
+ *                          the footer's matching arrow, which fades on the scene's own clock
  *   stats                  the radio's own LocalStats report - packet counters, online nodes and
  *                          the airtime pair, which the Status tab's Mesh card reads
  *   airtime BUSY [TX]      one LocalStats airtime report, in percent
@@ -2056,6 +2058,27 @@ static int verb_link(struct inkstand_scene *scene, char *rest, void *userdata) {
 }
 
 /*
+ * Frames across the link, as the protocol tap counts them in the running client.
+ *
+ * A count and not a flag, because a count is what the footer is handed: a change lights an
+ * arrow, so `traffic in` twice in a row is two arrivals and keeps the arrow lit, where a flag
+ * set twice would be one.
+ */
+static int verb_traffic(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    const char *way = inkstand_scene_word(&rest);
+    const char *count_word = inkstand_scene_word(&rest);
+    if (way == NULL || (strcmp(way, "out") != 0 && strcmp(way, "in") != 0)) {
+        return inkstand_scene_fail(scene, "'traffic' takes out or in");
+    }
+    const uint32_t count = count_word != NULL ? (uint32_t)strtoul(count_word, NULL, 10) : 1U;
+    const bool out = strcmp(way, "out") == 0;
+    mesh_ui_store_set_link_traffic(&cap->store, cap->store.link_sent + (out ? count : 0U),
+                                   cap->store.link_received + (out ? 0U : count));
+    return 0;
+}
+
+/*
  * The broker card: the connection this client holds on a radio's behalf.
  *
  * Named states rather than a pile of numbers, because what the card is for is telling four
@@ -2682,6 +2705,7 @@ static const struct inkstand_scene_verb uicap_verbs[] = {
     {"queue", 0U, verb_queue},
     {"syncing", 0U, verb_syncing},
     {"link", 0U, verb_link},
+    {"traffic", 0U, verb_traffic},
     {"broker", 0U, verb_broker},
     {"stats", 0U, verb_stats},
     {"airtime", 0U, verb_airtime},

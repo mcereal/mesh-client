@@ -1,0 +1,34 @@
+# The link mark at the head of the footer's status line: amber while the radio is still
+# replaying its roster, green once it has, and the two arrows lighting as frames cross the link
+# and going out again on their own.
+scene demo
+scale 4
+delay 120
+config
+
+syncing on
+hold 400
+traffic in
+traffic in
+traffic in
+syncing off
+hold 700
+traffic out
+frame
+frame
+frame
+frame
+frame
+frame
+traffic in
+frame
+frame
+traffic out
+traffic in
+frame
+frame
+frame
+frame
+frame
+frame
+hold 600

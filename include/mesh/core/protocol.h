@@ -98,6 +98,39 @@ bool mesh_protocol_silent(const struct mesh_protocol *protocol);
    send that failed. */
 int mesh_protocol_keepalive(const struct mesh_protocol *protocol);
 
+/*
+ * A protocol with a counter on each side of it: every frame the link hands in, and every frame
+ * the protocol hands the link that the link accepted.
+ *
+ * What the footer's traffic arrows are lit from, and the reason it is here rather than in a
+ * link or a protocol: this seam is the one place every frame crosses whichever link is up and
+ * whichever protocol is speaking. Counted in a link it would be three counters kept in step; in
+ * a protocol, one more thing a second protocol has to remember to do.
+ *
+ * It forwards everything, and copies the inner table rather than pointing at it, because a
+ * table carries data as well as calls - the stream framing and the BLE profile a link reads
+ * off it have to be the inner protocol's, or a link bound to the tap would frame nothing.
+ *
+ * `on_traffic` is called after each count moves, with `ctx`; NULL for none. The counts only go
+ * up and wrap; a reader wants to know that they changed, not what they are.
+ */
+struct mesh_protocol_tap {
+    struct mesh_protocol inner;
+    struct mesh_protocol_ops ops;
+    mesh_protocol_send_fn send;
+    void *send_ctx;
+    uint32_t sent;
+    uint32_t received;
+    void (*on_traffic)(void *ctx);
+    void *ctx;
+};
+
+/* Points the tap at `inner` and returns the protocol to hand a link in its place. The counts
+   carry on across a rebind: a link that changes protocol has not un-sent anything. An unbound
+   `inner` returns an unbound protocol. */
+struct mesh_protocol mesh_protocol_tap_bind(struct mesh_protocol_tap *tap,
+                                            const struct mesh_protocol *inner);
+
 #ifdef __cplusplus
 }
 #endif
