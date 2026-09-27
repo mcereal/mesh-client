@@ -967,11 +967,11 @@ void mesh_app_autoconnect(struct mesh_app *app) {
              * an earlier Bluetooth build - keys the radio no longer holds - and dropped, so the
              * radio is paired afresh when it is next heard. A removal BlueZ refused is retried.
              */
-            if (device->paired && app->firmware_ble_handoff_tried) {
+            if (device->paired && strcmp(device->address, app->firmware_ble_handoff_tried) == 0) {
                 inkwell_log_info("app", "Dropping the old bond with %s before pairing it again",
                                  device->address);
                 if (mesh_ble_transport_forget(ble, device->address) == 0) {
-                    app->firmware_ble_handoff_tried = false;
+                    app->firmware_ble_handoff_tried[0] = '\0';
                 }
                 app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
                 return;
@@ -1102,7 +1102,8 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         /* Tried over its bond once the connect is under way - not on a refusal before it
            started, which says nothing about the bond. */
         if (handoff && target->paired) {
-            app->firmware_ble_handoff_tried = true;
+            snprintf(app->firmware_ble_handoff_tried, sizeof app->firmware_ble_handoff_tried, "%s",
+                     target->address);
         }
         if (result == 0) {
             inkwell_log_info("app", "Auto-connecting to %s (%s)", target->name, target->address);
