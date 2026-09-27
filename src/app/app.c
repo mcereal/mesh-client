@@ -704,11 +704,64 @@ static void mesh_app_age_preferred_failures(struct mesh_app *app,
     }
 }
 
+/*
+ * Whether an advertised name is the moved radio's. A legacy advertisement holds 29 bytes of
+ * name, so a long node name arrives cut short: a leading part of the expected name counts too,
+ * down to MESH_APP_HANDOFF_NAME_MIN. The node's key, checked once it answers, is what settles it.
+ */
+#define MESH_APP_HANDOFF_NAME_MIN 16U
+static bool mesh_app_handoff_named(const char *advertised, const char *expected) {
+    const size_t length = strlen(advertised);
+    return strcasecmp(advertised, expected) == 0 ||
+           (length >= MESH_APP_HANDOFF_NAME_MIN && length < strlen(expected) &&
+            strncasecmp(advertised, expected, length) == 0);
+}
+
+/* The radios that answered to a moved radio's name with another key, oldest out. */
+static bool mesh_app_handoff_rejected(const struct mesh_app *app, const char *address) {
+    for (size_t i = 0; i < MESH_APP_HANDOFF_WRONG_MAX; ++i) {
+        if (app->firmware_ble_handoff_wrong[i][0] != '\0' &&
+            strcmp(app->firmware_ble_handoff_wrong[i], address) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* A bond already gone is the state a removal is for, not a removal still to make. */
+static bool mesh_app_handoff_unbond(struct mesh_transport *ble, const char *address) {
+    const int result = mesh_ble_transport_forget(ble, address);
+    return result == 0 || result == -ENOENT;
+}
+
+static void mesh_app_handoff_reject(struct mesh_app *app, const char *address) {
+    if (mesh_app_handoff_rejected(app, address)) {
+        return;
+    }
+    memmove(app->firmware_ble_handoff_wrong[1], app->firmware_ble_handoff_wrong[0],
+            (MESH_APP_HANDOFF_WRONG_MAX - 1U) * sizeof app->firmware_ble_handoff_wrong[0]);
+    snprintf(app->firmware_ble_handoff_wrong[0], sizeof app->firmware_ble_handoff_wrong[0], "%s",
+             address);
+}
+
+/* The name a moved radio will advertise is the one it last answered to: a rename acknowledged
+   while the image was still coming down is on the radio, and the scan has to look for it. */
+static void mesh_app_handoff_follow_name(struct mesh_app *app) {
+    if (app->firmware_ble_handoff[0] == '\0' || !app->meshcore_bound || !app->meshcore.has_self ||
+        memcmp(app->meshcore.self.public_key, app->firmware_ble_handoff_key,
+               sizeof app->firmware_ble_handoff_key) != 0) {
+        return;
+    }
+    snprintf(app->firmware_ble_handoff, sizeof app->firmware_ble_handoff, "%s%s",
+             MESH_BLE_MESHCORE_NAME_PREFIX, app->meshcore.self.name);
+}
+
 void mesh_app_autoconnect(struct mesh_app *app) {
     if (app == NULL || app->autoconnect_disabled || app->autoconnect_held ||
         app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
         return;
     }
+    mesh_app_handoff_follow_name(app);
     /* Derived rather than held: a download that fails lifts this by failing. Pairing it with a
        flag would leave a radio unreachable after a failed install until something remembered to
        clear it. */
@@ -752,6 +805,33 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         app->autoconnect_tcp_retry_at_ms = 0U;
         app->autoconnect_waiting_logged = false;
         app->autoconnect_after_link = mesh_app_preferred_ble_link_up(app, ble);
+        /* The radio moved to Bluetooth is reached once it is the node on the other end of a
+           Bluetooth link - not when a connect to it was merely started, which can still fail
+           and would leave the retry to the unattended path that refuses its PIN. */
+        /* By its key, which the name only stands for: another radio can take that name, and
+           one that did is put down and passed over for the rest of the handoff. */
+        const char *const connected = mesh_ble_transport_connected_address(ble);
+        char over_air[sizeof app->firmware_ble_handoff_tried];
+        snprintf(over_air, sizeof over_air, "%s", connected != NULL ? connected : "");
+        if (app->firmware_ble_handoff[0] != '\0' && app->meshcore_bound && app->meshcore.has_self &&
+            over_air[0] != '\0') {
+            if (memcmp(app->meshcore.self.public_key, app->firmware_ble_handoff_key,
+                       sizeof app->firmware_ble_handoff_key) == 0) {
+                app->firmware_ble_handoff[0] = '\0';
+            } else if (mesh_ble_transport_disconnect(ble) == 0) {
+                /* Remembered only once it is down: a disconnect BlueZ refused is tried again
+                   on the next turn rather than leaving the impostor holding the link. */
+                inkwell_log_warn("app", "%s answered to %s with another key; passing it over",
+                                 over_air, app->firmware_ble_handoff);
+                /* A bond the handoff made for it goes too, or ordinary auto-connect would take
+                   the stranger up later; one it already had is the user's and stays. */
+                mesh_app_handoff_reject(app, over_air);
+                if (strcmp(over_air, app->firmware_ble_handoff_bonded) == 0 &&
+                    mesh_app_handoff_unbond(ble, over_air)) {
+                    app->firmware_ble_handoff_bonded[0] = '\0';
+                }
+            }
+        }
     }
     if (ble == NULL || link_up || mesh_app_link_connecting()) {
         return;
@@ -761,6 +841,29 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     if (now < app->autoconnect_retry_at_ms) {
         return;
     }
+    /* A removal BlueZ refused stays pending and is asked again each turn until it is done -
+       and nothing else is connected meanwhile, so the next candidate cannot take the one
+       marker it is kept in. */
+    if (app->firmware_ble_handoff_bonded[0] != '\0' &&
+        mesh_app_handoff_rejected(app, app->firmware_ble_handoff_bonded)) {
+        if (!mesh_app_handoff_unbond(ble, app->firmware_ble_handoff_bonded)) {
+            app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
+            return;
+        }
+        app->firmware_ble_handoff_bonded[0] = '\0';
+    }
+
+    /* Never while the write is still to be finished: the clock restarts when it is, and a
+       retry returns through the resume without setting the name again. */
+    if (app->firmware_ble_handoff[0] != '\0' && now >= app->firmware_ble_handoff_until_ms &&
+        !mesh_firmware_update_can_resume(&app->firmware_update) &&
+        !mesh_firmware_update_busy(&app->firmware_update)) {
+        app->firmware_ble_handoff[0] = '\0';
+    }
+    /* A radio just moved to Bluetooth is the one in the user's hand: until it is reached, or
+       the handoff runs out, nothing on a cable or the network is taken up in its place - the
+       link that made would hold the only one, and the pairing its PIN is for would never come. */
+    const bool awaiting_handoff = app->firmware_ble_handoff[0] != '\0';
 
     /*
      * A plugged-in node wins over anything on the air: it needs no pairing, has no range to
@@ -791,7 +894,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         }
     }
 
-    if (port_count > 0U) {
+    if (port_count > 0U && !awaiting_handoff) {
         const struct inkwell_serial_port_info *port = &ports[0];
         const char *preferred_port = app->config.preferred_serial_device;
         bool port_chosen = false;
@@ -848,7 +951,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     const char *tcp_target = mesh_tcp_transport_configured_target(tcp);
     /* Not while a host that answered neither protocol is muted: its own retry timer is shorter
        than the mute, and a new question would lift it. See app_probe.c. */
-    if (tcp_target != NULL && now >= app->autoconnect_tcp_retry_at_ms &&
+    if (tcp_target != NULL && !awaiting_handoff && now >= app->autoconnect_tcp_retry_at_ms &&
         !mesh_app_probe_muted(app, tcp_target, now)) {
         /* Stamped before the attempt, not after it: most of the ways this fails do so on the
            connect deadline, long after the call returned 0 and this function went home. */
@@ -900,8 +1003,45 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     }
 
     const struct inkwell_ble_device *target = NULL;
+    bool handoff = false;
+    /* A radio this client just moved to its Bluetooth build, by the name it now advertises:
+       the one in the user's hand, ahead of whatever was used last. */
+    for (size_t i = 0; app->firmware_ble_handoff[0] != '\0' && i < in_range_count; ++i) {
+        const struct inkwell_ble_device *device = &devices[in_range[i]];
+        if (mesh_app_handoff_named(device->name, app->firmware_ble_handoff) &&
+            mesh_app_ble_speaks_meshcore(ble, device->address) &&
+            !mesh_app_handoff_rejected(app, device->address)) {
+            /*
+             * A bond at that address is tried first: it may be this radio's and still good, or
+             * another radio's under the same name, which the key check then passes over with its
+             * bond intact. Only once a connect over it has failed is it taken for one left from
+             * an earlier Bluetooth build - keys the radio no longer holds - and dropped, so the
+             * radio is paired afresh when it is next heard. A removal BlueZ refused is retried.
+             */
+            if (device->paired && strcmp(device->address, app->firmware_ble_handoff_tried) == 0) {
+                inkwell_log_info("app", "Dropping the old bond with %s before pairing it again",
+                                 device->address);
+                if (mesh_ble_transport_forget(ble, device->address) == 0) {
+                    app->firmware_ble_handoff_tried[0] = '\0';
+                }
+                app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
+                return;
+            }
+            inkwell_log_info("app", "Reaching for %s, just moved to Bluetooth (%s, %d dBm)",
+                             device->name, device->address, (int)device->rssi);
+            target = device;
+            handoff = true;
+            break;
+        }
+    }
+    /* Not yet heard: nothing else is taken up meanwhile, since a link to another radio would
+       hold the only one and the radio being waited for would never be reconsidered. */
+    if (target == NULL && app->firmware_ble_handoff[0] != '\0') {
+        app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
+        return;
+    }
     const char *preferred = app->config.preferred_ble_device;
-    if (preferred[0] != '\0') {
+    if (target == NULL && preferred[0] != '\0') {
         for (size_t i = 0; i < in_range_count; ++i) {
             const struct inkwell_ble_device *device = &devices[in_range[i]];
             if (strcasecmp(device->address, preferred) == 0 ||
@@ -922,7 +1062,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
      * stranger - and the preferred one gets the turn after, so it is still reached the moment
      * it answers. See mesh_app_backoff_autoconnect() for the alternation.
      */
-    if (target != NULL &&
+    if (target != NULL && !handoff &&
         app->autoconnect_preferred_failures >= MESH_APP_AUTOCONNECT_PREFERRED_TRIES) {
         const struct inkwell_ble_device *other = NULL;
         int best_rank = -1;
@@ -1005,8 +1145,20 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     }
 
     mesh_app_bind_protocol(app, mesh_app_ble_speaks_meshcore(ble, target->address));
-    int result = mesh_ble_transport_connect(ble, target->address);
+    /* The radio just moved to Bluetooth is one the user is holding, having agreed to the move:
+       its PIN - on its screen, for a MeshCore build with one - is theirs to type. */
+    int result = handoff ? mesh_ble_transport_connect_and_pair(ble, target->address)
+                         : mesh_ble_transport_connect(ble, target->address);
     if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {
+        /* Tried over its bond once the connect is under way - not on a refusal before it
+           started, which says nothing about the bond. */
+        if (handoff && target->paired) {
+            snprintf(app->firmware_ble_handoff_tried, sizeof app->firmware_ble_handoff_tried, "%s",
+                     target->address);
+        } else if (handoff) {
+            snprintf(app->firmware_ble_handoff_bonded, sizeof app->firmware_ble_handoff_bonded,
+                     "%s", target->address);
+        }
         if (result == 0) {
             inkwell_log_info("app", "Auto-connecting to %s (%s)", target->name, target->address);
         }

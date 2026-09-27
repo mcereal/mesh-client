@@ -1394,6 +1394,18 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
             dst->fw_choice_count++;
         }
     }
+    /* From the job while a write waits to be finished: the answer it came from is gone. */
+    dst->fw_other_build = resuming ? update->release.other_build
+                                   : firmware->other_build && firmware->state != MESH_FIRMWARE_IDLE;
+    /* The node's own name too: it is what the Bluetooth build advertises under, and without it
+       nothing could reach for the radio once the cable goes quiet. */
+    dst->fw_bluetooth_offer =
+        app->meshcore_bound && app->meshcore.has_device && app->meshcore.has_self &&
+        mesh_app_firmware_bus() == MESH_FIRMWARE_PATH_USB && !dst->fw_busy && !firmware->blank &&
+        !firmware->switching &&
+        /* A Bluetooth answer that failed is asked again from the same row. */
+        !(dst->fw_other_build && firmware->state != MESH_FIRMWARE_FAILED) &&
+        !mesh_firmware_update_busy(update) && !mesh_firmware_update_can_resume(update);
     dst->fw_switch_offer = settled && twin != NULL && !dst->fw_busy && !firmware->blank &&
                            mesh_firmware_architecture_uses_esp_rom(board->architecture) &&
                            !mesh_firmware_update_busy(update) &&

@@ -66,6 +66,9 @@ struct mesh_app_probe_port {
 /* The question in flight: which link, which protocols it has been asked in, and when the one
    bound now has had long enough. `identifier` is what was connected, and empty when nothing is
    being asked. */
+/* How many radios answering to a moved radio's name with another key are passed over. */
+#define MESH_APP_HANDOFF_WRONG_MAX 4U
+
 struct mesh_app_probe {
     char identifier[MESH_APP_PROBE_ID_MAX];
     /* What the answer is remembered under: a USB port's sysfs id, which outlives its tty. */
@@ -162,6 +165,20 @@ struct mesh_app {
     /* The port a silent radio's board is being chosen for, by its key: what the list, the
        answer and the install that follows are all about. */
     char firmware_blank_port[MESH_APP_PROBE_ID_MAX];
+    /* A MeshCore radio just moved to its Bluetooth build: the name it will advertise under,
+       which auto-connect reaches for ahead of any other until `firmware_ble_handoff_until_ms`.
+       Empty when there is none. */
+    char firmware_ble_handoff[MESH_MESHCORE_NAME_LEN + 16U];
+    uint64_t firmware_ble_handoff_until_ms;
+    /* Who that radio is - a name can be anybody's - and which address a connect over its bond
+       has been tried at: one left from an earlier Bluetooth build would skip the pairing
+       the PIN is for, and is dropped once it has failed. A radio that answered to the name with
+       another key is `firmware_ble_handoff_wrong`. */
+    uint8_t firmware_ble_handoff_key[MESH_MESHCORE_PUBKEY_LEN];
+    char firmware_ble_handoff_tried[18];
+    /* A radio the handoff bonded for the first time, whose bond goes if its key is wrong. */
+    char firmware_ble_handoff_bonded[18];
+    char firmware_ble_handoff_wrong[MESH_APP_HANDOFF_WRONG_MAX][18];
     /* Whether an install stopped the transports and owes them back. A flag rather than a
        question, because "stopped" and "stopped by us" are not the same state and only the
        second one should be restarted. */

@@ -531,6 +531,26 @@ MESH_TEST_CASE(meshcore_unanswered_commands_end_the_link, unit) {
     record_success(test_name);
 }
 
+/* A handshake that loses a step can never finish: DEVICE_INFO with no SELF_INFO after it is a
+   dead link at the first timeout, not the second, since nothing else would be sent to time out. */
+MESH_TEST_CASE(meshcore_a_handshake_step_unanswered_ends_the_link, unit) {
+    static struct wire wire;
+    memset(&wire, 0, sizeof wire);
+    mesh_session_init(&g_model);
+    mesh_meshcore_init(&g_meshcore, &g_model);
+    const struct mesh_protocol protocol = mesh_meshcore_protocol(&g_meshcore);
+    mesh_protocol_attach(&protocol, wire_send, &wire);
+    (void)mesh_protocol_begin(&protocol);
+    feed(&protocol, k_device_info, sizeof k_device_info);
+    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_APP_START,
+                      "the radio described, APP_START asks for its identity");
+    MESH_TEST_FAIL_IF(mesh_protocol_silent(&protocol), "an answer due is not silence");
+    mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    MESH_TEST_FAIL_IF(!mesh_protocol_silent(&protocol),
+                      "a SELF_INFO that never comes ends the link, to be asked again");
+    record_success(test_name);
+}
+
 static uint32_t frame_u32(const uint8_t *bytes) {
     return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8U) | ((uint32_t)bytes[2] << 16U) |
            ((uint32_t)bytes[3] << 24U);

@@ -640,6 +640,60 @@ cleanup:
 }
 
 /*
+ * The same radio's Bluetooth build, asked for over the cable it answers on: offered at the very
+ * version it runs, as the application alone - the radio keeps what it knows - and still this
+ * radio's answer on the USB bus the build does not match.
+ */
+MESH_TEST_CASE(firmware_meshcore_offers_the_bluetooth_build_over_the_cable, unit) {
+    struct firmware_harness harness;
+    const char *failure = NULL;
+    if (!firmware_harness_up(&harness)) {
+        firmware_harness_down(&harness);
+        MESH_TEST_FAIL_IF(true, "the harness should come up");
+    }
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB, true);
+    if (mesh_firmware_check_meshcore_bluetooth(&harness.firmware, "Heltec V3", "v1.17.1-d929643",
+                                               0U) != 0 ||
+        !firmware_settle(&harness)) {
+        failure = "the check should start and finish";
+        goto cleanup;
+    }
+    const struct mesh_firmware_board *const board = mesh_firmware_board(&harness.firmware);
+    if (harness.firmware.state != MESH_FIRMWARE_AVAILABLE || board == NULL ||
+        strcmp(board->target, "Heltec_v3_companion_radio_ble") != 0) {
+        failure = "the Bluetooth companion is news at the version the radio already runs";
+        goto cleanup;
+    }
+    if (harness.firmware.release.wipe || !harness.firmware.release.other_build ||
+        strcmp(harness.firmware.release.image_name,
+               "Heltec_v3_companion_radio_ble-v1.17.1-d929643.bin") != 0) {
+        failure = "the application alone, never the whole flash - and the job says which build";
+        goto cleanup;
+    }
+    if (harness.firmware.blocker != MESH_FIRMWARE_BLOCKER_NONE) {
+        failure = "over the USB bridge it is on, nothing is in the way";
+        goto cleanup;
+    }
+    if (!mesh_firmware_answers_for_meshcore(&harness.firmware, "Heltec V3", "v1.17.1-d929643",
+                                            true)) {
+        failure = "the USB build on its cable still owns the Bluetooth build's answer";
+        goto cleanup;
+    }
+    if (mesh_firmware_check_meshcore(&harness.firmware, "Heltec V3", "v1.17.1-d929643", true, 0U) !=
+            0 ||
+        !firmware_settle(&harness) || harness.firmware.other_build ||
+        harness.firmware.state != MESH_FIRMWARE_UP_TO_DATE) {
+        failure = "an ordinary check afterwards is about the build it runs again";
+        goto cleanup;
+    }
+
+cleanup:
+    firmware_harness_down(&harness);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * A switch reads the other firmware's documents for the same board: the Heltec V3 on
  * Meshtastic is offered MeshCore's USB companion as a whole flash, and on MeshCore is offered
  * Meshtastic's newest stable the same way - over USB and nowhere else.

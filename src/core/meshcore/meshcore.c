@@ -1554,6 +1554,12 @@ static void mesh_meshcore_tick(void *self, uint64_t now_ms) {
         if (meshcore->timeouts < UINT8_MAX) {
             meshcore->timeouts += 1U;
         }
+        /* A handshake step given up on leaves a sync that can never finish - a DEVICE_INFO with
+           no SELF_INFO after it is a radio half known - so the link is called silent now, to be
+           dropped and asked again, rather than waiting on a second timeout nothing will send. */
+        if (meshcore->phase == MESH_MESHCORE_HANDSHAKE) {
+            meshcore->timeouts = 2U;
+        }
         if (mesh_meshcore_is_settings_write(cmd)) {
             mesh_meshcore_settle_write(meshcore, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
         }

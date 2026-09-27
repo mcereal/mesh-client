@@ -656,6 +656,15 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS,
     MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD,
     /*
+     * A MeshCore radio on a USB cable moved to its Bluetooth companion build: the check, and the
+     * install, which writes the application over the cable and reaches the app as
+     * MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE with `number` 3. Its own sheet, because what it
+     * costs is neither an update's nor a switch's: nothing on the radio goes, but the cable
+     * stops answering.
+     */
+    MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_BLUETOOTH,
+    MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH,
+    /*
      * Channel sharing, at the foot of the Channels list: this radio's set as a link, and a
      * link typed in.
      *

@@ -2058,6 +2058,106 @@ cleanup:
 }
 
 /*
+ * A bond the Bluetooth handoff made for a radio that answered with another key is removed, and
+ * a removal BlueZ refused holds auto-connect until it lands: the next candidate would take the
+ * one marker it is kept in, and the stranger's bond would outlive the handoff.
+ */
+MESH_TEST_CASE(app_handoff_retries_an_impostor_bond_before_the_next_candidate, unit) {
+    const char *failure = NULL;
+    bool app_ready = false;
+    unsigned removed = 0U;
+    struct inkwell_ble_device mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:01", .name = "MeshCore-Desk", .rssi = -40, .paired = true},
+        {.address = "AA:BB:CC:DD:EE:02", .name = "NodeTwo", .rssi = -50, .paired = true},
+    };
+    struct inkwell_ble_mock_config mock_config = {.adapter_name = "/org/bluez/hci0",
+                                                  .devices = mock_devices,
+                                                  .device_count = 2U,
+                                                  .forget_result = -EIO,
+                                                  .forget_calls = &removed};
+    inkwell_ble_mock_enable(&mock_config);
+
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "unbond")) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_serial = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    struct mesh_transport *ble = mesh_ble_transport();
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+
+    snprintf(app.firmware_ble_handoff_bonded, sizeof app.firmware_ble_handoff_bonded, "%s",
+             mock_devices[0].address);
+    snprintf(app.firmware_ble_handoff_wrong[0], sizeof app.firmware_ble_handoff_wrong[0], "%s",
+             mock_devices[0].address);
+    mesh_app_autoconnect(&app);
+    if (removed != 1U || strcmp(app.firmware_ble_handoff_bonded, mock_devices[0].address) != 0) {
+        failure = "a refused removal is attempted and stays pending";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connected_address(ble) != NULL) {
+        failure = "and nothing else is connected while it is pending";
+        goto cleanup;
+    }
+
+    mock_config.forget_result = -ENOENT;
+    inkwell_ble_mock_enable(&mock_config);
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (removed != 2U || app.firmware_ble_handoff_bonded[0] != '\0') {
+        failure = "a bond already gone settles the removal";
+        goto cleanup;
+    }
+
+    /* A rename the radio acknowledged before the cable went is the name it will advertise. */
+    (void)mesh_ble_transport_disconnect(ble);
+    snprintf(app.firmware_ble_handoff, sizeof app.firmware_ble_handoff, "%s", "MeshCore-Old");
+    memset(app.firmware_ble_handoff_key, 0x5A, sizeof app.firmware_ble_handoff_key);
+    app.meshcore_bound = true;
+    app.meshcore.has_self = true;
+    memset(app.meshcore.self.public_key, 0x5A, sizeof app.meshcore.self.public_key);
+    snprintf(app.meshcore.self.name, sizeof app.meshcore.self.name, "%s", "Desk");
+    app.autoconnect_retry_at_ms = UINT64_MAX;
+    mesh_app_autoconnect(&app);
+    if (strcmp(app.firmware_ble_handoff, "MeshCore-Desk") != 0) {
+        failure = "the handoff looks for the name the radio last answered to";
+        goto cleanup;
+    }
+    /* Another radio's answer is not this one being renamed. */
+    app.meshcore.self.public_key[0] ^= 0xFFU;
+    snprintf(app.meshcore.self.name, sizeof app.meshcore.self.name, "%s", "Other");
+    mesh_app_autoconnect(&app);
+    app.meshcore_bound = false;
+    app.meshcore.has_self = false;
+    if (strcmp(app.firmware_ble_handoff, "MeshCore-Desk") != 0) {
+        failure = "a radio with another key does not rename the handoff";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    inkwell_ble_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * A radio that does not come back after its own update has its bond dropped for it.
  *
  * Installing firmware is the one thing this client does that changes a radio's half of a BLE

@@ -935,6 +935,8 @@ enum mesh_ui_action_type {
        name for it, in `identifier`. */
     MESH_UI_ACTION_LIST_FIRMWARE_BOARDS,
     MESH_UI_ACTION_PICK_FIRMWARE_BOARD,
+    /* A MeshCore radio on a cable asks for its Bluetooth companion build. */
+    MESH_UI_ACTION_CHECK_FIRMWARE_BLUETOOTH,
     /*
      * Install what the check found. `number` is the bus - 0 for USB, 1 for Bluetooth - taken
      * from which of the two rows was confirmed rather than re-read from the snapshot, because

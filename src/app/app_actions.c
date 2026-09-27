@@ -28,6 +28,7 @@
 #include "mesh/core/version.h"
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/proto/ble_profile.h"
 #include "mesh/proto/channel_url.h"
 #include "mesh/proto/contact_url.h"
 #include "mesh/proto/meshcore_url.h"
@@ -353,6 +354,11 @@ void mesh_app_firmware_update_done(void *userdata, const struct mesh_firmware_up
          */
         mesh_firmware_forget(&app->firmware);
         mesh_app_firmware_watch_bond(app, update, now);
+        if (app->firmware_ble_handoff[0] != '\0') {
+            /* From now: the write may have been resumed long after it was started. */
+            app->firmware_ble_handoff_until_ms = now + MESH_APP_BLE_HANDOFF_MS;
+            inkwell_log_info("ui", "Looking for %s over Bluetooth", app->firmware_ble_handoff);
+        }
         /* A switch: the cable now carries the other protocol, from a blank flash. */
         if (update->release.wipe && update->path == MESH_FIRMWARE_PATH_USB) {
             mesh_app_probe_expect(app, update->where, update->board.meshcore, now);
@@ -366,6 +372,11 @@ void mesh_app_firmware_update_done(void *userdata, const struct mesh_firmware_up
                                : mesh_firmware_update_error_name(update->error));
         inkwell_log_warn("ui", "Radio firmware install failed: %s (%s)",
                          mesh_firmware_update_error_name(update->error), update->detail);
+        /* Kept for a write that can be resumed: the retry returns through the resume and never
+           reaches the press that set it, and what it finishes is still the Bluetooth build. */
+        if (!mesh_firmware_update_can_resume(update)) {
+            app->firmware_ble_handoff[0] = '\0';
+        }
     }
     /* Posted rather than set: the press that started this was minutes ago and whatever is on
        the screen now is the answer to something else. */
@@ -1987,6 +1998,22 @@ static void on_list_firmware_boards(struct mesh_app *app, const struct mesh_ui_a
     firmware_check_toast(app, result, now);
 }
 
+/* A MeshCore radio on its cable, asked for the Bluetooth build of what it runs. */
+static void on_check_firmware_bluetooth(struct mesh_app *app, const struct mesh_ui_action *action) {
+    const uint64_t now = inkwell_time_monotonic_ms();
+    (void)action;
+    if (!app->meshcore_bound || !app->meshcore.has_device || !app->meshcore.has_self ||
+        mesh_app_firmware_bus() != MESH_FIRMWARE_PATH_USB) {
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_FW_NO_RADIO));
+        return;
+    }
+    firmware_check_toast(app,
+                         mesh_firmware_check_meshcore_bluetooth(&app->firmware,
+                                                                app->meshcore.device.model,
+                                                                app->meshcore.device.version, now),
+                         now);
+}
+
 /* One of them picked, by name - which has to be one the list offered. */
 static void on_pick_firmware_board(struct mesh_app *app, const struct mesh_ui_action *action) {
     const uint64_t now = inkwell_time_monotonic_ms();
@@ -2039,13 +2066,16 @@ static void on_install_update(struct mesh_app *app, const struct mesh_ui_action 
  * is armed (firmware_ota.c takes a NULL arm as "already in there") and nothing is waited for (a
  * NULL radio_ready is "go now").
  */
-static bool firmware_resume_install(struct mesh_app *app, uint64_t now, bool switch_agreed) {
+static bool firmware_resume_install(struct mesh_app *app, uint64_t now, bool switch_agreed,
+                                    bool bluetooth_agreed) {
     if (!mesh_firmware_update_can_resume(&app->firmware_update)) {
         return false;
     }
     /* The sheet agreed to has to be the one for what the retry writes: a whole flash only
-       under the switch sheet, and an update only under an update's. */
-    if (app->firmware_update.release.wipe != switch_agreed) {
+       under the switch sheet, the Bluetooth build only under its own, and an update only under
+       an update's. */
+    if (app->firmware_update.release.wipe != switch_agreed ||
+        app->firmware_update.release.other_build != bluetooth_agreed) {
         mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
         inkwell_log_warn("ui", "Refusing a firmware resume: the sheet and the job disagree "
                                "about whether this is a switch");
@@ -2122,7 +2152,7 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
 
-    if (firmware_resume_install(app, now, action->number == 2U)) {
+    if (firmware_resume_install(app, now, action->number == 2U, action->number == 3U)) {
         return;
     }
     /*
@@ -2152,7 +2182,10 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
        whether the answer is one: an update agreed to must never write the whole flash, nor a
        switch go ahead on the milder sheet. */
     const bool switch_agreed = action->number == 2U;
-    if (switch_agreed != app->firmware.switching || app->firmware.release.wipe != switch_agreed) {
+    /* And the Bluetooth build's sheet - the cable stops answering - against that answer. */
+    const bool bluetooth_agreed = action->number == 3U;
+    if (switch_agreed != app->firmware.switching || app->firmware.release.wipe != switch_agreed ||
+        bluetooth_agreed != app->firmware.other_build) {
         mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
         inkwell_log_warn("ui", "Refusing a firmware install: the sheet and the answer disagree "
                                "about whether this is a switch");
@@ -2207,6 +2240,19 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
         &app->firmware_update, board, &app->firmware.release, agreed, where != NULL ? where : "",
         &hooks, mesh_app_firmware_update_done, app);
     if (result == 0) {
+        /* The name the Bluetooth build advertises under - its prefix and the node's own name -
+           for auto-connect to reach for once the cable has gone quiet. */
+        app->firmware_ble_handoff[0] = '\0';
+        if (bluetooth_agreed && app->meshcore.has_self) {
+            snprintf(app->firmware_ble_handoff, sizeof app->firmware_ble_handoff, "%s%s",
+                     MESH_BLE_MESHCORE_NAME_PREFIX, app->meshcore.self.name);
+            memcpy(app->firmware_ble_handoff_key, app->meshcore.self.public_key,
+                   sizeof app->firmware_ble_handoff_key);
+            app->firmware_ble_handoff_tried[0] = '\0';
+            app->firmware_ble_handoff_bonded[0] = '\0';
+            memset(app->firmware_ble_handoff_wrong, 0, sizeof app->firmware_ble_handoff_wrong);
+            app->firmware_ble_handoff_until_ms = now + MESH_APP_BLE_HANDOFF_MS;
+        }
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE,
                            app->firmware.release.version);
         inkwell_log_info("ui", "Installing radio firmware %s on %s", app->firmware.release.version,
@@ -2488,6 +2534,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_CHECK_FIRMWARE_SWITCH, on_check_firmware_switch, false},
     {MESH_UI_ACTION_LIST_FIRMWARE_BOARDS, on_list_firmware_boards, false},
     {MESH_UI_ACTION_PICK_FIRMWARE_BOARD, on_pick_firmware_board, false},
+    {MESH_UI_ACTION_CHECK_FIRMWARE_BLUETOOTH, on_check_firmware_bluetooth, false},
     {MESH_UI_ACTION_INSTALL_UPDATE, on_install_update, false},
     {MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE, on_install_radio_firmware, false},
     {MESH_UI_ACTION_IMPORT_CHANNELS, on_import_channels, false},

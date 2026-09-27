@@ -1949,6 +1949,8 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
                 action->type = MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH) {
                 action->type = MESH_UI_ACTION_CHECK_FIRMWARE_SWITCH;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_BLUETOOTH) {
+                action->type = MESH_UI_ACTION_CHECK_FIRMWARE_BLUETOOTH;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS) {
                 action->type = MESH_UI_ACTION_LIST_FIRMWARE_BOARDS;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD) {

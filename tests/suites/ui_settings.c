@@ -5223,3 +5223,52 @@ MESH_TEST_CASE(node_detail_speaks_the_readers_terms, unit) {
                       "a fix rounded finer than the settings table keeps four decimals");
     record_success(test_name);
 }
+
+/* A MeshCore radio on its cable is offered its Bluetooth build under the check, and once that is
+   the answer, the install is its own press - under its own sheet - never the USB update's. */
+MESH_TEST_CASE(ui_settings_radio_details_moves_a_meshcore_radio_to_bluetooth, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.fw_supported = true;
+    settings.protocol = (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
+    settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_USB;
+    settings.fw_bluetooth_offer = true;
+
+    struct mesh_ui_settings_item item;
+    bool offered = false;
+    uint32_t count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                                 MESH_UI_SETTINGS_NO_CHANNEL);
+    for (uint32_t i = 0; i < count; ++i) {
+        offered = offered ||
+                  (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                         MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+                   item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_BLUETOOTH);
+    }
+    MESH_TEST_FAIL_IF(!offered, "the Bluetooth build can be asked for");
+
+    settings.fw_bluetooth_offer = false;
+    settings.fw_other_build = true;
+    settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
+    settings.fw_can_install = true;
+    snprintf(settings.fw_message, sizeof settings.fw_message, "1.17.1");
+    bool install = false;
+    count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                        MESH_UI_SETTINGS_NO_CHANNEL);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
+            continue;
+        }
+        install =
+            install || item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH;
+        MESH_TEST_FAIL_IF(item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB,
+                          "moving to Bluetooth is never offered under the update's sheet");
+    }
+    MESH_TEST_FAIL_IF(!install, "the Bluetooth build installs from its own row");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_action_is_install_firmware(
+                          MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH),
+                      "and is one of the installs, with a sheet in front of it");
+    record_success(test_name);
+}

@@ -1301,6 +1301,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TITLE_FW_USB] = "¿Actualizar la radio por USB?",
     [MESH_STR_CONFIRM_TITLE_FW_BLE] = "¿Actualizar la radio por Bluetooth?",
     [MESH_STR_CONFIRM_TITLE_FW_SWITCH] = "¿Cambiar el firmware de la radio?",
+    [MESH_STR_CONFIRM_TITLE_FW_BLUETOOTH] = "¿Pasar la radio a Bluetooth?",
     [MESH_STR_CONFIRM_TITLE_CLEAR_CHAN] = "¿Vaciar el canal %u?",
     [MESH_STR_CONFIRM_TITLE_SAVE_CHANNEL] = "¿Guardar canal %u?",
     [MESH_STR_CONFIRM_TITLE_SAVE] = "¿Guardar %s?",
@@ -1319,6 +1320,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_ACCEPT_FW_USB] = "Actualizar por USB",
     [MESH_STR_CONFIRM_ACCEPT_FW_BLE] = "Actualizar por Bluetooth",
     [MESH_STR_CONFIRM_ACCEPT_FW_SWITCH] = "Borrar y cambiar",
+    [MESH_STR_CONFIRM_ACCEPT_FW_BLUETOOTH] = "Instalar",
     [MESH_STR_CONFIRM_ACCEPT_SAVE] = "Guardar en la radio",
     [MESH_STR_CONFIRM_ACCEPT_IMPORT] = "Unirse",
     [MESH_STR_CONFIRM_ACCEPT_ADD_CONTACT] = "Añadir",
@@ -1361,6 +1363,10 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TEXT_FW_SWITCH] =
         "La radio se reescribe por el cable y empieza de nuevo como un nodo nuevo: sus ajustes, "
         "claves, contactos y canales no se conservan. Mantenla conectada hasta que vuelva.",
+    [MESH_STR_CONFIRM_TEXT_FW_BLUETOOTH] =
+        "La versión Bluetooth se escribe por el cable. La radio conserva sus ajustes, claves, "
+        "contactos y canales, pero al reiniciarse responde por Bluetooth y ya no por USB. "
+        "Mantenla conectada hasta entonces.",
     [MESH_STR_CONFIRM_TEXT_FW_USB] =
         "Se descarga la imagen, la radio se reinicia en su gestor de arranque y los bloques se "
         "escriben por el cable. No lo desconectes: una escritura interrumpida deja el gestor de "
@@ -1811,6 +1817,9 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_FW_BOARDS_HEAD] = "Placas MeshCore",
     [MESH_STR_FW_CHOSEN_BOARD] = "Placa elegida",
     [MESH_STR_FW_BLANK_INSTALL] = "Instalar MeshCore",
+    [MESH_STR_FW_BLUETOOTH_CHECK] = "Buscar la versión Bluetooth",
+    [MESH_STR_FW_BLUETOOTH_BUILD] = "Versión Bluetooth",
+    [MESH_STR_FW_BLUETOOTH_INSTALL] = "Pasar a Bluetooth",
     [MESH_STR_TOAST_INSTALLING_FIRMWARE] = "Instalando %s en la radio...",
     [MESH_STR_TOAST_FIRMWARE_INSTALLED] = "La radio está ejecutando %s",
     /* "vinculación" is the word MESH_STR_LINK_NEEDS_PAIRING uses for a bond, and that is the

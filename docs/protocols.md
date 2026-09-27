@@ -272,4 +272,14 @@ end.
   a whole flash (`mesh_firmware_check_blank()`), installed as a switch is. The list is not
   narrowed by chip - the flasher says only "esp32" - so a wrong pick is caught by the image's
   header against the ROM's answer, before anything is erased. The port stays passed over by
-  auto-connect while its board is being chosen.
+  auto-connect while its board is being chosen. It is offered beside a radio up over Bluetooth or
+  TCP too, under that radio's own rows; choosing the board puts that link down, and auto-connect
+  waits while the answer is held (`firmware.blank`), or a remembered node would take the link
+  back before the install.
+- **A MeshCore radio on its cable can move to its Bluetooth companion build**
+  (`mesh_firmware_check_meshcore_bluetooth()`): the `companionBle` build's application alone,
+  offered at any version, so the radio keeps its identity, contacts and channels and stops
+  answering on USB. The answer carries `other_build`, which is what keeps it from being
+  forgotten for not matching the bus the radio is on. Afterwards auto-connect reaches for
+  `MeshCore-<node name>` over Bluetooth ahead of any other for five minutes, and pairs it
+  attended: the BLE build shows a PIN on its screen, and the prompt is the user's to answer.

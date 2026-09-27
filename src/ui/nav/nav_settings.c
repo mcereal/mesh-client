@@ -363,9 +363,10 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
     if (mesh_ui_settings_action_is_install_firmware(which)) {
         action->type = MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE;
         action->section = mesh_ui_nav_open_section(nav);
-        action->number = which == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE      ? 1U
-                         : which == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH ? 2U
-                                                                                    : 0U;
+        action->number = which == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE         ? 1U
+                         : which == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH    ? 2U
+                         : which == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH ? 3U
+                                                                                       : 0U;
         return;
     }
     action->type = MESH_UI_ACTION_RADIO_ACTION;

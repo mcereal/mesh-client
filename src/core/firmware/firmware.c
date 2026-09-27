@@ -354,6 +354,11 @@ static void firmware_conclude(struct mesh_firmware *firmware) {
         return;
     }
     firmware_recompute_blocker(firmware);
+    /* The other build is news at any version: the radio does not run it. */
+    if (firmware->other_build) {
+        firmware_set(firmware, MESH_FIRMWARE_AVAILABLE, firmware->release.version);
+        return;
+    }
 
     /*
      * MESHCLIENT_FIRMWARE_REINSTALL offers the release the radio is already running, which is
@@ -469,8 +474,9 @@ bool mesh_firmware_answers_for_meshcore(const struct mesh_firmware *firmware, co
     if (firmware == NULL || firmware->state == MESH_FIRMWARE_IDLE) {
         return true;
     }
+    /* The Bluetooth build asked for over the cable is still about the USB build running. */
     return mesh_firmware_radio_source(firmware) == MESH_FIRMWARE_SOURCE_MESHCORE &&
-           firmware->usb_build == usb_build &&
+           (firmware->usb_build || firmware->other_build) == usb_build &&
            strcmp(firmware->model, model != NULL ? model : "") == 0 &&
            strcmp(firmware->running, running != NULL ? running : "") == 0;
 }
@@ -486,6 +492,7 @@ void mesh_firmware_forget(struct mesh_firmware *firmware) {
     firmware->model[0] = '\0';
     firmware->tag[0] = '\0';
     firmware->switching = false;
+    firmware->other_build = false;
     firmware->twin[0] = '\0';
     firmware->blank = false;
     firmware->choices.count = 0U;
@@ -609,6 +616,7 @@ static void firmware_on_meshcore_release(void *userdata,
     /* A release with no file for this build still has a version to report: the row says there
        is no download, the way a Meshtastic release with no manifest yet does. */
     firmware->release.wipe = firmware->switching;
+    firmware->release.other_build = firmware->other_build;
     if (mesh_firmware_meshcore_asset_parse(result->body, result->len, &firmware->boards.entries[0],
                                            &firmware->release)) {
         inkwell_log_info("firmware", "The image is %s, %llu bytes", firmware->release.image_name,
@@ -632,6 +640,7 @@ static void firmware_begin(struct mesh_firmware *firmware, enum mesh_firmware_so
     inkwell_str_copy(firmware->running, sizeof firmware->running, running != NULL ? running : "");
     firmware->tag[0] = '\0';
     firmware->switching = false;
+    firmware->other_build = false;
     firmware->twin[0] = '\0';
     firmware->blank = false;
     firmware->choices.count = 0U;
@@ -664,6 +673,15 @@ int mesh_firmware_check_meshcore(struct mesh_firmware *firmware, const char *mod
     }
     firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING, inkcell_str(MESH_STR_FW_STATE_IDENTIFYING));
     return 0;
+}
+
+int mesh_firmware_check_meshcore_bluetooth(struct mesh_firmware *firmware, const char *model,
+                                           const char *running, uint64_t now_ms) {
+    const int result = mesh_firmware_check_meshcore(firmware, model, running, false, now_ms);
+    if (result == 0) {
+        firmware->other_build = true;
+    }
+    return result;
 }
 
 /* Both switches: the same refusals as a check, and a board with no twin is -ENOENT. */
