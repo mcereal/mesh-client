@@ -142,6 +142,9 @@ struct mesh_firmware_release {
      * is the same file either way.
      */
     bool wipe;
+    /* The install is the radio's other companion build of the same firmware - the Bluetooth
+       one, over its cable - which a resumed write has to be agreed to under the same sheet. */
+    bool other_build;
 };
 
 /*

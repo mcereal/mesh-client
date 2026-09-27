@@ -755,13 +755,20 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         /* The radio moved to Bluetooth is reached once it is the node on the other end of a
            Bluetooth link - not when a connect to it was merely started, which can still fail
            and would leave the retry to the unattended path that refuses its PIN. */
-        char reached[sizeof app->firmware_ble_handoff];
+        /* By its key, which the name only stands for: another radio can take that name, and
+           one that did is put down and passed over for the rest of the handoff. */
+        const char *const over_air = mesh_ble_transport_connected_address(ble);
         if (app->firmware_ble_handoff[0] != '\0' && app->meshcore_bound && app->meshcore.has_self &&
-            mesh_ble_transport_connected_address(ble) != NULL) {
-            snprintf(reached, sizeof reached, "%s%s", MESH_BLE_MESHCORE_NAME_PREFIX,
-                     app->meshcore.self.name);
-            if (strcasecmp(reached, app->firmware_ble_handoff) == 0) {
+            over_air != NULL) {
+            if (memcmp(app->meshcore.self.public_key, app->firmware_ble_handoff_key,
+                       sizeof app->firmware_ble_handoff_key) == 0) {
                 app->firmware_ble_handoff[0] = '\0';
+            } else if (strcmp(over_air, app->firmware_ble_handoff_wrong) != 0) {
+                inkwell_log_warn("app", "%s answered to %s with another key; passing it over",
+                                 over_air, app->firmware_ble_handoff);
+                snprintf(app->firmware_ble_handoff_wrong, sizeof app->firmware_ble_handoff_wrong,
+                         "%s", over_air);
+                (void)mesh_ble_transport_disconnect(ble);
             }
         }
     }
@@ -924,7 +931,20 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     }
     for (size_t i = 0; app->firmware_ble_handoff[0] != '\0' && i < in_range_count; ++i) {
         const struct inkwell_ble_device *device = &devices[in_range[i]];
-        if (strcasecmp(device->name, app->firmware_ble_handoff) == 0) {
+        if (strcasecmp(device->name, app->firmware_ble_handoff) == 0 &&
+            mesh_app_ble_speaks_meshcore(ble, device->address) &&
+            strcmp(device->address, app->firmware_ble_handoff_wrong) != 0) {
+            /* A bond left from an earlier Bluetooth build would skip the pairing and fail on
+               keys the radio no longer holds: dropped once, and the radio is paired afresh
+               when it is next heard, unbonded. */
+            if (device->paired && !app->firmware_ble_handoff_unbonded) {
+                app->firmware_ble_handoff_unbonded = true;
+                inkwell_log_info("app", "Dropping the old bond with %s before pairing it again",
+                                 device->address);
+                (void)mesh_ble_transport_forget(ble, device->address);
+                app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
+                return;
+            }
             inkwell_log_info("app", "Reaching for %s, just moved to Bluetooth (%s, %d dBm)",
                              device->name, device->address, (int)device->rssi);
             target = device;

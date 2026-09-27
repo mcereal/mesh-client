@@ -664,10 +664,10 @@ MESH_TEST_CASE(firmware_meshcore_offers_the_bluetooth_build_over_the_cable, unit
         failure = "the Bluetooth companion is news at the version the radio already runs";
         goto cleanup;
     }
-    if (harness.firmware.release.wipe ||
+    if (harness.firmware.release.wipe || !harness.firmware.release.other_build ||
         strcmp(harness.firmware.release.image_name,
                "Heltec_v3_companion_radio_ble-v1.17.1-d929643.bin") != 0) {
-        failure = "the application alone, never the whole flash";
+        failure = "the application alone, never the whole flash - and the job says which build";
         goto cleanup;
     }
     if (harness.firmware.blocker != MESH_FIRMWARE_BLOCKER_NONE) {

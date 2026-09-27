@@ -616,6 +616,7 @@ static void firmware_on_meshcore_release(void *userdata,
     /* A release with no file for this build still has a version to report: the row says there
        is no download, the way a Meshtastic release with no manifest yet does. */
     firmware->release.wipe = firmware->switching;
+    firmware->release.other_build = firmware->other_build;
     if (mesh_firmware_meshcore_asset_parse(result->body, result->len, &firmware->boards.entries[0],
                                            &firmware->release)) {
         inkwell_log_info("firmware", "The image is %s, %llu bytes", firmware->release.image_name,

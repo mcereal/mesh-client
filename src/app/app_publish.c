@@ -1394,7 +1394,9 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
             dst->fw_choice_count++;
         }
     }
-    dst->fw_other_build = firmware->other_build && firmware->state != MESH_FIRMWARE_IDLE;
+    /* From the job while a write waits to be finished: the answer it came from is gone. */
+    dst->fw_other_build = resuming ? update->release.other_build
+                                   : firmware->other_build && firmware->state != MESH_FIRMWARE_IDLE;
     /* The node's own name too: it is what the Bluetooth build advertises under, and without it
        nothing could reach for the radio once the cable goes quiet. */
     dst->fw_bluetooth_offer =
