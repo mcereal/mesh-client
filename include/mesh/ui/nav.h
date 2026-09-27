@@ -686,6 +686,9 @@ struct mesh_ui_nav {
      */
     bool keyboard_login;
     uint32_t login_node;
+    /* In a published snapshot, where `draft` is masked: how many bytes the password really is,
+       which is what its cap counts. mesh_ui_nav_draft_used() reads it. */
+    uint8_t login_draft_bytes;
     char login_name[MESH_UI_NAV_TARGET_NAME_MAX];
     /* When the keyboard edits a setting rather than the Compose draft: the field it is for
        (NONE for Compose) and the Compose draft parked while it is open. */
@@ -1317,6 +1320,9 @@ bool mesh_ui_nav_kb_submit_finishes(const struct mesh_ui_nav *nav);
  * renderer that read it alone drew the search heading over six digits BlueZ was waiting for,
  * while every key went to the prompt. The prompt wins here as it wins in the key dispatch.
  */
+/* How many bytes of its cap the draft uses: its length, or for a published password - whose
+   draft is masked - the length it really has. */
+size_t mesh_ui_nav_draft_used(const struct mesh_ui_nav *nav);
 /*
  * What the keyboard's field shows of the draft: the draft itself, or for a password one mark per
  * character in `out`, with `*caret_back` (bytes of the draft after the caret) turned into bytes

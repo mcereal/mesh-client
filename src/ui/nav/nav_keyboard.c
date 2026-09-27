@@ -115,6 +115,14 @@ bool mesh_ui_nav_kb_node_search(const struct mesh_ui_nav *nav) {
            !nav->keyboard_passkey && !nav->keyboard_verify;
 }
 
+size_t mesh_ui_nav_draft_used(const struct mesh_ui_nav *nav) {
+    if (nav == NULL) {
+        return 0U;
+    }
+    const size_t len = strlen(nav->draft);
+    return nav->keyboard_login && nav->login_draft_bytes > len ? nav->login_draft_bytes : len;
+}
+
 const char *mesh_ui_nav_kb_shown(const struct mesh_ui_nav *nav, char *out, size_t out_len,
                                  size_t *caret_back) {
     if (nav == NULL || !nav->keyboard_login || out == NULL || out_len == 0U) {

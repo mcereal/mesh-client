@@ -369,6 +369,15 @@ MESH_TEST_CASE(ui_protocol_password_mask_keeps_the_caret, unit) {
         size_t draft_back;
         size_t shown_back;
     } k_cases[] = {{0U, 0U}, {1U, 1U}, {3U, 2U}};
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_used(&nav) != 3U, "the cap counts bytes, as typed");
+    nav.login_draft_bytes = 3U;
+    snprintf(nav.draft, sizeof nav.draft, "%s", "**"); /* as a snapshot publishes it */
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_used(&nav) != 3U,
+                      "and a published mask still counts the bytes the password is");
+    nav.login_draft_bytes = 0U;
+    snprintf(nav.draft, sizeof nav.draft, "%s",
+             "\xC3\xA9"
+             "a");
     for (size_t i = 0; i < sizeof k_cases / sizeof k_cases[0]; ++i) {
         size_t back = k_cases[i].draft_back;
         MESH_TEST_FAIL_IF(strcmp(mesh_ui_nav_kb_shown(&nav, shown, sizeof shown, &back), "**") != 0,

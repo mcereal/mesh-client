@@ -1527,6 +1527,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
         inkwell_wipe(snapshot->nav.draft, sizeof snapshot->nav.draft);
         inkwell_str_copy(snapshot->nav.draft, sizeof snapshot->nav.draft, masked);
         snapshot->nav.kb.caret_back = (uint16_t)caret_back;
+        snapshot->nav.login_draft_bytes = (uint8_t)strlen(store->nav.draft);
     }
 
     store->pending_flags = MESH_UI_UPDATE_NONE;

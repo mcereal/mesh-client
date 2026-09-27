@@ -421,7 +421,7 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
      * it is.
      */
     char meter[32];
-    snprintf(meter, sizeof meter, "%zu/%zu", strlen(nav->draft), draft_cap);
+    snprintf(meter, sizeof meter, "%zu/%zu", mesh_ui_nav_draft_used(nav), draft_cap);
     char masked[MESH_UI_DRAFT_MAX];
     size_t caret_back = nav->kb.caret_back;
     struct inkcell_fb_text_field field = {
