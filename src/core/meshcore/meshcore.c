@@ -676,6 +676,10 @@ static void mesh_meshcore_store_telemetry(struct mesh_meshcore *meshcore,
                                           struct mesh_node_summary *node,
                                           const struct mesh_meshcore_telemetry *telemetry) {
     const uint32_t now = mesh_meshcore_clock_now(meshcore);
+    /* An answer is a packet from the node, so it was heard now. */
+    if (now > node->last_heard) {
+        node->last_heard = now;
+    }
     if (telemetry->has_battery) {
         node->metrics.valid = true;
         node->metrics.time = now;
@@ -794,8 +798,10 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
                 mesh_meshcore_store_telemetry(meshcore, node, &telemetry);
                 inkwell_log_info("meshcore", "Readings from 0x%08x", id);
             }
-            /* Only that node's answer frees the radio: a late one from an earlier request is
-               stored, and leaves the current request its deadline. */
+            /* Only that node's answer frees the radio: a late one from another node is stored,
+               and leaves the current request its deadline. The same node's answer to an earlier
+               request cannot arrive here - the firmware pushes one only while its tag is the
+               pending one (pending_telemetry), which each new request replaces. */
             if (memcmp(frame + 2, meshcore->telemetry_prefix, MESH_MESHCORE_PREFIX_LEN) == 0) {
                 meshcore->telemetry_until_ms = 0U;
             }

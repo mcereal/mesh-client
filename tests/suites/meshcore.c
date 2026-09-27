@@ -1420,8 +1420,12 @@ MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
         0x00,
         0xC8, /* 20.0 C */
     };
+    const uint32_t heard_before = model_node(alice)->last_heard;
+    g_meshcore.radio_clock = heard_before + 600U;
+    g_meshcore.radio_clock_at_ms = inkwell_time_monotonic_ms();
     feed(&protocol, k_push, sizeof k_push);
     const struct mesh_node_summary *node = model_node(alice);
+    MESH_TEST_FAIL_IF(node->last_heard <= heard_before, "an answer is the node heard from, now");
     MESH_TEST_FAIL_IF(!node->metrics.valid || !node->metrics.has_voltage ||
                           node->metrics.voltage < 3.69f || node->metrics.voltage > 3.71f,
                       "the battery lands in the node's metrics");
