@@ -600,6 +600,17 @@ MESH_TEST_CASE(firmware_serial_refuses_a_whole_image_that_is_not_one, unit) {
                               "a partition past the largest flash");
     table_row(g_whole + 0x8000U + 128U, 0x01U, 0x03U, 0x1C000U, 0x2000U, "coredump");
 
+    /* An app partition smaller than the application in it. */
+    table_row(g_whole + 0x8000U + 64U, 0x00U, 0x10U, 0x10000U, 0x1000U, "app0");
+    MESH_TEST_FAIL_IF_CLEANUP(!stage(g_whole, sizeof g_whole, path, sizeof path), unlink(path),
+                              "no staging file");
+    result =
+        mesh_firmware_serial_start_whole(&serial, NULL, path, "", INKWELL_ESP_CHIP_ESP32_S3, 0U);
+    unlink(path);
+    MESH_TEST_FAIL_IF_CLEANUP(result != -EINVAL, inkwell_serial_mock_disable(),
+                              "an application past the end of its partition");
+    table_row(g_whole + 0x8000U + 64U, 0x00U, 0x10U, 0x10000U, 0x8000U, "app0");
+
     /* A table with no app in it. */
     memset(g_whole + 0x8000U + 64U, 0xFF, 96U);
     MESH_TEST_FAIL_IF_CLEANUP(!stage(g_whole, sizeof g_whole, path, sizeof path), unlink(path),

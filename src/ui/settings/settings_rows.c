@@ -917,8 +917,10 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
      * While a check runs it drops to a plain fact - the module refuses a switch with a document
      * in flight, and a row that refuses is worse than one that never invited the press.
      */
-    /* The firmware a switch would move the radio to: whichever it is not running. */
-    const bool to_meshcore = s->protocol != (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
+    /* The firmware a switch would move the radio to: whichever it is not running - or, for an
+       answer that already is a switch, the one it names. */
+    const bool to_meshcore = s->fw_switching ? s->fw_switch_to_meshcore
+                                             : s->protocol != (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
     /* MeshCore publishes one line of companion releases, so there is no list to choose - and
        the list that matters is the one of the firmware the answer is about. */
     const bool channels = s->fw_switching ? !to_meshcore : to_meshcore;

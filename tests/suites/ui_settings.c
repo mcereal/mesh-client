@@ -3802,25 +3802,33 @@ MESH_TEST_CASE(ui_settings_radio_firmware_resumes_a_switch_as_one, unit) {
     settings.fw_can_install = true;
     settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_USB;
     settings.fw_switching = true;
+    /* A switch to MeshCore that stopped with the radio already answering in MeshCore. */
+    settings.fw_switch_to_meshcore = true;
+    settings.protocol = (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
     snprintf(settings.fw_channel, sizeof settings.fw_channel, "%s", "stable");
     const uint32_t count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO,
                                                        MESH_UI_SETTINGS_NO_CHANNEL);
     bool switch_row = false;
     bool update_row = false;
+    bool channel_row = false;
     struct mesh_ui_settings_item item;
     for (uint32_t i = 0; i < count; ++i) {
         if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
-                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item) ||
-            item.kind != INKSTAND_FORM_ACTION) {
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
             continue;
         }
         switch_row =
             switch_row || item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH;
         update_row =
             update_row || item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB;
+        channel_row =
+            channel_row || item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL;
     }
     MESH_TEST_FAIL_IF(!switch_row || update_row,
                       "the recovery press for a switch is the switch's, with no answer behind it");
+    MESH_TEST_FAIL_IF(channel_row,
+                      "and a switch to MeshCore has no release list to choose, whatever the radio "
+                      "is answering in");
     record_success(test_name);
 }
 

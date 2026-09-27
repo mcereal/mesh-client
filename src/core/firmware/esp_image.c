@@ -111,16 +111,24 @@ bool mesh_esp_whole_image_read(const uint8_t *bytes, size_t len, uint16_t chip,
     }
     /* The lowest app partition is the one blank otadata boots: ota_0, or factory. */
     bool found = false;
+    uint32_t app_size = 0U;
     for (size_t i = 0; i < out->count; ++i) {
         const struct mesh_esp_partition *const partition = &out->partitions[i];
         if (partition->type == MESH_ESP_PARTITION_APP &&
             (!found || partition->offset < out->app_offset)) {
             out->app_offset = partition->offset;
+            app_size = partition->size;
             found = true;
         }
     }
     if (!found || out->app_offset >= len) {
         *why = "no application inside the image";
+        return false;
+    }
+    /* The image ends with its application, and the application has to fit the partition the
+       bootloader will load it from: anything past that end is not an app it can start. */
+    if ((uint64_t)len > (uint64_t)out->app_offset + app_size) {
+        *why = "the image runs past its application partition";
         return false;
     }
     if (inkwell_esp_image_validate(bytes + out->app_offset, len - out->app_offset, chip, &info) !=

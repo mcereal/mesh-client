@@ -1314,6 +1314,8 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     const bool resuming =
         mesh_firmware_update_can_resume(update) && mesh_firmware_update_available(update);
     dst->fw_switching = resuming ? update->release.wipe : firmware->switching;
+    dst->fw_switch_to_meshcore =
+        resuming ? update->board.meshcore : firmware->source == MESH_FIRMWARE_SOURCE_MESHCORE;
     const bool settled =
         firmware->state == MESH_FIRMWARE_AVAILABLE || firmware->state == MESH_FIRMWARE_UP_TO_DATE;
     const char *const twin = board == NULL || firmware->switching ? NULL

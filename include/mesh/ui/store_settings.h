@@ -880,6 +880,9 @@ struct mesh_ui_settings {
      */
     bool fw_switch_offer;
     bool fw_switching;
+    /* Where a switch goes: MeshCore, or Meshtastic. The radio's protocol says it for a fresh
+       answer, but a switch that stopped half way may be answering in either - the job knows. */
+    bool fw_switch_to_meshcore;
 };
 
 #ifdef __cplusplus
