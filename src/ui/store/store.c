@@ -548,7 +548,7 @@ void mesh_ui_store_set_link_traffic(struct mesh_ui_store *store, uint32_t sent, 
     }
     store->link_sent = sent;
     store->link_received = received;
-    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_TRANSPORT);
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_TRAFFIC);
 }
 
 void mesh_ui_store_set_mqtt(struct mesh_ui_store *store, const struct mesh_ui_mqtt_state *mqtt) {
@@ -1515,8 +1515,8 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
      * line and the broker state move no row, and would only close it for nothing.
      */
     if (store->nav.context_open &&
-        (store->pending_flags &
-         ~(uint32_t)(MESH_UI_UPDATE_NAV | MESH_UI_UPDATE_TRANSPORT | MESH_UI_UPDATE_MQTT)) != 0U) {
+        (store->pending_flags & ~(uint32_t)(MESH_UI_UPDATE_NAV | MESH_UI_UPDATE_TRANSPORT |
+                                            MESH_UI_UPDATE_MQTT | MESH_UI_UPDATE_TRAFFIC)) != 0U) {
         store->nav.context_open = false;
         store->pending_flags |= MESH_UI_UPDATE_NAV;
         snapshot->update_flags = store->pending_flags;

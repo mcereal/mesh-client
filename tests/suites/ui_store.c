@@ -127,6 +127,31 @@ MESH_TEST_CASE(ui_store_basic, unit) {
     record_success(test_name);
 }
 
+/*
+ * Link traffic wakes the frame under a flag of its own. The CLI backend prints the transport
+ * line on MESH_UI_UPDATE_TRANSPORT, and a config sync is hundreds of frames - one unchanged
+ * "Transport:" line each would bury everything else on the console.
+ */
+MESH_TEST_CASE(ui_store_link_traffic_is_not_a_transport_change, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    struct mesh_ui_snapshot snapshot;
+
+    mesh_ui_store_set_link_traffic(&store, 3U, 5U);
+    const bool woke = mesh_ui_store_consume_updates(&store, &snapshot);
+    const bool traffic = (snapshot.update_flags & MESH_UI_UPDATE_TRAFFIC) != 0U;
+    const bool transport = (snapshot.update_flags & MESH_UI_UPDATE_TRANSPORT) != 0U;
+    const bool counted = snapshot.link_sent == 3U && snapshot.link_received == 5U;
+    mesh_ui_store_set_link_traffic(&store, 3U, 5U);
+    const bool again = mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_store_shutdown(&store);
+
+    MESH_TEST_FAIL_IF(!woke || !traffic || !counted, "a count that moved reaches the frame");
+    MESH_TEST_FAIL_IF(transport, "and is not reported as the link's status changing");
+    MESH_TEST_FAIL_IF(again, "and the same counts again wake nothing");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_store_persistence, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
