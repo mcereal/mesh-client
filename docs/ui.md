@@ -912,10 +912,15 @@ section and the node detail.
 
 Forward lands on the first row of the next group. Back lands on the first row of *this* group and
 only crosses into the previous one when the cursor is already there — the asymmetry every
-document reader has, and what makes the pair usable with one thumb. A screen with no headings has
-no boundaries and refuses both, which is the same answer it gives by drawing no cards. Held by
+document reader has, and what makes the pair usable with one thumb. Held by
 `ui_nav_settings_shoulders_walk_the_cards`; the help screen names the pair on the sections that
 have it, since the action bar is five hints wide there already.
+
+A list with no cards to cross — the Nodes roster, the conversation list, the device list, the
+Settings root — **pages** instead: five rows a press (`mesh_ui_nav_cursor_page()`), stopping at
+either end rather than wrapping. Five is a Brick screenful less one, a fixed count because the nav
+is never told how many rows fit. A settings section with no groups still refuses both; it is short
+enough not to need them. Held by `ui_nav_triggers_page_a_list_with_no_groups`.
 
 ### The one colour pair that is not a theme choice
 

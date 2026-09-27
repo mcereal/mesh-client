@@ -116,14 +116,16 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
 
-    /* A replies: the canned list over the thread, which needs no destination of its own. */
+    /* A replies: the canned list over the thread, which needs no destination of its own. It
+       opens on the draft row, so the A that raised it pressed again types rather than sends. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.compose_open || store.nav.keyboard_open ||
-        store.nav.compose_cursor != MESH_UI_COMPOSE_FIRST_CANNED ||
+        store.nav.compose_cursor != MESH_UI_COMPOSE_ROW_DRAFT ||
         store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
-        failure = "A in a conversation should open the compose overlay";
+        failure = "A in a conversation should open the compose overlay on the draft row";
         goto cleanup;
     }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_SEND_TEXT || action.dest != 0x3000U || action.channel != 0U ||
         strcmp(action.text, mesh_ui_canned_text(0)) != 0 || store.nav.compose_open ||
@@ -367,6 +369,19 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
 
     mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_NONE || !store.nav.disconnect_armed) {
+        failure = "the first A on the Link card's Disconnect should only arm it";
+        goto cleanup;
+    }
+    /* B stands it down and stays on the cards; the next A arms it again. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    if (store.nav.disconnect_armed || !mesh_ui_nav_status_showing(&store.nav) ||
+        store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT) {
+        failure = "B should stand an armed disconnect down and leave the cursor on it";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_DISCONNECT ||
         strcmp(action.identifier, "AA:BB:CC:DD:EE:01") != 0) {
         failure = "A on the Link card's Disconnect should drop the link it names";
@@ -459,7 +474,7 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
 
-    /* Toasts expire on tick and are dismissed by any key. */
+    /* Toasts expire on tick and are dismissed by any key but a direction. */
     mesh_ui_store_set_toast(&store, 1000U, "Sent to BRVO");
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
     if (strcmp(snapshot.nav.toast.text, "Sent to BRVO") != 0) {
@@ -477,6 +492,16 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
     mesh_ui_store_set_toast(&store, 7000U, "Connecting");
+    /* A held direction repeats; scrolling past a notice is not an answer to it. */
+    for (unsigned i = 0U; i < 8U; ++i) {
+        (void)mesh_ui_store_handle_key(&store, i % 2U ? INKCELL_KEY_UP : INKCELL_KEY_DOWN, &action);
+    }
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
+    if (strcmp(store.nav.toast.text, "Connecting") != 0) {
+        failure = "a direction should leave a toast standing";
+        goto cleanup;
+    }
     if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_SELECT, &action) ||
         store.nav.toast.text[0] != '\0') {
         failure = "any key should dismiss a toast";
@@ -604,7 +629,8 @@ MESH_TEST_CASE(ui_nav_draft_follows_its_conversation, unit) {
         goto cleanup;
     }
 
-    /* Into the channel: nothing of BRVO's is waiting there, so A lands on the canned replies. */
+    /* Into the channel: nothing of BRVO's is waiting there, and compose opens on the empty
+       draft row all the same. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.thread_open || store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR) {
@@ -616,8 +642,8 @@ MESH_TEST_CASE(ui_nav_draft_follows_its_conversation, unit) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    if (!store.nav.compose_open || store.nav.compose_cursor == MESH_UI_COMPOSE_ROW_DRAFT) {
-        failure = "compose in a thread with no draft of its own should open on the canned rows";
+    if (!store.nav.compose_open || store.nav.compose_cursor != MESH_UI_COMPOSE_ROW_DRAFT) {
+        failure = "compose in a thread with no draft of its own should still open on the draft row";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
@@ -1187,6 +1213,7 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
 
     /* A canned reply sent from the #Team thread carries channel 1, with no To: row involved. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_SEND_TEXT || action.dest != MESH_MESSAGE_BROADCAST_ADDR ||
         action.channel != 1U) {
@@ -1317,6 +1344,7 @@ MESH_TEST_CASE(ui_nav_reply_and_react_name_their_target, unit) {
         failure = "A should open the compose sheet aimed at the message under the cursor";
         goto cleanup;
     }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_SEND_TEXT || action.reply_id != 12U || action.is_reaction) {
@@ -2596,6 +2624,46 @@ cleanup:
 }
 
 /*
+ * A on a bubble raises the compose sheet, and the same A pressed again must not put anything on
+ * the air: with no draft the sheet used to open on the first canned reply, so A, A in a channel
+ * broadcast it to everyone with no second step.
+ */
+MESH_TEST_CASE(ui_nav_compose_a_twice_types_rather_than_sends, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.thread_open || store.nav.draft[0] != '\0') {
+        failure = "expected a thread open with no draft";
+        goto cleanup;
+    }
+
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (action.type == MESH_UI_ACTION_SEND_TEXT) {
+        failure = "A, A on a thread must not send a canned reply";
+        goto cleanup;
+    }
+    if (!store.nav.keyboard_open || !store.nav.compose_open) {
+        failure = "the second A should open the keyboard over the sheet";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * B held from two levels into a node - its sheet of verbs over its detail - lands on the node
  * list in one gesture, on the node it came from, where it used to be a B per level.
  */
@@ -2676,6 +2744,49 @@ MESH_TEST_CASE(ui_nav_empty_all_traffic_connects, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.thread_open || !store.nav.inbox) {
         failure = "with a radio attached, A on all traffic should open it";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A held X backspaces and a held trigger walks the caret - on the keyboard, and only there. On
+ * the conversation list the same X arms a delete, and a repeat would be the second press.
+ */
+MESH_TEST_CASE(ui_nav_keyboard_edits_repeat_and_nothing_else_does, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES);
+    if (mesh_ui_nav_key_repeats(&store.nav, INKCELL_KEY_X) ||
+        mesh_ui_nav_key_repeats(&store.nav, INKCELL_KEY_R2)) {
+        failure = "X and the triggers must not repeat on the conversation list";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    if (!store.nav.keyboard_open) {
+        failure = "Y in a thread should open the keyboard";
+        goto cleanup;
+    }
+    if (!mesh_ui_nav_key_repeats(&store.nav, INKCELL_KEY_X) ||
+        !mesh_ui_nav_key_repeats(&store.nav, INKCELL_KEY_L2) ||
+        !mesh_ui_nav_key_repeats(&store.nav, INKCELL_KEY_R2)) {
+        failure = "the keyboard's backspace and caret should repeat while held";
+        goto cleanup;
+    }
+    if (mesh_ui_nav_key_repeats(&store.nav, INKCELL_KEY_A) ||
+        mesh_ui_nav_key_repeats(&store.nav, INKCELL_KEY_START)) {
+        failure = "typing a key and sending must stay one press each";
         goto cleanup;
     }
 

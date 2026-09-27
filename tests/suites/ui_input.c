@@ -702,6 +702,7 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
     mesh_ui_controller_handle_action_key(&controller, INKCELL_KEY_A);
     inkwell_loop_run(&loop, 0);
     mesh_ui_controller_handle_key(&controller, INKCELL_KEY_A);
+    mesh_ui_controller_handle_key(&controller, INKCELL_KEY_DOWN);
     mesh_ui_controller_handle_key(&controller, INKCELL_KEY_A);
     if (actions.count != 1U || actions.last.type != MESH_UI_ACTION_SEND_TEXT ||
         actions.last.dest != MESH_MESSAGE_BROADCAST_ADDR ||

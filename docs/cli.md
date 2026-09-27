@@ -207,12 +207,12 @@ Four tabs: **Messages, Nodes, Radio, Settings.**
 | Key | Action |
 |---|---|
 | Left/Right, L1/R1 | switch tab |
-| L2/R2 | move a whole group at a time, where a screen draws its groups as cards |
+| L2/R2 | move a whole group at a time where a screen draws its groups as cards, and a page of five rows on a plain list |
 | Up/Down | move the cursor — hold to keep scrolling, which speeds up after a few rows |
 | A | act on the row |
 | B | back out — keep it held to go all the way back to the tab's own list |
 | Y | write a message (Messages/Nodes), save a section (Settings) |
-| X | delete a conversation (Messages), refresh (Settings, Radio's pages), pin a node (Nodes), disconnect (Radio's device list) |
+| X | delete a conversation (Messages), refresh (Settings, Radio's pages), pin a node (Nodes), disconnect, pressed twice (Radio's device list) |
 | SELECT | help for what is on screen ([`help.md`](help.md)) |
 | MENU | quit |
 
@@ -231,11 +231,14 @@ keyboard uses the pad the way a console keyboard does — **A** types the key un
 **X** is the backspace, **B** leaves (keeping what was typed; the grid's own ✕ discards),
 **Y** is a space, **START** sends. **L2/R2** move the caret a character at a time, so a typo
 early in a draft is reached without deleting what follows it; typing, the space and the backspace
-all work at the caret. **L1/R1** step the panel the grid is showing: `abc`, `ABC`
-(one capital, then back to `abc`), symbols, then three pages of forty emoji. The bottom-left key
+all work at the caret. Held, the backspace and the caret repeat as the d-pad does. **L1/R1** step
+the panel the grid is showing: `abc`, `ABC` (one capital, then back to `abc`), symbols, then three
+pages of forty emoji. Stepping back to `ABC` straight after a capital locks the capitals on - the
+letters turn to the accent - until the panel changes, which is what a callsign wants. The bottom-left key
 of the grid steps the same ring, so everything is reachable without the shoulders.
 
-On the compose sheet, **X** on the draft row keeps the draft as a quick reply. It is offered for a
+The compose sheet opens on its draft row, so A pressed again types rather than sending the first
+quick reply; the replies are one Down away. **X** on the draft row keeps the draft as a quick reply. It is offered for a
 draft of up to 63 bytes that is not already on the list, while the list has fewer than 16. The
 list is then written to `canned.txt`, built-in replies included, so it is the file from then on.
 
@@ -246,8 +249,8 @@ keeps only the nodes that match; X clears it - the *Map* and
 the *Waypoints* row, which opens the shared places (and the row that marks a new one here); B goes
 back. **Radio** opens on the link, mesh and radio cards; the Link card's
 *devices* button opens the device list, which shows USB ports first (no pairing, so they sort to
-the top), then BLE advertisers; A connects and bonds, X disconnects and holds auto-connect off, Y
-twice forgets a bond, B goes back to the cards. The Mesh card's *nodes* button opens the node
+the top), then BLE advertisers; A connects and bonds, X twice disconnects and holds auto-connect off (once, for a link still
+coming up), Y twice forgets a bond, B goes back to the cards. The Mesh card's *nodes* button opens the node
 lists - reset the radio's NodeDB, or forget what this client has cached - and the Radio card's
 *details* button opens what the radio says about itself, its firmware check and install, and the
 verbs done to it: reboot, shutdown, backup and restore, the factory resets. **Settings** reads the radio's configuration over the admin protocol and edits it

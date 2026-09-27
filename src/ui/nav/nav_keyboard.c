@@ -754,3 +754,13 @@ bool mesh_ui_nav_insert_text(struct mesh_ui_nav *nav, const char *text) {
     return inkcell_keyboard_insert_text_at_caret(&nav->kb, &layout, nav->draft, sizeof nav->draft,
                                                  text);
 }
+
+bool mesh_ui_nav_key_repeats(const struct mesh_ui_nav *nav, enum inkcell_key key) {
+    if (nav == NULL) {
+        return false;
+    }
+    struct mesh_ui_route active;
+    mesh_ui_route_of(nav, &active);
+    return active.level == MESH_UI_ROUTE_KEYBOARD &&
+           (key == INKCELL_KEY_X || key == INKCELL_KEY_L2 || key == INKCELL_KEY_R2);
+}

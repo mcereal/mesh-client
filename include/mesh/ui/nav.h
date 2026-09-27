@@ -788,6 +788,14 @@ struct mesh_ui_nav {
     bool devices_forget_armed;
     uint32_t devices_forget_row;
     /*
+     * Dropping the link that is up takes two presses, from either place that offers it: X on the
+     * device list, A on the Link card's disconnect. One press used to be enough, and a
+     * disconnect also holds auto-connect, so a thumb that slipped one row on the cards left the
+     * reader offline until they went and reconnected by hand. Any other press stands it down,
+     * B included - which then does nothing else, since the bar named it "cancel".
+     */
+    bool disconnect_armed;
+    /*
      * A window's right-click menu over the row under the cursor: that row's verbs, at the
      * pointer. The verbs are not held here - the frame reads them off the action table for the
      * row the cursor is on, the same answer the action bar gives - so what is kept is only that
@@ -1380,6 +1388,13 @@ bool mesh_ui_nav_devices_showing(const struct mesh_ui_nav *nav);
    the map - rather than the roster, the map or a node. What the Waypoints tab was. */
 bool mesh_ui_nav_waypoints_showing(const struct mesh_ui_nav *nav);
 bool mesh_ui_nav_status_showing(const struct mesh_ui_nav *nav);
+
+/*
+ * Whether a held key repeats, for inkcell_input_set_repeat_policy(): the keyboard's backspace (X)
+ * and caret (L2/R2) while the keyboard is the level in front. Everywhere else X arms a delete or
+ * pins a node, and a trigger crosses a card or pages a list - presses a hold must not repeat.
+ */
+bool mesh_ui_nav_key_repeats(const struct mesh_ui_nav *nav, enum inkcell_key key);
 
 /*
  * The settings section the panel is showing, on whichever tab shows it: the Settings tab's open

@@ -244,6 +244,7 @@ MESH_STR_ENTRY(ACTION_CONFIRM_DELETE,     "confirm delete")
 MESH_STR_ENTRY(ACTION_CONFIRM_REMOVE,     "confirm remove")
 MESH_STR_ENTRY(ACTION_CONFIRM_FORGET,     "confirm forget")
 MESH_STR_ENTRY(ACTION_CONFIRM_DISCARD,    "confirm discard")
+MESH_STR_ENTRY(ACTION_CONFIRM_DISCONNECT, "confirm disconnect")
 
 /* ---- how to leave -------------------------------------------------------------------------- */
 

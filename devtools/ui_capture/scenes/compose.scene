@@ -9,9 +9,12 @@ hold 500
 key down 4
 key a
 hold 700
-# A opens the canned list over the thread, cursor on the first reply; a second A sends it.
+# A opens the canned list over the thread, cursor on the draft row, so a second A would type
+# rather than send; Down to the first reply, and A sends it.
 key a
 hold 900
+key down
+hold 500
 key a
 message out BRVO OK
 toast Sent to BRVO

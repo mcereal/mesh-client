@@ -143,6 +143,7 @@ static void mesh_ui_nav_click_stand_down(struct mesh_ui_nav *nav) {
     nav->message_delete_armed = false;
     nav->messages_delete_armed = false;
     nav->devices_forget_armed = false;
+    nav->disconnect_armed = false;
 }
 
 /*
