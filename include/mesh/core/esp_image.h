@@ -29,6 +29,9 @@ const char *mesh_esp_architecture_for_chip(uint16_t chip);
  */
 #define MESH_ESP_PARTITION_TABLE_OFFSET 0x8000U
 #define MESH_ESP_PARTITIONS_MAX 16U
+/* The largest flash an ESP32 board carries. A table declaring past it is not one a chip can
+   have, and its partitions would be erased - and hashed as blank - byte for byte. */
+#define MESH_ESP_FLASH_MAX (32U * 1024U * 1024U)
 /* 0x00 app, 0x01 data, as the table spells them. */
 #define MESH_ESP_PARTITION_APP 0x00U
 #define MESH_ESP_PARTITION_DATA 0x01U

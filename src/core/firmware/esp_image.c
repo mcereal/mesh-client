@@ -72,7 +72,8 @@ static bool esp_read_table(const uint8_t *bytes, size_t len, struct mesh_esp_who
         partition->size = esp_le32(entry + 8);
         memcpy(partition->label, entry + 12, 16U);
         partition->label[16] = '\0';
-        if (partition->size == 0U || (uint64_t)partition->offset + partition->size > (1ULL << 31)) {
+        if (partition->size == 0U ||
+            (uint64_t)partition->offset + partition->size > MESH_ESP_FLASH_MAX) {
             return false;
         }
     }
