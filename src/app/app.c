@@ -915,7 +915,11 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     bool handoff = false;
     /* A radio this client just moved to its Bluetooth build, by the name it now advertises:
        the one in the user's hand, ahead of whatever was used last. */
-    if (app->firmware_ble_handoff[0] != '\0' && now >= app->firmware_ble_handoff_until_ms) {
+    /* Never while the write is still to be finished: the clock restarts when it is, and a
+       retry returns through the resume without setting the name again. */
+    if (app->firmware_ble_handoff[0] != '\0' && now >= app->firmware_ble_handoff_until_ms &&
+        !mesh_firmware_update_can_resume(&app->firmware_update) &&
+        !mesh_firmware_update_busy(&app->firmware_update)) {
         app->firmware_ble_handoff[0] = '\0';
     }
     for (size_t i = 0; app->firmware_ble_handoff[0] != '\0' && i < in_range_count; ++i) {
