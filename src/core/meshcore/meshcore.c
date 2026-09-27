@@ -1215,9 +1215,6 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             /* A refusal with no code still has to count as one. */
             mesh_meshcore_settle_write(meshcore, error != 0U ? (int32_t)error : -1);
         }
-        if (mesh_meshcore_is_remote(cmd) && cmd == meshcore->request_cmd) {
-            mesh_meshcore_request_ended(meshcore, MESH_MESHCORE_ANSWER_UNSENT);
-        }
         struct mesh_meshcore_pending *pending = mesh_meshcore_pending_for(meshcore, packet_id);
         if (pending != NULL) {
             mesh_meshcore_pending_done(meshcore, pending, MESH_MESSAGE_ACK_FAILED);
@@ -1238,6 +1235,13 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         inkwell_log_debug("meshcore", "Reply %u to command %u ignored", (unsigned)code,
                           (unsigned)cmd);
         break;
+    }
+    /* A request to another node whose answer was not a SENT that decoded - a refusal, or a frame
+       too short to read - has no deadline for the tick to expire, and was not asked. One answered
+       ahead of its SENT has already ended, and is not here. */
+    if (mesh_meshcore_is_remote(cmd) && cmd == meshcore->request_cmd &&
+        meshcore->request_until_ms == 0U) {
+        mesh_meshcore_request_ended(meshcore, MESH_MESHCORE_ANSWER_UNSENT);
     }
     /* A direct message whose answer was not a SENT that decoded has nothing to wait for: no ack
        was named, so no deadline was set, and the tick only retires pending sends that have one.

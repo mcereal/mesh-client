@@ -1600,6 +1600,15 @@ MESH_TEST_CASE(meshcore_login_is_answered_and_shares_the_lock, unit) {
                       "a refusal to send is said so, and frees the radio");
     feed(&protocol, k_err, sizeof k_err);
 
+    /* A SENT too short to read names no deadline, so it ends the request rather than leave it
+       open with nothing to expire it. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "") != 0, "asked again");
+    static const uint8_t k_short_sent[] = {MESH_MESHCORE_RESP_SENT, 0, 1};
+    feed(&protocol, k_short_sent, sizeof k_short_sent);
+    MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_UNSENT ||
+                          g_meshcore.request_cmd != 0U,
+                      "an unreadable SENT ends the request as not sent");
+
     /* A password does not outlive its frame in the queue. */
     MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "hunter2") != 0, "a password");
     feed(&protocol, k_sent, sizeof k_sent);
