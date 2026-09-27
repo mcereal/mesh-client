@@ -1514,6 +1514,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_RESTORED] = "Restauración enviada; releyendo los ajustes",
     [MESH_STR_TOAST_BACKUP_REMOVED] = "Copia borrada de la flash de la radio",
     [MESH_STR_TOAST_ALREADY_REQUESTED] = "Ya solicitado",
+    [MESH_STR_TOAST_READINGS_BUSY] = "Aún se esperan las últimas lecturas pedidas",
     [MESH_STR_TOAST_REQUEST_FAILED] = "Falló la solicitud (%d)",
     [MESH_STR_TOAST_HISTORY_ASKED] = "Pedidos a %.16s los mensajes perdidos",
     [MESH_STR_TOAST_HISTORY_LOOKING] = "Buscando un router de Store & Forward",

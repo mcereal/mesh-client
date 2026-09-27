@@ -64,6 +64,7 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_GET_CHANNEL = 31,
     MESH_MESHCORE_CMD_SET_CHANNEL = 32,
     MESH_MESHCORE_CMD_SET_OTHER_PARAMS = 38,
+    MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ = 39,
 };
 
 enum mesh_meshcore_resp {
@@ -94,6 +95,7 @@ enum mesh_meshcore_push {
     MESH_MESHCORE_PUSH_MSG_WAITING = 0x83,
     MESH_MESHCORE_PUSH_LOG_RX_DATA = 0x88,
     MESH_MESHCORE_PUSH_NEW_ADVERT = 0x8A,
+    MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE = 0x8B,
     MESH_MESHCORE_PUSH_CONTACT_DELETED = 0x8F,
     MESH_MESHCORE_PUSH_CONTACTS_FULL = 0x90,
 };
@@ -177,6 +179,32 @@ struct mesh_meshcore_contact {
     uint32_t lastmod; /* the radio's clock when the record last changed */
 };
 
+/*
+ * A node's readings, out of the Cayenne LPP a TELEMETRY_RESPONSE carries. Channel 1 is the node
+ * itself - its battery, and the MCU's own temperature - and the channels after it are its
+ * sensors, so a sensor's temperature is preferred over the MCU's when both are there.
+ */
+struct mesh_meshcore_telemetry {
+    bool has_battery;
+    float battery_v;
+    bool has_temperature;
+    float temperature_c;
+    bool has_humidity;
+    float humidity_pct;
+    bool has_pressure;
+    float pressure_hpa;
+    bool has_lux;
+    float lux;
+    bool has_voltage; /* a sensor's, not the battery */
+    float voltage_v;
+    bool has_current;
+    float current_a;
+    bool has_position;
+    int32_t latitude_e7;
+    int32_t longitude_e7;
+    int32_t altitude_m;
+};
+
 /* One queued message out of SYNC_NEXT_MESSAGE, in any of the four shapes it arrives in. */
 struct mesh_meshcore_message {
     bool channel;
@@ -257,6 +285,13 @@ int mesh_meshcore_encode_set_channel(uint8_t index, const char *name,
    length and the 64-byte path, the name in 32 bytes, the advert's timestamp, the position. */
 int mesh_meshcore_encode_contact(const struct mesh_meshcore_contact *contact, uint8_t *out,
                                  size_t out_len);
+/*
+ * Cayenne LPP, as MeshCore's CayenneLPP library writes it: channel, type, a big-endian value
+ * whose size the type fixes. Reads to the end, to a channel 0 (the library's end-of-data), or
+ * to the first type it does not know the size of - everything before that is kept. 0, or
+ * -EINVAL for a NULL argument.
+ */
+int mesh_meshcore_decode_lpp(const uint8_t *lpp, size_t len, struct mesh_meshcore_telemetry *out);
 /* REBOOT carries the word, so a stray byte cannot reboot a radio. */
 int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len);
 
@@ -351,6 +386,11 @@ struct mesh_meshcore {
     struct mesh_meshcore_contact heard[MESH_MESHCORE_HEARD_ADVERTS];
     uint32_t heard_age[MESH_MESHCORE_HEARD_ADVERTS]; /* when each was kept; 0 for an empty slot */
     uint32_t heard_clock;
+    /* A telemetry request's answer is due until this monotonic time, 0 for none outstanding:
+       the radio keeps one, and a second would orphan the first. */
+    uint64_t telemetry_until_ms;
+    uint8_t telemetry_prefix[MESH_MESHCORE_PREFIX_LEN]; /* whose answer frees it */
+    bool telemetry_answered; /* that answer came ahead of the radio's SENT */
     bool battery_valid;
     uint16_t battery_mv;
     /*
@@ -469,6 +509,15 @@ int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id,
  * the roster's number for a node, are already this radio's or another node's, and -ENOBUFS
  * when the queue is full.
  */
+/*
+ * Asks a contact for its readings now: SEND_TELEMETRY_REQ, answered - if the node lets this
+ * radio ask - by a TELEMETRY_RESPONSE whose battery, environment and position land on the
+ * node's record. The radio keeps one request outstanding and a new one orphans the last. 0 when
+ * asked; -EINVAL for 0 or this radio, -ENOTCONN until the handshake has named the radio,
+ * -ENOENT for a node that is not one of the radio's contacts, -EBUSY while the last request's
+ * answer is still due, -ENOBUFS when the queue is full.
+ */
+int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t node_id);
 int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
                                  const uint8_t key[MESH_MESHCORE_PUBKEY_LEN], const char *name,
                                  uint8_t adv_type);

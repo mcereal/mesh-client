@@ -647,6 +647,90 @@ static void mesh_meshcore_retry(struct mesh_meshcore *meshcore,
     }
 }
 
+/* Seconds since the epoch: ours when it is credible, else the radio's as read at the handshake
+   and advanced since, else 0. */
+static uint32_t mesh_meshcore_clock_now(const struct mesh_meshcore *meshcore) {
+    uint32_t now = inkwell_time_wall_credible_s();
+    if (now == 0U && meshcore->radio_clock != 0U) {
+        const uint64_t elapsed = inkwell_time_monotonic_ms() - meshcore->radio_clock_at_ms;
+        now = meshcore->radio_clock + (uint32_t)(elapsed / 1000U);
+    }
+    return now;
+}
+
+/* The roster's entry for `node_id`, or NULL; a lookup, never an add. */
+static const struct mesh_node_summary *
+mesh_meshcore_roster_node(const struct mesh_meshcore *meshcore, uint32_t node_id) {
+    const struct mesh_handshake_status *status = &meshcore->model->handshake;
+    for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (status->nodes[i].node_id == node_id) {
+            return &status->nodes[i];
+        }
+    }
+    return NULL;
+}
+
+/* A node's answer to a telemetry request, onto its record: what it did not send is left as it
+   was, since a node reports only the sensors it has and only what it lets us see. */
+static void mesh_meshcore_store_telemetry(struct mesh_meshcore *meshcore,
+                                          struct mesh_node_summary *node,
+                                          const struct mesh_meshcore_telemetry *telemetry) {
+    const uint32_t now = mesh_meshcore_clock_now(meshcore);
+    /* An answer is a packet from the node, so it was heard now. */
+    if (now > node->last_heard) {
+        node->last_heard = now;
+    }
+    if (telemetry->has_battery) {
+        node->metrics.valid = true;
+        node->metrics.time = now;
+        node->metrics.has_voltage = true;
+        node->metrics.voltage = telemetry->battery_v;
+    }
+    struct mesh_node_environment *env = &node->environment;
+    const bool environment = telemetry->has_temperature || telemetry->has_humidity ||
+                             telemetry->has_pressure || telemetry->has_lux ||
+                             telemetry->has_voltage || telemetry->has_current;
+    /* Each answer is the whole of what the node reports now: a reading it has stopped sending
+       goes, rather than standing in the new report as though it were fresh. */
+    if (environment) {
+        memset(env, 0, sizeof *env);
+        env->valid = true;
+        env->time = now;
+    }
+    if (telemetry->has_temperature) {
+        env->has_temperature = true;
+        env->temperature = telemetry->temperature_c;
+    }
+    if (telemetry->has_humidity) {
+        env->has_humidity = true;
+        env->relative_humidity = telemetry->humidity_pct;
+    }
+    if (telemetry->has_pressure) {
+        env->has_pressure = true;
+        env->barometric_pressure = telemetry->pressure_hpa;
+    }
+    if (telemetry->has_lux) {
+        env->has_lux = true;
+        env->lux = telemetry->lux;
+    }
+    if (telemetry->has_voltage) {
+        env->has_voltage = true;
+        env->voltage = telemetry->voltage_v;
+    }
+    if (telemetry->has_current) {
+        env->has_current = true;
+        env->current = telemetry->current_a * 1000.0f; /* the record's current is in mA */
+    }
+    if (telemetry->has_position) {
+        node->position.valid = true;
+        node->position.latitude_i = telemetry->latitude_e7;
+        node->position.longitude_i = telemetry->longitude_e7;
+        node->position.has_altitude = true;
+        node->position.altitude = telemetry->altitude_m;
+        node->position.received = now;
+    }
+}
+
 /* ---------------------------------------------------------------------------- receiving */
 
 static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t *frame,
@@ -700,6 +784,34 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
         }
         break;
     }
+    case MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE:
+        /* 0x00, the answering node's key prefix, then its Cayenne LPP. */
+        if (len >= 2U + MESH_MESHCORE_PREFIX_LEN) {
+            const uint32_t id =
+                mesh_meshcore_find_prefix(meshcore, frame + 2, MESH_MESHCORE_PREFIX_LEN);
+            struct mesh_node_summary *node =
+                id != 0U ? mesh_session_model_node(meshcore->model, id, false) : NULL;
+            struct mesh_meshcore_telemetry telemetry;
+            if (node != NULL &&
+                mesh_meshcore_decode_lpp(frame + 2U + MESH_MESHCORE_PREFIX_LEN,
+                                         len - 2U - MESH_MESHCORE_PREFIX_LEN, &telemetry) == 0) {
+                mesh_meshcore_store_telemetry(meshcore, node, &telemetry);
+                inkwell_log_info("meshcore", "Readings from 0x%08x", id);
+            }
+            /* Only that node's answer frees the radio: a late one from another node is stored,
+               and leaves the current request its deadline. The same node's answer to an earlier
+               request cannot arrive here - the firmware pushes one only while its tag is the
+               pending one (pending_telemetry), which each new request replaces. */
+            if (memcmp(frame + 2, meshcore->telemetry_prefix, MESH_MESHCORE_PREFIX_LEN) == 0) {
+                meshcore->telemetry_until_ms = 0U;
+                /* Ahead of its SENT only once the request is written: while it still waits in
+                   the queue, an answer is the last request's, and this one is yet to be asked. */
+                meshcore->telemetry_answered =
+                    meshcore->awaiting &&
+                    mesh_meshcore_head_cmd(meshcore) == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ;
+            }
+        }
+        break;
     case MESH_MESHCORE_PUSH_CONTACT_DELETED:
         if (len >= 1U + MESH_MESHCORE_PUBKEY_LEN) {
             const uint32_t id = mesh_meshcore_node_id(frame + 1, MESH_MESHCORE_PUBKEY_LEN);
@@ -782,29 +894,6 @@ static void mesh_meshcore_apply_write(struct mesh_meshcore *meshcore, const uint
     /* And onto what the screens read, so the save shows even if the read-back never lands. */
     mesh_meshcore_store_self(meshcore);
     mesh_meshcore_store_settings(meshcore);
-}
-
-/* Seconds since the epoch: ours when it is credible, else the radio's as read at the handshake
-   and advanced since, else 0. */
-static uint32_t mesh_meshcore_clock_now(const struct mesh_meshcore *meshcore) {
-    uint32_t now = inkwell_time_wall_credible_s();
-    if (now == 0U && meshcore->radio_clock != 0U) {
-        const uint64_t elapsed = inkwell_time_monotonic_ms() - meshcore->radio_clock_at_ms;
-        now = meshcore->radio_clock + (uint32_t)(elapsed / 1000U);
-    }
-    return now;
-}
-
-/* The roster's entry for `node_id`, or NULL; a lookup, never an add. */
-static const struct mesh_node_summary *
-mesh_meshcore_roster_node(const struct mesh_meshcore *meshcore, uint32_t node_id) {
-    const struct mesh_handshake_status *status = &meshcore->model->handshake;
-    for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
-        if (status->nodes[i].node_id == node_id) {
-            return &status->nodes[i];
-        }
-    }
-    return NULL;
 }
 
 /* The record just read back for a favourite asked for: written whole, one bit changed. */
@@ -948,6 +1037,13 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         break;
     case MESH_MESHCORE_RESP_SENT: {
         struct mesh_meshcore_sent sent;
+        /* A telemetry request is on its way: its answer is due within the firmware's estimate,
+           and until then a second one would orphan it. */
+        if (cmd == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ && !meshcore->telemetry_answered &&
+            mesh_meshcore_decode_sent(frame, len, &sent) == 0) {
+            const uint32_t wait = sent.timeout_ms > 0U ? sent.timeout_ms : 10000U;
+            meshcore->telemetry_until_ms = inkwell_time_monotonic_ms() + (uint64_t)wait + 2000U;
+        }
         struct mesh_meshcore_pending *pending = mesh_meshcore_pending_for(meshcore, packet_id);
         if (pending != NULL && mesh_meshcore_decode_sent(frame, len, &sent) == 0) {
             meshcore->now_ms = inkwell_time_monotonic_ms();
@@ -1142,6 +1238,7 @@ static int mesh_meshcore_begin(void *self) {
     /* A fresh connection asks for every contact: the model may hold nodes from another radio's
        list, and "since" is only meaningful against the list it came from. */
     meshcore->contacts_since = 0U;
+    meshcore->telemetry_until_ms = 0U;
     /* And the adverts kept for adding are this connection's: one from before may be older than
        what the sender now stamps, and would hold its next advert back as a replay. */
     memset(meshcore->heard_age, 0, sizeof meshcore->heard_age);
@@ -1496,6 +1593,38 @@ int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id) 
     const int result = mesh_meshcore_enqueue(
         meshcore, frame, mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U);
     return result < 0 ? result : 1;
+}
+
+int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t node_id) {
+    if (meshcore == NULL || node_id == 0U || node_id == meshcore->self_node) {
+        return -EINVAL;
+    }
+    if (!mesh_meshcore_ready(meshcore)) {
+        return -ENOTCONN;
+    }
+    /* The radio looks the key up among its contacts, and a heard node is not one. */
+    const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, node_id);
+    if (node == NULL || !node->in_nodedb || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN) {
+        return -ENOENT;
+    }
+    /* The radio keeps one request outstanding and a new one orphans the last, so a second
+       waits for the first: while it is still queued, and then for its answer or deadline. */
+    if (mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ) ||
+        (meshcore->telemetry_until_ms != 0U &&
+         inkwell_time_monotonic_ms() < meshcore->telemetry_until_ms)) {
+        return -EBUSY;
+    }
+    uint8_t frame[4U + MESH_MESHCORE_PUBKEY_LEN];
+    memset(frame, 0, sizeof frame);
+    frame[0] = MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ; /* then three reserved bytes */
+    memcpy(frame + 4, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
+    const int result = mesh_meshcore_enqueue(meshcore, frame, (int)sizeof frame, 0U);
+    if (result < 0) {
+        return result;
+    }
+    memcpy(meshcore->telemetry_prefix, node->public_key, MESH_MESHCORE_PREFIX_LEN);
+    meshcore->telemetry_answered = false;
+    return 0;
 }
 
 int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,

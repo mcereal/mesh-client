@@ -338,7 +338,7 @@ enum mesh_ui_feature {
     MESH_UI_FEATURE_WAYPOINTS = 1U << 0,
     /* The traceroute verb on a node. */
     MESH_UI_FEATURE_TRACEROUTE = 1U << 1,
-    /* Asking a node for its name, position or telemetry now. */
+    /* Asking a node for its name or position now. Its readings are NODE_TELEMETRY. */
     MESH_UI_FEATURE_NODE_REQUESTS = 1U << 2,
     /* Mute and ignore: flags the radio keeps per node. Pinning is MESH_UI_FEATURE_NODE_PIN. */
     MESH_UI_FEATURE_NODE_FLAGS = 1U << 3,
@@ -371,10 +371,13 @@ enum mesh_ui_feature {
     /* Pinning a node: on every node its radio lists where NODE_FLAGS is had too, and otherwise
        on a contact the radio carries by its whole key (MeshCore's favourite). */
     MESH_UI_FEATURE_NODE_PIN = 1U << 15,
+    /* Asking a node for its readings now: Meshtastic's telemetry request, MeshCore's
+       SEND_TELEMETRY_REQ - whose answer carries a position too, where the node shares one. */
+    MESH_UI_FEATURE_NODE_TELEMETRY = 1U << 16,
 };
 
 /* Every bit above: what a protocol with none of Meshtastic's verbs lacks. */
-#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_PIN << 1) - 1U))
+#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_TELEMETRY << 1) - 1U))
 
 /*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so the

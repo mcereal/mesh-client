@@ -868,8 +868,14 @@ static void on_request_reading(struct mesh_app *app, const struct mesh_ui_action
     const bool position = (action->type == MESH_UI_ACTION_REQUEST_POSITION);
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
-    const int result = position ? mesh_session_request_position(&app->session, action->dest)
-                                : mesh_session_request_telemetry(&app->session, action->dest);
+    int result;
+    if (app->meshcore_bound) {
+        /* MeshCore's one request is its readings; a position comes with them, if at all. */
+        result = position ? -EINVAL : mesh_meshcore_request_telemetry(&app->meshcore, action->dest);
+    } else {
+        result = position ? mesh_session_request_position(&app->session, action->dest)
+                          : mesh_session_request_telemetry(&app->session, action->dest);
+    }
     if (result == 0) {
         /* Nothing here can promise an answer either: the request carries no want_ack, and a
            node that is out of range, asleep or simply not equipped answers nothing. */
@@ -878,6 +884,10 @@ static void on_request_reading(struct mesh_app *app, const struct mesh_ui_action
             position ? MESH_STR_TOAST_ASKED_POSITION : MESH_STR_TOAST_ASKED_TELEMETRY, name);
     } else if (result == -ENOTCONN) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else if (result == -ENOENT) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
+    } else if (result == -EBUSY) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_READINGS_BUSY));
     } else if (result == -EINVAL) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CANNOT_ASK));
     } else {

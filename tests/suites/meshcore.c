@@ -1336,6 +1336,196 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     record_success(test_name);
 }
 
+/* Cayenne LPP as MeshCore writes it: the battery on channel 1, sensors after, a sensor's
+   temperature over the MCU's, and a type it does not know stops the read. */
+MESH_TEST_CASE(meshcore_lpp_reads_what_a_node_reports, unit) {
+    static const uint8_t k_lpp[] = {
+        0x01, 116,  0x01, 0x9A,       /* ch1 voltage 4.10 V */
+        0x01, 103,  0x00, 0xFA,       /* ch1 MCU temperature 25.0 C */
+        0x02, 103,  0xFF, 0x9C,       /* ch2 sensor temperature -10.0 C */
+        0x02, 104,  0x5A,             /* ch2 humidity 45 % */
+        0x02, 115,  0x27, 0x9B,       /* ch2 pressure 1013.9 hPa */
+        0x03, 136,  0x05, 0xC3, 0x8C, /* ch3 GPS lat 37.7740 */
+        0xED, 0x51, 0xFC,             /*         lon -122.4196 */
+        0x00, 0x03, 0xE8,             /*         alt 10.00 m */
+        0x04, 200,  0x01,             /* a type this reader does not know */
+        0x02, 116,  0x01, 0x00,       /* never reached */
+    };
+    struct mesh_meshcore_telemetry t;
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_lpp, sizeof k_lpp, &t) != 0, "decodes");
+    MESH_TEST_FAIL_IF(!t.has_battery || t.battery_v < 4.09f || t.battery_v > 4.11f,
+                      "the battery is channel 1's voltage");
+    MESH_TEST_FAIL_IF(!t.has_temperature || t.temperature_c > -9.9f || t.temperature_c < -10.1f,
+                      "the sensor's temperature wins over the MCU's");
+    MESH_TEST_FAIL_IF(!t.has_humidity || t.humidity_pct != 45.0f, "humidity in half percent");
+    MESH_TEST_FAIL_IF(!t.has_pressure || t.pressure_hpa < 1013.8f || t.pressure_hpa > 1014.0f,
+                      "pressure in tenths of a hPa");
+    MESH_TEST_FAIL_IF(!t.has_position || t.latitude_e7 != 377740000 ||
+                          t.longitude_e7 != -1224196000 || t.altitude_m != 10,
+                      "GPS in three signed bytes each");
+    MESH_TEST_FAIL_IF(t.has_voltage, "nothing after an unknown type is read");
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_lpp, 3U, &t) != 0 || t.has_battery,
+                      "a truncated value is not read");
+    static const uint8_t k_offworld[] = {0x03, 136, 0x7F, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0, 0, 0};
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_offworld, sizeof k_offworld, &t) != 0 ||
+                          t.has_position,
+                      "a fix off the globe is not a position");
+    static const uint8_t k_current[] = {0x02, 117, 0xFF, 0x06}; /* -0.250 A */
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_current, sizeof k_current, &t) != 0 ||
+                          !t.has_current || t.current_a > -0.249f || t.current_a < -0.251f,
+                      "current in signed thousandths of an amp");
+    /* What a Heltec V3 on v1.17.1 answered about itself: battery and MCU temperature only. */
+    static const uint8_t k_heltec[] = {0x01, 0x74, 0x01, 0x9d, 0x01, 0x67, 0x01, 0x86};
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_lpp(k_heltec, sizeof k_heltec, &t) != 0 ||
+                          !t.has_battery || t.battery_v < 4.12f || t.battery_v > 4.14f ||
+                          !t.has_temperature || t.temperature_c != 39.0f || t.has_position,
+                      "a real radio's answer reads as 4.13 V and 39.0 C");
+    record_success(test_name);
+}
+
+/* A telemetry request names a contact by its whole key; the answer lands on its record. */
+MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const uint32_t alice = 0x40414243U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, g_meshcore.self_node) != -EINVAL,
+                      "this radio is not asked");
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, 0x12345678U) != -ENOENT,
+                      "a node the radio does not carry is not asked");
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0, "Alice is asked");
+    const uint8_t *frame = wire.frames[before];
+    MESH_TEST_FAIL_IF(wire.lens[before] != 36U ||
+                          frame[0] != MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ || frame[1] != 0U ||
+                          frame[4] != 0x40 || frame[35] != 0x40 + 31,
+                      "by three reserved bytes and her whole key");
+    static const uint8_t k_sent[10] = {MESH_MESHCORE_RESP_SENT, 0, 1, 2, 3, 4, 0x88, 0x13, 0, 0};
+    feed(&protocol, k_sent, sizeof k_sent);
+    static const uint8_t k_push[] = {
+        MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE,
+        0x00,
+        0x40,
+        0x41,
+        0x42,
+        0x43,
+        0x44,
+        0x45,
+        0x01,
+        116,
+        0x01,
+        0x72, /* 3.70 V */
+        0x02,
+        103,
+        0x00,
+        0xC8, /* 20.0 C */
+    };
+    const uint32_t heard_before = model_node(alice)->last_heard;
+    g_meshcore.radio_clock = heard_before + 600U;
+    g_meshcore.radio_clock_at_ms = inkwell_time_monotonic_ms();
+    feed(&protocol, k_push, sizeof k_push);
+    const struct mesh_node_summary *node = model_node(alice);
+    MESH_TEST_FAIL_IF(node->last_heard <= heard_before, "an answer is the node heard from, now");
+    MESH_TEST_FAIL_IF(!node->metrics.valid || !node->metrics.has_voltage ||
+                          node->metrics.voltage < 3.69f || node->metrics.voltage > 3.71f,
+                      "the battery lands in the node's metrics");
+    MESH_TEST_FAIL_IF(!node->environment.valid || !node->environment.has_temperature ||
+                          node->environment.temperature != 20.0f || node->environment.has_humidity,
+                      "the temperature in its environment, and nothing it did not send");
+    MESH_TEST_FAIL_IF(g_meshcore.telemetry_until_ms != 0U,
+                      "the answer frees the radio for the next request");
+    static const uint8_t k_amps[] = {
+        MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE,
+        0x00,
+        0x40,
+        0x41,
+        0x42,
+        0x43,
+        0x44,
+        0x45,
+        0x02,
+        117,
+        0x00,
+        0xFA, /* 0.250 A */
+    };
+    feed(&protocol, k_amps, sizeof k_amps);
+    MESH_TEST_FAIL_IF(!node->environment.has_current || node->environment.current < 249.9f ||
+                          node->environment.current > 250.1f,
+                      "current lands in milliamps, as the record keeps it");
+    MESH_TEST_FAIL_IF(node->environment.has_temperature,
+                      "and a reading the node no longer sends is not kept as fresh");
+    static const uint8_t k_null_island[] = {
+        MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE,
+        0x00,
+        0x40,
+        0x41,
+        0x42,
+        0x43,
+        0x44,
+        0x45,
+        0x03,
+        136,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    };
+    feed(&protocol, k_null_island, sizeof k_null_island);
+    MESH_TEST_FAIL_IF(!node->position.valid || node->position.latitude_i != 0 ||
+                          node->position.longitude_i != 0,
+                      "a fix at 0, 0 reported as one is a position");
+
+    /* One outstanding: a second before the first's answer or deadline would orphan it. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0, "asked again");
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != -EBUSY,
+                      "a second waits while the first is still on its way to the radio");
+    feed(&protocol, k_sent, sizeof k_sent);
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != -EBUSY,
+                      "and a third waits for the second's answer");
+    /* A late answer from someone else leaves the current request its deadline. */
+    static const uint8_t k_stranger[] = {
+        MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE,
+        0x00,
+        0x99,
+        0x98,
+        0x97,
+        0x96,
+        0x95,
+        0x94,
+        0x01,
+        116,
+        0x01,
+        0x72,
+    };
+    feed(&protocol, k_stranger, sizeof k_stranger);
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != -EBUSY,
+                      "only the asked node's answer frees the radio");
+    g_meshcore.telemetry_until_ms = 1U; /* the deadline long past */
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0,
+                      "an answer that never came frees it at its deadline");
+    /* An answer ahead of the radio's SENT leaves nothing to wait for once the SENT comes. */
+    feed(&protocol, k_push, sizeof k_push);
+    feed(&protocol, k_sent, sizeof k_sent);
+    MESH_TEST_FAIL_IF(g_meshcore.telemetry_until_ms != 0U,
+                      "a SENT after its own answer does not lock the radio again");
+
+    /* A retry still queued behind another command: an answer then is the last request's, and
+       the retry's own SENT still arms its deadline. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_advert(&g_meshcore, false) != 0, "something ahead");
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0, "the retry");
+    feed(&protocol, k_push, sizeof k_push);
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK); /* the advert's; the retry goes out now */
+    feed(&protocol, k_sent, sizeof k_sent);
+    MESH_TEST_FAIL_IF(g_meshcore.telemetry_until_ms == 0U,
+                      "an earlier answer does not stand in for a request not yet written");
+    record_success(test_name);
+}
+
 /* An advert is SEND_SELF_ADVERT with 1 to flood it and 0 for the nodes in earshot. */
 MESH_TEST_CASE(meshcore_advert_is_flooded_or_not, unit) {
     struct mesh_protocol protocol;
