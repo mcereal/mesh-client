@@ -126,7 +126,52 @@ static bool meshcore_read_build(struct inkwell_json *json, bool esp32, char *rol
     return true;
 }
 
-/* One device, adding each build of `role` to `out` when `model` names it. */
+/* The builds of one device's `firmware` array, from a cursor on it, adding each of `role`. */
+static bool meshcore_read_builds(struct inkwell_json *json, const char *name, const char *type,
+                                 const char *role, struct mesh_firmware_boards *out) {
+    if (!inkwell_json_enter_array(json)) {
+        return false;
+    }
+    const bool esp32 = strcmp(type, "esp32") == 0;
+    while (inkwell_json_next_element(json)) {
+        char build_role[32];
+        char pattern[MESHCORE_PATTERN_MAX];
+        if (!meshcore_read_build(json, esp32, build_role, sizeof build_role, pattern,
+                                 sizeof pattern)) {
+            return false;
+        }
+        struct mesh_firmware_board board;
+        memset(&board, 0, sizeof board);
+        if (strcmp(build_role, role) != 0 ||
+            !meshcore_pattern_prefix(pattern, board.target, sizeof board.target)) {
+            continue;
+        }
+        inkwell_str_copy(board.name, sizeof board.name, name);
+        inkwell_str_copy(board.architecture, sizeof board.architecture,
+                         esp32                        ? "esp32"
+                         : strcmp(type, "nrf52") == 0 ? "nrf52840"
+                                                      : type);
+        board.actively_supported = true;
+        /* Over USB through the ROM for an ESP32. An nRF52's USB path needs its bootloader
+           reached without an admin verb, which MeshCore does not have. */
+        board.path = esp32 ? MESH_FIRMWARE_PATH_USB : MESH_FIRMWARE_PATH_NONE;
+        if (out->found < UINT8_MAX) {
+            out->found++;
+        }
+        if (out->count < MESH_FIRMWARE_BOARDS_MAX) {
+            out->entries[out->count++] = board;
+        }
+    }
+    return true;
+}
+
+/*
+ * One device, adding each build of `role` to `out` when `model` names it.
+ *
+ * Whether it does is only known once `name` and `type` are, and a JSON object's keys come in
+ * any order - so the `firmware` array is stepped over where it is met, with a copy of the
+ * cursor kept on it, and read from that copy once the whole object has been.
+ */
 static bool meshcore_read_device(struct inkwell_json *json, const char *model, const char *role,
                                  struct mesh_firmware_boards *out) {
     if (!inkwell_json_enter_object(json)) {
@@ -134,6 +179,8 @@ static bool meshcore_read_device(struct inkwell_json *json, const char *model, c
     }
     char name[MESH_FIRMWARE_BOARD_NAME_MAX] = "";
     char type[MESH_FIRMWARE_ARCH_MAX] = "";
+    struct inkwell_json builds;
+    bool have_builds = false;
     char key[32];
     while (inkwell_json_next_key(json, key, sizeof key)) {
         bool read = false;
@@ -141,50 +188,19 @@ static bool meshcore_read_device(struct inkwell_json *json, const char *model, c
             read = inkwell_json_read_string(json, name, sizeof name);
         } else if (strcmp(key, "type") == 0) {
             read = inkwell_json_read_string(json, type, sizeof type);
-        } else if (strcmp(key, "firmware") == 0 && name[0] != '\0' && type[0] != '\0' &&
-                   mesh_firmware_meshcore_names(model, name)) {
-            /* `name` and `type` come before `firmware` in every entry the flasher publishes;
-               one that did not would be skipped as though it named another device. */
-            if (!inkwell_json_enter_array(json)) {
-                return false;
-            }
-            const bool esp32 = strcmp(type, "esp32") == 0;
-            while (inkwell_json_next_element(json)) {
-                char build_role[32];
-                char pattern[MESHCORE_PATTERN_MAX];
-                if (!meshcore_read_build(json, esp32, build_role, sizeof build_role, pattern,
-                                         sizeof pattern)) {
-                    return false;
-                }
-                struct mesh_firmware_board board;
-                memset(&board, 0, sizeof board);
-                if (strcmp(build_role, role) != 0 ||
-                    !meshcore_pattern_prefix(pattern, board.target, sizeof board.target)) {
-                    continue;
-                }
-                inkwell_str_copy(board.name, sizeof board.name, name);
-                inkwell_str_copy(board.architecture, sizeof board.architecture,
-                                 esp32                        ? "esp32"
-                                 : strcmp(type, "nrf52") == 0 ? "nrf52840"
-                                                              : type);
-                board.actively_supported = true;
-                /* Over USB through the ROM for an ESP32. An nRF52's USB path needs its
-                   bootloader reached without an admin verb, which MeshCore does not have. */
-                board.path = esp32 ? MESH_FIRMWARE_PATH_USB : MESH_FIRMWARE_PATH_NONE;
-                if (out->found < UINT8_MAX) {
-                    out->found++;
-                }
-                if (out->count < MESH_FIRMWARE_BOARDS_MAX) {
-                    out->entries[out->count++] = board;
-                }
-            }
-            read = true;
+        } else if (strcmp(key, "firmware") == 0) {
+            builds = *json;
+            have_builds = true;
         }
         if (!read && !inkwell_json_skip_value(json)) {
             return false;
         }
     }
-    return true;
+    if (!have_builds || name[0] == '\0' || type[0] == '\0' ||
+        !mesh_firmware_meshcore_names(model, name)) {
+        return true;
+    }
+    return meshcore_read_builds(&builds, name, type, role, out);
 }
 
 bool mesh_firmware_meshcore_boards_parse(const char *json_text, size_t len, const char *model,

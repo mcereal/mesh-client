@@ -68,6 +68,17 @@ MESH_TEST_CASE(firmware_meshcore_matches_through_the_alias_and_never_guesses, un
             mesh_firmware_meshcore_names("Heltec V4", "Heltec v3") ||
             mesh_firmware_meshcore_names("", ""),
         "the handover holds a radio to the device its image was chosen for");
+
+    /* The same device with its keys in another order: an object's order means nothing. */
+    const char *const reordered =
+        "{\"device\":[{\"firmware\":[{\"role\":\"companionUsb\",\"github\":{\"files\":"
+        "{\"flash-update\":\"Heltec_v3_companion_radio_usb.*?-[a-f0-9]{7}\\\\.bin\"}}}],"
+        "\"type\":\"esp32\",\"name\":\"Heltec v3\"}]}";
+    MESH_TEST_FAIL_IF(!mesh_firmware_meshcore_boards_parse(reordered, strlen(reordered),
+                                                           "Heltec V3", true, &boards) ||
+                          boards.found != 1U ||
+                          strcmp(boards.entries[0].target, "Heltec_v3_companion_radio_usb") != 0,
+                      "a device whose builds come before its name is still that device");
     record_success(test_name);
 }
 
