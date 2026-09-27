@@ -176,6 +176,8 @@ struct mesh_app {
        another key is `firmware_ble_handoff_wrong`. */
     uint8_t firmware_ble_handoff_key[MESH_MESHCORE_PUBKEY_LEN];
     char firmware_ble_handoff_tried[18];
+    /* A radio the handoff bonded for the first time, whose bond goes if its key is wrong. */
+    char firmware_ble_handoff_bonded[18];
     char firmware_ble_handoff_wrong[MESH_APP_HANDOFF_WRONG_MAX][18];
     /* Whether an install stopped the transports and owes them back. A flag rather than a
        question, because "stopped" and "stopped by us" are not the same state and only the

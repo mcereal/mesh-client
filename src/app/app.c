@@ -704,6 +704,19 @@ static void mesh_app_age_preferred_failures(struct mesh_app *app,
     }
 }
 
+/*
+ * Whether an advertised name is the moved radio's. A legacy advertisement holds 29 bytes of
+ * name, so a long node name arrives cut short: a leading part of the expected name counts too,
+ * down to MESH_APP_HANDOFF_NAME_MIN. The node's key, checked once it answers, is what settles it.
+ */
+#define MESH_APP_HANDOFF_NAME_MIN 16U
+static bool mesh_app_handoff_named(const char *advertised, const char *expected) {
+    const size_t length = strlen(advertised);
+    return strcasecmp(advertised, expected) == 0 ||
+           (length >= MESH_APP_HANDOFF_NAME_MIN && length < strlen(expected) &&
+            strncasecmp(advertised, expected, length) == 0);
+}
+
 /* The radios that answered to a moved radio's name with another key, oldest out. */
 static bool mesh_app_handoff_rejected(const struct mesh_app *app, const char *address) {
     for (size_t i = 0; i < MESH_APP_HANDOFF_WRONG_MAX; ++i) {
@@ -778,9 +791,11 @@ void mesh_app_autoconnect(struct mesh_app *app) {
            and would leave the retry to the unattended path that refuses its PIN. */
         /* By its key, which the name only stands for: another radio can take that name, and
            one that did is put down and passed over for the rest of the handoff. */
-        const char *const over_air = mesh_ble_transport_connected_address(ble);
+        const char *const connected = mesh_ble_transport_connected_address(ble);
+        char over_air[sizeof app->firmware_ble_handoff_tried];
+        snprintf(over_air, sizeof over_air, "%s", connected != NULL ? connected : "");
         if (app->firmware_ble_handoff[0] != '\0' && app->meshcore_bound && app->meshcore.has_self &&
-            over_air != NULL) {
+            over_air[0] != '\0') {
             if (memcmp(app->meshcore.self.public_key, app->firmware_ble_handoff_key,
                        sizeof app->firmware_ble_handoff_key) == 0) {
                 app->firmware_ble_handoff[0] = '\0';
@@ -789,6 +804,12 @@ void mesh_app_autoconnect(struct mesh_app *app) {
                    on the next turn rather than leaving the impostor holding the link. */
                 inkwell_log_warn("app", "%s answered to %s with another key; passing it over",
                                  over_air, app->firmware_ble_handoff);
+                /* A bond the handoff made for it goes too, or ordinary auto-connect would take
+                   the stranger up later; one it already had is the user's and stays. */
+                if (strcmp(over_air, app->firmware_ble_handoff_bonded) == 0) {
+                    (void)mesh_ble_transport_forget(ble, over_air);
+                    app->firmware_ble_handoff_bonded[0] = '\0';
+                }
                 mesh_app_handoff_reject(app, over_air);
             }
         }
@@ -957,7 +978,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
        the one in the user's hand, ahead of whatever was used last. */
     for (size_t i = 0; app->firmware_ble_handoff[0] != '\0' && i < in_range_count; ++i) {
         const struct inkwell_ble_device *device = &devices[in_range[i]];
-        if (strcasecmp(device->name, app->firmware_ble_handoff) == 0 &&
+        if (mesh_app_handoff_named(device->name, app->firmware_ble_handoff) &&
             mesh_app_ble_speaks_meshcore(ble, device->address) &&
             !mesh_app_handoff_rejected(app, device->address)) {
             /*
@@ -1104,6 +1125,9 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         if (handoff && target->paired) {
             snprintf(app->firmware_ble_handoff_tried, sizeof app->firmware_ble_handoff_tried, "%s",
                      target->address);
+        } else if (handoff) {
+            snprintf(app->firmware_ble_handoff_bonded, sizeof app->firmware_ble_handoff_bonded,
+                     "%s", target->address);
         }
         if (result == 0) {
             inkwell_log_info("app", "Auto-connecting to %s (%s)", target->name, target->address);

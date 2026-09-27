@@ -2249,6 +2249,7 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
             memcpy(app->firmware_ble_handoff_key, app->meshcore.self.public_key,
                    sizeof app->firmware_ble_handoff_key);
             app->firmware_ble_handoff_tried[0] = '\0';
+            app->firmware_ble_handoff_bonded[0] = '\0';
             memset(app->firmware_ble_handoff_wrong, 0, sizeof app->firmware_ble_handoff_wrong);
             app->firmware_ble_handoff_until_ms = now + MESH_APP_BLE_HANDOFF_MS;
         }
