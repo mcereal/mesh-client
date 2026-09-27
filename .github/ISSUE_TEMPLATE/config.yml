@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Meshtastic firmware or protocol problem
+    url: https://github.com/meshtastic/firmware/issues
+    about: A problem with the radio itself, not with this client, belongs with the Meshtastic firmware.

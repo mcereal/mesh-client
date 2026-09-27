@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest something new for MeshClient, or a change to how something works.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the idea. The more you say about the problem, the easier it is to find the right fix.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem or the situation, not the solution yet. What is hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: How you imagine it working - which screen, which buttons.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+      description: Workarounds you use now, or how another Meshtastic app handles it.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Which platforms does this matter on?
+      multiple: true
+      options:
+        - TrimUI Brick (pak)
+        - macOS
+        - Windows
+        - Linux (CLI)
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Screenshots, mockups, links to the Meshtastic docs.

@@ -1,0 +1,81 @@
+name: Bug report
+description: Something in MeshClient does not work the way it should.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Before you file, please check
+        [`docs/non-bugs.md`](https://github.com/mcereal/mesh-client/blob/main/docs/non-bugs.md) -
+        some things that look like bugs are deliberate (a radio rebooting after a settings write,
+        for example).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect to see instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The buttons you pressed and the screens you went through, in order.
+      placeholder: |
+        1. Open Messages
+        2. Press A on a conversation
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: MeshClient version
+      description: Shown in Settings > About, or from `meshclient --version`.
+      placeholder: e.g. 1.4.2
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where are you running it?
+      options:
+        - TrimUI Brick (pak)
+        - macOS
+        - Windows
+        - Linux (CLI)
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: How is the radio connected?
+      options:
+        - Bluetooth
+        - USB serial
+        - TCP / Wi-Fi
+        - Not connected / not relevant
+    validations:
+      required: true
+  - type: input
+    id: radio
+    attributes:
+      label: Radio hardware and firmware
+      description: The device model and its Meshtastic firmware version, if the bug involves the radio.
+      placeholder: e.g. Heltec V3, firmware 2.5.20
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or crash report
+      description: |
+        On the Brick the log is `/.userdata/tg5040/logs/MeshClient.txt`; after a crash there is also
+        `~/.meshclient/crash.txt`. **Read either file before pasting it** - both can contain node
+        names, positions and message text.
+      render: text
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: A photo or screenshot of the screen often says more than a description.
