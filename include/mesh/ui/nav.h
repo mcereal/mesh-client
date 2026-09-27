@@ -1317,6 +1317,13 @@ bool mesh_ui_nav_kb_submit_finishes(const struct mesh_ui_nav *nav);
  * renderer that read it alone drew the search heading over six digits BlueZ was waiting for,
  * while every key went to the prompt. The prompt wins here as it wins in the key dispatch.
  */
+/*
+ * What the keyboard's field shows of the draft: the draft itself, or for a password one mark per
+ * character in `out`, with `*caret_back` (bytes of the draft after the caret) turned into bytes
+ * of what is shown.
+ */
+const char *mesh_ui_nav_kb_shown(const struct mesh_ui_nav *nav, char *out, size_t out_len,
+                                 size_t *caret_back);
 bool mesh_ui_nav_kb_node_search(const struct mesh_ui_nav *nav);
 
 /*

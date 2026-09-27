@@ -114,6 +114,34 @@ bool mesh_ui_nav_kb_node_search(const struct mesh_ui_nav *nav) {
            !nav->keyboard_passkey && !nav->keyboard_verify;
 }
 
+const char *mesh_ui_nav_kb_shown(const struct mesh_ui_nav *nav, char *out, size_t out_len,
+                                 size_t *caret_back) {
+    if (nav == NULL || !nav->keyboard_login || out == NULL || out_len == 0U) {
+        return nav != NULL ? nav->draft : "";
+    }
+    /* One mark per character rather than per byte, and the caret counted the same way: it is
+       held as bytes of the draft after it, and each mark is one byte. */
+    size_t used = 0U;
+    size_t after = 0U;
+    const size_t draft_len = strlen(nav->draft);
+    const size_t caret_at =
+        caret_back != NULL && *caret_back < draft_len ? draft_len - *caret_back : draft_len;
+    for (size_t i = 0; i < draft_len && used + 1U < out_len; ++i) {
+        if (((unsigned char)nav->draft[i] & 0xC0U) == 0x80U) {
+            continue; /* a continuation byte of the character already marked */
+        }
+        out[used++] = '*';
+        if (i >= caret_at) {
+            after += 1U;
+        }
+    }
+    out[used] = '\0';
+    if (caret_back != NULL) {
+        *caret_back = after;
+    }
+    return out;
+}
+
 struct inkcell_keyboard_layout mesh_ui_nav_kb_layout(const struct mesh_ui_nav *nav) {
     return (struct inkcell_keyboard_layout){
         .emoji = k_kb_emoji,
@@ -267,6 +295,9 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         nav->keyboard_login = false;
         nav->login_node = 0U;
         nav->login_name[0] = '\0';
+        /* All of it, not just what the parked draft covers: whatever of a password it does not
+           would otherwise sit in the buffer past the restored text's end. */
+        memset(nav->draft, 0, sizeof nav->draft);
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
         nav->draft_saved[0] = '\0';
         /* Back on the node's sheet it was raised from, a level of the Nodes tab. */

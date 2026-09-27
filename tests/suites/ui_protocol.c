@@ -283,7 +283,7 @@ MESH_TEST_CASE(ui_protocol_meshcore_logs_in_to_a_repeater, unit) {
         failure = "the repeater's sheet carries a login";
         goto cleanup;
     }
-    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "half a message");
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "hi");
     for (int round = 0; round < 3; ++round) {
         while (store.nav.node_actions_cursor < login_row &&
                mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action)) {
@@ -297,13 +297,35 @@ MESH_TEST_CASE(ui_protocol_meshcore_logs_in_to_a_repeater, unit) {
         }
         if (round == 0) {
             mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* one character */
+            char shown[MESH_UI_DRAFT_MAX];
+            size_t caret_back = 0U;
+            if (strcmp(mesh_ui_nav_kb_shown(&store.nav, shown, sizeof shown, &caret_back), "*") !=
+                    0 ||
+                caret_back != 0U) {
+                failure = "a password is shown as one mark per character";
+                goto cleanup;
+            }
         }
         if (round == 2) {
-            mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+            /* Longer than the draft it parked, so what B leaves is the test. */
+            for (int typed = 0; typed < 15; ++typed) {
+                mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+            }
+            if (strlen(store.nav.draft) <= strlen("hi")) {
+                failure = "fifteen characters were typed";
+                goto cleanup;
+            }
             mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
             if (action.type != MESH_UI_ACTION_NONE || store.nav.keyboard_open) {
                 failure = "B leaves without logging in";
                 goto cleanup;
+            }
+            const size_t parked = strlen("hi");
+            for (size_t at = parked + 1U; at < sizeof store.nav.draft; ++at) {
+                if (store.nav.draft[at] != '\0') {
+                    failure = "nothing of the password is left past the restored draft";
+                    goto cleanup;
+                }
             }
         } else {
             mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
@@ -314,7 +336,7 @@ MESH_TEST_CASE(ui_protocol_meshcore_logs_in_to_a_repeater, unit) {
                 goto cleanup;
             }
         }
-        if (strcmp(store.nav.draft, "half a message") != 0 || store.nav.login_node != 0U) {
+        if (strcmp(store.nav.draft, "hi") != 0 || store.nav.login_node != 0U) {
             failure = "the password goes, and the draft it parked comes back";
             goto cleanup;
         }
