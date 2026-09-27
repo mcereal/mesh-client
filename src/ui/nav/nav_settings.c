@@ -123,6 +123,10 @@ static void mesh_ui_nav_edit_couple(struct mesh_ui_nav *nav, const struct mesh_u
                                     const char *text) {
     if (field == MESH_UI_FIELD_MESHCORE_PAIRING && number == 0U) {
         mesh_ui_nav_edit_remove(nav, MESH_UI_FIELD_MESHCORE_PIN);
+    } else if (field == MESH_UI_FIELD_MESHCORE_PIN && (text == NULL || text[0] == '\0') &&
+               store->settings.meshcore_ble_pin == 0U) {
+        /* The PIN erased on a random radio is back where it started, Pairing with it. */
+        mesh_ui_nav_edit_remove(nav, MESH_UI_FIELD_MESHCORE_PAIRING);
     } else if (field == MESH_UI_FIELD_MESHCORE_PIN && text != NULL && text[0] != '\0') {
         /* Typing a PIN means Fixed, over a pending Random too: an edit when the radio is on a
            random one, and no edit when it is already fixed. */

@@ -675,6 +675,18 @@ MESH_TEST_CASE(ui_nav_meshcore_pin_edits_pairing_too, unit) {
         goto cleanup;
     }
 
+    /* Erasing it again is the random radio untouched, Pairing included. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    store.nav.draft[0] = '\0';
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
+    if (store.nav.settings_edit_count != 0U) {
+        failure = "an erased PIN takes its Fixed with it";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "123456");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
+
     store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = pairing;
     mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
     if (store.nav.settings_edit_count != 0U) {
