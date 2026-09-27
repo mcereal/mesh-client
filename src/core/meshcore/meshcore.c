@@ -804,6 +804,7 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
                pending one (pending_telemetry), which each new request replaces. */
             if (memcmp(frame + 2, meshcore->telemetry_prefix, MESH_MESHCORE_PREFIX_LEN) == 0) {
                 meshcore->telemetry_until_ms = 0U;
+                meshcore->telemetry_answered = true;
             }
         }
         break;
@@ -1034,7 +1035,7 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         struct mesh_meshcore_sent sent;
         /* A telemetry request is on its way: its answer is due within the firmware's estimate,
            and until then a second one would orphan it. */
-        if (cmd == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ &&
+        if (cmd == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ && !meshcore->telemetry_answered &&
             mesh_meshcore_decode_sent(frame, len, &sent) == 0) {
             const uint32_t wait = sent.timeout_ms > 0U ? sent.timeout_ms : 10000U;
             meshcore->telemetry_until_ms = inkwell_time_monotonic_ms() + (uint64_t)wait + 2000U;
@@ -1618,6 +1619,7 @@ int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t nod
         return result;
     }
     memcpy(meshcore->telemetry_prefix, node->public_key, MESH_MESHCORE_PREFIX_LEN);
+    meshcore->telemetry_answered = false;
     return 0;
 }
 

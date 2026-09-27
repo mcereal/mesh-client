@@ -390,6 +390,7 @@ struct mesh_meshcore {
        the radio keeps one, and a second would orphan the first. */
     uint64_t telemetry_until_ms;
     uint8_t telemetry_prefix[MESH_MESHCORE_PREFIX_LEN]; /* whose answer frees it */
+    bool telemetry_answered; /* that answer came ahead of the radio's SENT */
     bool battery_valid;
     uint16_t battery_mv;
     /*

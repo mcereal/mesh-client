@@ -1508,6 +1508,11 @@ MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
     g_meshcore.telemetry_until_ms = 1U; /* the deadline long past */
     MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0,
                       "an answer that never came frees it at its deadline");
+    /* An answer ahead of the radio's SENT leaves nothing to wait for once the SENT comes. */
+    feed(&protocol, k_push, sizeof k_push);
+    feed(&protocol, k_sent, sizeof k_sent);
+    MESH_TEST_FAIL_IF(g_meshcore.telemetry_until_ms != 0U,
+                      "a SENT after its own answer does not lock the radio again");
     record_success(test_name);
 }
 
