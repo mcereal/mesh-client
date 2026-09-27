@@ -43,12 +43,12 @@
  * offering a choice that is already made. It is also what makes the delete safe to put here -
  * the thing about to be thrown away is quoted at the top of the screen it is thrown away from.
  *
- * A row of keys rather than a column of rows, because a face is recognised rather than read. As
- * rows each glyph was a text cell inside an avatar - a thumbnail of a picture, eight of them down
- * the panel, and the send the reader wanted was up to seven presses away. As keys each face is
- * drawn at the size of its box, the whole set is on the panel at once, and any of them is at
- * most seven presses sideways. The word is kept, under the key it names, because a text cell
- * cannot say which of two yellow faces is which and a translation can.
+ * A tray of faces rather than a column of rows, because a face is recognised rather than read.
+ * As rows each glyph was a text cell inside an avatar - a thumbnail of a picture, eight of them
+ * down the panel, and the send the reader wanted was up to seven presses away. In the tray each
+ * face is drawn at the size of its circle, the whole set is on the panel at once, and any of
+ * them is at most seven presses sideways. The word is kept, under the key it names, because a text
+ * cell cannot say which of two yellow faces is which and a translation can.
  */
 void fb_render_reactions(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                          struct inkcell_fb_layout *layout) {
@@ -74,27 +74,32 @@ void fb_render_reactions(struct inkcell_draw_state *state, const struct mesh_ui_
     inkcell_str_format(title, sizeof title, MESH_STR_MESSAGE_ACTIONS, target);
 
     /*
-     * The keys are one row across the row box, square, and never taller than three body lines:
-     * on the Brick that is what eight across comes to anyway, and on a desktop window it stops
-     * the sheet becoming a strip of dinner plates. Everything is measured before the sheet opens
-     * because the sheet's height is the sum of it.
+     * The faces sit in one tray - a capsule, as a phone's reaction bar is - each a circle that is
+     * only filled under the cursor. The tray is as wide as the faces need and no wider, centred,
+     * so the set reads as one object rather than as a row of boxes ruled across the panel. A face
+     * is at most two and a half body lines: on the Brick that is large enough to tell the yellow
+     * ones apart at arm's length, and on a desktop window it stops them becoming dinner plates.
+     * Everything is measured before the sheet opens because the sheet's height is the sum of it.
      */
     const uint32_t faces = (uint32_t)mesh_ui_reaction_count();
     const uint32_t delete_index = mesh_ui_nav_reaction_row_count() - 1U;
     const bool on_delete = mesh_ui_nav_reaction_row_is_delete(nav->reaction_cursor);
     const struct inkcell_fb_row_box box = inkcell_fb_row_box(state);
-    const int gap = inkcell_fb_space(state, INKCELL_SPACE_SM);
-    int key = faces > 0U ? (box.w - (int)(faces - 1U) * gap) / (int)faces : 0;
-    if (key > 3 * layout->line) {
-        key = 3 * layout->line;
+    const int gap = inkcell_fb_space(state, INKCELL_SPACE_XS);
+    const int inset = inkcell_fb_space(state, INKCELL_SPACE_SM);
+    int key = faces > 0U ? (box.w - 2 * inset - (int)(faces - 1U) * gap) / (int)faces : 0;
+    if (key > layout->line * 5 / 2) {
+        key = layout->line * 5 / 2;
     }
     if (key < layout->line) {
         key = layout->line;
     }
+    const int tray_w = (int)faces * key + (faces > 0U ? (int)(faces - 1U) * gap : 0) + 2 * inset;
+    const int tray_h = key + 2 * inset;
     const struct inkcell_type_style caption = inkcell_fb_type_style(state, INKCELL_TYPE_LABEL);
     const int caption_h = inkcell_fb_line_adv_styled(state, &caption);
-    const int apart = inkcell_fb_space(state, INKCELL_SPACE_LG);
-    const int content_h = key + gap + caption_h + apart + layout->line;
+    const int apart = inkcell_fb_space(state, INKCELL_SPACE_MD);
+    const int content_h = tray_h + inset + caption_h + apart + layout->line;
 
     /*
      * A sheet over the transcript rather than a screen in place of it.
@@ -114,42 +119,42 @@ void fb_render_reactions(struct inkcell_draw_state *state, const struct mesh_ui_
         return;
     }
 
-    /* Centred in the row box: what eight capped keys leave over is spent evenly either side
-       rather than trailing off the end of the row. */
-    const int used = (int)faces * key + (faces > 0U ? (int)(faces - 1U) * gap : 0);
-    const int left = box.x + (box.w > used ? (box.w - used) / 2 : 0);
+    const int centre = box.x + box.w / 2;
+    const int tray_x = centre - tray_w / 2;
     int y = inner.body_y;
-    const uint32_t chosen = on_delete ? nav->reaction_face : nav->reaction_cursor;
+    inkcell_fb_fill_round_rect(state, tray_x, y, tray_w, tray_h,
+                               inkcell_fb_radius(state, INKCELL_SHAPE_FULL),
+                               inkcell_fb_color(state, INKCELL_COLOR_SURFACE_SEL));
+    const int first_x = tray_x + inset;
     for (uint32_t i = 0U; i < faces; ++i) {
-        /* A filled key rather than a bare glyph, as the keyboard's action row is: every face is
-           always visibly something to press, and the cursor's own fill is what moves. */
         inkcell_fb_draw_button(
-            state, &(const struct inkcell_fb_button){
-                       .rect = {.x = left + (int)i * (key + gap), .y = y, .w = key, .h = key},
-                       .label = mesh_ui_reaction_emoji(i),
-                       .focused = !on_delete && i == nav->reaction_cursor,
-                       .variant = INKCELL_FB_BUTTON_FILLED,
-                       .shape = INKCELL_SHAPE_MD,
-                       .ground = INKCELL_COLOR_SURFACE_HIGH,
-                       .scale = layout->small,
-                       .focus_id = (uint32_t)MESH_UI_FOCUS_SHEET_ROWS + i,
-                       .emoji_face = true,
-                   });
+            state,
+            &(const struct inkcell_fb_button){
+                .rect = {.x = first_x + (int)i * (key + gap), .y = y + inset, .w = key, .h = key},
+                .label = mesh_ui_reaction_emoji(i),
+                .focused = !on_delete && i == nav->reaction_cursor,
+                .variant = INKCELL_FB_BUTTON_TEXT,
+                .shape = INKCELL_SHAPE_FULL,
+                .ground = INKCELL_COLOR_SURFACE_SEL,
+                .scale = layout->small,
+                .focus_id = (uint32_t)MESH_UI_FOCUS_SHEET_ROWS + i,
+                .emoji_face = true,
+            });
     }
-    y += key + gap;
+    y += tray_h + inset;
 
-    /* The chosen face's name, centred under its key and kept inside the row. Not while the
-       cursor is on the delete: a name under a key the cursor has left is a label for a press
-       that is no longer on offer. */
-    if (!on_delete && chosen < faces) {
-        const char *name = inkcell_str(mesh_ui_reaction_label(chosen));
+    /* The chosen face's name, centred under it and kept inside the tray. Not while the cursor
+       is on the delete: a name under a face the cursor has left is a label for a press that is
+       no longer on offer. */
+    if (!on_delete && nav->reaction_cursor < faces) {
+        const char *name = inkcell_str(mesh_ui_reaction_label(nav->reaction_cursor));
         const int w = inkcell_fb_text_width_styled(state, name, &caption);
-        int x = left + (int)chosen * (key + gap) + (key - w) / 2;
-        if (x + w > box.x + box.w) {
-            x = box.x + box.w - w;
+        int x = first_x + (int)nav->reaction_cursor * (key + gap) + (key - w) / 2;
+        if (x + w > tray_x + tray_w) {
+            x = tray_x + tray_w - w;
         }
-        if (x < box.x) {
-            x = box.x;
+        if (x < tray_x) {
+            x = tray_x;
         }
         inkcell_fb_draw_text_styled(state, x, y, name, &caption,
                                     inkcell_fb_color(state, INKCELL_COLOR_TEXT_DIM),
@@ -158,28 +163,41 @@ void fb_render_reactions(struct inkcell_draw_state *state, const struct mesh_ui_
     y += caption_h + apart;
 
     /*
-     * The delete, a whole row under the faces and a gap away from them.
+     * The delete: a capsule sized to its own words, centred under the tray.
      *
-     * It is the one place here that destroys something, so it is told apart before it is read:
-     * the danger ink at rest, the danger fill under the cursor, and room between it and the
-     * faces so that it is never the key next to a send. Down is the only way onto it, and the
-     * press there is still two - the armed label says so on the button itself.
+     * Material's destructive text button rather than a bar across the sheet - the one press here
+     * that destroys something should be findable, not the loudest thing on the panel. It says
+     * so in three steps: the danger ink with no fill at rest, the danger family's held-back
+     * container under the cursor, and its full strength once armed, when the next press really
+     * does delete. The ring is marked by hand for the middle step because the button's own
+     * `focused` is what picks the full-strength fill.
      */
+    const enum inkcell_icon icon = INKCELL_ICON_DELETE;
+    const char *const label = inkcell_str(
+        nav->message_delete_armed ? MESH_STR_MESSAGE_DELETE_CONFIRM : MESH_STR_MESSAGE_DELETE);
+    const int label_scale = inkcell_fb_type_scale(state, INKCELL_TYPE_BODY);
+    int delete_w = inkcell_fb_button_width(state, icon, label, label_scale);
+    if (delete_w > box.w) {
+        delete_w = box.w;
+    }
+    const uint32_t delete_id = (uint32_t)MESH_UI_FOCUS_SHEET_ROWS + delete_index;
     inkcell_fb_draw_button(
         state, &(const struct inkcell_fb_button){
-                   .rect = {.x = box.x, .y = y, .w = box.w, .h = layout->line},
-                   .icon = INKCELL_ICON_DELETE,
-                   .label = inkcell_str(nav->message_delete_armed ? MESH_STR_MESSAGE_DELETE_CONFIRM
-                                                                  : MESH_STR_MESSAGE_DELETE),
-                   .focused = on_delete,
+                   .rect = {.x = centre - delete_w / 2, .y = y, .w = delete_w, .h = layout->line},
+                   .icon = icon,
+                   .label = label,
+                   .focused = on_delete && nav->message_delete_armed,
                    .variant = on_delete ? INKCELL_FB_BUTTON_TONAL : INKCELL_FB_BUTTON_TEXT,
                    .family = INKCELL_FAMILY_ERROR,
-                   .shape = INKCELL_SHAPE_MD,
+                   .shape = INKCELL_SHAPE_FULL,
                    .idle_tone = INKCELL_TONE_ERROR,
                    .ground = INKCELL_COLOR_SURFACE_HIGH,
-                   .scale = inkcell_fb_type_scale(state, INKCELL_TYPE_BODY),
-                   .focus_id = (uint32_t)MESH_UI_FOCUS_SHEET_ROWS + delete_index,
+                   .scale = label_scale,
+                   .focus_id = delete_id,
                });
+    if (on_delete && !nav->message_delete_armed) {
+        inkcell_fb_focus_mark(state, delete_id);
+    }
     fb_sheet_end(state, &frame);
 }
 
