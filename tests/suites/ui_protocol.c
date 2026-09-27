@@ -19,6 +19,7 @@
 #include "mesh/core/protocol.h"
 #include "mesh/core/session.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/proto/meshcore_url.h"
 #include "mesh/ui/commands.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
@@ -783,8 +784,8 @@ MESH_TEST_CASE(ui_protocol_draft_cap_follows_the_link, unit) {
     static struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     store.nav.target_node = MESH_MESSAGE_BROADCAST_ADDR;
-    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) != MESH_UI_DRAFT_MAX - 1U,
-                      "Meshtastic's draft holds the whole payload");
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) != MESH_UI_MESSAGE_TEXT_MAX - 1U,
+                      "Meshtastic's draft holds the whole payload, and no more");
 
     struct mesh_ui_settings settings;
     memset(&settings, 0, sizeof settings);
@@ -799,6 +800,11 @@ MESH_TEST_CASE(ui_protocol_draft_cap_follows_the_link, unit) {
     store.nav.keyboard_channel_url = true;
     MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) != MESH_UI_DRAFT_MAX - 1U,
                       "a link being typed is not a message");
+    store.nav.keyboard_channel_url = false;
+    store.nav.keyboard_contact_url = true;
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_cap(&store.nav) <
+                          strlen("meshcore://") + 2U * MESH_MESHCORE_CARD_MAX,
+                      "and a contact link holds the longest MeshCore card");
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }

@@ -202,17 +202,19 @@ size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
            it is refused during the typing instead. */
         return MESH_UI_NETWORK_HOST_MAX - 1U;
     }
-    /* A message: whatever the link's protocol carries to where compose sends. */
+    /* A message: whatever the link's protocol carries to where compose sends, and never past
+       one Data payload - the draft is longer, for the links typed into it. */
     if (!nav->keyboard_channel_url && !nav->keyboard_contact_url) {
         const uint16_t link_max = nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
                                       ? nav->channel_text_max
                                       : nav->direct_text_max;
-        if (link_max != 0U && link_max < MESH_UI_DRAFT_MAX - 1U) {
+        if (link_max != 0U && link_max < MESH_UI_MESSAGE_TEXT_MAX - 1U) {
             return link_max;
         }
+        return MESH_UI_MESSAGE_TEXT_MAX - 1U;
     }
-    /* A channel link has no cap of its own: what can be typed is the draft, and a link longer
-       than that is one nobody was going to type. It is checked when the key is pressed rather
+    /* A link has no cap of its own: what can be typed is the draft, which holds the longest
+       either app writes that anyone would type. It is checked when the key is pressed rather
        than as it is typed, because a link is only ever right or wrong as a whole. */
     return MESH_UI_DRAFT_MAX - 1U;
 }

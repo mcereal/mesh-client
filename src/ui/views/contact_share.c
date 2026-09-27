@@ -9,6 +9,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/proto/contact_url.h"
 #include "mesh/proto/meshcore_url.h"
+#include "mesh/ui/nav.h"
 #include "mesh/ui/store_settings.h"
 
 #include <stdio.h>
@@ -58,8 +59,9 @@ static void contact_name(const meshtastic_SharedContact *contact, char *out, siz
 
 /*
  * What a link names, in either protocol's spelling: the Meshtastic app's `meshtastic.org/v/#`
- * or the MeshCore app's `meshcore://contact/add`. The two cannot be mistaken for each other -
- * one is a fragment of base64, the other a query string - so reading is trying each.
+ * or the MeshCore app's `meshcore://contact/add` - or its signed card, `meshcore://<hex>`. The two
+ * cannot be mistaken for each other - one is a fragment of base64, the other a query string - so
+ * reading is trying each.
  */
 /* An id as either app prints one: Meshtastic's `!%08x`, or MeshCore's key head in 12 hex. */
 #define CONTACT_ID_MAX 16U
@@ -67,11 +69,26 @@ _Static_assert(CONTACT_ID_MAX >= sizeof(((meshtastic_User *)0)->id) &&
                    CONTACT_ID_MAX >= sizeof("0123456789ab"),
                "a contact id holds either app's spelling of one");
 
+/* The keyboard, the parked link and the action that carries it all hold a draft: the longest
+   card has to fit, or it is cut before it is read and the radio is handed half an advert. */
+_Static_assert(MESH_UI_DRAFT_MAX >=
+                   sizeof(MESH_MESHCORE_URL_CARD_PREFIX) + 2U * MESH_MESHCORE_CARD_MAX,
+               "a draft is too short for the longest MeshCore contact card");
+
 struct contact_reading {
     bool meshcore;
     char name[sizeof(((meshtastic_User *)0)->long_name)];
     char id[CONTACT_ID_MAX];
 };
+
+static void meshcore_reading(const char *name, const uint8_t *key, struct contact_reading *out) {
+    out->meshcore = true;
+    inkwell_str_copy(out->name, sizeof out->name,
+                     name[0] != '\0' ? name : inkcell_str(MESH_STR_CONTACT_NO_NAME));
+    /* The key's first six bytes, which is how MeshCore's own apps print a node. */
+    snprintf(out->id, sizeof out->id, "%02x%02x%02x%02x%02x%02x", key[0], key[1], key[2], key[3],
+             key[4], key[5]);
+}
 
 static bool read_link(const char *text, struct contact_reading *out) {
     memset(out, 0, sizeof *out);
@@ -86,13 +103,13 @@ static bool read_link(const char *text, struct contact_reading *out) {
     }
     struct mesh_meshcore_contact_link link;
     if (mesh_meshcore_contact_url_decode(text, &link)) {
-        out->meshcore = true;
-        inkwell_str_copy(out->name, sizeof out->name,
-                         link.name[0] != '\0' ? link.name : inkcell_str(MESH_STR_CONTACT_NO_NAME));
-        /* The key's first six bytes, which is how MeshCore's own apps print a node. */
-        snprintf(out->id, sizeof out->id, "%02x%02x%02x%02x%02x%02x", link.public_key[0],
-                 link.public_key[1], link.public_key[2], link.public_key[3], link.public_key[4],
-                 link.public_key[5]);
+        meshcore_reading(link.name, link.public_key, out);
+        return true;
+    }
+    /* The signed card the MeshCore app shares: the node's advert, read only for what to show. */
+    static struct mesh_meshcore_card card;
+    if (mesh_meshcore_card_decode(text, &card)) {
+        meshcore_reading(card.name, card.public_key, out);
         return true;
     }
     return false;

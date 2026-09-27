@@ -225,7 +225,10 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `SELF_INFO`, and adds a stranger's with `ADD_UPDATE_CONTACT` by key, kind and name - no route and
   no stamp, so the first message floods and the node's next advert is taken. A link for a node
   that is already a contact is refused rather than written over the route the radio has learned.
-  The signed business card, `meshcore://<hex advert>` for `IMPORT_CONTACT`, is not read yet.
+  The signed card the MeshCore app also shares, `meshcore://<hex>`, is the node's advert packet:
+  it is read only for the sheet (name, key, kind) and handed to the radio whole with
+  `IMPORT_CONTACT`, which checks its signature as it would an advert heard on the air and adds
+  or refreshes the node through the advert push that follows.
 - **An advert** is this radio announcing its name and key now: Radio details offers it to the
   nodes in earshot or flooded across the mesh. Meshtastic has no such verb, so the two rows are
   listed by `protocol`, not by a lacked feature.
@@ -235,7 +238,8 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `RESP_CODE_SENT` named. It is tried three times with the same timestamp - the last after
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
-Not yet spoken: a trace along a given path and the signed contact card. The
-`meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
+Not yet spoken: a trace along a given path, and this radio's own signed card - its share code
+is the plain `contact/add` link. The `meshcore` row in `src/ui/tables/protocols.c` hides the verbs
+the protocol does not back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
 end.
