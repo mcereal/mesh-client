@@ -682,6 +682,29 @@ MESH_TEST_CASE(ui_nav_meshcore_pin_edits_pairing_too, unit) {
         goto cleanup;
     }
 
+    /* On a radio already fixed, Random and then a PIN typed is Fixed again, with the new PIN:
+       typing one is choosing Fixed, whatever was pending before it. */
+    settings.meshcore_ble_pin = 482913U;
+    mesh_ui_store_set_settings(&store, &settings);
+    store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = pairing;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
+    pairing_edit = mesh_ui_settings_find_edit(
+        store.nav.settings_edits, store.nav.settings_edit_count, MESH_UI_FIELD_MESHCORE_PAIRING);
+    if (pairing_edit == NULL || pairing_edit->number != 0U) {
+        failure = "Random on a fixed radio is an edit";
+        goto cleanup;
+    }
+    store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = pin;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "123456");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
+    if (store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].field != MESH_UI_FIELD_MESHCORE_PIN ||
+        strcmp(store.nav.settings_edits[0].text, "123456") != 0) {
+        failure = "a PIN typed over a pending Random is Fixed again, with that PIN";
+        goto cleanup;
+    }
+
 cleanup:
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
