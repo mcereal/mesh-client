@@ -223,7 +223,8 @@ static bool meshcore_read_builds(struct inkwell_json *json, const char *name, co
 }
 
 /*
- * One device, adding each build of `role` to `out` when `model` names it.
+ * One device, adding each build of `role` to `out` when `model` names it - or, with `model`
+ * NULL, whatever it is called.
  *
  * Whether it does is only known once `name` and `type` are, and a JSON object's keys come in
  * any order - so the `firmware` array is stepped over where it is met, with a copy of the
@@ -254,7 +255,7 @@ static bool meshcore_read_device(struct inkwell_json *json, const char *model, c
         }
     }
     if (!have_builds || name[0] == '\0' || type[0] == '\0' ||
-        !mesh_firmware_meshcore_names(model, name)) {
+        (model != NULL && !mesh_firmware_meshcore_names(model, name))) {
         return true;
     }
     return meshcore_read_builds(&builds, name, type, role, out);
@@ -279,6 +280,35 @@ bool mesh_firmware_meshcore_boards_parse(const char *json_text, size_t len, cons
         if (!meshcore_read_device(&json, model, role, out)) {
             return false;
         }
+    }
+    return true;
+}
+
+bool mesh_firmware_meshcore_usb_devices(const char *json_text, size_t len,
+                                        struct mesh_firmware_choices *out) {
+    if (json_text == NULL || out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof *out);
+    struct inkwell_json json;
+    inkwell_json_init(&json, json_text, len);
+    if (!inkwell_json_object_find(&json, "device") || !inkwell_json_enter_array(&json)) {
+        return false;
+    }
+    while (inkwell_json_next_element(&json)) {
+        struct mesh_firmware_boards builds;
+        memset(&builds, 0, sizeof builds);
+        if (!meshcore_read_device(&json, NULL, "companionUsb", &builds)) {
+            return false;
+        }
+        /* Two builds under one name is a choice the name cannot make, so it is not offered. */
+        if (builds.found != 1U || strcmp(builds.entries[0].architecture, "esp32") != 0 ||
+            out->count >= MESH_FIRMWARE_CHOICES_MAX) {
+            continue;
+        }
+        inkwell_str_copy(out->names[out->count], sizeof out->names[out->count],
+                         builds.entries[0].name);
+        out->count++;
     }
     return true;
 }

@@ -1949,6 +1949,16 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
                 action->type = MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH) {
                 action->type = MESH_UI_ACTION_CHECK_FIRMWARE_SWITCH;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS) {
+                action->type = MESH_UI_ACTION_LIST_FIRMWARE_BOARDS;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD) {
+                /* Which board is the row's own text: the list is the app's, and the nav only
+                   hands back the name that was under the cursor. */
+                action->type = MESH_UI_ACTION_PICK_FIRMWARE_BOARD;
+                snprintf(action->identifier, sizeof action->identifier, "%s", item.text);
+                /* The list goes once the pick lands, so the cursor goes back to the top of the
+                   section, where the answer will be. */
+                nav->cursor[nav->screen] = 0U;
             }
         }
         /* The row itself does not change; the app's reply comes back as new state. */

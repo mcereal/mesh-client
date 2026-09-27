@@ -21,6 +21,8 @@
 
 #include <stdint.h>
 
+struct inkwell_serial_port_info;
+
 /* ---- app.c: link routing ---------------------------------------------------------------- */
 
 /* Where the quick replies live: canned.txt beside the preferences file. False when there is no
@@ -295,6 +297,18 @@ bool mesh_app_probe_muted(const struct mesh_app *app, const char *key, uint64_t 
 /* The port remembered as `key` now runs `meshcore`'s firmware, freshly written: ask it in that
    protocol first, lift any mute, and give its first boot the longer window. */
 void mesh_app_probe_expect(struct mesh_app *app, const char *key, bool meshcore, uint64_t now_ms);
+/* The `nth` newest link remembered as answering neither protocol, by its key, or NULL past the
+   last. A host as well as a port: the caller asks the serial transport which it is. */
+const char *mesh_app_probe_silent(const struct mesh_app *app, size_t nth);
+/* Whether the link up now is a silent one being asked again, rather than a radio answering. */
+bool mesh_app_probe_reasking_silent(const struct mesh_app *app);
+/* Keeps a link that answered neither passed over until at least `until_ms`: a silent radio
+   whose firmware is being chosen is not reopened under the rows choosing it. */
+void mesh_app_probe_hold(struct mesh_app *app, const char *key, uint64_t until_ms);
+/* The USB port a silent radio is on, as the serial transport lists it - a bridge whose chip's
+   ROM its control lines reach - while no link is up, or NULL. The one a blank-radio answer is
+   about while one is held, the newest silent one otherwise. */
+const struct inkwell_serial_port_info *mesh_app_firmware_silent_port(struct mesh_app *app);
 struct mesh_protocol mesh_app_protocol(struct mesh_app *app);
 
 #endif /* MESH_CORE_APP_INTERNAL_H */

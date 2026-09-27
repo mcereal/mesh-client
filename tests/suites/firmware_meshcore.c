@@ -227,3 +227,27 @@ MESH_TEST_CASE(firmware_meshcore_finds_the_whole_flash_for_a_switch, unit) {
     MESH_TEST_FAIL_IF(!ok, "and an nRF52's is the same UF2 as ever");
     record_success(test_name);
 }
+
+/* The boards a silent radio can be given: every ESP32 device with one USB companion build, and
+   no nRF52 - the ROM is the only way onto a radio that answers nothing. */
+MESH_TEST_CASE(firmware_meshcore_lists_the_esp32_boards_a_silent_radio_could_be, unit) {
+    size_t len = 0U;
+    char *document = mesh_test_data_read("meshcore_flasher_config.json", &len);
+    MESH_TEST_FAIL_IF(document == NULL, "the fixture should load");
+    struct mesh_firmware_choices choices;
+    const bool parsed = mesh_firmware_meshcore_usb_devices(document, len, &choices);
+    free(document);
+    MESH_TEST_FAIL_IF(!parsed, "the flasher's list should parse");
+    MESH_TEST_FAIL_IF(choices.count != 27U, "27 ESP32 devices publish a USB companion");
+    bool v3 = false;
+    for (uint8_t i = 0; i < choices.count; ++i) {
+        v3 = v3 || strcmp(choices.names[i], "Heltec v3") == 0;
+        MESH_TEST_FAIL_IF(strcmp(choices.names[i], "RAK WisBlock / WisMesh (RAK 4631)") == 0 ||
+                              strcmp(choices.names[i], "Heltec T114") == 0,
+                          "an nRF52 is not reached through a ROM");
+    }
+    MESH_TEST_FAIL_IF(!v3, "the Heltec v3 is one of them");
+    MESH_TEST_FAIL_IF(mesh_firmware_meshcore_usb_devices("{\"role\":[]}", 11U, &choices),
+                      "a document with no device list is not the flasher's");
+    record_success(test_name);
+}

@@ -4971,6 +4971,85 @@ MESH_TEST_CASE(ui_settings_radio_details_fits_at_its_longest, unit) {
 }
 
 /*
+ * A radio on USB that answers nothing: while its board is being chosen every board is a row of
+ * its own that hands its name back, the list fits the page at its longest, and the page still
+ * ends where it always does. Once one is picked the press is the whole-flash install, under
+ * the switch's sheet - and there is no check to run on a radio that says nothing.
+ */
+MESH_TEST_CASE(ui_settings_radio_details_chooses_a_silent_radios_board, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.fw_supported = true;
+    snprintf(settings.fw_channel, sizeof settings.fw_channel, "stable");
+    snprintf(settings.fw_silent_port, sizeof settings.fw_silent_port, "/dev/cu.usbserial-0001");
+    settings.fw_state = (uint8_t)MESH_FIRMWARE_CHOOSING;
+    settings.fw_choice_count = (uint8_t)MESH_UI_FW_CHOICES_MAX;
+    for (unsigned i = 0; i < MESH_UI_FW_CHOICES_MAX; ++i) {
+        snprintf(settings.fw_choices[i], sizeof settings.fw_choices[i],
+                 "Heltec v4 + Expansion Kit %02u", i);
+    }
+
+    uint32_t count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                                 MESH_UI_SETTINGS_NO_CHANNEL);
+    MESH_TEST_FAIL_IF(count > MESH_UI_SETTINGS_ITEMS_MAX, "the longest list fits the page");
+    struct mesh_ui_settings_item item;
+    unsigned picks = 0U;
+    bool check = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
+            continue;
+        }
+        check = check || item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE;
+        if (item.kind == INKSTAND_FORM_ACTION &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD) {
+            MESH_TEST_FAIL_IF(strcmp(item.text, settings.fw_choices[picks]) != 0 ||
+                                  strcmp(item.label, settings.fw_choices[picks]) != 0,
+                              "a board's row is labelled by it and hands its name back whole");
+            picks++;
+        }
+    }
+    MESH_TEST_FAIL_IF(picks != MESH_UI_FW_CHOICES_MAX, "every board is a row");
+    MESH_TEST_FAIL_IF(check, "a radio that says nothing has no check to run");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U,
+                                             MESH_UI_SETTINGS_RADIO_DETAILS,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, count - 1U, &item) ||
+                          item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE,
+                      "the page still ends on the factory reset");
+
+    /* Picked: the Heltec v3's answer, and the press that writes it. */
+    settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
+    settings.fw_choice_count = 0U;
+    settings.fw_blank = true;
+    settings.fw_switching = true;
+    settings.fw_switch_to_meshcore = true;
+    settings.fw_can_install = true;
+    settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_USB;
+    snprintf(settings.fw_chosen_board, sizeof settings.fw_chosen_board, "Heltec v3");
+    snprintf(settings.fw_message, sizeof settings.fw_message, "1.17.1");
+    count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                        MESH_UI_SETTINGS_NO_CHANNEL);
+    bool install = false;
+    bool rechoose = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
+            continue;
+        }
+        install =
+            install || item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH;
+        rechoose =
+            rechoose || item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS;
+        MESH_TEST_FAIL_IF(item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB,
+                          "an install over a radio that says nothing is never the update's");
+    }
+    MESH_TEST_FAIL_IF(!install, "the whole-flash install is offered, under the switch's sheet");
+    MESH_TEST_FAIL_IF(!rechoose, "and the board can be chosen again");
+    record_success(test_name);
+}
+
+/*
  * A field id past the table is no field, however far past it is.
  *
  * The form holds ids in 16 bits and bounds-checks what it is handed, but a value past 65535

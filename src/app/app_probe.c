@@ -170,6 +170,45 @@ bool mesh_app_probe_muted(const struct mesh_app *app, const char *key, uint64_t 
     return false;
 }
 
+const char *mesh_app_probe_silent(const struct mesh_app *app, size_t nth) {
+    if (app == NULL) {
+        return NULL;
+    }
+    /* Newest first: the ring hands out `next_port` next, so the one before it is the latest. */
+    for (size_t i = 1; i <= MESH_APP_PROBE_PORTS; ++i) {
+        const struct mesh_app_probe_port *port =
+            &app->probe
+                 .ports[(app->probe.next_port + MESH_APP_PROBE_PORTS - i) % MESH_APP_PROBE_PORTS];
+        if (port->identifier[0] != '\0' && port->answered == 0U && nth-- == 0U) {
+            return port->identifier;
+        }
+    }
+    return NULL;
+}
+
+bool mesh_app_probe_reasking_silent(const struct mesh_app *app) {
+    if (app == NULL || app->probe.identifier[0] == '\0') {
+        return false;
+    }
+    for (size_t i = 0; i < MESH_APP_PROBE_PORTS; ++i) {
+        const struct mesh_app_probe_port *port = &app->probe.ports[i];
+        if (port->identifier[0] != '\0' && strcmp(port->identifier, app->probe.key) == 0) {
+            return port->answered == 0U;
+        }
+    }
+    return false;
+}
+
+void mesh_app_probe_hold(struct mesh_app *app, const char *key, uint64_t until_ms) {
+    if (app == NULL || key == NULL) {
+        return;
+    }
+    struct mesh_app_probe_port *port = mesh_app_probe_port(&app->probe, key);
+    if (port != NULL && port->answered == 0U && port->mute_until_ms < until_ms) {
+        port->mute_until_ms = until_ms;
+    }
+}
+
 void mesh_app_probe_tick(struct mesh_app *app, uint64_t now_ms) {
     struct mesh_app_probe *probe = &app->probe;
     if (probe->identifier[0] == '\0') {

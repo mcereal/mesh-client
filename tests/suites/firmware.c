@@ -731,4 +731,64 @@ cleanup:
     record_success(test_name);
 }
 
+/*
+ * A radio on a cable that answers nothing has said nothing to check against: the flasher's list
+ * of ESP32 boards is the whole first answer, and the board picked from it is given MeshCore's
+ * USB companion as a whole flash - with no link to be on, and no bus to be wrong.
+ */
+MESH_TEST_CASE(firmware_blank_lists_the_boards_then_answers_for_the_one_picked, unit) {
+    struct firmware_harness harness;
+    const char *failure = NULL;
+    if (!firmware_harness_up(&harness)) {
+        firmware_harness_down(&harness);
+        MESH_TEST_FAIL_IF(true, "the harness should come up");
+    }
+    struct mesh_firmware *const firmware = &harness.firmware;
+    mesh_firmware_set_bus(firmware, MESH_FIRMWARE_PATH_NONE, false);
+    if (mesh_firmware_list_blank(firmware, 0U) != 0 || !firmware_settle(&harness)) {
+        failure = "the list should start and finish";
+        goto cleanup;
+    }
+    if (firmware->state != MESH_FIRMWARE_CHOOSING || !firmware->blank ||
+        firmware->choices.count != 27U || mesh_firmware_board(firmware) != NULL) {
+        failure = "27 ESP32 boards to choose between, and none chosen";
+        goto cleanup;
+    }
+    if (mesh_firmware_check_blank(firmware, firmware->choices.names[12], 0U) != 0 ||
+        !firmware_settle(&harness)) {
+        failure = "the pick should start and finish, from a name in the list it forgets";
+        goto cleanup;
+    }
+    const struct mesh_firmware_board *const board = mesh_firmware_board(firmware);
+    if (firmware->state != MESH_FIRMWARE_AVAILABLE || board == NULL ||
+        strcmp(firmware->twin, "Heltec v3") != 0 ||
+        strcmp(board->target, "Heltec_v3_companion_radio_usb") != 0 || !firmware->switching ||
+        !firmware->release.wipe ||
+        strcmp(firmware->release.image_name,
+               "Heltec_v3_companion_radio_usb-v1.17.1-d929643-merged.bin") != 0) {
+        failure = "the Heltec v3's USB companion, as its whole flash";
+        goto cleanup;
+    }
+    if (firmware->blocker != MESH_FIRMWARE_BLOCKER_NONE || board->path != MESH_FIRMWARE_PATH_USB) {
+        failure = "with no link up nothing is in the way: the port is the app's to hold";
+        goto cleanup;
+    }
+    if (mesh_firmware_check_blank(firmware, "", 0U) != -ENOENT ||
+        mesh_firmware_check_blank(firmware, NULL, 0U) != -ENOENT) {
+        failure = "a pick with no name is no pick";
+        goto cleanup;
+    }
+    mesh_firmware_forget(firmware);
+    if (firmware->blank || firmware->choices.count != 0U ||
+        firmware->blocker != MESH_FIRMWARE_BLOCKER_NO_RADIO) {
+        failure = "and forgetting it leaves a module with no radio";
+        goto cleanup;
+    }
+
+cleanup:
+    firmware_harness_down(&harness);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 #endif /* INKWELL_HAVE_TLS */

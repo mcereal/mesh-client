@@ -648,6 +648,14 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH,
     MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH,
     /*
+     * A radio on a USB port that answers neither protocol: the list of boards it could be, and
+     * one of them picked. The pick's row carries the board's name in its `text`, which the nav
+     * hands on as the action's `identifier`; the install that follows is INSTALL_FIRMWARE_SWITCH,
+     * whose sheet already says the whole flash goes.
+     */
+    MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS,
+    MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD,
+    /*
      * Channel sharing, at the foot of the Channels list: this radio's set as a link, and a
      * link typed in.
      *
@@ -814,14 +822,19 @@ enum mesh_ui_psk_choice {
 };
 #define MESH_UI_PSK_CHOICE_BIT(choice) (1U << (unsigned)(choice))
 
-#define MESH_UI_SETTINGS_LABEL_MAX 24U
+/* Wide enough for a label that is data rather than a catalog entry: a MeshCore board's name
+   ("Heltec v4 + Expansion Kit (Touch)") is a row of its own when a silent radio's board is
+   being chosen. */
+#define MESH_UI_SETTINGS_LABEL_MAX 48U
 #define MESH_UI_SETTINGS_VALUE_MAX 48U
 /* Telemetry is fifteen fields plus five headings; External notification will be worse, and the
    Radio tab's details page - About radio with the power, backup and factory verbs under it -
    is 40 rows when a radio reports every interface it has
-   (ui_settings_radio_details_fits_at_its_longest). The list is built onto the stack every frame,
-   so this is ~7 KB in a loop that has no threads to share it with. */
-#define MESH_UI_SETTINGS_ITEMS_MAX 48U
+   (ui_settings_radio_details_fits_at_its_longest), and 53 while a silent radio's board is
+   being chosen from a full list (ui_settings_radio_details_chooses_a_silent_radios_board). The
+   list is built onto the stack every frame, so this is ~16 KB in a loop that has no threads to
+   share it with. */
+#define MESH_UI_SETTINGS_ITEMS_MAX 64U
 
 struct mesh_ui_settings_item {
     char label[MESH_UI_SETTINGS_LABEL_MAX];

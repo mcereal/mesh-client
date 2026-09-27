@@ -1,0 +1,33 @@
+# Radio > details, for a radio on USB that answers neither protocol.
+#
+# A MeshCore Bluetooth build, a repeater or an erased flash says nothing down a cable, so there is
+# no check to run: the press lists the boards it could be, one is picked by name, and that
+# board's USB companion goes on as the whole flash under the switch's own sheet.
+scene demo
+clock 2026-09-09 14:20
+delay 1800
+config
+
+tab radio
+key down 9
+key up
+key a
+
+# The port, and the press that lists what could be on it.
+firmware-silent off
+firmware-silent chosen
+firmware-silent choosing
+hold 1400
+key down 4
+hold 2200
+
+# Picked: the board, its newest release, and the install - whose sheet says what is lost. The
+# pick puts the cursor back at the top, where the answer is; the install is the seventh row.
+firmware-silent chosen
+key up 9
+hold 1800
+key down 6
+key a
+hold 3000
+key b
+hold 900

@@ -56,6 +56,10 @@ extern "C" {
  */
 #define MESH_UI_FW_VERSION_MAX 24U
 #define MESH_UI_FW_BOARD_MAX 48U
+/* MESH_FIRMWARE_CHOICES_MAX: the boards a silent radio could be. */
+#define MESH_UI_FW_CHOICES_MAX 40U
+/* A serial port's path: "/dev/cu.usbserial-0001", "/dev/ttyUSB0", "COM3". */
+#define MESH_UI_FW_PORT_MAX 64U
 
 /*
  * The client's own facts, for the Settings tab's About section - as opposed to every other
@@ -892,6 +896,17 @@ struct mesh_ui_settings {
     /* Where a switch goes: MeshCore, or Meshtastic. The radio's protocol says it for a fresh
        answer, but a switch that stopped half way may be answering in either - the job knows. */
     bool fw_switch_to_meshcore;
+    /*
+     * A radio on a USB port that answered neither protocol, with no link up: the port's path,
+     * empty when there is none. What follows is its own small flow - the boards it could be
+     * (`fw_choices`, while `fw_state` is CHOOSING), then the answer for the one chosen
+     * (`fw_blank`, with `fw_chosen_board` naming it), which installs as a switch does.
+     */
+    char fw_silent_port[MESH_UI_FW_PORT_MAX];
+    bool fw_blank;
+    char fw_chosen_board[MESH_UI_FW_BOARD_MAX];
+    uint8_t fw_choice_count;
+    char fw_choices[MESH_UI_FW_CHOICES_MAX][MESH_UI_FW_BOARD_MAX];
 };
 
 #ifdef __cplusplus

@@ -90,6 +90,8 @@ const char *mesh_firmware_state_name(enum mesh_firmware_state state) {
         return inkcell_str(MESH_STR_FW_STATE_AVAILABLE);
     case MESH_FIRMWARE_FAILED:
         return inkcell_str(MESH_STR_FW_STATE_FAILED);
+    case MESH_FIRMWARE_CHOOSING:
+        return inkcell_str(MESH_STR_FW_STATE_CHOOSING);
     case MESH_FIRMWARE_STATE_COUNT:
     default:
         return inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
@@ -143,7 +145,9 @@ static void firmware_set(struct mesh_firmware *firmware, enum mesh_firmware_stat
  * opinion about a fact already on hand is a second opinion that can be wrong.
  */
 static enum mesh_firmware_blocker firmware_blocker(const struct mesh_firmware *firmware) {
-    if (!firmware->bus_connected) {
+    /* A radio that says nothing is never the link's: the app offered it for a bridge port
+       nothing is connected over, and holds the port while the answer stands. */
+    if (!firmware->bus_connected && !firmware->blank) {
         return MESH_FIRMWARE_BLOCKER_NO_RADIO;
     }
     /*
@@ -165,6 +169,9 @@ static enum mesh_firmware_blocker firmware_blocker(const struct mesh_firmware *f
     }
     if (board->path == MESH_FIRMWARE_PATH_NONE) {
         return MESH_FIRMWARE_BLOCKER_NO_PATH;
+    }
+    if (firmware->blank) {
+        return MESH_FIRMWARE_BLOCKER_NONE;
     }
     /* A switch writes the whole flash, which only the USB path does: the BLE ones write an
        application, and would ask the running firmware to take it. */
@@ -480,6 +487,8 @@ void mesh_firmware_forget(struct mesh_firmware *firmware) {
     firmware->tag[0] = '\0';
     firmware->switching = false;
     firmware->twin[0] = '\0';
+    firmware->blank = false;
+    firmware->choices.count = 0U;
     firmware_recompute_blocker(firmware);
     firmware_set(firmware, MESH_FIRMWARE_IDLE, "");
 }
@@ -514,6 +523,19 @@ static void firmware_on_meshcore_config(void *userdata, const struct inkwell_fet
     }
     if (result->outcome != INKWELL_FETCH_OK || result->body == NULL) {
         firmware_fetch_failed(firmware, result, MESH_STR_FW_HARDWARE_UNREADABLE);
+        return;
+    }
+    /* A radio that said nothing, and nobody has chosen what it is yet: the list to choose
+       from is the whole answer. */
+    if (firmware->blank && firmware->twin[0] == '\0') {
+        if (!mesh_firmware_meshcore_usb_devices(result->body, result->len, &firmware->choices)) {
+            firmware_set(firmware, MESH_FIRMWARE_FAILED,
+                         inkcell_str(MESH_STR_FW_HARDWARE_UNREADABLE));
+            return;
+        }
+        inkwell_log_info("firmware", "%u MeshCore boards take a USB companion",
+                         (unsigned)firmware->choices.count);
+        firmware_set(firmware, MESH_FIRMWARE_CHOOSING, "");
         return;
     }
     /* A switch looks the board up by the flasher's own name for it, and wants the USB
@@ -611,6 +633,8 @@ static void firmware_begin(struct mesh_firmware *firmware, enum mesh_firmware_so
     firmware->tag[0] = '\0';
     firmware->switching = false;
     firmware->twin[0] = '\0';
+    firmware->blank = false;
+    firmware->choices.count = 0U;
     firmware->now_ms = now_ms;
     /* The old answer is gone, so the refusal that went with it is too - recomputed now rather
        than when the documents land, or the rows would keep naming last check's board while
@@ -700,6 +724,46 @@ int mesh_firmware_check_switch_to_meshtastic(struct mesh_firmware *firmware, con
     }
     firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING, inkcell_str(MESH_STR_FW_STATE_IDENTIFYING));
     return 0;
+}
+
+/* The flasher's list, which both halves of a blank radio start from. */
+static int firmware_start_meshcore_config(struct mesh_firmware *firmware) {
+    if (firmware_get(firmware,
+                     firmware_url("MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL",
+                                  MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL),
+                     "Accept: application/json", MESH_FIRMWARE_MESHCORE_CONFIG_MAX,
+                     firmware_on_meshcore_config) != 0) {
+        return -EIO;
+    }
+    firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING, inkcell_str(MESH_STR_FW_STATE_IDENTIFYING));
+    return 0;
+}
+
+int mesh_firmware_list_blank(struct mesh_firmware *firmware, uint64_t now_ms) {
+    const int ready = firmware_switch_ready(firmware, "");
+    if (ready != 0) {
+        return ready;
+    }
+    firmware_begin(firmware, MESH_FIRMWARE_SOURCE_MESHCORE, 0U, "", "", now_ms);
+    firmware->blank = true;
+    return firmware_start_meshcore_config(firmware);
+}
+
+int mesh_firmware_check_blank(struct mesh_firmware *firmware, const char *device, uint64_t now_ms) {
+    const int ready =
+        firmware_switch_ready(firmware, device != NULL && device[0] != '\0' ? device : NULL);
+    if (ready != 0) {
+        return ready;
+    }
+    /* Copied out first: `device` may be one of the `choices` the begin forgets. */
+    char chosen[MESH_FIRMWARE_TARGET_MAX];
+    inkwell_str_copy(chosen, sizeof chosen, device);
+    firmware_begin(firmware, MESH_FIRMWARE_SOURCE_MESHCORE, 0U, "", "", now_ms);
+    firmware->blank = true;
+    firmware->switching = true;
+    inkwell_str_copy(firmware->twin, sizeof firmware->twin, chosen);
+    inkwell_log_info("firmware", "A silent radio chosen as \"%s\"; looking for its build", chosen);
+    return firmware_start_meshcore_config(firmware);
 }
 
 int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const char *running,
