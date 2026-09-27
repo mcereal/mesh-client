@@ -781,6 +781,18 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         return;
     }
 
+    /* Never while the write is still to be finished: the clock restarts when it is, and a
+       retry returns through the resume without setting the name again. */
+    if (app->firmware_ble_handoff[0] != '\0' && now >= app->firmware_ble_handoff_until_ms &&
+        !mesh_firmware_update_can_resume(&app->firmware_update) &&
+        !mesh_firmware_update_busy(&app->firmware_update)) {
+        app->firmware_ble_handoff[0] = '\0';
+    }
+    /* A radio just moved to Bluetooth is the one in the user's hand: until it is reached, or
+       the handoff runs out, nothing on a cable or the network is taken up in its place - the
+       link that made would hold the only one, and the pairing its PIN is for would never come. */
+    const bool awaiting_handoff = app->firmware_ble_handoff[0] != '\0';
+
     /*
      * A plugged-in node wins over anything on the air: it needs no pairing, has no range to
      * lose, and is almost certainly why the cable is there. BLE keeps its own policy below for
@@ -810,7 +822,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         }
     }
 
-    if (port_count > 0U) {
+    if (port_count > 0U && !awaiting_handoff) {
         const struct inkwell_serial_port_info *port = &ports[0];
         const char *preferred_port = app->config.preferred_serial_device;
         bool port_chosen = false;
@@ -867,7 +879,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     const char *tcp_target = mesh_tcp_transport_configured_target(tcp);
     /* Not while a host that answered neither protocol is muted: its own retry timer is shorter
        than the mute, and a new question would lift it. See app_probe.c. */
-    if (tcp_target != NULL && now >= app->autoconnect_tcp_retry_at_ms &&
+    if (tcp_target != NULL && !awaiting_handoff && now >= app->autoconnect_tcp_retry_at_ms &&
         !mesh_app_probe_muted(app, tcp_target, now)) {
         /* Stamped before the attempt, not after it: most of the ways this fails do so on the
            connect deadline, long after the call returned 0 and this function went home. */
@@ -922,13 +934,6 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     bool handoff = false;
     /* A radio this client just moved to its Bluetooth build, by the name it now advertises:
        the one in the user's hand, ahead of whatever was used last. */
-    /* Never while the write is still to be finished: the clock restarts when it is, and a
-       retry returns through the resume without setting the name again. */
-    if (app->firmware_ble_handoff[0] != '\0' && now >= app->firmware_ble_handoff_until_ms &&
-        !mesh_firmware_update_can_resume(&app->firmware_update) &&
-        !mesh_firmware_update_busy(&app->firmware_update)) {
-        app->firmware_ble_handoff[0] = '\0';
-    }
     for (size_t i = 0; app->firmware_ble_handoff[0] != '\0' && i < in_range_count; ++i) {
         const struct inkwell_ble_device *device = &devices[in_range[i]];
         if (strcasecmp(device->name, app->firmware_ble_handoff) == 0 &&
@@ -950,7 +955,6 @@ void mesh_app_autoconnect(struct mesh_app *app) {
                 app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
                 return;
             }
-            app->firmware_ble_handoff_tried = device->paired;
             inkwell_log_info("app", "Reaching for %s, just moved to Bluetooth (%s, %d dBm)",
                              device->name, device->address, (int)device->rssi);
             target = device;
@@ -1074,6 +1078,11 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     int result = handoff ? mesh_ble_transport_connect_and_pair(ble, target->address)
                          : mesh_ble_transport_connect(ble, target->address);
     if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {
+        /* Tried over its bond once the connect is under way - not on a refusal before it
+           started, which says nothing about the bond. */
+        if (handoff && target->paired) {
+            app->firmware_ble_handoff_tried = true;
+        }
         if (result == 0) {
             inkwell_log_info("app", "Auto-connecting to %s (%s)", target->name, target->address);
         }
