@@ -515,8 +515,8 @@ cleanup:
  * go, the port is opened again at 1200 and DTR drops. Nothing waits for the board to go - the
  * install watches for that.
  */
-/* The Brick's native-USB boards sit on the generic driver: no tty rate or DTR reaches them. */
-MESH_TEST_CASE(serial_transport_refuses_to_touch_a_generic_driver_port, unit) {
+/* The Brick's native-USB boards sit on the generic driver: the rate and DTR go through usbfs. */
+MESH_TEST_CASE(serial_transport_touches_a_generic_driver_port_through_usbfs, unit) {
     int pair[2] = {-1, -1};
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) {
         record_failure(test_name, "socketpair failed");
@@ -562,14 +562,29 @@ MESH_TEST_CASE(serial_transport_refuses_to_touch_a_generic_driver_port, unit) {
     }
 
     const size_t lines_before = inkwell_serial_mock_lines_calls(NULL, NULL);
-    if (mesh_serial_transport_touch_bootloader(transport) != -ENOTSUP ||
-        inkwell_serial_mock_lines_calls(NULL, NULL) != lines_before ||
-        inkwell_serial_mock_baud() == MESH_SERIAL_TOUCH_BAUD) {
-        record_failure(test_name, "a touch that cannot reach the board is refused, not sent");
+    const int touched = mesh_serial_transport_touch_bootloader(transport);
+    unsigned baud = 0U;
+    const size_t codings = inkwell_serial_mock_line_coding(&baud);
+    bool dtr = true;
+    bool rts = true;
+    bool after = false;
+    (void)inkwell_serial_mock_line_state(&dtr, &rts, &after);
+    if (touched != 0 || codings != 1U || baud != MESH_SERIAL_TOUCH_BAUD) {
+        record_failure(test_name,
+                       "the rate should go through usbfs, since termios cannot carry it");
         goto cleanup_transport;
     }
-    if (mesh_serial_transport_connected_port(transport) == NULL) {
-        record_failure(test_name, "and the link is kept");
+    if (dtr || !after) {
+        record_failure(test_name, "and DTR dropped after it, which is the touch");
+        goto cleanup_transport;
+    }
+    if (inkwell_serial_mock_lines_calls(NULL, NULL) != lines_before ||
+        inkwell_serial_mock_baud() == MESH_SERIAL_TOUCH_BAUD) {
+        record_failure(test_name, "and nothing of it through a tty the device does not hear");
+        goto cleanup_transport;
+    }
+    if (mesh_serial_transport_connected_port(transport) != NULL) {
+        record_failure(test_name, "having let go of the link first");
         goto cleanup_transport;
     }
     record_success(test_name);

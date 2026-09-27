@@ -251,8 +251,8 @@ end.
   is. An nRF52 has no admin verb to send it to its UF2 bootloader, so the link lets go and the
   port is reopened at 1200 baud with DTR dropped - the Adafruit core's "1200-baud touch"
   (`mesh_serial_transport_touch_bootloader()`) - and the drive it comes back as is written as a
-  Meshtastic one's is. Not on the Brick yet: its generic-driver ports reach DTR only through
-  usbfs and the rate not at all, so the touch is refused there. Neither goes over BLE: Nordic DFU arms a radio by asking it. The T114 is
+  Meshtastic one's is. On the Brick a native-USB port is on the generic driver, whose tty
+  reaches neither, so the rate and then DTR go through usbfs as CDC requests. Neither goes over BLE: Nordic DFU arms a radio by asking it. The T114 is
   one flasher entry with two builds, so it is the ambiguous refusal.
 - **Switching a board between the two** is the other firmware's release for the same board,
   written as the whole flash over USB (`mesh_firmware_check_switch_to_meshcore()` and
