@@ -28,7 +28,7 @@ hold 500
 # X: the tapback picker, on the same bubble.
 key x
 hold 1200
-key down 2
+key right 2
 hold 1100
 key b
 hold 600

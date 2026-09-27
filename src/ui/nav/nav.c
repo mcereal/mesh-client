@@ -1449,8 +1449,8 @@ static bool mesh_ui_nav_send_canned(struct mesh_ui_nav *nav, struct mesh_ui_acti
 
 /* ---- the tapback picker -------------------------------------------------------------------- */
 
-/* The emoji, then the delete. The delete is last because it is the only row that destroys
-   something, and a cursor that opens on row 0 should not open on it. */
+/* The emoji, then the delete. The delete is last because it is the only place that destroys
+   something, and a cursor that opens on place 0 should not open on it. */
 uint32_t mesh_ui_nav_reaction_row_count(void) { return (uint32_t)mesh_ui_reaction_count() + 1U; }
 
 bool mesh_ui_nav_reaction_row_is_delete(uint32_t index) {
@@ -1465,6 +1465,7 @@ static bool mesh_ui_nav_open_reactions(struct mesh_ui_nav *nav, uint32_t packet_
     nav->reply_to = packet_id;
     nav->reaction_open = true;
     nav->reaction_cursor = 0U;
+    nav->reaction_face = 0U;
     nav->message_delete_armed = false;
     return true;
 }
@@ -1526,19 +1527,42 @@ static bool mesh_ui_nav_reaction_key(struct mesh_ui_nav *nav, enum inkcell_key k
     if (!on_delete && nav->message_delete_armed) {
         nav->message_delete_armed = false;
     }
+    /*
+     * The faces are a row and the delete is under it, so the two axes are two different
+     * questions: Left and Right choose which face, Up and Down choose between sending one and
+     * throwing the message away. Neither wraps - a cursor that ran off the last face onto the
+     * first would be a cursor the reader has to count to find again, and one that ran off the
+     * delete onto a face would be a delete that is one press from a send.
+     */
+    const uint32_t faces = (uint32_t)mesh_ui_reaction_count();
     switch (key) {
-    case INKCELL_KEY_UP:
-        if (nav->reaction_cursor == 0U) {
+    case INKCELL_KEY_LEFT:
+        if (on_delete || nav->reaction_cursor == 0U) {
             return false;
         }
         nav->reaction_cursor--;
-        nav->message_delete_armed = false;
+        nav->reaction_face = nav->reaction_cursor;
         return true;
-    case INKCELL_KEY_DOWN:
-        if (nav->reaction_cursor + 1U >= rows) {
+    case INKCELL_KEY_RIGHT:
+        if (on_delete || nav->reaction_cursor + 1U >= faces) {
             return false;
         }
         nav->reaction_cursor++;
+        nav->reaction_face = nav->reaction_cursor;
+        return true;
+    case INKCELL_KEY_UP:
+        if (!on_delete) {
+            return false;
+        }
+        nav->reaction_cursor = nav->reaction_face < faces ? nav->reaction_face : 0U;
+        nav->message_delete_armed = false;
+        return true;
+    case INKCELL_KEY_DOWN:
+        if (on_delete || rows == 0U) {
+            return false;
+        }
+        nav->reaction_face = nav->reaction_cursor;
+        nav->reaction_cursor = rows - 1U;
         nav->message_delete_armed = false;
         return true;
     case INKCELL_KEY_A:

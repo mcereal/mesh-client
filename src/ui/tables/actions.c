@@ -1052,12 +1052,19 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
             command_add(out, MESH_UI_COMMAND_CANCEL, MESH_STR_ACTION_CANCEL, INKCELL_BUTTON_B);
             return;
         }
-        if (mesh_ui_nav_reaction_row_is_delete(nav->reaction_cursor)) {
+        const bool on_delete = mesh_ui_nav_reaction_row_is_delete(nav->reaction_cursor);
+        if (on_delete) {
             command_add(out, MESH_UI_COMMAND_DELETE, MESH_STR_ACTION_DELETE, INKCELL_BUTTON_A);
         } else {
             command_add(out, MESH_UI_COMMAND_SEND, MESH_STR_ACTION_SEND, INKCELL_BUTTON_A);
         }
         command_add(out, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
+        /* The faces are a row, so choosing between them is sideways - and only there: on the
+           delete, Left and Right have nothing to move to. */
+        if (!on_delete) {
+            command_add(out, MESH_UI_COMMAND_CHOOSE, MESH_STR_ACTION_CHOOSE,
+                        INKCELL_BUTTON_LEFT_RIGHT);
+        }
         commands_add_help(snapshot, out);
         return;
     }
