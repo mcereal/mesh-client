@@ -1245,13 +1245,8 @@ static void build_meshcore_other(const struct mesh_ui_settings *s, struct item_l
         if (s->meshcore_ble_pin != 0U) {
             snprintf(pin, sizeof pin, "%06u", (unsigned)(s->meshcore_ble_pin % 1000000U));
         }
-        /* A PIN typed and not yet saved is a fixed one when it is: the row says so now rather
-           than after the save, unless Pairing was set by hand, whose edit shows as it is. */
-        const struct mesh_ui_setting_edit *typed =
-            mesh_ui_settings_find_edit(list->edits, list->edit_count, MESH_UI_FIELD_MESHCORE_PIN);
-        const bool fixed = s->meshcore_ble_pin != 0U || (typed != NULL && typed->text[0] != '\0');
         item_heading(list, MESH_STR_HEAD_CONN_BLUETOOTH);
-        item_field(list, MESH_UI_FIELD_MESHCORE_PAIRING, fixed ? 1U : 0U, NULL);
+        item_field(list, MESH_UI_FIELD_MESHCORE_PAIRING, s->meshcore_ble_pin != 0U ? 1U : 0U, NULL);
         item_field(list, MESH_UI_FIELD_MESHCORE_PIN, 0U, pin);
     }
 }

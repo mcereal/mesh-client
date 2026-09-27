@@ -622,6 +622,73 @@ cleanup:
 }
 
 /*
+ * MeshCore's Pairing and PIN rows are one u32 on the wire, so the nav keeps them as one: a PIN
+ * typed over a random one is an edit to Pairing as well, and choosing Random afterwards is an
+ * edit that sticks - it drops the typed PIN rather than being folded away as no change.
+ */
+MESH_TEST_CASE(ui_nav_meshcore_pin_edits_pairing_too, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_owner = true;
+    settings.protocol = (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
+    settings.protocol_lacks = MESH_UI_FEATURE_FULL_CONFIG;
+    settings.has_meshcore_other = true;
+    settings.has_meshcore_pin = true;
+    settings.meshcore_ble_pin = 0U;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_action action;
+    struct mesh_ui_settings_item rows[24];
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    mesh_test_settings_open(&store, MESH_UI_SETTINGS_USER);
+    const uint32_t count =
+        mesh_ui_settings_items(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_USER,
+                               MESH_UI_SETTINGS_NO_CHANNEL, rows, 24U);
+    uint32_t pairing = count;
+    uint32_t pin = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        pairing = rows[i].field == MESH_UI_FIELD_MESHCORE_PAIRING ? i : pairing;
+        pin = rows[i].field == MESH_UI_FIELD_MESHCORE_PIN ? i : pin;
+    }
+    if (store.nav.settings_section != MESH_UI_SETTINGS_USER || pairing == count || pin == count) {
+        failure = "User lists Pairing and the PIN";
+        goto cleanup;
+    }
+
+    store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = pin;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.keyboard_open) {
+        failure = "A on the PIN opens the keyboard";
+        goto cleanup;
+    }
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "123456");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
+    const struct mesh_ui_setting_edit *pairing_edit = mesh_ui_settings_find_edit(
+        store.nav.settings_edits, store.nav.settings_edit_count, MESH_UI_FIELD_MESHCORE_PAIRING);
+    if (store.nav.settings_edit_count != 2U || pairing_edit == NULL || pairing_edit->number != 1U) {
+        failure = "a PIN typed over a random one makes Pairing Fixed too";
+        goto cleanup;
+    }
+
+    store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = pairing;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
+    if (store.nav.settings_edit_count != 0U) {
+        failure = "Random again drops the typed PIN with it, leaving nothing to save";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * "Clear this slot", end to end: the press raises the question, the answer is a write, and what
  * the write says is that the slot is to be emptied rather than saved.
  *

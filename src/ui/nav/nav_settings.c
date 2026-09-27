@@ -95,9 +95,59 @@ static void mesh_ui_nav_edit_remove(struct mesh_ui_nav *nav, enum mesh_ui_settin
 
 /* Records an edit for the row under the cursor; an edit that puts the radio's own value back
    is dropped instead, so toggling something twice leaves the section clean. */
+static bool mesh_ui_nav_edit_store(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                   enum mesh_ui_setting_field field, uint32_t number,
+                                   const char *text);
+
+/* The one slot for `field`, taken or made; NULL when every slot is in use. */
+static struct mesh_ui_setting_edit *mesh_ui_nav_edit_slot(struct mesh_ui_nav *nav,
+                                                          enum mesh_ui_setting_field field) {
+    for (uint8_t i = 0; i < nav->settings_edit_count; ++i) {
+        if (nav->settings_edits[i].field == (uint16_t)field) {
+            return &nav->settings_edits[i];
+        }
+    }
+    if (nav->settings_edit_count >= MESH_UI_SETTINGS_EDITS_MAX) {
+        return NULL;
+    }
+    return &nav->settings_edits[nav->settings_edit_count++];
+}
+
+/*
+ * MeshCore's Pairing and PIN rows are one u32 on the wire, so an edit to one is an edit to
+ * both: a PIN typed over a random one makes Pairing Fixed, and Random drops a typed PIN. Held
+ * as edits rather than derived on the row, so choosing Random again is an edit that sticks.
+ */
+static void mesh_ui_nav_edit_couple(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                    enum mesh_ui_setting_field field, uint32_t number,
+                                    const char *text) {
+    if (field == MESH_UI_FIELD_MESHCORE_PAIRING && number == 0U) {
+        mesh_ui_nav_edit_remove(nav, MESH_UI_FIELD_MESHCORE_PIN);
+    } else if (field == MESH_UI_FIELD_MESHCORE_PIN && text != NULL && text[0] != '\0' &&
+               store->settings.meshcore_ble_pin == 0U) {
+        struct mesh_ui_setting_edit *slot =
+            mesh_ui_nav_edit_slot(nav, MESH_UI_FIELD_MESHCORE_PAIRING);
+        if (slot != NULL) {
+            memset(slot, 0, sizeof *slot);
+            slot->field = (uint16_t)MESH_UI_FIELD_MESHCORE_PAIRING;
+            slot->number = 1U;
+        }
+    }
+}
+
 static bool mesh_ui_nav_edit_set(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                  enum mesh_ui_setting_field field, uint32_t number,
                                  const char *text) {
+    const bool set = mesh_ui_nav_edit_store(nav, store, field, number, text);
+    if (set) {
+        mesh_ui_nav_edit_couple(nav, store, field, number, text);
+    }
+    return set;
+}
+
+static bool mesh_ui_nav_edit_store(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                   enum mesh_ui_setting_field field, uint32_t number,
+                                   const char *text) {
     struct mesh_ui_settings_item base;
     if (!mesh_ui_nav_settings_current(nav, store, false, &base) || base.field != field) {
         return false;
@@ -124,18 +174,9 @@ static bool mesh_ui_nav_edit_set(struct mesh_ui_nav *nav, const struct mesh_ui_s
         mesh_ui_nav_edit_remove(nav, field);
         return true;
     }
-    struct mesh_ui_setting_edit *slot = NULL;
-    for (uint8_t i = 0; i < nav->settings_edit_count; ++i) {
-        if (nav->settings_edits[i].field == (uint16_t)field) {
-            slot = &nav->settings_edits[i];
-            break;
-        }
-    }
+    struct mesh_ui_setting_edit *slot = mesh_ui_nav_edit_slot(nav, field);
     if (slot == NULL) {
-        if (nav->settings_edit_count >= MESH_UI_SETTINGS_EDITS_MAX) {
-            return false;
-        }
-        slot = &nav->settings_edits[nav->settings_edit_count++];
+        return false;
     }
     memset(slot, 0, sizeof *slot);
     slot->field = (uint16_t)field;
