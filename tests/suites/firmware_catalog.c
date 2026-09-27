@@ -473,3 +473,51 @@ MESH_TEST_CASE(firmware_catalog_manifest_must_agree_with_its_own_name, unit) {
         "nor does no manifest at all");
     record_success(test_name);
 }
+
+/* A board named across firmwares is one build, by its target: RAK4631's model is three of them. */
+MESH_TEST_CASE(firmware_catalog_finds_one_build_by_its_target, unit) {
+    size_t len = 0U;
+    char *document = mesh_test_data_read("device_hardware.json", &len);
+    MESH_TEST_FAIL_IF(document == NULL, "tests/data/device_hardware.json should be readable");
+    struct mesh_firmware_boards boards;
+    bool ok = mesh_firmware_boards_parse(document, len, 9U, &boards) && boards.found == 3U;
+    MESH_TEST_FAIL_IF_CLEANUP(!ok, free(document), "hw_model 9 is three builds");
+    ok = mesh_firmware_boards_parse_target(document, len, "rak4631", &boards) &&
+         boards.found == 1U && boards.entries[0].hw_model == 9U &&
+         strcmp(boards.entries[0].architecture, "nrf52840") == 0;
+    MESH_TEST_FAIL_IF_CLEANUP(!ok, free(document), "and \"rak4631\" is one of them");
+    ok = mesh_firmware_boards_parse_target(document, len, "rak", &boards) && boards.found == 0U;
+    MESH_TEST_FAIL_IF_CLEANUP(!ok, free(document), "a target is matched whole");
+    ok = !mesh_firmware_boards_parse_target(document, len, "", &boards);
+    free(document);
+    MESH_TEST_FAIL_IF(!ok, "and no target is no question");
+    record_success(test_name);
+}
+
+/* What a switch writes: the whole flash, which is the .factory.bin for an ESP32 and the same
+   UF2 as ever for an nRF52. */
+MESH_TEST_CASE(firmware_catalog_names_the_whole_flash, unit) {
+    struct mesh_firmware_manifest manifest;
+    size_t len = 0U;
+    char *document = mesh_test_data_read("heltec_v3_2.7.26.mt.json", &len);
+    MESH_TEST_FAIL_IF(document == NULL || !mesh_firmware_manifest_parse(document, len, &manifest),
+                      "the Heltec V3's manifest should parse");
+    free(document);
+    const struct mesh_firmware_image *image = mesh_firmware_manifest_whole_image(&manifest);
+    MESH_TEST_FAIL_IF(image == NULL ||
+                          strcmp(image->name, "firmware-heltec-v3-2.7.26.54e0d8d.factory.bin") !=
+                              0 ||
+                          image->bytes != 2174784U,
+                      "an ESP32's whole flash is its .factory.bin");
+
+    document = mesh_test_data_read("t114_2.7.26.mt.json", &len);
+    MESH_TEST_FAIL_IF(document == NULL || !mesh_firmware_manifest_parse(document, len, &manifest),
+                      "the T114's manifest should parse");
+    free(document);
+    image = mesh_firmware_manifest_whole_image(&manifest);
+    MESH_TEST_FAIL_IF(
+        image == NULL ||
+            strcmp(image->name, "firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.uf2") != 0,
+        "an nRF52's is its UF2");
+    record_success(test_name);
+}

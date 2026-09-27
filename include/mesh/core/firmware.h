@@ -88,9 +88,8 @@ enum mesh_firmware_blocker {
 };
 
 /*
- * Whose firmware the radio runs, which is whose documents a check reads. Decided by the
- * protocol the link speaks, not by the board: a Heltec V3 is either, and switching it from one
- * to the other is a question for another day.
+ * Whose documents a check reads. Decided by the protocol the link speaks, not by the board: a
+ * Heltec V3 is either - and a switch check reads the *other* one's, for the same board.
  */
 enum mesh_firmware_source {
     /* api.meshtastic.org's two documents, keyed on DeviceMetadata's hw_model. */
@@ -136,6 +135,14 @@ struct mesh_firmware {
     bool usb_build;
     /* The release the tag list named, which the third MeshCore document is fetched by. */
     char tag[MESH_FIRMWARE_MESHCORE_TAG_MAX];
+    /*
+     * The answer is the other firmware for this radio - a switch, not an update. `source` is
+     * then whose documents were read, and the radio above runs the other one's; `twin` is how
+     * the board is named on that side (MeshCore's device name, or Meshtastic's target). The
+     * answer is always a release to install, the whole flash, over USB.
+     */
+    bool switching;
+    char twin[MESH_FIRMWARE_TARGET_MAX];
 
     /*
      * The caller's clock, stamped at every check and every tick.
@@ -205,6 +212,24 @@ int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const
 int mesh_firmware_check_meshcore(struct mesh_firmware *firmware, const char *model,
                                  const char *running, bool usb_build, uint64_t now_ms);
 
+/*
+ * A switch: the newest release of the *other* firmware for the board this radio is, as a whole
+ * flash - settings and all gone - over USB.
+ *
+ * From Meshtastic, the radio is described as for mesh_firmware_check() and `target` is its
+ * board's `platformioTarget`, which a finished check has; the MeshCore build is the USB
+ * companion. From MeshCore, as for mesh_firmware_check_meshcore() and `device` is the
+ * flasher's name for it. Either way the other side is found through the twin table in
+ * firmware_meshcore.h, and -ENOENT means this board has no twin there. Otherwise returns as
+ * mesh_firmware_check().
+ */
+int mesh_firmware_check_switch_to_meshcore(struct mesh_firmware *firmware, uint32_t hw_model,
+                                           const char *running, const char *target,
+                                           uint64_t now_ms);
+int mesh_firmware_check_switch_to_meshtastic(struct mesh_firmware *firmware, const char *model,
+                                             const char *running, bool usb_build,
+                                             const char *device, uint64_t now_ms);
+
 /* Enforces the per-document timeout and keeps the fetch moving. Call every loop turn. */
 void mesh_firmware_tick(struct mesh_firmware *firmware, uint64_t now_ms);
 
@@ -226,7 +251,8 @@ bool mesh_firmware_answers_for(const struct mesh_firmware *firmware, uint32_t hw
                                const char *running);
 /* The same question about a MeshCore radio, which names itself by `model` rather than by a
    number - and by which build it runs, `usb_build`, since the build decided which file was
-   found. An answer from the other source is never this radio's. */
+   found. An answer about the other firmware's radio is never this one's; a switch answer is
+   about the radio it was asked for, whichever documents it read. */
 bool mesh_firmware_answers_for_meshcore(const struct mesh_firmware *firmware, const char *model,
                                         const char *running, bool usb_build);
 
@@ -268,6 +294,10 @@ void mesh_firmware_forget(struct mesh_firmware *firmware);
  * deliberately answers NULL rather than the first candidate.
  */
 const struct mesh_firmware_board *mesh_firmware_board(const struct mesh_firmware *firmware);
+
+/* Whose firmware the radio the answer is about runs: `source`, or for a switch the other one.
+   Which protocol a link must speak for the answer to still be its. */
+enum mesh_firmware_source mesh_firmware_radio_source(const struct mesh_firmware *firmware);
 
 const char *mesh_firmware_state_name(enum mesh_firmware_state state);
 /* The one line a row shows for a blocker, or an empty string for NONE. */

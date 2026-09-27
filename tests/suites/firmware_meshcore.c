@@ -151,3 +151,52 @@ MESH_TEST_CASE(firmware_meshcore_finds_the_one_file_an_install_writes, unit) {
                       "a build the release has no file for is no image, and says nothing");
     record_success(test_name);
 }
+
+/* The twin table both ways, and nothing matched by looking alike. */
+MESH_TEST_CASE(firmware_meshcore_names_a_board_across_firmwares, unit) {
+    MESH_TEST_FAIL_IF(
+        strcmp(mesh_firmware_meshcore_device_for_target("heltec-v3"), "Heltec v3") != 0 ||
+            strcmp(mesh_firmware_meshcore_target_for_device("Heltec v3"), "heltec-v3") != 0,
+        "the Heltec V3 is the same board under both");
+    MESH_TEST_FAIL_IF(
+        strcmp(mesh_firmware_meshcore_target_for_device("RAK WisBlock / WisMesh (RAK 4631)"),
+               "rak4631") != 0,
+        "and the RAK 4631, whose names share nothing");
+    MESH_TEST_FAIL_IF(mesh_firmware_meshcore_device_for_target("heltec-v2_1") != NULL ||
+                          mesh_firmware_meshcore_target_for_device("Heltec v2") != NULL ||
+                          mesh_firmware_meshcore_target_for_device("heltec v3") != NULL ||
+                          mesh_firmware_meshcore_device_for_target(NULL) != NULL,
+                      "a board with no twin, or one only spelled alike, has none");
+
+    /* The flasher's own names for every twin, against the list it serves - so a renamed device
+       fails here rather than on somebody's radio. The fixture carries four of them. */
+    struct mesh_firmware_boards boards;
+    MESH_TEST_FAIL_IF(
+        !boards_for(mesh_firmware_meshcore_device_for_target("rak4631"), true, &boards) ||
+            boards.found != 1U,
+        "the twin's name is one the flasher lists");
+    record_success(test_name);
+}
+
+/* A switch onto MeshCore writes an ESP32's -merged.bin: bootloader, table and app from 0x0. */
+MESH_TEST_CASE(firmware_meshcore_finds_the_whole_flash_for_a_switch, unit) {
+    size_t len = 0U;
+    char *document = mesh_test_data_read("meshcore_release_companion-v1.17.1.json", &len);
+    MESH_TEST_FAIL_IF(document == NULL, "tests/data/meshcore_release_companion-v1.17.1.json");
+    struct mesh_firmware_boards boards;
+    struct mesh_firmware_release release;
+    memset(&release, 0, sizeof release);
+    release.wipe = true;
+    bool ok = boards_for("Heltec V3", true, &boards) &&
+              mesh_firmware_meshcore_asset_parse(document, len, &boards.entries[0], &release) &&
+              strcmp(release.image_name,
+                     "Heltec_v3_companion_radio_usb-v1.17.1-d929643-merged.bin") == 0 &&
+              release.image_bytes == 709536U;
+    MESH_TEST_FAIL_IF_CLEANUP(!ok, free(document), "the V3's whole flash is its -merged.bin");
+    ok = boards_for("RAK 4631", true, &boards) &&
+         mesh_firmware_meshcore_asset_parse(document, len, &boards.entries[0], &release) &&
+         strcmp(release.image_name, "RAK_4631_companion_radio_usb-v1.17.1-d929643.uf2") == 0;
+    free(document);
+    MESH_TEST_FAIL_IF(!ok, "and an nRF52's is the same UF2 as ever");
+    record_success(test_name);
+}

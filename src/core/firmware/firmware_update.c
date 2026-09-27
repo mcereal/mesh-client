@@ -476,8 +476,13 @@ static void update_begin_serial(struct mesh_firmware_update *update, const char 
         return;
     }
     update_release_link(update);
-    if (mesh_firmware_serial_start(&update->serial, update->loop, image_path, update->where, chip,
-                                   now_ms) < 0) {
+    const int started =
+        update->release.wipe
+            ? mesh_firmware_serial_start_whole(&update->serial, update->loop, image_path,
+                                               update->where, chip, now_ms)
+            : mesh_firmware_serial_start(&update->serial, update->loop, image_path, update->where,
+                                         chip, now_ms);
+    if (started < 0) {
         update_finish(update, update_error_of_serial(&update->serial), update->serial.reason);
         return;
     }
@@ -618,7 +623,8 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
      */
     if (!mesh_firmware_update_available(update) || release->version[0] == '\0' ||
         (release->manifest_url[0] == '\0' && release->image_url[0] == '\0') ||
-        board->target[0] == '\0' || !mesh_firmware_board_takes(board, bus)) {
+        board->target[0] == '\0' || !mesh_firmware_board_takes(board, bus) ||
+        (release->wipe && bus != MESH_FIRMWARE_PATH_USB)) {
         update->error = MESH_FIRMWARE_UPDATE_ERROR_UNAVAILABLE;
         update_set(update, MESH_FIRMWARE_UPDATE_FAILED,
                    inkcell_str(MESH_STR_FW_UPDATE_ERR_UNAVAILABLE));
@@ -645,12 +651,12 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
         release->manifest_url[0] != '\0'
             ? mesh_firmware_fetch_start(&update->image, &update->fetch, board->target,
                                         release->version, release->manifest_url,
-                                        board->architecture, bus, update->staging,
+                                        board->architecture, bus, release->wipe, update->staging,
                                         update_image_done, update)
             : mesh_firmware_fetch_start_direct(&update->image, &update->fetch, release->image_url,
                                                release->image_name, release->image_bytes,
-                                               board->architecture, bus, update->staging,
-                                               update_image_done, update);
+                                               board->architecture, bus, release->wipe,
+                                               update->staging, update_image_done, update);
     if (started < 0) {
         update->error = update_error_of_fetch(update->image.error);
         update_set(update, MESH_FIRMWARE_UPDATE_FAILED, update->image.message);

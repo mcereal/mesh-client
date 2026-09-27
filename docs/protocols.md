@@ -254,3 +254,15 @@ end.
   Meshtastic one's is. Not on the Brick yet: its generic-driver ports reach DTR only through
   usbfs and the rate not at all, so the touch is refused there. Neither goes over BLE: Nordic DFU arms a radio by asking it. The T114 is
   one flasher entry with two builds, so it is the ambiguous refusal.
+- **Switching a board between the two** is the other firmware's release for the same board,
+  written as the whole flash over USB (`mesh_firmware_check_switch_to_meshcore()` and
+  `_to_meshtastic()`). The board is named across firmwares only by the twin table in
+  `firmware_meshcore.c` - the flasher's device name against Meshtastic's `platformioTarget`,
+  never a name that looks alike - and a board with no row is not offered the switch. An ESP32
+  gets the `-merged.bin` or `.factory.bin` at 0x0 through its ROM, then every data partition
+  that image's own table declares past its end is erased, so the new firmware starts blank
+  rather than reading the old one's filesystem; an nRF52 gets its UF2, armed the way the
+  running firmware is, and its internal filesystem is left as it was - the two keep different
+  files there, so neither reads the other's, but switching back finds the old identity. Either way the radio comes back a new node, which is what the confirm
+  sheet says. Afterwards the port is asked in the new protocol first, with a 45 s window: a
+  wiped MeshCore ESP32 formats and keys itself for about 20 s before its first frame.

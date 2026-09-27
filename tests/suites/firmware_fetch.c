@@ -200,7 +200,7 @@ MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
     if (mesh_firmware_fetch_start(
             &fetch, &fetcher, "heltec-mesh-node-t114", "2.7.26.54e0d8d",
             "https://example.invalid/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json",
-            "esp32-s3", MESH_FIRMWARE_PATH_NONE, dir, fetch_probe_done, &probe) != 0) {
+            "esp32-s3", MESH_FIRMWARE_PATH_NONE, false, dir, fetch_probe_done, &probe) != 0) {
         failure = "the fetch should start";
         goto cleanup;
     }
@@ -235,7 +235,7 @@ MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
     if (mesh_firmware_fetch_start(
             &fetch, &fetcher, "no-such-board", "2.7.26.54e0d8d",
             "https://example.invalid/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json", "",
-            MESH_FIRMWARE_PATH_NONE, dir, fetch_probe_done, &probe) != 0) {
+            MESH_FIRMWARE_PATH_NONE, false, dir, fetch_probe_done, &probe) != 0) {
         failure = "the second fetch should start";
         goto cleanup;
     }
@@ -316,7 +316,7 @@ MESH_TEST_CASE(firmware_fetch_says_why_a_download_failed, unit) {
     if (mesh_firmware_fetch_start(
             &fetch, &fetcher, "heltec-mesh-node-t114", "2.7.26.54e0d8d",
             "https://example.invalid/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json", "",
-            MESH_FIRMWARE_PATH_NONE, dir, fetch_probe_done, &probe) != 0) {
+            MESH_FIRMWARE_PATH_NONE, false, dir, fetch_probe_done, &probe) != 0) {
         failure = "the fetch should start";
         goto cleanup;
     }
@@ -359,6 +359,9 @@ static const uint8_t k_s3_header[48] = {
 /* The chip the served header names: its twelfth byte. The fixture's child is forked after this
    is set, so it serves what the case asked for. */
 static uint8_t g_direct_chip = 0x09U;
+/* Serve a whole flash - bootloader, table, app - rather than an app. */
+static bool g_direct_whole = false;
+#define DIRECT_WHOLE_LEN (0x10000U + DIRECT_IMAGE_LEN)
 
 /* A release asset the way GitHub serves one: a 302 to its storage host, then the file whole. */
 static void direct_serve(void *userdata, const struct https_fixture_request *request,
@@ -371,15 +374,29 @@ static void direct_serve(void *userdata, const struct https_fixture_request *req
         https_fixture_reply(conn, 302, location, NULL, 0U);
         return;
     }
-    static uint8_t image[DIRECT_IMAGE_LEN];
-    memset(image, 0x5A, sizeof image);
+    static uint8_t image[DIRECT_WHOLE_LEN];
+    if (g_direct_whole) {
+        /* merge_bin's layout: the bootloader at 0x0 with no app descriptor, the table at
+           0x8000 naming app0 at 0x10000, the app there, 0xFF between. */
+        memset(image, 0xFF, sizeof image);
+        memcpy(image, k_s3_header, sizeof k_s3_header);
+        memset(image + 32, 0x00, 4U);
+        static const uint8_t k_app0[32] = {0xAA, 0x50, 0x00, 0x10, 0x00, 0x00, 0x01, 0x00,
+                                           0x00, 0x00, 0x10, 0x00, 'a',  'p',  'p',  '0'};
+        memcpy(image + 0x8000U, k_app0, sizeof k_app0);
+        memcpy(image + 0x10000U, k_s3_header, sizeof k_s3_header);
+        https_fixture_reply(conn, 200, NULL, (const char *)image, DIRECT_WHOLE_LEN);
+        return;
+    }
+    memset(image, 0x5A, DIRECT_IMAGE_LEN);
     memcpy(image, k_s3_header, sizeof k_s3_header);
     image[12] = g_direct_chip;
-    https_fixture_reply(conn, 200, NULL, (const char *)image, sizeof image);
+    https_fixture_reply(conn, 200, NULL, (const char *)image, DIRECT_IMAGE_LEN);
 }
 
 static const char *direct_run(struct inkwell_loop *loop, struct inkwell_fetch *fetcher,
-                              struct mesh_firmware_fetch *fetch, uint64_t bytes, const char *dir) {
+                              struct mesh_firmware_fetch *fetch, uint64_t bytes, bool whole,
+                              const char *dir) {
     struct fetch_probe probe;
     memset(&probe, 0, sizeof probe);
     memset(fetch, 0, sizeof *fetch);
@@ -388,7 +405,7 @@ static const char *direct_run(struct inkwell_loop *loop, struct inkwell_fetch *f
             "https://example.invalid/download/companion-v1.17.1/Heltec_v3_companion_radio_usb-"
             "v1.17.1-d929643.bin",
             "Heltec_v3_companion_radio_usb-v1.17.1-d929643.bin", bytes, "esp32",
-            MESH_FIRMWARE_PATH_USB, dir, fetch_probe_done, &probe) != 0) {
+            MESH_FIRMWARE_PATH_USB, whole, dir, fetch_probe_done, &probe) != 0) {
         return "the fetch should start";
     }
     return fetch_wait_done(loop, fetcher, fetch, &probe) ? NULL : "it should have finished";
@@ -424,7 +441,7 @@ MESH_TEST_CASE(firmware_fetch_takes_a_named_file_and_reads_its_chip, unit) {
     }
     https_fixture_attach(&server, &fetcher);
 
-    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN, dir);
+    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN, false, dir);
     if (failure != NULL) {
         goto cleanup;
     }
@@ -443,7 +460,7 @@ MESH_TEST_CASE(firmware_fetch_takes_a_named_file_and_reads_its_chip, unit) {
     }
 
     /* The same file, described as shorter than it is: not the file that was described. */
-    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN - 1U, dir);
+    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN - 1U, false, dir);
     if (failure != NULL) {
         goto cleanup;
     }
@@ -452,7 +469,7 @@ MESH_TEST_CASE(firmware_fetch_takes_a_named_file_and_reads_its_chip, unit) {
         failure = "a file longer than its release says is refused as it arrives";
         goto cleanup;
     }
-    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN + 1U, dir);
+    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN + 1U, false, dir);
     if (failure == NULL && (fetch.state != MESH_FIRMWARE_FETCH_FAILED ||
                             fetch.error != MESH_FIRMWARE_FETCH_ERROR_WRONG_IMAGE)) {
         failure = "and one shorter is not the file described";
@@ -470,14 +487,42 @@ MESH_TEST_CASE(firmware_fetch_takes_a_named_file_and_reads_its_chip, unit) {
         goto cleanup;
     }
     https_fixture_attach(&server, &fetcher);
-    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN, dir);
+    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN, false, dir);
     if (failure == NULL && (fetch.state != MESH_FIRMWARE_FETCH_READY ||
                             strcmp(fetch.manifest.architecture, "esp32-c3") != 0)) {
         failure = "an ESP32-C3 app is read as one";
     }
+    if (failure != NULL) {
+        goto cleanup;
+    }
+
+    /* Asked for a whole flash, an app is not one - and a merged image is, named by its
+       bootloader's chip. */
+    g_direct_chip = 0x09U;
+    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN, true, dir);
+    if (failure == NULL && (fetch.state != MESH_FIRMWARE_FETCH_FAILED ||
+                            fetch.error != MESH_FIRMWARE_FETCH_ERROR_WRONG_IMAGE)) {
+        failure = "an app image is not a whole flash";
+    }
+    if (failure != NULL) {
+        goto cleanup;
+    }
+    g_direct_whole = true;
+    https_fixture_stop(&server);
+    if (!https_fixture_start(&server, direct_serve, NULL)) {
+        failure = "could not stand the release host up again";
+        goto cleanup;
+    }
+    https_fixture_attach(&server, &fetcher);
+    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_WHOLE_LEN, true, dir);
+    if (failure == NULL && (fetch.state != MESH_FIRMWARE_FETCH_READY ||
+                            strcmp(fetch.manifest.architecture, "esp32-s3") != 0)) {
+        failure = fetch.message[0] != '\0' ? fetch.message : "a whole S3 flash is read as one";
+    }
 
 cleanup:
     g_direct_chip = 0x09U;
+    g_direct_whole = false;
     if (fetch_up) {
         inkwell_fetch_shutdown(&fetcher);
     }

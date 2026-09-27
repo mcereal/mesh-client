@@ -2,6 +2,8 @@
 
 #include "mesh/core/firmware_serial.h"
 
+#include "mesh/core/esp_image.h"
+
 #include "mesh/transport/serial_usb.h"
 
 #include "inkwell/base/file.h"
@@ -116,9 +118,44 @@ static int serial_find_port(struct mesh_firmware_serial *serial, const char *whe
     return 0;
 }
 
-int mesh_firmware_serial_start(struct mesh_firmware_serial *serial, struct inkwell_loop *loop,
-                               const char *image_path, const char *where, uint16_t chip,
-                               uint64_t now_ms) {
+/*
+ * The regions a whole-flash image goes down as: itself at 0x0, then each data partition its
+ * table declares past its end, erased. Those hold whatever the last firmware kept there - its
+ * settings, its keys, its filesystem, possibly at another firmware's offsets - so the new one
+ * starts blank rather than reading the old one's bytes as its own.
+ */
+static bool serial_whole_regions(struct mesh_firmware_serial *serial, uint16_t chip,
+                                 struct mesh_esp_loader_region *regions, size_t *count,
+                                 char *reason, size_t reason_len) {
+    struct mesh_esp_whole_image whole;
+    const char *why = NULL;
+    if (!mesh_esp_whole_image_read(serial->image, serial->image_len, chip, &whole, &why)) {
+        snprintf(reason, reason_len, "not a whole-flash image for this chip: %s", why);
+        return false;
+    }
+    regions[0] = (struct mesh_esp_loader_region){0U, serial->image, serial->image_len};
+    *count = 1U;
+    for (size_t i = 0; i < whole.count; ++i) {
+        const struct mesh_esp_partition *const partition = &whole.partitions[i];
+        if (partition->type != MESH_ESP_PARTITION_DATA ||
+            (uint64_t)partition->offset + partition->size <= serial->image_len) {
+            continue;
+        }
+        if (*count >= MESH_ESP_LOADER_REGIONS) {
+            snprintf(reason, reason_len, "more data partitions than the loader takes");
+            return false;
+        }
+        regions[(*count)++] =
+            (struct mesh_esp_loader_region){partition->offset, NULL, partition->size};
+        inkwell_log_info("firmware-serial", "Will erase %s: 0x%06x, %u bytes", partition->label,
+                         (unsigned)partition->offset, (unsigned)partition->size);
+    }
+    return true;
+}
+
+static int serial_start(struct mesh_firmware_serial *serial, struct inkwell_loop *loop,
+                        const char *image_path, const char *where, uint16_t chip, bool whole,
+                        uint64_t now_ms) {
     if (serial == NULL || image_path == NULL) {
         return -EINVAL;
     }
@@ -138,37 +175,59 @@ int mesh_firmware_serial_start(struct mesh_firmware_serial *serial, struct inkwe
                              "the staged image could not be read", -EIO);
     }
     serial->image_len = len;
-    /* The header is the only thing in an app image that names a chip, and the last look at
-       the file before a flash is erased to take it. */
-    struct inkwell_esp_image_info info;
-    const enum inkwell_esp_image_verdict verdict =
-        inkwell_esp_image_validate(serial->image, serial->image_len, chip, &info);
-    if (verdict != INKWELL_ESP_IMAGE_OK) {
+    /* The headers are the only thing in an image that names a chip, and the last look at the
+       file before a flash is erased to take it. */
+    struct mesh_esp_loader_region regions[MESH_ESP_LOADER_REGIONS];
+    size_t region_count = 0U;
+    if (whole) {
         char reason[MESH_FIRMWARE_SERIAL_REASON_MAX];
-        snprintf(reason, sizeof reason, "%s (chip 0x%04x)", inkwell_esp_image_verdict_name(verdict),
-                 (unsigned)info.chip_id);
-        return serial_refuse(serial, MESH_FIRMWARE_SERIAL_ERROR_IMAGE, reason, -EINVAL);
+        if (!serial_whole_regions(serial, chip, regions, &region_count, reason, sizeof reason)) {
+            return serial_refuse(serial, MESH_FIRMWARE_SERIAL_ERROR_IMAGE, reason, -EINVAL);
+        }
+    } else {
+        struct inkwell_esp_image_info info;
+        const enum inkwell_esp_image_verdict verdict =
+            inkwell_esp_image_validate(serial->image, serial->image_len, chip, &info);
+        if (verdict != INKWELL_ESP_IMAGE_OK) {
+            char reason[MESH_FIRMWARE_SERIAL_REASON_MAX];
+            snprintf(reason, sizeof reason, "%s (chip 0x%04x)",
+                     inkwell_esp_image_verdict_name(verdict), (unsigned)info.chip_id);
+            return serial_refuse(serial, MESH_FIRMWARE_SERIAL_ERROR_IMAGE, reason, -EINVAL);
+        }
+        memset(serial->otadata, 0xFF, sizeof serial->otadata);
+        regions[0] = (struct mesh_esp_loader_region){MESH_FIRMWARE_SERIAL_APP_OFFSET, serial->image,
+                                                     serial->image_len};
+        regions[1] = (struct mesh_esp_loader_region){MESH_FIRMWARE_SERIAL_OTADATA_OFFSET,
+                                                     serial->otadata, sizeof serial->otadata};
+        region_count = 2U;
     }
     const int port = serial_find_port(serial, where);
     if (port < 0) {
         return port;
     }
 
-    memset(serial->otadata, 0xFF, sizeof serial->otadata);
-    const struct mesh_esp_loader_region regions[2] = {
-        {MESH_FIRMWARE_SERIAL_APP_OFFSET, serial->image, serial->image_len},
-        {MESH_FIRMWARE_SERIAL_OTADATA_OFFSET, serial->otadata, sizeof serial->otadata},
-    };
-    const int started =
-        mesh_esp_loader_start(&serial->loader, loop, serial->path, chip, regions, 2U, 0U, now_ms);
+    const int started = mesh_esp_loader_start(&serial->loader, loop, serial->path, chip, regions,
+                                              region_count, 0U, now_ms);
     if (started < 0) {
         return serial_refuse(serial, MESH_FIRMWARE_SERIAL_ERROR_LOADER, serial->loader.reason,
                              started);
     }
     serial->state = MESH_FIRMWARE_SERIAL_WAITING;
-    inkwell_log_info("firmware-serial", "Writing %zu bytes to %s through its ROM",
-                     serial->image_len, serial->path);
+    inkwell_log_info("firmware-serial", "Writing %zu bytes to %s through its ROM%s",
+                     serial->image_len, serial->path, whole ? ", the whole flash" : "");
     return 0;
+}
+
+int mesh_firmware_serial_start(struct mesh_firmware_serial *serial, struct inkwell_loop *loop,
+                               const char *image_path, const char *where, uint16_t chip,
+                               uint64_t now_ms) {
+    return serial_start(serial, loop, image_path, where, chip, false, now_ms);
+}
+
+int mesh_firmware_serial_start_whole(struct mesh_firmware_serial *serial, struct inkwell_loop *loop,
+                                     const char *image_path, const char *where, uint16_t chip,
+                                     uint64_t now_ms) {
+    return serial_start(serial, loop, image_path, where, chip, true, now_ms);
 }
 
 void mesh_firmware_serial_tick(struct mesh_firmware_serial *serial, uint64_t now_ms) {

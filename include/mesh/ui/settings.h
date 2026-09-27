@@ -639,6 +639,15 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB,
     MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE,
     /*
+     * Moving the board to the other firmware: the check, which reads the other one's documents
+     * for this board and needs no sheet, and the install, which writes the whole flash over USB
+     * and needs its own - what it costs is everything the radio was, which neither update
+     * sheet says. The install reaches the app as MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE with
+     * `number` 2, so the app can hold the answer it is about to write to the sheet agreed to.
+     */
+    MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH,
+    MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH,
+    /*
      * Channel sharing, at the foot of the Channels list: this radio's set as a link, and a
      * link typed in.
      *

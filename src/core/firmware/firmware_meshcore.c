@@ -51,6 +51,61 @@ static const struct {
     {"Xiao S3 WIO", "Seeed Studio Xiao S3 WIO"},
 };
 
+/*
+ * One board under both firmwares: the flasher's device name, and the Meshtastic build of the
+ * same hardware by its `platformioTarget`. Only pairs that are the same board and one build on
+ * each side - a device Meshtastic splits by battery or radio (the MeshPocket, the Heltec V2)
+ * or names by a different module (RAK's 3112 and 3312) is left out, and a board missing here
+ * is simply not offered the switch.
+ */
+static const struct {
+    const char *device;
+    const char *target;
+} k_twins[] = {
+    {"Elecrow ThinkNode M1", "thinknode_m1"},
+    {"Elecrow ThinkNode M2", "thinknode_m2"},
+    {"Elecrow ThinkNode M3", "thinknode_m3"},
+    {"Elecrow ThinkNode M5", "thinknode_m5"},
+    {"Elecrow ThinkNode M6", "thinknode_m6"},
+    {"Elecrow ThinkNode M7", "thinknode_m7"},
+    {"Heltec Mesh Node T096", "heltec-mesh-node-t096"},
+    {"Heltec Mesh Node T1", "heltec-mesh-node-t1"},
+    {"Heltec T114", "heltec-mesh-node-t114"},
+    {"Heltec Vision Master E213", "heltec-vision-master-e213"},
+    {"Heltec Vision Master E290", "heltec-vision-master-e290"},
+    {"Heltec WSL3", "heltec-wsl-v3"},
+    {"Heltec Wireless Tracker v2", "heltec-wireless-tracker-v2"},
+    {"Heltec v3", "heltec-v3"},
+    {"Heltec v4", "heltec-v4"},
+    {"LilyGo T-Beam 1W", "t-beam-1w"},
+    {"LilyGo T-Beam Supreme (SX1262)", "tbeam-s3-core"},
+    {"LilyGo T-Deck", "t-deck"},
+    {"LilyGo T-Echo", "t-echo"},
+    {"RAK WisBlock / WisMesh (RAK 4631)", "rak4631"},
+    {"RAK WisMesh Tag", "rak_wismeshtag"},
+    {"Seeed Studio SenseCAP T1000-E", "tracker-t1000-e"},
+    {"Seeed Studio Xiao S3 WIO", "seeed-xiao-s3"},
+    {"UnitEng Station G2", "station-g2"},
+};
+
+const char *mesh_firmware_meshcore_device_for_target(const char *target) {
+    for (size_t i = 0; target != NULL && i < sizeof k_twins / sizeof k_twins[0]; ++i) {
+        if (strcmp(target, k_twins[i].target) == 0) {
+            return k_twins[i].device;
+        }
+    }
+    return NULL;
+}
+
+const char *mesh_firmware_meshcore_target_for_device(const char *device) {
+    for (size_t i = 0; device != NULL && i < sizeof k_twins / sizeof k_twins[0]; ++i) {
+        if (strcmp(device, k_twins[i].device) == 0) {
+            return k_twins[i].target;
+        }
+    }
+    return NULL;
+}
+
 bool mesh_firmware_meshcore_names(const char *model, const char *device) {
     if (model == NULL || device == NULL || model[0] == '\0') {
         return false;
@@ -278,14 +333,16 @@ static bool meshcore_ends_with(const char *text, const char *suffix) {
     return len >= suffix_len && strcmp(text + len - suffix_len, suffix) == 0;
 }
 
-/* The one file an install of `board` writes, by name. */
-static bool meshcore_asset_is(const char *name, const struct mesh_firmware_board *board) {
+/* The one file an install of `board` writes, by name: with `wipe`, an ESP32's whole flash. */
+static bool meshcore_asset_is(const char *name, const struct mesh_firmware_board *board,
+                              bool wipe) {
     const size_t prefix = strlen(board->target);
     if (strncmp(name, board->target, prefix) != 0 || name[prefix] != '-') {
         return false;
     }
     if (mesh_firmware_architecture_uses_esp_rom(board->architecture)) {
-        return meshcore_ends_with(name, ".bin") && !meshcore_ends_with(name, "-merged.bin");
+        return wipe ? meshcore_ends_with(name, "-merged.bin")
+                    : meshcore_ends_with(name, ".bin") && !meshcore_ends_with(name, "-merged.bin");
     }
     return meshcore_ends_with(name, ".uf2");
 }
@@ -328,9 +385,9 @@ bool mesh_firmware_meshcore_asset_parse(const char *json_text, size_t len,
         }
         /* One byte of room past each field's own limit, so a name or URL that would not fit
            is seen as too long rather than truncated into a different one. */
-        if (!meshcore_asset_is(name, board) || strlen(name) >= MESH_FIRMWARE_FILE_NAME_MAX ||
-            strlen(url) >= MESH_FIRMWARE_URL_MAX || strncmp(url, "https://", 8U) != 0 ||
-            size == 0U) {
+        if (!meshcore_asset_is(name, board, release->wipe) ||
+            strlen(name) >= MESH_FIRMWARE_FILE_NAME_MAX || strlen(url) >= MESH_FIRMWARE_URL_MAX ||
+            strncmp(url, "https://", 8U) != 0 || size == 0U) {
             continue;
         }
         matched++;

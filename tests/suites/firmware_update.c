@@ -612,6 +612,15 @@ MESH_TEST_CASE(firmware_update_refuses_before_it_starts, unit) {
         failure = "a release with no manifest should refuse";
         goto cleanup;
     }
+    /* A whole flash - a switch between firmwares - goes over USB and nowhere else, even for
+       a board that takes BLE. */
+    struct mesh_firmware_release whole = release;
+    whole.wipe = true;
+    if (mesh_firmware_update_start(&harness.update, &board, &whole, MESH_FIRMWARE_PATH_BLE, "",
+                                   &hooks, update_probe_done, &probe) != -ENOTSUP) {
+        failure = "a whole flash over BLE should refuse";
+        goto cleanup;
+    }
     if (probe.calls != 0U) {
         failure = "none of those should have reported through the callback";
         goto cleanup;

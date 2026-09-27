@@ -917,8 +917,11 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
      * While a check runs it drops to a plain fact - the module refuses a switch with a document
      * in flight, and a row that refuses is worse than one that never invited the press.
      */
-    /* MeshCore publishes one line of companion releases, so there is no list to choose. */
-    const bool channels = s->protocol != (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
+    /* The firmware a switch would move the radio to: whichever it is not running. */
+    const bool to_meshcore = s->protocol != (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
+    /* MeshCore publishes one line of companion releases, so there is no list to choose - and
+       the list that matters is the one of the firmware the answer is about. */
+    const bool channels = s->fw_switching ? !to_meshcore : to_meshcore;
     if (s->fw_busy) {
         if (channels) {
             item_text(list, MESH_STR_FW_CHANNEL, INKSTAND_FORM_INFO, s->fw_channel);
@@ -939,11 +942,22 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
      * state's own word stands in - which is also why the press below is offered whatever state
      * this is in: a check is worth repeating, and a failed one is worth retrying.
      */
-    item_text(list, newer ? MESH_STR_FW_NEWER : MESH_STR_FW_LATEST, INKSTAND_FORM_INFO,
+    const inkcell_str_id answer = s->fw_switching ? (to_meshcore ? MESH_STR_FW_SWITCH_MESHCORE
+                                                                 : MESH_STR_FW_SWITCH_MESHTASTIC)
+                                  : newer         ? MESH_STR_FW_NEWER
+                                                  : MESH_STR_FW_LATEST;
+    item_text(list, answer, INKSTAND_FORM_INFO,
               s->fw_message[0] != '\0'
                   ? s->fw_message
                   : mesh_firmware_state_name((enum mesh_firmware_state)s->fw_state));
     item_verb(list, MESH_STR_FW_CHECK, MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE);
+    /* The other firmware, once the check has named the board and the board has a twin there.
+       Under the check, since it is the same question asked of the other project. */
+    if (s->fw_switch_offer && !s->fw_switching) {
+        item_verb(list,
+                  to_meshcore ? MESH_STR_FW_SWITCH_TO_MESHCORE : MESH_STR_FW_SWITCH_TO_MESHTASTIC,
+                  MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH);
+    }
 
     /*
      * Why it cannot be installed, once there is something to install. Not shown before a check
@@ -998,6 +1012,12 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
      * - the confirm sheet, the action bar and the app all read the action it emits - which is
      * why the bus is baked into the action rather than looked up again downstream.
      */
+    if (s->fw_switching) {
+        /* The whole flash, over USB and nowhere else - the blocker has seen to the bus. */
+        item_verb(list, MESH_STR_FW_SWITCH_INSTALL,
+                  MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH);
+        return;
+    }
     item_verb(list, MESH_STR_FW_INSTALL,
               s->fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE
                   ? MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE

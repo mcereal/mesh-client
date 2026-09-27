@@ -639,4 +639,98 @@ cleanup:
     record_success(test_name);
 }
 
+/*
+ * A switch reads the other firmware's documents for the same board: the Heltec V3 on
+ * Meshtastic is offered MeshCore's USB companion as a whole flash, and on MeshCore is offered
+ * Meshtastic's newest stable the same way - over USB and nowhere else.
+ */
+MESH_TEST_CASE(firmware_switch_reads_the_other_firmware_for_the_same_board, unit) {
+    struct firmware_harness harness;
+    const char *failure = NULL;
+    if (!firmware_harness_up(&harness)) {
+        firmware_harness_down(&harness);
+        MESH_TEST_FAIL_IF(true, "the harness should come up");
+    }
+    struct mesh_firmware *const firmware = &harness.firmware;
+    mesh_firmware_set_bus(firmware, MESH_FIRMWARE_PATH_USB, true);
+    if (mesh_firmware_check_switch_to_meshcore(firmware, 43U, "2.7.26.54e0d8d", "heltec-v3", 0U) !=
+            0 ||
+        !firmware_settle(&harness)) {
+        failure = "the switch to MeshCore should start and finish";
+        goto cleanup;
+    }
+    const struct mesh_firmware_board *board = mesh_firmware_board(firmware);
+    if (firmware->state != MESH_FIRMWARE_AVAILABLE || board == NULL ||
+        strcmp(board->target, "Heltec_v3_companion_radio_usb") != 0 || !firmware->release.wipe ||
+        strcmp(firmware->release.image_name,
+               "Heltec_v3_companion_radio_usb-v1.17.1-d929643-merged.bin") != 0 ||
+        firmware->blocker != MESH_FIRMWARE_BLOCKER_NONE) {
+        failure = "MeshCore 1.17.1's USB companion, as its whole flash, is there to install";
+        goto cleanup;
+    }
+    if (!mesh_firmware_answers_for(firmware, 43U, "2.7.26.54e0d8d") ||
+        mesh_firmware_answers_for_meshcore(firmware, "Heltec V3", "2.7.26.54e0d8d", true)) {
+        failure = "and it is an answer about the Meshtastic radio it was asked for";
+        goto cleanup;
+    }
+    mesh_firmware_set_bus(firmware, MESH_FIRMWARE_PATH_BLE, true);
+    if (firmware->blocker != MESH_FIRMWARE_BLOCKER_WRONG_BUS) {
+        failure = "a switch is a USB write";
+        goto cleanup;
+    }
+    mesh_firmware_set_bus(firmware, MESH_FIRMWARE_PATH_USB, true);
+
+    if (mesh_firmware_check_switch_to_meshtastic(firmware, "Heltec V3", "v1.17.1-d929643", true,
+                                                 "Heltec v3", 0U) != 0 ||
+        !firmware_settle(&harness)) {
+        failure = "the switch to Meshtastic should start and finish";
+        goto cleanup;
+    }
+    board = mesh_firmware_board(firmware);
+    if (firmware->state != MESH_FIRMWARE_AVAILABLE || board == NULL ||
+        strcmp(board->target, "heltec-v3") != 0 || board->path != MESH_FIRMWARE_PATH_USB ||
+        firmware->release.manifest_url[0] == '\0' || !firmware->release.wipe ||
+        firmware->blocker != MESH_FIRMWARE_BLOCKER_NONE) {
+        failure = "Meshtastic's newest stable for the heltec-v3 build, over USB";
+        goto cleanup;
+    }
+    if (!mesh_firmware_answers_for_meshcore(firmware, "Heltec V3", "v1.17.1-d929643", true) ||
+        mesh_firmware_answers_for(firmware, 0U, "v1.17.1-d929643")) {
+        failure = "and it is an answer about the MeshCore radio";
+        goto cleanup;
+    }
+
+    /* An nRF52 would take Meshtastic over BLE, but not from MeshCore, which cannot be asked
+       into its bootloader over the air - and not as a whole flash. */
+    if (mesh_firmware_check_switch_to_meshtastic(firmware, "RAK 4631", "v1.17.1-d929643", false,
+                                                 "RAK WisBlock / WisMesh (RAK 4631)", 0U) != 0 ||
+        !firmware_settle(&harness)) {
+        failure = "the RAK's switch should start and finish";
+        goto cleanup;
+    }
+    mesh_firmware_set_bus(firmware, MESH_FIRMWARE_PATH_BLE, true);
+    board = mesh_firmware_board(firmware);
+    if (board == NULL || strcmp(board->target, "rak4631") != 0 ||
+        firmware->blocker != MESH_FIRMWARE_BLOCKER_WRONG_BUS) {
+        failure = "a RAK on MeshCore is switched over USB";
+        goto cleanup;
+    }
+
+    if (mesh_firmware_check_switch_to_meshcore(firmware, 10U, "2.7.26.54e0d8d", "heltec-v2_1",
+                                               0U) != -ENOENT) {
+        failure = "a board with no twin is not offered one";
+        goto cleanup;
+    }
+    mesh_firmware_forget(firmware);
+    if (firmware->switching || firmware->twin[0] != '\0') {
+        failure = "and forgetting forgets that it was a switch";
+        goto cleanup;
+    }
+
+cleanup:
+    firmware_harness_down(&harness);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 #endif /* INKWELL_HAVE_TLS */

@@ -4796,6 +4796,38 @@ cleanup:
     record_success(test_name);
 }
 
+/* A port just switched to MeshCore is asked in MeshCore first, and given its first boot. */
+MESH_TEST_CASE(app_probe_waits_out_the_first_boot_of_a_switched_port, unit) {
+    static struct app_probe_fixture fx;
+    const char *failure = app_probe_open(&fx, "probe_switched");
+    struct mesh_app *app = &fx.app;
+    if (failure != NULL) {
+        goto cleanup;
+    }
+    const uint64_t now = test_now_ms();
+    mesh_app_probe_expect(app, fx.ports[0].id, true, now);
+    mesh_app_autoconnect(app);
+    if (!app->meshcore_bound || app->probe.identifier[0] == '\0' || !app_probe_wait_up(&fx)) {
+        failure = "a port just switched to MeshCore should be opened in MeshCore";
+        goto cleanup;
+    }
+    mesh_app_probe_tick(app, now + MESH_APP_PROBE_WINDOW_MS + 1000U);
+    if (!app->meshcore_bound || app->probe.identifier[0] == '\0') {
+        failure = "and not given up on after the ordinary window: it is formatting a blank flash";
+        goto cleanup;
+    }
+    mesh_app_probe_tick(app, now + MESH_APP_PROBE_FIRST_BOOT_WINDOW_MS + 1000U);
+    if (app->meshcore_bound) {
+        failure = "past the first boot's window it is asked in the other protocol as ever";
+        goto cleanup;
+    }
+
+cleanup:
+    app_probe_close(&fx);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 /* MESHCLIENT_PROTOCOL names the protocol outright, and nothing is asked. */
 MESH_TEST_CASE(app_probe_honours_a_forced_protocol, unit) {
     static struct app_probe_fixture fx;

@@ -64,6 +64,15 @@ bool mesh_firmware_meshcore_boards_parse(const char *json, size_t len, const cha
 bool mesh_firmware_meshcore_names(const char *model, const char *device);
 
 /*
+ * The same board under the other firmware, from a table of pairs checked by hand: the
+ * flasher's device name for Meshtastic's `platformioTarget` ("heltec-v3" is "Heltec v3"), and
+ * back. NULL for a board with no twin, which is not offered a switch - a board is never
+ * matched across firmwares by its name looking alike.
+ */
+const char *mesh_firmware_meshcore_device_for_target(const char *target);
+const char *mesh_firmware_meshcore_target_for_device(const char *device);
+
+/*
  * The newest companion release in a list of tag refs, as "companion-v1.17.1" into `tag` and
  * "1.17.1" into `version`. Newest by version, since the list is ordered by name and
  * "companion-v1.9.0" sorts after "companion-v1.17.1". False when there is none.
@@ -73,9 +82,10 @@ bool mesh_firmware_meshcore_latest_tag(const char *json, size_t len, char *tag, 
 
 /*
  * The asset of one release that `board` installs from: its build's app image - the `.bin`
- * that is not `-merged` - for the ESP32 family, its `.uf2` for an nRF52. Fills
- * `release->image_name`, `image_url` and `image_bytes`. False when the release publishes
- * none, or more than one.
+ * that is not `-merged` - for the ESP32 family, its `.uf2` for an nRF52. With
+ * `release->wipe` set, which the caller does for a board coming from Meshtastic, an ESP32's is
+ * the `-merged.bin` instead: the whole flash. Fills `release->image_name`, `image_url` and
+ * `image_bytes`. False when the release publishes none, or more than one.
  */
 bool mesh_firmware_meshcore_asset_parse(const char *json, size_t len,
                                         const struct mesh_firmware_board *board,

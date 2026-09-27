@@ -166,7 +166,10 @@ static enum mesh_firmware_blocker firmware_blocker(const struct mesh_firmware *f
     if (board->path == MESH_FIRMWARE_PATH_NONE) {
         return MESH_FIRMWARE_BLOCKER_NO_PATH;
     }
-    if (!mesh_firmware_board_takes(board, firmware->bus)) {
+    /* A switch writes the whole flash, which only the USB path does: the BLE ones write an
+       application, and would ask the running firmware to take it. */
+    if (!mesh_firmware_board_takes(board, firmware->bus) ||
+        (firmware->switching && firmware->bus != MESH_FIRMWARE_PATH_USB)) {
         return MESH_FIRMWARE_BLOCKER_WRONG_BUS;
     }
     /* Over USB only through the ROM, and the ROM only through a bridge. A board with another
@@ -276,13 +279,18 @@ static void firmware_on_hardware(void *userdata, const struct inkwell_fetch_resu
         firmware_fetch_failed(firmware, result, MESH_STR_FW_HARDWARE_UNREADABLE);
         return;
     }
-    if (!mesh_firmware_boards_parse(result->body, result->len, firmware->hw_model,
-                                    &firmware->boards)) {
+    const bool parsed = firmware->switching
+                            ? mesh_firmware_boards_parse_target(result->body, result->len,
+                                                                firmware->twin, &firmware->boards)
+                            : mesh_firmware_boards_parse(result->body, result->len,
+                                                         firmware->hw_model, &firmware->boards);
+    if (!parsed) {
         firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_FW_HARDWARE_UNREADABLE));
         return;
     }
     if (firmware->boards.found == 1U) {
-        inkwell_log_info("firmware", "hw_model %u is %s (%s, %s)", (unsigned)firmware->hw_model,
+        inkwell_log_info("firmware", "hw_model %u is %s (%s, %s)",
+                         (unsigned)firmware->boards.entries[0].hw_model,
                          firmware->boards.entries[0].target,
                          firmware->boards.entries[0].architecture,
                          firmware->boards.entries[0].actively_supported ? "supported" : "retired");
@@ -310,6 +318,7 @@ static void firmware_on_index(void *userdata, const struct inkwell_fetch_result 
         firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_FW_INDEX_UNREADABLE));
         return;
     }
+    firmware->release.wipe = firmware->switching;
 
     inkwell_log_info("firmware", "newest %s is %s (radio has %s)",
                      firmware->channel == MESH_FIRMWARE_CHANNEL_ALPHA ? "alpha" : "stable",
@@ -320,6 +329,23 @@ static void firmware_on_index(void *userdata, const struct inkwell_fetch_result 
 
 /* The verdict, once a release is known: whichever source's documents named it. */
 static void firmware_conclude(struct mesh_firmware *firmware) {
+    /*
+     * A switch goes over USB or not at all: the whole flash through an ESP32's ROM, or a UF2 to
+     * an nRF52's bootloader. So the board's path is USB when it takes USB, and the version is
+     * news whatever it is - the radio runs the other firmware, whose numbers mean nothing here.
+     */
+    if (firmware->switching) {
+        for (uint8_t i = 0; i < firmware->boards.count; ++i) {
+            struct mesh_firmware_board *const board = &firmware->boards.entries[i];
+            const bool usb =
+                mesh_firmware_board_takes(board, MESH_FIRMWARE_PATH_USB) ||
+                mesh_firmware_path_for_architecture(board->architecture) == MESH_FIRMWARE_PATH_USB;
+            board->path = usb ? MESH_FIRMWARE_PATH_USB : MESH_FIRMWARE_PATH_NONE;
+        }
+        firmware_recompute_blocker(firmware);
+        firmware_set(firmware, MESH_FIRMWARE_AVAILABLE, firmware->release.version);
+        return;
+    }
     firmware_recompute_blocker(firmware);
 
     /*
@@ -413,12 +439,21 @@ bool mesh_firmware_set_channel(struct mesh_firmware *firmware, enum mesh_firmwar
     return true;
 }
 
+enum mesh_firmware_source mesh_firmware_radio_source(const struct mesh_firmware *firmware) {
+    if (!firmware->switching) {
+        return firmware->source;
+    }
+    return firmware->source == MESH_FIRMWARE_SOURCE_MESHCORE ? MESH_FIRMWARE_SOURCE_MESHTASTIC
+                                                             : MESH_FIRMWARE_SOURCE_MESHCORE;
+}
+
 bool mesh_firmware_answers_for(const struct mesh_firmware *firmware, uint32_t hw_model,
                                const char *running) {
     if (firmware == NULL || firmware->state == MESH_FIRMWARE_IDLE) {
         return true;
     }
-    return firmware->source == MESH_FIRMWARE_SOURCE_MESHTASTIC && firmware->hw_model == hw_model &&
+    return mesh_firmware_radio_source(firmware) == MESH_FIRMWARE_SOURCE_MESHTASTIC &&
+           firmware->hw_model == hw_model &&
            strcmp(firmware->running, running != NULL ? running : "") == 0;
 }
 
@@ -427,7 +462,8 @@ bool mesh_firmware_answers_for_meshcore(const struct mesh_firmware *firmware, co
     if (firmware == NULL || firmware->state == MESH_FIRMWARE_IDLE) {
         return true;
     }
-    return firmware->source == MESH_FIRMWARE_SOURCE_MESHCORE && firmware->usb_build == usb_build &&
+    return mesh_firmware_radio_source(firmware) == MESH_FIRMWARE_SOURCE_MESHCORE &&
+           firmware->usb_build == usb_build &&
            strcmp(firmware->model, model != NULL ? model : "") == 0 &&
            strcmp(firmware->running, running != NULL ? running : "") == 0;
 }
@@ -442,6 +478,8 @@ void mesh_firmware_forget(struct mesh_firmware *firmware) {
     firmware->running[0] = '\0';
     firmware->model[0] = '\0';
     firmware->tag[0] = '\0';
+    firmware->switching = false;
+    firmware->twin[0] = '\0';
     firmware_recompute_blocker(firmware);
     firmware_set(firmware, MESH_FIRMWARE_IDLE, "");
 }
@@ -478,17 +516,20 @@ static void firmware_on_meshcore_config(void *userdata, const struct inkwell_fet
         firmware_fetch_failed(firmware, result, MESH_STR_FW_HARDWARE_UNREADABLE);
         return;
     }
-    if (!mesh_firmware_meshcore_boards_parse(result->body, result->len, firmware->model,
-                                             firmware->usb_build, &firmware->boards)) {
+    /* A switch looks the board up by the flasher's own name for it, and wants the USB
+       companion: the build a radio on this cable can still be reached by afterwards. */
+    const char *const name = firmware->switching ? firmware->twin : firmware->model;
+    if (!mesh_firmware_meshcore_boards_parse(result->body, result->len, name,
+                                             firmware->switching || firmware->usb_build,
+                                             &firmware->boards)) {
         firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_FW_HARDWARE_UNREADABLE));
         return;
     }
     if (firmware->boards.found == 1U) {
-        inkwell_log_info("firmware", "\"%s\" is %s (%s)", firmware->model,
-                         firmware->boards.entries[0].target,
+        inkwell_log_info("firmware", "\"%s\" is %s (%s)", name, firmware->boards.entries[0].target,
                          firmware->boards.entries[0].architecture);
     } else {
-        inkwell_log_info("firmware", "\"%s\" matches %u builds", firmware->model,
+        inkwell_log_info("firmware", "\"%s\" matches %u builds", name,
                          (unsigned)firmware->boards.found);
     }
     if (firmware_get(firmware,
@@ -545,6 +586,7 @@ static void firmware_on_meshcore_release(void *userdata,
     }
     /* A release with no file for this build still has a version to report: the row says there
        is no download, the way a Meshtastic release with no manifest yet does. */
+    firmware->release.wipe = firmware->switching;
     if (mesh_firmware_meshcore_asset_parse(result->body, result->len, &firmware->boards.entries[0],
                                            &firmware->release)) {
         inkwell_log_info("firmware", "The image is %s, %llu bytes", firmware->release.image_name,
@@ -567,6 +609,8 @@ static void firmware_begin(struct mesh_firmware *firmware, enum mesh_firmware_so
     inkwell_str_copy(firmware->model, sizeof firmware->model, model != NULL ? model : "");
     inkwell_str_copy(firmware->running, sizeof firmware->running, running != NULL ? running : "");
     firmware->tag[0] = '\0';
+    firmware->switching = false;
+    firmware->twin[0] = '\0';
     firmware->now_ms = now_ms;
     /* The old answer is gone, so the refusal that went with it is too - recomputed now rather
        than when the documents land, or the rows would keep naming last check's board while
@@ -592,6 +636,66 @@ int mesh_firmware_check_meshcore(struct mesh_firmware *firmware, const char *mod
                                   MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL),
                      "Accept: application/json", MESH_FIRMWARE_MESHCORE_CONFIG_MAX,
                      firmware_on_meshcore_config) != 0) {
+        return -EIO;
+    }
+    firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING, inkcell_str(MESH_STR_FW_STATE_IDENTIFYING));
+    return 0;
+}
+
+/* Both switches: the same refusals as a check, and a board with no twin is -ENOENT. */
+static int firmware_switch_ready(struct mesh_firmware *firmware, const char *twin) {
+    if (firmware == NULL) {
+        return -EINVAL;
+    }
+    if (twin == NULL) {
+        return -ENOENT;
+    }
+    if (!mesh_firmware_available(firmware)) {
+        return -ENOTSUP;
+    }
+    return mesh_firmware_busy(firmware) ? -EBUSY : 0;
+}
+
+int mesh_firmware_check_switch_to_meshcore(struct mesh_firmware *firmware, uint32_t hw_model,
+                                           const char *running, const char *target,
+                                           uint64_t now_ms) {
+    const char *const device = mesh_firmware_meshcore_device_for_target(target);
+    const int ready = firmware_switch_ready(firmware, device);
+    if (ready != 0) {
+        return ready;
+    }
+    firmware_begin(firmware, MESH_FIRMWARE_SOURCE_MESHCORE, hw_model, "", running, now_ms);
+    firmware->switching = true;
+    firmware->usb_build = false;
+    inkwell_str_copy(firmware->twin, sizeof firmware->twin, device);
+    inkwell_log_info("firmware", "%s is MeshCore's \"%s\"; looking for its build", target, device);
+    if (firmware_get(firmware,
+                     firmware_url("MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL",
+                                  MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL),
+                     "Accept: application/json", MESH_FIRMWARE_MESHCORE_CONFIG_MAX,
+                     firmware_on_meshcore_config) != 0) {
+        return -EIO;
+    }
+    firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING, inkcell_str(MESH_STR_FW_STATE_IDENTIFYING));
+    return 0;
+}
+
+int mesh_firmware_check_switch_to_meshtastic(struct mesh_firmware *firmware, const char *model,
+                                             const char *running, bool usb_build,
+                                             const char *device, uint64_t now_ms) {
+    const char *const target = mesh_firmware_meshcore_target_for_device(device);
+    const int ready = firmware_switch_ready(firmware, target);
+    if (ready != 0) {
+        return ready;
+    }
+    firmware_begin(firmware, MESH_FIRMWARE_SOURCE_MESHTASTIC, 0U, model, running, now_ms);
+    firmware->switching = true;
+    firmware->usb_build = usb_build;
+    inkwell_str_copy(firmware->twin, sizeof firmware->twin, target);
+    inkwell_log_info("firmware", "\"%s\" is Meshtastic's %s; looking for its build", device,
+                     target);
+    if (firmware_get(firmware, firmware_hardware_url(), "Accept: application/json",
+                     MESH_FIRMWARE_HARDWARE_MAX, firmware_on_hardware) != 0) {
         return -EIO;
     }
     firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING, inkcell_str(MESH_STR_FW_STATE_IDENTIFYING));

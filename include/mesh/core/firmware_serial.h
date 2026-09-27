@@ -111,6 +111,17 @@ int mesh_firmware_serial_start(struct mesh_firmware_serial *serial, struct inkwe
                                const char *image_path, const char *where, uint16_t chip,
                                uint64_t now_ms);
 
+/*
+ * The same for a whole-flash image - a `-merged.bin` or `.factory.bin` - which is how a board
+ * moves between firmwares: the image at 0x0, bootloader and partition table and all, then every
+ * data partition its table declares past the image erased. The settings, keys and filesystem
+ * of whatever ran before are gone; that is the point, and the caller's confirm says so. The
+ * image is refused unless its bootloader, table and app all read as this chip's.
+ */
+int mesh_firmware_serial_start_whole(struct mesh_firmware_serial *serial, struct inkwell_loop *loop,
+                                     const char *image_path, const char *where, uint16_t chip,
+                                     uint64_t now_ms);
+
 void mesh_firmware_serial_tick(struct mesh_firmware_serial *serial, uint64_t now_ms);
 /* Stops, closes the port and frees the image. Safe on a zeroed struct. */
 void mesh_firmware_serial_cancel(struct mesh_firmware_serial *serial);

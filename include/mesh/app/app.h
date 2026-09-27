@@ -73,6 +73,11 @@ struct mesh_app_probe {
     uint8_t kind;
     uint8_t tried;
     uint64_t deadline_ms;
+    /* A port just switched to the other firmware, whose first boot formats and keys a blank
+       flash before it says anything: it is asked in that firmware's protocol first, and given
+       longer, until `patient_until_ms`. */
+    char patient_key[MESH_APP_PROBE_ID_MAX];
+    uint64_t patient_until_ms;
     struct mesh_app_probe_port ports[MESH_APP_PROBE_PORTS];
     size_t next_port;
 };
@@ -147,6 +152,13 @@ struct mesh_app {
      * notification arriving while nothing is arming must not be replayed into the next install.
      */
     uint32_t firmware_notification_seq;
+    /*
+     * The radio a switch is moving, as it described itself before: its Meshtastic model, or
+     * its MeshCore name. The install's board is the *other* firmware's, which the radio on the
+     * cable is not yet, so this is what arming holds it to instead.
+     */
+    uint32_t firmware_switch_hw_model;
+    char firmware_switch_model[48];
     /* Whether an install stopped the transports and owes them back. A flag rather than a
        question, because "stopped" and "stopped by us" are not the same state and only the
        second one should be restarted. */

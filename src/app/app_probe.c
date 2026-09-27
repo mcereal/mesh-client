@@ -68,6 +68,24 @@ static void mesh_app_probe_remember(struct mesh_app_probe *probe, const char *id
     port->mute_until_ms = mute_until_ms;
 }
 
+/* The window the link being asked is owed: longer for a port just switched. */
+static uint64_t mesh_app_probe_window(const struct mesh_app_probe *probe, uint64_t now_ms) {
+    const bool patient = probe->patient_key[0] != '\0' && now_ms < probe->patient_until_ms &&
+                         strcmp(probe->patient_key, probe->key) == 0;
+    return patient ? MESH_APP_PROBE_FIRST_BOOT_WINDOW_MS : MESH_APP_PROBE_WINDOW_MS;
+}
+
+void mesh_app_probe_expect(struct mesh_app *app, const char *key, bool meshcore, uint64_t now_ms) {
+    if (app == NULL || key == NULL || key[0] == '\0') {
+        return;
+    }
+    struct mesh_app_probe *const probe = &app->probe;
+    mesh_app_probe_remember(probe, key,
+                            meshcore ? MESH_APP_PROBE_MESHCORE : MESH_APP_PROBE_MESHTASTIC, 0U);
+    snprintf(probe->patient_key, sizeof probe->patient_key, "%s", key);
+    probe->patient_until_ms = now_ms + MESH_APP_PROBE_FIRST_BOOT_MS;
+}
+
 static const char *mesh_app_probe_name(uint8_t protocol) {
     return protocol == MESH_APP_PROBE_MESHCORE ? "MeshCore" : "Meshtastic";
 }
@@ -135,7 +153,7 @@ void mesh_app_probe_begin(struct mesh_app *app, uint8_t kind, const char *identi
     snprintf(probe->key, sizeof probe->key, "%s", key);
     probe->kind = kind;
     probe->tried = first;
-    probe->deadline_ms = now_ms + MESH_APP_PROBE_WINDOW_MS;
+    probe->deadline_ms = now_ms + mesh_app_probe_window(probe, now_ms);
     mesh_app_bind_protocol(app, first == MESH_APP_PROBE_MESHCORE);
 }
 
@@ -172,7 +190,7 @@ void mesh_app_probe_tick(struct mesh_app *app, uint64_t now_ms) {
     }
     /* The window is the radio's to answer in, so a link still coming up does not spend it. */
     if (!up) {
-        probe->deadline_ms = now_ms + MESH_APP_PROBE_WINDOW_MS;
+        probe->deadline_ms = now_ms + mesh_app_probe_window(probe, now_ms);
         return;
     }
 
@@ -182,6 +200,9 @@ void mesh_app_probe_tick(struct mesh_app *app, uint64_t now_ms) {
     if (frames > 0U) {
         inkwell_log_info("app", "%s answered in %s", probe->identifier, mesh_app_probe_name(bound));
         mesh_app_probe_remember(probe, probe->key, bound, 0U);
+        if (strcmp(probe->patient_key, probe->key) == 0) {
+            probe->patient_key[0] = '\0';
+        }
         probe->identifier[0] = '\0';
         return;
     }
@@ -198,7 +219,7 @@ void mesh_app_probe_tick(struct mesh_app *app, uint64_t now_ms) {
                          mesh_app_probe_name(bound), MESH_APP_PROBE_WINDOW_MS,
                          mesh_app_probe_name(next));
         probe->tried |= next;
-        probe->deadline_ms = now_ms + MESH_APP_PROBE_WINDOW_MS;
+        probe->deadline_ms = now_ms + mesh_app_probe_window(probe, now_ms);
         mesh_app_probe_disconnect(app);
         mesh_app_bind_protocol(app, next == MESH_APP_PROBE_MESHCORE);
         const int result = mesh_app_probe_connect(app);

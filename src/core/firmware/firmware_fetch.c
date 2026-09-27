@@ -232,8 +232,12 @@ static void fetch_read_manifest(struct mesh_firmware_fetch *fetch) {
         return;
     }
 
+    /* The whole flash is a USB write, through the ROM or to a UF2 drive. */
     const struct mesh_firmware_image *const image =
-        mesh_firmware_manifest_image(&fetch->manifest, fetch->path);
+        !fetch->whole ? mesh_firmware_manifest_image(&fetch->manifest, fetch->path)
+        : fetch->path == MESH_FIRMWARE_PATH_USB
+            ? mesh_firmware_manifest_whole_image(&fetch->manifest)
+            : NULL;
     if (image == NULL) {
         fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_NO_IMAGE,
                    "this board publishes no image for this bus");
@@ -370,6 +374,27 @@ static void fetch_on_download(void *userdata, const struct inkwell_zip_fetch *do
  * not the file that was described; and an ESP32 family image names its chip in its header,
  * which is what the handover will hold the chip on the cable to.
  */
+/* The chip a whole-flash image is for: the one whose ROM finds its bootloader where it is. */
+static bool fetch_whole_chip(const uint8_t *bytes, size_t len, uint16_t *chip) {
+    static const uint32_t k_offsets[] = {0x0U, 0x1000U};
+    for (size_t i = 0; i < sizeof k_offsets / sizeof k_offsets[0]; ++i) {
+        const uint32_t at = k_offsets[i];
+        if ((size_t)at + INKWELL_ESP_IMAGE_MIN_LEN > len || bytes[at] != 0xE9U) {
+            continue;
+        }
+        struct inkwell_esp_image_info info;
+        memset(&info, 0, sizeof info);
+        (void)inkwell_esp_image_validate(bytes + at, len - at, 0U, &info);
+        struct mesh_esp_whole_image whole;
+        if (mesh_esp_bootloader_offset(info.chip_id) == at &&
+            mesh_esp_whole_image_read(bytes, len, info.chip_id, &whole, NULL)) {
+            *chip = info.chip_id;
+            return true;
+        }
+    }
+    return false;
+}
+
 static void fetch_check_direct(struct mesh_firmware_fetch *fetch) {
     size_t len = 0U;
     uint8_t *const bytes = inkwell_file_read(fetch->direct_path, FETCH_IMAGE_MAX, &len);
@@ -392,9 +417,16 @@ static void fetch_check_direct(struct mesh_firmware_fetch *fetch) {
        application at all; which chip is the handover's question, put to the chip itself. */
     struct inkwell_esp_image_info info;
     memset(&info, 0, sizeof info);
-    (void)inkwell_esp_image_validate(bytes, len, 0U, &info);
-    const enum inkwell_esp_image_verdict verdict =
-        inkwell_esp_image_validate(bytes, len, info.chip_id, &info);
+    enum inkwell_esp_image_verdict verdict = INKWELL_ESP_IMAGE_BAD_MAGIC;
+    if (fetch->whole) {
+        /* A whole flash names its chip in the bootloader's header, where that chip's ROM looks
+           for it - and is then read whole, table and app, as that chip's. */
+        verdict = fetch_whole_chip(bytes, len, &info.chip_id) ? INKWELL_ESP_IMAGE_OK
+                                                              : INKWELL_ESP_IMAGE_NOT_AN_APP;
+    } else {
+        (void)inkwell_esp_image_validate(bytes, len, 0U, &info);
+        verdict = inkwell_esp_image_validate(bytes, len, info.chip_id, &info);
+    }
     free(bytes);
     const char *const architecture = mesh_esp_architecture_for_chip(info.chip_id);
     /* Any chip this client can name, since the ROM loader speaks to each of them: the
@@ -410,7 +442,8 @@ static void fetch_check_direct(struct mesh_firmware_fetch *fetch) {
     }
     inkwell_str_copy(fetch->manifest.architecture, sizeof fetch->manifest.architecture,
                      architecture);
-    inkwell_log_info("firmware", "The image is an %s app, %zu bytes", architecture, len);
+    inkwell_log_info("firmware", "The image is an %s %s, %zu bytes", architecture,
+                     fetch->whole ? "whole flash" : "app", len);
     fetch_finish(fetch, MESH_FIRMWARE_FETCH_READY, MESH_FIRMWARE_FETCH_ERROR_NONE, "");
 }
 
@@ -438,8 +471,8 @@ int mesh_firmware_fetch_start_direct(struct mesh_firmware_fetch *fetch,
                                      struct inkwell_fetch *fetcher, const char *image_url,
                                      const char *image_name, uint64_t bytes,
                                      const char *expect_architecture, enum mesh_firmware_path bus,
-                                     const char *staging_dir, mesh_firmware_fetch_done_fn on_done,
-                                     void *userdata) {
+                                     bool whole, const char *staging_dir,
+                                     mesh_firmware_fetch_done_fn on_done, void *userdata) {
     if (fetch == NULL || fetcher == NULL || image_url == NULL || image_name == NULL ||
         expect_architecture == NULL || staging_dir == NULL || image_url[0] == '\0' ||
         staging_dir[0] == '\0' || bytes == 0U || bytes > FETCH_IMAGE_MAX ||
@@ -459,6 +492,7 @@ int mesh_firmware_fetch_start_direct(struct mesh_firmware_fetch *fetch,
     memset(fetch, 0, sizeof *fetch);
     fetch->fetcher = fetcher;
     fetch->direct = true;
+    fetch->whole = whole;
     inkwell_str_copy(fetch->direct_url, sizeof fetch->direct_url, image_url);
     const int written = snprintf(fetch->direct_path, sizeof fetch->direct_path, "%s/%s.image",
                                  staging_dir, FETCH_STAGING_STEM);
@@ -503,8 +537,8 @@ int mesh_firmware_fetch_start_direct(struct mesh_firmware_fetch *fetch,
 int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct inkwell_fetch *fetcher,
                               const char *target, const char *version, const char *manifest_url,
                               const char *expect_architecture, enum mesh_firmware_path bus,
-                              const char *staging_dir, mesh_firmware_fetch_done_fn on_done,
-                              void *userdata) {
+                              bool whole, const char *staging_dir,
+                              mesh_firmware_fetch_done_fn on_done, void *userdata) {
     if (fetch == NULL || fetcher == NULL || target == NULL || version == NULL ||
         manifest_url == NULL || staging_dir == NULL || target[0] == '\0' || version[0] == '\0' ||
         manifest_url[0] == '\0' || staging_dir[0] == '\0') {
@@ -526,6 +560,7 @@ int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct inkwell_
                      expect_architecture != NULL ? expect_architecture : "");
     inkwell_str_copy(fetch->staging, sizeof fetch->staging, staging_dir);
     fetch->bus = bus;
+    fetch->whole = whole;
     fetch->on_done = on_done;
     fetch->userdata = userdata;
     fetch->state = MESH_FIRMWARE_FETCH_RESOLVING;
