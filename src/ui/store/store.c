@@ -4,6 +4,7 @@
 
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
+#include "inkwell/base/wipe.h"
 
 #include "store_internal.h"
 
@@ -1517,6 +1518,16 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
         snapshot->update_flags = store->pending_flags;
     }
     snapshot->nav = store->nav;
+    /* A password leaves the store masked, and only the store's own nav holds it: a snapshot is
+       copied on into every backend's cache and outlives the keyboard by a frame at least. */
+    if (store->nav.keyboard_login) {
+        char masked[MESH_UI_DRAFT_MAX];
+        size_t caret_back = store->nav.kb.caret_back;
+        (void)mesh_ui_nav_kb_shown(&store->nav, masked, sizeof masked, &caret_back);
+        inkwell_wipe(snapshot->nav.draft, sizeof snapshot->nav.draft);
+        inkwell_str_copy(snapshot->nav.draft, sizeof snapshot->nav.draft, masked);
+        snapshot->nav.kb.caret_back = (uint16_t)caret_back;
+    }
 
     store->pending_flags = MESH_UI_UPDATE_NONE;
     return true;

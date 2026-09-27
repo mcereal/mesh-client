@@ -299,6 +299,12 @@ MESH_TEST_CASE(ui_protocol_meshcore_logs_in_to_a_repeater, unit) {
             mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* one character */
             char shown[MESH_UI_DRAFT_MAX];
             size_t caret_back = 0U;
+            static struct mesh_ui_snapshot published;
+            (void)mesh_ui_store_consume_updates(&store, &published);
+            if (strcmp(published.nav.draft, "*") != 0) {
+                failure = "a snapshot carries the password masked, never as typed";
+                goto cleanup;
+            }
             if (strcmp(mesh_ui_nav_kb_shown(&store.nav, shown, sizeof shown, &caret_back), "*") !=
                     0 ||
                 caret_back != 0U) {
