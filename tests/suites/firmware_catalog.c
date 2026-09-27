@@ -12,6 +12,8 @@
 
 #include "mesh/core/firmware_catalog.h"
 
+#include "inkwell/base/text.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -119,6 +121,37 @@ MESH_TEST_CASE(firmware_catalog_paths_per_architecture, unit) {
     }
     MESH_TEST_FAIL_IF(mesh_firmware_path_for_architecture(NULL) != MESH_FIRMWARE_PATH_NONE,
                       "no architecture at all is no path");
+    record_success(test_name);
+}
+
+/*
+ * An ESP32's second bus is its ROM bootloader over a USB serial bridge. BLE stays its first,
+ * because that is the one that needs no cable - but a board on a cable is not told to go and
+ * find Bluetooth, and a board whose app will not boot has no other way back.
+ *
+ * The C3 and C6 do not gain it. Their ROM speaks the same protocol, but the boards that carry
+ * them mostly reach the host through the chip's own USB, which the loader does not reset.
+ */
+MESH_TEST_CASE(firmware_catalog_esp32_takes_usb_through_its_rom, unit) {
+    MESH_TEST_FAIL_IF(!mesh_firmware_architecture_takes("esp32-s3", MESH_FIRMWARE_PATH_USB) ||
+                          !mesh_firmware_architecture_takes("esp32", MESH_FIRMWARE_PATH_USB),
+                      "an ESP32 and an ESP32-S3 take USB");
+    MESH_TEST_FAIL_IF(!mesh_firmware_architecture_takes("esp32-s3", MESH_FIRMWARE_PATH_BLE),
+                      "and still take BLE");
+    MESH_TEST_FAIL_IF(!mesh_firmware_architecture_uses_esp_rom("esp32-s3") ||
+                          mesh_firmware_architecture_uses_esp_rom("nrf52840") ||
+                          mesh_firmware_architecture_uses_esp_rom("esp32-c3"),
+                      "through the ROM, which only they are given");
+    MESH_TEST_FAIL_IF(mesh_firmware_architecture_takes("esp32-c3", MESH_FIRMWARE_PATH_USB) ||
+                          mesh_firmware_architecture_takes("rp2040", MESH_FIRMWARE_PATH_BLE),
+                      "nobody else gains a bus");
+
+    struct mesh_firmware_board board;
+    memset(&board, 0, sizeof board);
+    inkwell_str_copy(board.architecture, sizeof board.architecture, "esp32-s3");
+    board.path = MESH_FIRMWARE_PATH_BLE;
+    MESH_TEST_FAIL_IF(!mesh_firmware_board_takes(&board, MESH_FIRMWARE_PATH_USB),
+                      "a board reads the same answer as its architecture");
     record_success(test_name);
 }
 
@@ -316,9 +349,10 @@ MESH_TEST_CASE(firmware_catalog_reads_an_esp32_manifest, unit) {
     MESH_TEST_FAIL_IF(image->bytes != 2109248ULL, "2,109,248 bytes of it");
     MESH_TEST_FAIL_IF(strcmp(image->part, "app0") != 0, "declared app0");
 
-    /* And nothing here is a UF2, so the USB path has no answer rather than a near one. */
-    MESH_TEST_FAIL_IF(mesh_firmware_manifest_image(&manifest, MESH_FIRMWARE_PATH_USB) != NULL,
-                      "an ESP32 manifest has no UF2 in it");
+    /* Nothing here is a UF2, and over USB the ROM bootloader takes the same app0 - never the
+       factory image, which would take the filesystem and the loader partition with it. */
+    MESH_TEST_FAIL_IF(mesh_firmware_manifest_image(&manifest, MESH_FIRMWARE_PATH_USB) != image,
+                      "over USB an ESP32's image is app0 too");
     record_success(test_name);
 }
 

@@ -184,6 +184,33 @@ What will bite on the nRF52 path:
   record. `mesh_ble_list_meshtastic()` also lists a *bonded* device that shows only `1530`, or
   auto-connect never reaches for the radio again.
 
+### Firmware over a cable: an ESP32's ROM
+
+Over USB an nRF52 or an RP2040 is sent into its UF2 bootloader and written as a drive
+(`firmware_install.c`). An ESP32 or ESP32-S3 on a serial bridge is written through the chip's
+**mask-ROM bootloader** instead (`esp_loader.c`, `firmware_serial.c`, inkwell's
+`codec/esp_rom.h`), which is esptool's protocol spoken without its RAM stub. Nothing on the radio is
+asked to arm it. Two control lines reset the chip into download mode whatever its flash holds, so
+the same path updates Meshtastic, writes over MeshCore, and brings back a board a failed write
+left unbootable.
+
+- **The reset is RTS alone, then DTR alone, then neither**, set as one `TIOCMSET` each
+  (`inkwell_serial_set_lines()`). On the auto-program transistor pair a CP210x/CH340 board
+  carries, RTS pulls EN low and DTR pulls the boot strap low.
+- **The flash sets the pace, not the baud.** The ROM writes each 1 KB block before it answers,
+  and refuses anything larger. On a Heltec V3 over a CP2102, 644 KB took 22 s at 460800 and
+  2.2 MB took 68-82 s. 921600 is no faster.
+- **Two regions:** the `app0` image at `0x10000`, then `otadata` erased. An erased `otadata`
+  points the bootloader at `app0`, even on a radio that last booted `app1`. `nvs`, which holds the
+  settings and keys, is not touched.
+- **Each region is checked with SPI_FLASH_MD5** against the digest taken before the first
+  block. The ROM answers in hex text.
+- **A native-USB ESP32 is refused**: VID `0x303A`, the chip's own USB Serial/JTAG. It resets by
+  a different sequence and re-enumerates on the way.
+- **A write that breaks after the first erase counts as a radio in its loader**, so the banner
+  and the resume press apply. The ROM is still there. The resume takes the only bridge on the
+  bus when the old port id is gone.
+
 ## Serial (USB)
 
 `src/proto/stream_framing.c` parses `0x94 0xC3 len_hi len_lo` plus one raw protobuf, 512-byte cap.

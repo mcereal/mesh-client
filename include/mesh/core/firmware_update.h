@@ -41,6 +41,7 @@
 #include "mesh/core/firmware_fetch.h"
 #include "mesh/core/firmware_install.h"
 #include "mesh/core/firmware_ota.h"
+#include "mesh/core/firmware_serial.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -192,6 +193,8 @@ struct mesh_firmware_update {
     /* Over BLE, an nRF52: a DFU package to its bootloader rather than an app to the ESP32's
        loader. */
     bool nordic_dfu;
+    /* Over USB, an ESP32: an app image to its ROM bootloader rather than a UF2 to a drive. */
+    bool esp_serial;
     char staging[INKWELL_FETCH_PATH_MAX];
     /*
      * Where the radio is, in the terms its own bus uses: the serial transport's **id** on the
@@ -211,6 +214,8 @@ struct mesh_firmware_update {
     struct mesh_firmware_ota ble;
     /* The BLE path's other half: an nRF52's DFU bootloader rather than an ESP32's loader. */
     struct mesh_firmware_dfu dfu;
+    /* The USB path's other half: an ESP32's ROM rather than a UF2 bootloader's drive. */
+    struct mesh_firmware_serial serial;
     /* The install's own D-Bus connection, opened when the BLE handover starts and closed with
        it. `bluez_open` rather than testing the struct, which has no idle spelling. */
     struct inkwell_ble_central central;
@@ -314,8 +319,9 @@ bool mesh_firmware_update_holds_the_radio(const struct mesh_firmware_update *upd
  * bootloader with its application erased. There is no way back out of either except finishing,
  * which is what the banner says and why the banner exists.
  *
- * Always false on the USB path, and that absence is the feature: an interrupted write leaves a
- * bootloader any computer can talk to.
+ * On the USB path, only an ESP32 whose write broke after its first erase: the ROM is still
+ * there for any computer to talk to, but the app it would boot is half-written. A UF2 write
+ * never is - an interrupted one leaves the bootloader's drive, which is the feature.
  */
 bool mesh_firmware_update_radio_in_loader(const struct mesh_firmware_update *update);
 

@@ -273,6 +273,10 @@ bool mesh_firmware_board_takes(const struct mesh_firmware_board *board,
 bool mesh_firmware_nordic_dfu_available(void);
 bool mesh_firmware_architecture_uses_nordic_dfu(const char *architecture);
 
+/* True when the architecture's ROM bootloader takes an app image over a USB serial bridge -
+   an ESP32 or an ESP32-S3, whose USB path is firmware_serial.h rather than a UF2 drive. */
+bool mesh_firmware_architecture_uses_esp_rom(const char *architecture);
+
 /*
  * Orders two Meshtastic firmware versions: <0, 0 or >0, as strcmp does.
  *

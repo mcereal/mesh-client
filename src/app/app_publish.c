@@ -1275,7 +1275,7 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
      */
     if (mesh_firmware_update_can_resume(update) && mesh_firmware_update_available(update)) {
         dst->fw_can_install = true;
-        dst->fw_bus = (uint8_t)MESH_FIRMWARE_PATH_BLE;
+        dst->fw_bus = (uint8_t)update->path;
     }
 }
 

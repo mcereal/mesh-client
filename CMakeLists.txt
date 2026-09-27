@@ -82,6 +82,7 @@ add_library(meshclient_core
     src/core/firmware/firmware_fetch.c
     src/core/firmware/firmware_install.c
     src/core/firmware/firmware_ota.c
+    src/core/firmware/firmware_serial.c
     src/core/firmware/firmware_update.c
     src/core/protocol/protocol.c
     src/core/meshcore/meshcore.c
@@ -102,6 +103,7 @@ add_library(meshclient_core
     src/transport/ble/ble_ota.c
     src/transport/ble/ble_transport.c
     src/transport/ble/ble_gatt.c
+    src/transport/serial/esp_loader.c
     src/transport/serial/serial_transport.c
     src/transport/serial/serial_usb.c
     src/transport/tcp/tcp_transport.c
