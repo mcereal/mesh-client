@@ -3141,6 +3141,7 @@ MESH_STR_ENTRY(FW_STATE_CHECKING,         "checking")
 MESH_STR_ENTRY(FW_STATE_UP_TO_DATE,       "up to date")
 MESH_STR_ENTRY(FW_STATE_AVAILABLE,        "update available")
 MESH_STR_ENTRY(FW_STATE_FAILED,           "failed")
+MESH_STR_ENTRY(FW_STATE_CHOOSING,         "choose its board")
 /* Why a check did not produce an answer. The two lists are worth telling apart: a hardware
    list that would not read leaves the version question answerable, and a firmware list that
    would not read leaves the board question answered. */
@@ -3237,6 +3238,14 @@ MESH_STR_ENTRY(FW_SWITCH_TO_MESHTASTIC,   "Switch to Meshtastic")
 MESH_STR_ENTRY(FW_SWITCH_MESHCORE,        "MeshCore firmware")
 MESH_STR_ENTRY(FW_SWITCH_MESHTASTIC,      "Meshtastic firmware")
 MESH_STR_ENTRY(FW_SWITCH_INSTALL,         "Switch firmware")
+/* A radio on a USB port that answered neither protocol: the port it is on (a tty, untranslated),
+   the press that lists the boards it could be, the heading over that list, the board picked
+   and the install - which writes the whole flash, as a switch does. */
+MESH_STR_ENTRY(FW_SILENT_RADIO,           "Silent USB radio")
+MESH_STR_ENTRY(FW_CHOOSE_BOARD,           "Choose its board")
+MESH_STR_ENTRY(FW_BOARDS_HEAD,            "MeshCore boards")
+MESH_STR_ENTRY(FW_CHOSEN_BOARD,           "Chosen board")
+MESH_STR_ENTRY(FW_BLANK_INSTALL,          "Install MeshCore")
 MESH_STR_ENTRY(TOAST_INSTALLING_FIRMWARE, "Installing %s on the radio...")
 MESH_STR_ENTRY(TOAST_FIRMWARE_INSTALLED,  "The radio is running %s")
 /*

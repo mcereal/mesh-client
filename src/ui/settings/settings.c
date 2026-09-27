@@ -198,6 +198,9 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB] = INKCELL_ICON_USB,
     [MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH] = INKCELL_ICON_SWAP,
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH] = INKCELL_ICON_USB,
+    /* A silent radio's boards: looked up, then one of them taken. */
+    [MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS] = INKCELL_ICON_SEARCH,
+    [MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD] = INKCELL_ICON_DEVICE,
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE] = INKCELL_ICON_BLUETOOTH,
 
     /* The two link pairs: a channel set and a contact, each going out as a code and coming back
@@ -290,6 +293,8 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB] = INKCELL_TONE_WARNING,
     [MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH] = INKCELL_TONE_ERROR,
+    [MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE] = INKCELL_TONE_ERROR,
 
     /* Showing a code touches nothing. Taking one in overwrites this radio's channel table,
@@ -695,7 +700,9 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
     /* The union of the two it is made of: About radio's facts, or enough to address the verbs
        under them. The node lists wait on what Radio actions did, for the same two rows. */
     case MESH_UI_SETTINGS_RADIO_DETAILS:
-        return settings->has_metadata ||
+        /* And a radio on USB that answers nothing, whose firmware rows are all the page has to
+           say before anything has ever connected. */
+        return settings->has_metadata || settings->fw_silent_port[0] != '\0' ||
                (handshake != NULL && (handshake->has_my_info || handshake->node_count > 0U));
     case MESH_UI_SETTINGS_NODE_LISTS:
         return handshake != NULL && (handshake->has_my_info || handshake->node_count > 0U);

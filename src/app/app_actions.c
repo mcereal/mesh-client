@@ -391,6 +391,11 @@ void mesh_app_firmware_update_tick(struct mesh_app *app, uint64_t now) {
             mesh_firmware_update_radio_said(&app->firmware_update, note->text);
         }
     }
+    /* A silent radio whose firmware is being chosen stays passed over by auto-connect, so the
+       rows choosing it are not taken down under somebody by a reopen. */
+    if (app->firmware.blank && app->firmware_blank_port[0] != '\0') {
+        mesh_app_probe_hold(app, app->firmware_blank_port, now + MESH_APP_PROBE_MUTE_MS);
+    }
     mesh_firmware_update_tick(&app->firmware_update, now);
     if (mesh_app_firmware_settle_bond(app, mesh_app_connected_identifier(), now)) {
         char toast[MESH_UI_NAV_TOAST_MAX];
@@ -1935,6 +1940,63 @@ static void on_check_firmware_switch(struct mesh_app *app, const struct mesh_ui_
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
+/* The toast a check's start earns, shared by the three that a silent radio's rows start. */
+static void firmware_check_toast(struct mesh_app *app, int result, uint64_t now) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    if (result == 0) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_CHECKING_FIRMWARE));
+    } else if (result == -ENOTSUP) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_UPDATES_UNAVAILABLE));
+    } else if (result == -EBUSY) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_ALREADY_CHECKING));
+    } else {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_UPDATE_CHECK_FAILED, result);
+        inkwell_log_warn("ui", "Firmware check could not start: %d", result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
+/*
+ * The boards a radio that answers nothing on a cable could be. The port is settled here and
+ * held to for the rest of the flow - the list, the answer and the install are all about it -
+ * and it stays passed over by auto-connect while they are.
+ */
+static void on_list_firmware_boards(struct mesh_app *app, const struct mesh_ui_action *action) {
+    const uint64_t now = inkwell_time_monotonic_ms();
+    (void)action;
+    const struct inkwell_serial_port_info *const port = mesh_app_firmware_silent_port(app);
+    if (port == NULL) {
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_FW_NO_RADIO));
+        return;
+    }
+    const int result = mesh_firmware_list_blank(&app->firmware, now);
+    if (result == 0) {
+        inkwell_str_copy(app->firmware_blank_port, sizeof app->firmware_blank_port,
+                         port->id[0] != '\0' ? port->id : port->path);
+        mesh_app_probe_hold(app, app->firmware_blank_port, now + MESH_APP_PROBE_MUTE_MS);
+        inkwell_log_info("ui", "Listing boards for the silent radio on %s", port->path);
+    }
+    firmware_check_toast(app, result, now);
+}
+
+/* One of them picked, by name - which has to be one the list offered. */
+static void on_pick_firmware_board(struct mesh_app *app, const struct mesh_ui_action *action) {
+    const uint64_t now = inkwell_time_monotonic_ms();
+    const struct mesh_firmware *const firmware = &app->firmware;
+    bool listed = false;
+    for (uint8_t i = 0; firmware->blank && firmware->state == MESH_FIRMWARE_CHOOSING &&
+                        i < firmware->choices.count && !listed;
+         ++i) {
+        listed = strcmp(firmware->choices.names[i], action->identifier) == 0;
+    }
+    if (!listed) {
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
+        return;
+    }
+    firmware_check_toast(app, mesh_firmware_check_blank(&app->firmware, action->identifier, now),
+                         now);
+}
+
 static void on_install_update(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
@@ -2008,6 +2070,46 @@ static bool firmware_resume_install(struct mesh_app *app, uint64_t now, bool swi
     return true;
 }
 
+/*
+ * The install for a silent radio: the board somebody chose, down the port the list was for.
+ *
+ * Nothing about it is the link's. There is no radio to arm or to wait for - the ROM is reached
+ * through the bridge's control lines whatever the flash holds - so the hooks are the recovery's,
+ * and the port must still be the one the answer was about and still be saying nothing. Which
+ * chip it has is the image's header against the ROM's answer, refused before any erase.
+ */
+static void firmware_install_blank(struct mesh_app *app, const struct mesh_firmware_board *board,
+                                   uint64_t now) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const struct inkwell_serial_port_info *const port = mesh_app_firmware_silent_port(app);
+    if (port == NULL || board->path != MESH_FIRMWARE_PATH_USB) {
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_FW_NO_RADIO));
+        return;
+    }
+    app->firmware_switch_hw_model = 0U;
+    app->firmware_switch_model[0] = '\0';
+    const struct mesh_firmware_update_hooks hooks = {
+        .release_link = mesh_app_firmware_release_link,
+        .userdata = app,
+    };
+    const int result = mesh_firmware_update_start(
+        &app->firmware_update, board, &app->firmware.release, MESH_FIRMWARE_PATH_USB,
+        app->firmware_blank_port, &hooks, mesh_app_firmware_update_done, app);
+    if (result == 0) {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE,
+                           app->firmware.release.version);
+        inkwell_log_info("ui", "Installing MeshCore %s for \"%s\" on the silent radio at %s",
+                         app->firmware.release.version, board->name, port->path);
+    } else if (result == -EBUSY) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_ALREADY_WORKING));
+    } else {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_FAILED,
+                           mesh_firmware_update_error_name(app->firmware_update.error));
+        inkwell_log_warn("ui", "Radio firmware install could not start: %d", result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
@@ -2046,6 +2148,10 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
         mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
         inkwell_log_warn("ui", "Refusing a firmware install: the sheet and the answer disagree "
                                "about whether this is a switch");
+        return;
+    }
+    if (app->firmware.blank) {
+        firmware_install_blank(app, board, now);
         return;
     }
     if (!mesh_firmware_board_takes(board, agreed) || app->firmware.bus != agreed) {
@@ -2372,6 +2478,8 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL, on_cycle_firmware_channel, false},
     {MESH_UI_ACTION_CHECK_RADIO_FIRMWARE, on_check_radio_firmware, false},
     {MESH_UI_ACTION_CHECK_FIRMWARE_SWITCH, on_check_firmware_switch, false},
+    {MESH_UI_ACTION_LIST_FIRMWARE_BOARDS, on_list_firmware_boards, false},
+    {MESH_UI_ACTION_PICK_FIRMWARE_BOARD, on_pick_firmware_board, false},
     {MESH_UI_ACTION_INSTALL_UPDATE, on_install_update, false},
     {MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE, on_install_radio_firmware, false},
     {MESH_UI_ACTION_IMPORT_CHANNELS, on_import_channels, false},

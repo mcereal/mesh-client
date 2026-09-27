@@ -159,6 +159,9 @@ struct mesh_app {
      */
     uint32_t firmware_switch_hw_model;
     char firmware_switch_model[48];
+    /* The port a silent radio's board is being chosen for, by its key: what the list, the
+       answer and the install that follows are all about. */
+    char firmware_blank_port[MESH_APP_PROBE_ID_MAX];
     /* Whether an install stopped the transports and owes them back. A flag rather than a
        question, because "stopped" and "stopped by us" are not the same state and only the
        second one should be restarted. */

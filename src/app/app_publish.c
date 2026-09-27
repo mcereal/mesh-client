@@ -1158,6 +1158,48 @@ enum mesh_firmware_path mesh_app_firmware_bus(void) {
     return MESH_FIRMWARE_PATH_NONE;
 }
 
+/* A port the serial transport lists under `key`, by its id or its path, that its bridge's
+   control lines reach the ROM through. */
+static const struct inkwell_serial_port_info *mesh_app_silent_bridge(const char *key) {
+    size_t count = 0U;
+    const struct inkwell_serial_port_info *ports =
+        mesh_serial_transport_devices(mesh_serial_transport(), &count);
+    for (size_t i = 0; key != NULL && ports != NULL && i < count; ++i) {
+        if ((strcmp(ports[i].id, key) == 0 || strcmp(ports[i].path, key) == 0) &&
+            mesh_serial_device_reaches_esp_rom(&ports[i])) {
+            return &ports[i];
+        }
+    }
+    return NULL;
+}
+
+const struct inkwell_serial_port_info *mesh_app_firmware_silent_port(struct mesh_app *app) {
+    if (app == NULL) {
+        return NULL;
+    }
+    /* The port that is up is being asked again rather than answering: auto-connect reopens a
+       silent one once its mute runs out, and the rows about it should not blink out for that. */
+    const char *const connected = mesh_app_connected_identifier();
+    const bool answering = connected != NULL && !mesh_app_probe_reasking_silent(app);
+    if (answering) {
+        return NULL;
+    }
+    /* An answer, or a list, already about one port stays about that one. */
+    if (app->firmware.blank && app->firmware_blank_port[0] != '\0') {
+        return mesh_app_silent_bridge(app->firmware_blank_port);
+    }
+    for (size_t nth = 0;; ++nth) {
+        const char *const key = mesh_app_probe_silent(app, nth);
+        if (key == NULL) {
+            return NULL;
+        }
+        const struct inkwell_serial_port_info *const port = mesh_app_silent_bridge(key);
+        if (port != NULL) {
+            return port;
+        }
+    }
+}
+
 /*
  * The radio's firmware situation, flattened onto the settings snapshot - the same trick
  * flatten_client_info() plays for the client's own updater, and for the same reason: store.h
@@ -1198,7 +1240,15 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
        described itself, which leaves the old image installable through the handshake. */
     const enum mesh_firmware_source speaking =
         app->meshcore_bound ? MESH_FIRMWARE_SOURCE_MESHCORE : MESH_FIRMWARE_SOURCE_MESHTASTIC;
-    if (firmware->state != MESH_FIRMWARE_IDLE && mesh_firmware_radio_source(firmware) != speaking) {
+    /* A silent radio's answer holds no link to anything, only the port: it lasts as long as
+       that port is there and still says nothing. */
+    const struct inkwell_serial_port_info *const silent = mesh_app_firmware_silent_port(app);
+    if (firmware->blank) {
+        if (silent == NULL && !mesh_firmware_update_busy(&app->firmware_update)) {
+            mesh_firmware_forget(firmware);
+        }
+    } else if (firmware->state != MESH_FIRMWARE_IDLE &&
+               mesh_firmware_radio_source(firmware) != speaking) {
         mesh_firmware_forget(firmware);
     } else if (app->meshcore_bound) {
         /* A MeshCore radio names itself in DEVICE_INFO, and until it has there is nothing to
@@ -1329,7 +1379,20 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
                                  : mesh_firmware_meshcore_device_for_target(board->target);
     /* ESP32 only: a switch has to erase what the last firmware kept, and only the ROM path
        erases (see firmware_conclude()). */
-    dst->fw_switch_offer = settled && twin != NULL && !dst->fw_busy &&
+    inkwell_str_copy(dst->fw_silent_port, sizeof dst->fw_silent_port,
+                     silent != NULL ? silent->path : "");
+    dst->fw_blank = firmware->blank && firmware->twin[0] != '\0';
+    inkwell_str_copy(dst->fw_chosen_board, sizeof dst->fw_chosen_board,
+                     dst->fw_blank ? firmware->twin : "");
+    dst->fw_choice_count = 0U;
+    if (firmware->blank && firmware->state == MESH_FIRMWARE_CHOOSING) {
+        for (uint8_t i = 0; i < firmware->choices.count && i < MESH_UI_FW_CHOICES_MAX; ++i) {
+            inkwell_str_copy(dst->fw_choices[i], sizeof dst->fw_choices[i],
+                             firmware->choices.names[i]);
+            dst->fw_choice_count++;
+        }
+    }
+    dst->fw_switch_offer = settled && twin != NULL && !dst->fw_busy && !firmware->blank &&
                            mesh_firmware_architecture_uses_esp_rom(board->architecture) &&
                            !mesh_firmware_update_busy(update) &&
                            !mesh_firmware_update_can_resume(update);

@@ -38,6 +38,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,6 +46,14 @@ extern "C" {
 
 /* "companion-v1.17.1". */
 #define MESH_FIRMWARE_MESHCORE_TAG_MAX 40U
+/* The flasher lists 27 ESP32 devices with a USB companion build. */
+#define MESH_FIRMWARE_CHOICES_MAX 40U
+
+/* Boards somebody can choose between, by the flasher's device name. */
+struct mesh_firmware_choices {
+    char names[MESH_FIRMWARE_CHOICES_MAX][MESH_FIRMWARE_BOARD_NAME_MAX];
+    uint8_t count;
+};
 
 /*
  * The devices `model` names, and for each the companion build its role reads: `usb` for the
@@ -58,6 +67,16 @@ extern "C" {
  */
 bool mesh_firmware_meshcore_boards_parse(const char *json, size_t len, const char *model, bool usb,
                                          struct mesh_firmware_boards *out);
+
+/*
+ * Every ESP32 device with exactly one USB companion build, in the flasher's order: the boards
+ * a radio that answers nothing on a cable can be given firmware for. Its name is all it has to
+ * go on - such a radio has said nothing about itself - so the list is the flasher's, and which
+ * chip the board is gets settled by the image's own header against the ROM's answer before
+ * anything is erased. False on a document that is not the flasher's shape.
+ */
+bool mesh_firmware_meshcore_usb_devices(const char *json, size_t len,
+                                        struct mesh_firmware_choices *out);
 
 /* Whether a radio calling itself `model` is the flasher's device `device`: the same words
    ignoring case, or a row of the alias table. */

@@ -2457,6 +2457,69 @@ static int verb_firmware(struct inkstand_scene *scene, char *rest, void *userdat
 }
 
 /*
+ * A radio on USB that answers neither protocol, which a harness has no cable for: the boards
+ * it could be, or the answer for the one picked. `off` puts the rows back to the check's.
+ *
+ *   firmware-silent choosing|chosen|off
+ */
+static int verb_firmware_silent(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *step = inkstand_scene_word(&rest);
+    const bool choosing = step != NULL && strcmp(step, "choosing") == 0;
+    const bool chosen = step != NULL && strcmp(step, "chosen") == 0;
+    if (!choosing && !chosen && (step == NULL || strcmp(step, "off") != 0)) {
+        return inkstand_scene_fail(scene, "'firmware-silent' takes choosing, chosen or off");
+    }
+    static const char *const k_boards[] = {
+        "Heltec v4 + Expansion Kit (Touch)",
+        "LilyGo T-Deck",
+        "LilyGo T3 S3 (SX126x)",
+        "LilyGo T-Beam (SX1262)",
+        "LilyGo T-Beam Supreme (SX1262)",
+        "Heltec v2",
+        "Heltec v3",
+        "Heltec v4",
+        "Heltec Wireless Tracker",
+        "RAK WisBlock 3112",
+        "Seeed Studio Xiao S3 WIO",
+        "UnitEng Station G2",
+    };
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.fw_supported = true;
+    settings.fw_busy = false;
+    settings.fw_choice_count = 0U;
+    settings.fw_blank = false;
+    settings.fw_chosen_board[0] = '\0';
+    settings.fw_switching = false;
+    settings.fw_can_install = false;
+    inkwell_str_copy(settings.fw_silent_port, sizeof settings.fw_silent_port,
+                     choosing || chosen ? "/dev/ttyUSB0" : "");
+    if (choosing) {
+        settings.fw_state = (uint8_t)MESH_FIRMWARE_CHOOSING;
+        settings.fw_message[0] = '\0';
+        for (size_t i = 0; i < sizeof k_boards / sizeof k_boards[0]; ++i) {
+            inkwell_str_copy(settings.fw_choices[i], sizeof settings.fw_choices[i], k_boards[i]);
+            settings.fw_choice_count++;
+        }
+    } else if (chosen) {
+        settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
+        settings.fw_blank = true;
+        settings.fw_switching = true;
+        settings.fw_switch_to_meshcore = true;
+        settings.fw_can_install = true;
+        settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_USB;
+        inkwell_str_copy(settings.fw_chosen_board, sizeof settings.fw_chosen_board, "Heltec v3");
+        inkwell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "1.17.1");
+        inkwell_str_copy(settings.fw_message, sizeof settings.fw_message, "1.17.1");
+    } else {
+        settings.fw_state = (uint8_t)MESH_FIRMWARE_IDLE;
+        settings.fw_message[0] = '\0';
+    }
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
+/*
  * Installing it, which is the half of this screen no picture could reach any other way: the
  * states below need a radio in a bootloader, an image on the way down, or a loader on the
  * air, and none of the three is a thing a harness has.
@@ -2715,6 +2778,7 @@ static const struct inkstand_scene_verb uicap_verbs[] = {
     {"firmware-channel", 0U, verb_firmware_channel},
     {"firmware", 0U, verb_firmware},
     {"firmware-install", 0U, verb_firmware_install},
+    {"firmware-silent", 0U, verb_firmware_silent},
     {"units", 0U, verb_units},
     {"reboots", 0U, verb_reboots},
     {"message", 0U, verb_message},

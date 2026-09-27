@@ -884,6 +884,65 @@ static bool build_radio_firmware_running(const struct mesh_ui_settings *s, struc
 }
 
 /*
+ * A radio on a USB port that answered neither protocol - a MeshCore BLE build, a repeater, an
+ * erased flash - with nothing connected. It has said nothing about itself, so there is no check
+ * to run: the press lists the boards it could be, one of them is picked by name, and that
+ * board's USB companion goes on as the whole flash, under the switch's own sheet.
+ *
+ * The list is rows in this section rather than a screen of its own: it is there only until the
+ * pick, and every row is the same press with a different name in it. The board's name is the
+ * row's label and its `text`, which the nav hands back as the pick's identifier.
+ */
+static void build_radio_firmware_silent(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_text(list, MESH_STR_FW_SILENT_RADIO, INKSTAND_FORM_INFO, s->fw_silent_port);
+    if (s->fw_busy) {
+        item_meter(list, MESH_STR_FW_LATEST,
+                   mesh_firmware_state_name((enum mesh_firmware_state)s->fw_state),
+                   INKSTAND_FORM_METER_UNKNOWN);
+        return;
+    }
+    if (s->fw_state == (uint8_t)MESH_FIRMWARE_CHOOSING) {
+        item_heading(list, MESH_STR_FW_BOARDS_HEAD);
+        for (uint8_t i = 0; i < s->fw_choice_count && i < MESH_UI_FW_CHOICES_MAX; ++i) {
+            const size_t before = list->count;
+            item_verb_named(list, s->fw_choices[i], MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD);
+            if (list->count > before) {
+                inkwell_str_copy(list->items[before].text, sizeof list->items[before].text,
+                                 s->fw_choices[i]);
+            }
+        }
+        return;
+    }
+    item_verb(list, MESH_STR_FW_CHOOSE_BOARD, MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS);
+    if (s->fw_state == (uint8_t)MESH_FIRMWARE_FAILED) {
+        item_text(list, MESH_STR_FW_LATEST, INKSTAND_FORM_INFO, s->fw_message);
+    }
+    if (!s->fw_blank || s->fw_chosen_board[0] == '\0' ||
+        s->fw_state == (uint8_t)MESH_FIRMWARE_FAILED) {
+        return;
+    }
+    item_text(list, MESH_STR_FW_CHOSEN_BOARD, INKSTAND_FORM_INFO, s->fw_chosen_board);
+    item_text(list, MESH_STR_FW_SWITCH_MESHCORE, INKSTAND_FORM_INFO,
+              s->fw_message[0] != '\0'
+                  ? s->fw_message
+                  : mesh_firmware_state_name((enum mesh_firmware_state)s->fw_state));
+    if (!s->fw_can_install) {
+        if (s->fw_blocker_reason[0] != '\0') {
+            item_text(list, MESH_STR_FW_INSTALLING, INKSTAND_FORM_INFO, s->fw_blocker_reason);
+        }
+        return;
+    }
+    if (s->fw_update_state == (uint8_t)MESH_FIRMWARE_UPDATE_FAILED) {
+        item_text(list, MESH_STR_FW_INSTALLING, INKSTAND_FORM_INFO,
+                  s->fw_update_detail[0] != '\0'
+                      ? s->fw_update_detail
+                      : mesh_firmware_update_error_name(
+                            (enum mesh_firmware_update_error)s->fw_update_error));
+    }
+    item_verb(list, MESH_STR_FW_BLANK_INSTALL, MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH);
+}
+
+/*
  * What newer firmware exists for the radio, under the version row that prompted the question.
  *
  * Three rows at most, and every one of them is a fact rather than an offer: this client installs
@@ -910,6 +969,12 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
         return;
     }
     if (build_radio_firmware_running(s, list)) {
+        return;
+    }
+    /* A radio half-written is the recovery below, whatever it answers; one that says nothing
+       and was never touched is offered its board. */
+    if (s->fw_silent_port[0] != '\0' && !s->fw_radio_in_loader) {
+        build_radio_firmware_silent(s, list);
         return;
     }
     /*

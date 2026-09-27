@@ -51,6 +51,9 @@ enum mesh_firmware_state {
     MESH_FIRMWARE_UP_TO_DATE,
     MESH_FIRMWARE_AVAILABLE, /* a newer release exists; `release` names it */
     MESH_FIRMWARE_FAILED,    /* `message` says why */
+    /* A radio that says nothing: `choices` is the boards it could be, and one has to be
+       picked before there is a release to name. */
+    MESH_FIRMWARE_CHOOSING,
     MESH_FIRMWARE_STATE_COUNT,
 };
 
@@ -143,6 +146,14 @@ struct mesh_firmware {
      */
     bool switching;
     char twin[MESH_FIRMWARE_TARGET_MAX];
+    /*
+     * The answer is for a radio on a cable that answers neither protocol - a MeshCore BLE
+     * build, a repeater, an erased flash - so nothing it said went into it and no link holds
+     * it: the board is the one somebody chose from `choices`. Always a switch as well, since
+     * whatever is on the flash is unknown and the whole of it is written.
+     */
+    bool blank;
+    struct mesh_firmware_choices choices;
 
     /*
      * The caller's clock, stamped at every check and every tick.
@@ -229,6 +240,16 @@ int mesh_firmware_check_switch_to_meshcore(struct mesh_firmware *firmware, uint3
 int mesh_firmware_check_switch_to_meshtastic(struct mesh_firmware *firmware, const char *model,
                                              const char *running, bool usb_build,
                                              const char *device, uint64_t now_ms);
+
+/*
+ * For a radio on a USB port that answers nothing: first the boards it could be - MeshCore's
+ * ESP32 devices with a USB companion build, into `choices`, ending at MESH_FIRMWARE_CHOOSING -
+ * then, for the one chosen by its flasher name, the newest USB companion as a whole flash. The
+ * second ends as a switch does, AVAILABLE and `switching`, and `blank` holds it off every
+ * question about a link: the blocker asks only about the board. Returns as mesh_firmware_check().
+ */
+int mesh_firmware_list_blank(struct mesh_firmware *firmware, uint64_t now_ms);
+int mesh_firmware_check_blank(struct mesh_firmware *firmware, const char *device, uint64_t now_ms);
 
 /* Enforces the per-document timeout and keeps the fetch moving. Call every loop turn. */
 void mesh_firmware_tick(struct mesh_firmware *firmware, uint64_t now_ms);

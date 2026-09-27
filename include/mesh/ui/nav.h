@@ -931,6 +931,10 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL,
     /* Ask what the *other* firmware has for this board - a switch, read the way a check is. */
     MESH_UI_ACTION_CHECK_FIRMWARE_SWITCH,
+    /* The boards a silent radio on USB could be, and then the one picked - by the flasher's
+       name for it, in `identifier`. */
+    MESH_UI_ACTION_LIST_FIRMWARE_BOARDS,
+    MESH_UI_ACTION_PICK_FIRMWARE_BOARD,
     /*
      * Install what the check found. `number` is the bus - 0 for USB, 1 for Bluetooth - taken
      * from which of the two rows was confirmed rather than re-read from the snapshot, because

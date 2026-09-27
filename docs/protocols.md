@@ -265,3 +265,11 @@ end.
   writes the application and leaves the internal filesystem, so switching back would find the
   old identity, keys and contacts - the opposite of what the confirm sheet says. Afterwards the port is asked in the new protocol first, with a 45 s window: a
   wiped MeshCore ESP32 formats and keys itself for about 20 s before its first frame.
+- **A radio on USB that answers neither** - a MeshCore BLE build or repeater, an erased flash -
+  has said nothing to check against. Once the probe has passed a bridge port over, Radio >
+  details offers its board: the list is every ESP32 device in the flasher with one USB
+  companion build (`mesh_firmware_list_blank()`), and the one picked by name gets that build as
+  a whole flash (`mesh_firmware_check_blank()`), installed as a switch is. The list is not
+  narrowed by chip - the flasher says only "esp32" - so a wrong pick is caught by the image's
+  header against the ROM's answer, before anything is erased. The port stays passed over by
+  auto-connect while its board is being chosen.
