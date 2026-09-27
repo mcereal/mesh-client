@@ -547,3 +547,46 @@ MESH_TEST_CASE(firmware_serial_falls_back_to_the_only_bridge_only_to_finish_a_wr
         "the resume wrote the app");
     record_success(test_name);
 }
+
+MESH_TEST_CASE(firmware_serial_cancelled_after_the_erase_is_a_radio_in_its_loader, unit) {
+    fill();
+    memcpy(g_image, k_s3_header, sizeof k_s3_header);
+    char path[256];
+    MESH_TEST_FAIL_IF(!stage(g_image, sizeof g_image, path, sizeof path), "no staging file");
+    int pair[2];
+    MESH_TEST_FAIL_IF_CLEANUP(open_pair(pair, &g_rom) != 0, unlink(path), "no socketpair");
+    struct inkwell_serial_port_info port;
+    memset(&port, 0, sizeof port);
+    snprintf(port.id, sizeof port.id, "1-1:1.0");
+    snprintf(port.path, sizeof port.path, "/dev/ttyUSB0");
+    port.kind = INKWELL_SERIAL_BRIDGE;
+    port.bound = true;
+    struct inkwell_serial_mock_config mock;
+    memset(&mock, 0, sizeof mock);
+    mock.ports = &port;
+    mock.port_count = 1U;
+    mock.open_fd = pair[1];
+    inkwell_serial_mock_enable(&mock);
+    static struct mesh_firmware_serial serial;
+    memset(&serial, 0, sizeof serial);
+    uint64_t now = 1000U;
+
+    const int started =
+        mesh_firmware_serial_start(&serial, NULL, path, "1-1:1.0", INKWELL_ESP_CHIP_ESP32_S3, now);
+    for (int turn = 0; turn < 6000 && serial.state != MESH_FIRMWARE_SERIAL_WRITING; ++turn) {
+        now += 10U;
+        mesh_firmware_serial_tick(&serial, now);
+        fake_service(&g_rom);
+    }
+    const bool writing = serial.state == MESH_FIRMWARE_SERIAL_WRITING;
+    mesh_firmware_serial_cancel(&serial);
+    close_pair(pair);
+    unlink(path);
+
+    MESH_TEST_FAIL_IF(started != 0 || !writing, "the write should get under way");
+    MESH_TEST_FAIL_IF(serial.state != MESH_FIRMWARE_SERIAL_FAILED ||
+                          !mesh_firmware_serial_radio_in_loader(&serial),
+                      "a cancel after the erase leaves a radio to recover, not an idle one");
+    MESH_TEST_FAIL_IF(mesh_firmware_serial_busy(&serial), "and lets go of it");
+    record_success(test_name);
+}

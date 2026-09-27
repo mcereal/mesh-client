@@ -207,9 +207,19 @@ void mesh_firmware_serial_cancel(struct mesh_firmware_serial *serial) {
     if (serial == NULL) {
         return;
     }
+    const bool busy = mesh_firmware_serial_busy(serial);
     mesh_esp_loader_cancel(&serial->loader);
     serial_release_image(serial);
-    if (mesh_firmware_serial_busy(serial)) {
-        serial->state = MESH_FIRMWARE_SERIAL_IDLE;
+    if (!busy) {
+        return;
     }
+    /* Stopped after the first erase is stopped with an app that will not boot: that is a
+       failure the banner and the resume answer, not an idle radio. */
+    if (serial->damaged || serial->flash_touched || serial->loader.erase_sent) {
+        serial->state = MESH_FIRMWARE_SERIAL_FAILED;
+        serial->error = MESH_FIRMWARE_SERIAL_ERROR_LOADER;
+        inkwell_str_copy(serial->reason, sizeof serial->reason, "cancelled after the erase");
+        return;
+    }
+    serial->state = MESH_FIRMWARE_SERIAL_IDLE;
 }
