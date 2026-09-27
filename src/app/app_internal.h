@@ -162,6 +162,12 @@ void mesh_app_mqtt_publish_state(const struct mesh_app *app, struct mesh_ui_mqtt
    with `*out` set, 0 when neither row was edited, -EINVAL for fixed with no PIN to fix. */
 int mesh_app_meshcore_pin(int pairing, uint32_t typed, uint32_t current, uint32_t *out);
 
+/* A pairing question from the radio being moved to Bluetooth, answered with the fixed PIN it
+   reported before it moved - once per address. False when it is the user's to answer. */
+struct mesh_ble_pairing_request;
+bool mesh_app_handoff_answer_pin(struct mesh_app *app, struct mesh_transport *ble,
+                                 const struct mesh_ble_pairing_request *request);
+
 void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *action,
                             uint64_t now);
 

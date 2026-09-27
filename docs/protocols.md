@@ -171,7 +171,8 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
 - **The Bluetooth PIN** is DEVICE_INFO's `ble_pin`, under its own heading below them: Pairing
   (random, 0; fixed) and the six digits, one `SET_DEVICE_PIN` u32 with no read-back - its OK
   moves the PIN. The firmware reads it at boot, so it takes effect on the next restart, and a
-  USB build keeps it too: set it over the cable before moving the radio to Bluetooth.
+  USB build keeps it too: set it over the cable before moving the radio to Bluetooth. The handoff after
+  Move to Bluetooth answers the pairing with it, once, rather than asking for it.
 - **A channel slot is edited** as a name (31 bytes; `MESH_UI_FIELD_CHANNEL_ANY_NAME`) and a
   16-byte secret (`_ANY_KEY`) and nothing else, written whole with `SET_CHANNEL` and read back
   with `GET_CHANNEL` for that slot alone. The walk keeps each slot's secret in the settings

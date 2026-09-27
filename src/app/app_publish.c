@@ -2597,7 +2597,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
      */
     {
         struct mesh_ble_pairing_request request;
-        if (mesh_ble_transport_pairing_request(ble, &request)) {
+        if (mesh_ble_transport_pairing_request(ble, &request) &&
+            !mesh_app_handoff_answer_pin(app, ble, &request)) {
             /* The advertised name beats a MAC on a 40-column prompt. */
             char label[MESH_UI_NAV_TARGET_NAME_MAX];
             snprintf(label, sizeof label, "%s", request.label);

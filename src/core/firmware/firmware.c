@@ -240,7 +240,7 @@ static void firmware_fetch_failed(struct mesh_firmware *firmware,
     /* The whole of it in the log, where a sentence has room: the row gets the short form above,
        and which host and which error it was is the part that only ever helps somebody reading a
        log. */
-    inkwell_log_warn("firmware", "%s failed: %s (%s/%s: %s)", inkcell_str(what), message,
+    inkwell_log_warn("firmware", "%s: %s (%s/%s: %s)", inkcell_str(what), message,
                      inkwell_fetch_outcome_name(result->outcome),
                      inkwell_net_reason_name(result->failure.reason), result->detail);
     firmware_set(firmware, MESH_FIRMWARE_FAILED, message);

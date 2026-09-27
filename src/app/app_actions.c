@@ -2251,6 +2251,9 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
             app->firmware_ble_handoff_tried[0] = '\0';
             app->firmware_ble_handoff_bonded[0] = '\0';
             memset(app->firmware_ble_handoff_wrong, 0, sizeof app->firmware_ble_handoff_wrong);
+            app->firmware_ble_handoff_pin =
+                app->meshcore.has_device ? app->meshcore.device.ble_pin : 0U;
+            app->firmware_ble_handoff_pin_used[0] = '\0';
             app->firmware_ble_handoff_until_ms = now + MESH_APP_BLE_HANDOFF_MS;
         }
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE,
