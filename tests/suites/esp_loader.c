@@ -520,10 +520,16 @@ MESH_TEST_CASE(firmware_serial_writes_a_whole_flash_and_erases_what_the_last_one
     uint64_t now = 1000U;
     const int started = mesh_firmware_serial_start_whole(&serial, NULL, path, "1-1:1.0",
                                                          INKWELL_ESP_CHIP_ESP32_S3, now);
+    unsigned erasing_progress = 0U;
     for (int turn = 0; turn < 20000 && mesh_firmware_serial_busy(&serial); ++turn) {
         now += 10U;
         mesh_firmware_serial_tick(&serial, now);
         fake_service(&g_rom);
+        if (serial.loader.region >= 1U && serial.loader.state != MESH_ESP_LOADER_DONE &&
+            serial.loader.state != MESH_ESP_LOADER_RESTARTING) {
+            const unsigned progress = mesh_firmware_serial_progress(&serial);
+            erasing_progress = progress > erasing_progress ? progress : erasing_progress;
+        }
     }
     close_pair(pair);
     unlink(path);
@@ -541,6 +547,8 @@ MESH_TEST_CASE(firmware_serial_writes_a_whole_flash_and_erases_what_the_last_one
                       "and nothing the table does not call data was touched");
     MESH_TEST_FAIL_IF(g_rom.begins != 3U || g_rom.blocks != (sizeof g_whole + 1023U) / 1024U,
                       "one write and two erases that send no blocks");
+    MESH_TEST_FAIL_IF(erasing_progress == 0U || erasing_progress >= 100U,
+                      "the bar is not full while the erases are still to come");
     MESH_TEST_FAIL_IF(mesh_firmware_serial_progress(&serial) != 100U, "and all of it counted");
     record_success(test_name);
 }
