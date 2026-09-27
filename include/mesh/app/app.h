@@ -167,11 +167,12 @@ struct mesh_app {
        Empty when there is none. */
     char firmware_ble_handoff[MESH_MESHCORE_NAME_LEN + 16U];
     uint64_t firmware_ble_handoff_until_ms;
-    /* Who that radio is - a name can be anybody's - and whether its old bond has been dropped
-       yet: one left from an earlier Bluetooth build would skip the pairing the PIN is for. A
-       radio that answered to the name with another key is `firmware_ble_handoff_wrong`. */
+    /* Who that radio is - a name can be anybody's - and whether a connect over the bond at its
+       address has been tried: one left from an earlier Bluetooth build would skip the pairing
+       the PIN is for, and is dropped once it has failed. A radio that answered to the name with
+       another key is `firmware_ble_handoff_wrong`. */
     uint8_t firmware_ble_handoff_key[MESH_MESHCORE_PUBKEY_LEN];
-    bool firmware_ble_handoff_unbonded;
+    bool firmware_ble_handoff_tried;
     char firmware_ble_handoff_wrong[18];
     /* Whether an install stopped the transports and owes them back. A flag rather than a
        question, because "stopped" and "stopped by us" are not the same state and only the

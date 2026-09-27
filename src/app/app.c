@@ -934,23 +934,35 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         if (strcasecmp(device->name, app->firmware_ble_handoff) == 0 &&
             mesh_app_ble_speaks_meshcore(ble, device->address) &&
             strcmp(device->address, app->firmware_ble_handoff_wrong) != 0) {
-            /* A bond left from an earlier Bluetooth build would skip the pairing and fail on
-               keys the radio no longer holds: dropped once, and the radio is paired afresh
-               when it is next heard, unbonded. */
-            if (device->paired && !app->firmware_ble_handoff_unbonded) {
-                app->firmware_ble_handoff_unbonded = true;
+            /*
+             * A bond at that address is tried first: it may be this radio's and still good, or
+             * another radio's under the same name, which the key check then passes over with its
+             * bond intact. Only once a connect over it has failed is it taken for one left from
+             * an earlier Bluetooth build - keys the radio no longer holds - and dropped, so the
+             * radio is paired afresh when it is next heard. A removal BlueZ refused is retried.
+             */
+            if (device->paired && app->firmware_ble_handoff_tried) {
                 inkwell_log_info("app", "Dropping the old bond with %s before pairing it again",
                                  device->address);
-                (void)mesh_ble_transport_forget(ble, device->address);
+                if (mesh_ble_transport_forget(ble, device->address) == 0) {
+                    app->firmware_ble_handoff_tried = false;
+                }
                 app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
                 return;
             }
+            app->firmware_ble_handoff_tried = device->paired;
             inkwell_log_info("app", "Reaching for %s, just moved to Bluetooth (%s, %d dBm)",
                              device->name, device->address, (int)device->rssi);
             target = device;
             handoff = true;
             break;
         }
+    }
+    /* Not yet heard: nothing else is taken up meanwhile, since a link to another radio would
+       hold the only one and the radio being waited for would never be reconsidered. */
+    if (target == NULL && app->firmware_ble_handoff[0] != '\0') {
+        app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
+        return;
     }
     const char *preferred = app->config.preferred_ble_device;
     if (target == NULL && preferred[0] != '\0') {
