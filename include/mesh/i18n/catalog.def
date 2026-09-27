@@ -1400,7 +1400,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_ROLE,                "Primary is the channe
 /* Bluetooth. */
 MESH_STR_ENTRY(SETTINGS_NOTE_BT_MODE,                     "How the radio proves it is the one you meant: a code on its own screen, a fixed PIN, or no check at all. A radio with no screen cannot show a random code.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MESHCORE_PAIRING,            "A radio with a screen shows a new code there each time it starts; a fixed PIN is the same six digits every time. Either takes effect when the radio restarts.")
-MESH_STR_ENTRY(SETTINGS_NOTE_MESHCORE_PIN,                "The six digits to pair with when pairing is set to a fixed PIN; typing one sets it. The radio keeps it across a firmware update that keeps its settings.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MESHCORE_PIN,                "The six digits to pair with when pairing is set to a fixed PIN; typing one sets it. The radio keeps it across a firmware update that keeps its settings, and Move to Bluetooth pairs with it for you. Like any fixed PIN it is convenience rather than security.")
 MESH_STR_ENTRY(SETTINGS_NOTE_BT_PIN,                      "The six digits to use when pairing is set to a fixed PIN. It never changes and the radio keeps it as it is, so it is convenience rather than security.")
 
 /* LoRa. The six modem rows are phase 1's, above. */

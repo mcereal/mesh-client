@@ -767,7 +767,10 @@ bool mesh_app_handoff_answer_pin(struct mesh_app *app, struct mesh_transport *bl
         request->kind != (uint8_t)INKWELL_BLE_AGENT_REQUEST_PASSKEY) {
         return false;
     }
-    /* Only for a radio the handoff is connecting to, and only once for it. */
+    /* Only for a radio the handoff is connecting to, and only once for it. Its key is checked
+       after pairing, so a radio that took the name can be sent the PIN first: accepted, since
+       passkey entry with a static PIN gives it up to anyone who tries pairing the real radio
+       itself, and the setting's note says a fixed PIN is convenience, not security. */
     if (strcmp(request->address, app->firmware_ble_handoff_tried) != 0 &&
         strcmp(request->address, app->firmware_ble_handoff_bonded) != 0) {
         return false;
