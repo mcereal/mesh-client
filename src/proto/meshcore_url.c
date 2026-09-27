@@ -247,3 +247,83 @@ bool mesh_meshcore_channel_url_decode(const char *text, struct mesh_meshcore_cha
        it could hold. */
     return have_secret && out->name[0] != '\0';
 }
+
+/* The packet header's two low bits: the transport kinds carry four bytes of codes. */
+#define CARD_ROUTE_TRANSPORT_FLOOD 0x00U
+#define CARD_ROUTE_TRANSPORT_DIRECT 0x03U
+#define CARD_PAYLOAD_ADVERT 0x04U
+/* key, clock, signature */
+#define CARD_ADVERT_FIXED (32U + 4U + 64U)
+#define CARD_ADV_LATLON 0x10U
+#define CARD_ADV_FEAT1 0x20U
+#define CARD_ADV_FEAT2 0x40U
+#define CARD_ADV_NAME 0x80U
+
+bool mesh_meshcore_card_decode(const char *text, struct mesh_meshcore_card *out) {
+    if (text == NULL || out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof *out);
+    const char *hex = after_prefix(text, MESH_MESHCORE_URL_CARD_PREFIX);
+    if (hex == NULL) {
+        return false;
+    }
+    const size_t hex_len = strlen(hex);
+    if (hex_len == 0U || hex_len % 2U != 0U || hex_len / 2U > MESH_MESHCORE_CARD_MAX ||
+        !decode_hex(hex, hex_len, out->packet, hex_len / 2U)) {
+        memset(out, 0, sizeof *out);
+        return false;
+    }
+    const uint8_t *p = out->packet;
+    const size_t len = hex_len / 2U;
+    size_t i = 0U;
+    const uint8_t header = p[i++];
+    const uint8_t route = header & 0x03U;
+    if (((header >> 2U) & 0x0FU) != CARD_PAYLOAD_ADVERT) {
+        memset(out, 0, sizeof *out);
+        return false;
+    }
+    if (route == CARD_ROUTE_TRANSPORT_FLOOD || route == CARD_ROUTE_TRANSPORT_DIRECT) {
+        i += 4U;
+    }
+    if (i >= len) {
+        memset(out, 0, sizeof *out);
+        return false;
+    }
+    /* Hop count in the low six bits, bytes per hop less one in the top two; four is reserved. */
+    const uint8_t path = p[i++];
+    const size_t width = (size_t)(path >> 6U) + 1U;
+    const size_t path_bytes = (size_t)(path & 0x3FU) * width;
+    if (width == 4U || path_bytes > 64U || len - i < path_bytes + CARD_ADVERT_FIXED + 1U) {
+        memset(out, 0, sizeof *out);
+        return false;
+    }
+    i += path_bytes;
+    memcpy(out->public_key, p + i, sizeof out->public_key);
+    i += CARD_ADVERT_FIXED;
+    const uint8_t flags = p[i++];
+    out->type = flags & 0x0FU;
+    if ((flags & CARD_ADV_LATLON) != 0U) {
+        i += 8U;
+    }
+    if ((flags & CARD_ADV_FEAT1) != 0U) {
+        i += 2U;
+    }
+    if ((flags & CARD_ADV_FEAT2) != 0U) {
+        i += 2U;
+    }
+    if (i > len || out->type < 1U || out->type > 4U) {
+        memset(out, 0, sizeof *out);
+        return false;
+    }
+    if ((flags & CARD_ADV_NAME) != 0U) {
+        size_t n = 0U;
+        while (i + n < len && n < MESH_MESHCORE_URL_NAME_LEN && p[i + n] != 0U) {
+            out->name[n] = (char)p[i + n];
+            ++n;
+        }
+        out->name[n] = '\0';
+    }
+    out->len = (uint8_t)len;
+    return true;
+}

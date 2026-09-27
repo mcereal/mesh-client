@@ -59,6 +59,7 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_RESET_PATH = 13,
     MESH_MESHCORE_CMD_SET_ADVERT_LATLON = 14,
     MESH_MESHCORE_CMD_REMOVE_CONTACT = 15,
+    MESH_MESHCORE_CMD_IMPORT_CONTACT = 18,
     MESH_MESHCORE_CMD_REBOOT = 19,
     MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE = 20,
     MESH_MESHCORE_CMD_DEVICE_QUERY = 22,
@@ -621,6 +622,17 @@ int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
                                  const uint8_t key[MESH_MESHCORE_PUBKEY_LEN], const char *name,
                                  uint8_t adv_type);
 
+/*
+ * Hands the radio a signed contact card - an advert packet, `len` bytes, whose key is `key` - with
+ * IMPORT_CONTACT. The radio checks it as an advert heard on the air and treats it as one: the
+ * node joins or refreshes the roster through the advert push that follows, if its signature
+ * holds. 1 when asked; -EINVAL for a card too short to carry a key and a signature, too long for
+ * a frame, or this radio's own; -ENOTCONN until the handshake has named the radio;
+ * -EADDRINUSE for a key whose first four bytes are already this radio's or another node's;
+ * -ENOBUFS when the queue is full.
+ */
+int mesh_meshcore_import_card(struct mesh_meshcore *meshcore, const uint8_t *packet, size_t len,
+                              const uint8_t key[MESH_MESHCORE_PUBKEY_LEN]);
 /*
  * Queues the save's commands and then APP_START, whose SELF_INFO is the read-back. Returns how
  * many commands were queued (> 0), -EINVAL for a save that writes nothing or carries a value

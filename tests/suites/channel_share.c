@@ -718,8 +718,9 @@ MESH_TEST_CASE(meshcore_channel_url_decode_is_strict, unit) {
         "meshcore://channel/add?name=Public&secret=8b3387e9",
         "meshcore://channel/add?name=Public&secret=zz3387e9c5cdea6ac9e5edbaa115cd72",
         "meshcore://channel/add?name=%zz&secret=8b3387e9c5cdea6ac9e5edbaa115cd72",
-        "meshcore://channel/add?name=0123456789abcdef0123456789abcdef&"
-        "secret=8b3387e9c5cdea6ac9e5edbaa115cd72",
+        /* A name past the 31 bytes a slot keeps. */
+        ("meshcore://channel/add?name=0123456789abcdef0123456789abcdef&"
+         "secret=8b3387e9c5cdea6ac9e5edbaa115cd72"),
         "meshcore://contact/add?name=Public&secret=8b3387e9c5cdea6ac9e5edbaa115cd72",
         "https://meshtastic.org/e/#CgMSAQE",
         "",

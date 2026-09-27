@@ -2139,7 +2139,9 @@ static void import_meshcore_contact(struct mesh_app *app, const struct mesh_ui_a
     const uint64_t now = inkwell_time_monotonic_ms();
 
     struct mesh_meshcore_contact_link link;
-    if (!mesh_meshcore_contact_url_decode(action->text, &link)) {
+    static struct mesh_meshcore_card card;
+    const bool plain = mesh_meshcore_contact_url_decode(action->text, &link);
+    if (!plain && !mesh_meshcore_card_decode(action->text, &card)) {
         meshtastic_SharedContact other;
         mesh_ui_store_set_toast(&app->ui_store, now,
                                 inkcell_str(mesh_contact_url_decode(action->text, &other)
@@ -2151,8 +2153,11 @@ static void import_meshcore_contact(struct mesh_app *app, const struct mesh_ui_a
     if (!mesh_ui_contact_link_name(action->text, name, sizeof name)) {
         name[0] = '\0';
     }
+    /* A card is the node's own signed advert and goes to the radio whole, which checks it; a
+       plain link is a key and a name this client writes into a contact record. */
     const int result =
-        mesh_meshcore_import_contact(&app->meshcore, link.public_key, link.name, link.type);
+        plain ? mesh_meshcore_import_contact(&app->meshcore, link.public_key, link.name, link.type)
+              : mesh_meshcore_import_card(&app->meshcore, card.packet, card.len, card.public_key);
     if (result > 0) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CONTACT_LINK_QUEUED, name);
         inkwell_log_info("ui", "Asked the radio to add a contact from a link");
@@ -2182,10 +2187,12 @@ static void on_import_contact(struct mesh_app *app, const struct mesh_ui_action 
     meshtastic_SharedContact contact;
     if (!mesh_contact_url_decode(action->text, &contact)) {
         struct mesh_meshcore_contact_link other;
+        static struct mesh_meshcore_card other_card;
+        const bool meshcore = mesh_meshcore_contact_url_decode(action->text, &other) ||
+                              mesh_meshcore_card_decode(action->text, &other_card);
         mesh_ui_store_set_toast(&app->ui_store, now,
-                                inkcell_str(mesh_meshcore_contact_url_decode(action->text, &other)
-                                                ? MESH_STR_TOAST_CONTACT_LINK_OTHER
-                                                : MESH_STR_TOAST_CONTACT_LINK_INVALID));
+                                inkcell_str(meshcore ? MESH_STR_TOAST_CONTACT_LINK_OTHER
+                                                     : MESH_STR_TOAST_CONTACT_LINK_INVALID));
         return;
     }
 

@@ -2000,6 +2000,35 @@ int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
     return result < 0 ? result : 1;
 }
 
+int mesh_meshcore_import_card(struct mesh_meshcore *meshcore, const uint8_t *packet, size_t len,
+                              const uint8_t key[MESH_MESHCORE_PUBKEY_LEN]) {
+    /* The firmware takes a card only past a key and a signature's worth of bytes. */
+    if (meshcore == NULL || packet == NULL || key == NULL ||
+        len <= 1U + MESH_MESHCORE_PUBKEY_LEN + 64U || len + 1U > MESH_MESHCORE_MAX_FRAME) {
+        return -EINVAL;
+    }
+    if (!mesh_meshcore_ready(meshcore)) {
+        return -ENOTCONN;
+    }
+    if (meshcore->has_self &&
+        memcmp(key, meshcore->self.public_key, MESH_MESHCORE_PUBKEY_LEN) == 0) {
+        return -EINVAL;
+    }
+    /* A card for a node already on the roster refreshes it; one whose first four bytes are
+       another node's, or this radio's, would land on that entry. */
+    const uint32_t id = mesh_meshcore_node_id(key, MESH_MESHCORE_PUBKEY_LEN);
+    const uint32_t known = mesh_meshcore_find_prefix(meshcore, key, MESH_MESHCORE_PUBKEY_LEN);
+    if (known == 0U &&
+        (id == meshcore->self_node || mesh_meshcore_roster_node(meshcore, id) != NULL)) {
+        return -EADDRINUSE;
+    }
+    uint8_t frame[MESH_MESHCORE_MAX_FRAME];
+    frame[0] = MESH_MESHCORE_CMD_IMPORT_CONTACT;
+    memcpy(frame + 1, packet, len);
+    const int result = mesh_meshcore_enqueue(meshcore, frame, (int)(len + 1U), 0U);
+    return result < 0 ? result : 1;
+}
+
 int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id, bool favorite) {
     if (meshcore == NULL || node_id == 0U || node_id == meshcore->self_node) {
         return -EINVAL;

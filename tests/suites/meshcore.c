@@ -1879,6 +1879,44 @@ MESH_TEST_CASE(meshcore_channel_link_joins_a_free_slot, unit) {
     record_success(test_name);
 }
 
+/* A signed card goes to the radio whole, after IMPORT_CONTACT, for the radio to check as an
+   advert heard on the air - never this radio's own, and never one that would land on another
+   node's roster entry. */
+MESH_TEST_CASE(meshcore_card_is_handed_to_the_radio_whole, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    uint8_t packet[1U + 1U + 32U + 4U + 64U + 5U];
+    for (size_t i = 0; i < sizeof packet; ++i) {
+        packet[i] = (uint8_t)(0xA0U + i);
+    }
+    uint8_t key[32];
+    memset(key, 0x77, sizeof key);
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_card(&g_meshcore, packet, 1U + 32U + 64U, key) !=
+                          -EINVAL,
+                      "a card too short for a key and a signature is refused");
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_card(&g_meshcore, packet, sizeof packet,
+                                                g_meshcore.self.public_key) != -EINVAL,
+                      "this radio's own card is refused");
+    uint8_t twin[32];
+    memset(twin, 0x99, sizeof twin);
+    twin[0] = 0x40;
+    twin[1] = 0x41;
+    twin[2] = 0x42;
+    twin[3] = 0x43; /* Alice's first four bytes, not her key */
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_card(&g_meshcore, packet, sizeof packet, twin) !=
+                          -EADDRINUSE,
+                      "a key that would land on Alice's entry is refused");
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_card(&g_meshcore, packet, sizeof packet, key) != 1,
+                      "a stranger's card is asked");
+    MESH_TEST_FAIL_IF(wire.count != 1U || wire.lens[0] != 1U + sizeof packet ||
+                          wire.frames[0][0] != MESH_MESHCORE_CMD_IMPORT_CONTACT ||
+                          memcmp(wire.frames[0] + 1, packet, sizeof packet) != 0,
+                      "as IMPORT_CONTACT and every byte of it");
+    record_success(test_name);
+}
+
 /* A login queued behind a reboot is still the open request once the handshake starts over:
    it is written first, and its SENT arms the deadline its answer is held to. */
 MESH_TEST_CASE(meshcore_request_outlives_a_reboot_restart, unit) {

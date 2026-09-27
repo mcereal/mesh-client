@@ -86,6 +86,32 @@ size_t mesh_meshcore_channel_url_encode(const struct mesh_meshcore_channel_link 
    32-character secret, parameters in any order and unknown ones skipped. */
 bool mesh_meshcore_channel_url_decode(const char *text, struct mesh_meshcore_channel_link *out);
 
+/*
+ * MeshCore's signed contact card: `meshcore://` and the hex of a node's advert packet, exactly as
+ * EXPORT_CONTACT hands it over and the MeshCore app shares it. The packet carries the node's
+ * key, its clock, its signature over both and its advert data (kind, name, where it is), so the
+ * radio it is imported into checks it as it would an advert heard on the air - which is why the
+ * bytes are kept whole: they go back to the radio as they came.
+ *
+ * Read here only far enough to say what it is: a packet header naming an advert, a path the
+ * header allows, and an advert payload long enough to hold a key, a clock and a signature.
+ */
+#define MESH_MESHCORE_URL_CARD_PREFIX "meshcore://"
+/* The most a card can be: what fits in IMPORT_CONTACT after its command byte. */
+#define MESH_MESHCORE_CARD_MAX 175U
+
+struct mesh_meshcore_card {
+    uint8_t packet[MESH_MESHCORE_CARD_MAX];
+    uint8_t len;
+    uint8_t public_key[MESH_MESHCORE_URL_KEY_LEN];
+    char name[MESH_MESHCORE_URL_NAME_LEN + 1U]; /* may be empty */
+    uint8_t type; /* the advert's kind: 1 companion, 2 repeater, 3 room server, 4 sensor */
+};
+
+/* Reads a card. False for anything that is not `meshcore://` and an even run of hex naming an
+   advert packet, the contact and channel links included. */
+bool mesh_meshcore_card_decode(const char *text, struct mesh_meshcore_card *out);
+
 #ifdef __cplusplus
 }
 #endif

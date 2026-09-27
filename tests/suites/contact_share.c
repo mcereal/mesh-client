@@ -824,3 +824,50 @@ MESH_TEST_CASE(contact_link_views_read_a_meshcore_link, unit) {
                       "and it is a link, with a name");
     record_success(test_name);
 }
+
+/* A card as the Heltec V3 "MPBC" (companion v1.17.1) exported itself: a flooded advert, no path,
+   its key, clock and signature, then flags 0x81 - a companion with a name. */
+static const char k_mpbc_card[] =
+    "meshcore://1100ef490a40583a10fa993d882ec4cb6a7a1377ce98835db46b08bc1edc68ce14c619e7b86a8e78"
+    "39b20bf930d03f6c73e39f4f2ec03b290a19037b7a5b4a0c536dd3d7b53e3a958cb7df842106d2bcbca78d2ab7"
+    "a83b32ba1ea1a91443a3007d17866beb09814d504243";
+
+/* The signed card is read for what the sheet shows and kept whole for the radio, which is the
+   one that checks it. */
+MESH_TEST_CASE(meshcore_card_reads_a_real_export, unit) {
+    static struct mesh_meshcore_card card;
+    MESH_TEST_FAIL_IF(!mesh_meshcore_card_decode(k_mpbc_card, &card), "the export reads");
+    MESH_TEST_FAIL_IF(card.len != (sizeof k_mpbc_card - 1U - strlen("meshcore://")) / 2U ||
+                          card.packet[0] != 0x11U || card.packet[card.len - 1U] != 0x43U,
+                      "whole, every byte as it came");
+    MESH_TEST_FAIL_IF(card.public_key[0] != 0xefU || card.public_key[1] != 0x49U ||
+                          card.public_key[31] != 0xc6U || card.type != 1U ||
+                          strcmp(card.name, "MPBC") != 0,
+                      "a companion named MPBC, by its key");
+
+    char headline[80];
+    char body[400];
+    MESH_TEST_FAIL_IF(!mesh_ui_contact_link_valid(k_mpbc_card) ||
+                          !mesh_ui_contact_import_sheet(k_mpbc_card, headline, sizeof headline,
+                                                        body, sizeof body) ||
+                          strstr(headline, "MPBC") == NULL || strstr(body, "ef490a40583a") == NULL,
+                      "the add sheet names it by name and by key");
+
+    /* Not a card: the other two links, a packet that is not an advert, one cut short, odd hex. */
+    char text[400];
+    snprintf(text, sizeof text, "%s", k_mpbc_card);
+    text[strlen("meshcore://") + 1U] = '5'; /* header 0x15: a group text, not an advert */
+    const char *cut = "meshcore://1100ef490a40583a10fa993d882ec4cb6a7a1377ce98835db46b08bc1edc68ce";
+    const char *bad[] = {
+        text,
+        cut,
+        "meshcore://110",
+        "meshcore://contact/add?name=x&public_key=00&type=1",
+        "meshcore://channel/add?name=Public&secret=8b3387e9c5cdea6ac9e5edbaa115cd72",
+        "meshcore://",
+    };
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; ++i) {
+        MESH_TEST_FAIL_IF(mesh_meshcore_card_decode(bad[i], &card), "not a card");
+    }
+    record_success(test_name);
+}
