@@ -628,6 +628,10 @@ struct mesh_ui_nav {
        and says which of the two it is standing in front of: MESH_UI_SETTINGS_ACTION_NONE is the
        section save, anything else is that radio action. */
     struct inkstand_dialog confirm;
+    /* Whether the last frame stacked the sheet's two answers rather than setting them side by
+       side, read off its focus map: the dialog moves between them by where they are, so the
+       bar's "choose" keycap is Up/Down when stacked and Left/Right otherwise. */
+    bool confirm_stacked;
     /* Edits made in the open section and not yet saved. Y sends them as one
        MESH_UI_ACTION_SAVE_SETTINGS; B asks once (discard_armed) and discards on the second
        press. The app clears them through mesh_ui_store_settings_edits_clear() once queued. */

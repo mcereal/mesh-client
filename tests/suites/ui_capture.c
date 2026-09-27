@@ -5646,8 +5646,10 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_sections_edges, unit) {
  * same press gives different answers on two frames, and that the difference comes from the
  * frame rather than from anything the nav remembered.
  */
-static bool dialog_moves(uint32_t width, uint32_t height, uint8_t cursor, enum inkcell_key key,
-                         const char **failure) {
+/* Whether `key` moved the ring, and - when `stacked` is given - whether the store read the
+   drawn answers as stacked, which is what the bar's "choose" keycap is picked from. */
+static bool dialog_moves_stacked(uint32_t width, uint32_t height, uint8_t cursor,
+                                 enum inkcell_key key, bool *stacked, const char **failure) {
     struct mesh_ui_store store;
     if (mesh_ui_store_init(&store) != 0) {
         *failure = "store init failed";
@@ -5684,6 +5686,9 @@ static bool dialog_moves(uint32_t width, uint32_t height, uint8_t cursor, enum i
     /* The seam: what the frame collected, handed to the model that answers the press. On the
        device this is mesh_ui_controller_handle_key() reading it back through the backend. */
     mesh_ui_store_set_focus_map(&store, inkcell_capture_state(capture)->focus);
+    if (stacked != NULL) {
+        *stacked = store.nav.confirm_stacked;
+    }
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, key, &action);
@@ -5692,6 +5697,26 @@ static bool dialog_moves(uint32_t width, uint32_t height, uint8_t cursor, enum i
     inkcell_capture_close(capture);
     mesh_ui_store_shutdown(&store);
     return moved;
+}
+
+static bool dialog_moves(uint32_t width, uint32_t height, uint8_t cursor, enum inkcell_key key,
+                         const char **failure) {
+    return dialog_moves_stacked(width, height, cursor, key, NULL, failure);
+}
+
+/* The bar names the keys that layout answers: side by side on a wide panel, stacked on one
+   too narrow for both on a line - read from the frame, as the press is. */
+MESH_TEST_CASE(ui_capture_a_dialog_says_which_way_its_answers_lie, unit) {
+    const char *failure = NULL;
+    bool stacked = true;
+    (void)dialog_moves_stacked(INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, 0U, INKCELL_KEY_A,
+                               &stacked, &failure);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    MESH_TEST_FAIL_IF(stacked, "a wide panel sets the answers side by side");
+    (void)dialog_moves_stacked(200U, 480U, 0U, INKCELL_KEY_A, &stacked, &failure);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    MESH_TEST_FAIL_IF(!stacked, "a narrow one stacks them");
+    record_success(test_name);
 }
 
 MESH_TEST_CASE(ui_capture_a_dialog_answers_the_press_its_own_layout_was_given, unit) {
