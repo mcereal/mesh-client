@@ -565,6 +565,18 @@ MESH_TEST_CASE(firmware_serial_refuses_a_whole_image_that_is_not_one, unit) {
     MESH_TEST_FAIL_IF(!stage(g_whole, sizeof g_whole, path, sizeof path), "no staging file");
     result = mesh_firmware_serial_start_whole(&serial, NULL, path, "", INKWELL_ESP_CHIP_ESP32, 0U);
     MESH_TEST_FAIL_IF_CLEANUP(result != -EINVAL, unlink(path), "another chip's whole flash");
+    unlink(path);
+
+    /* An application where the bootloader goes, with the table and app as they should be. */
+    memcpy(g_whole, k_s3_header, sizeof k_s3_header);
+    MESH_TEST_FAIL_IF_CLEANUP(!stage(g_whole, sizeof g_whole, path, sizeof path), unlink(path),
+                              "no staging file");
+    result =
+        mesh_firmware_serial_start_whole(&serial, NULL, path, "", INKWELL_ESP_CHIP_ESP32_S3, 0U);
+    unlink(path);
+    MESH_TEST_FAIL_IF_CLEANUP(result != -EINVAL, inkwell_serial_mock_disable(),
+                              "an app in the bootloader's slot");
+    memset(g_whole + 32, 0x00, 4U);
 
     /* A table with no app in it. */
     memset(g_whole + 0x8000U + 64U, 0xFF, 96U);

@@ -96,8 +96,11 @@ bool mesh_esp_whole_image_read(const uint8_t *bytes, size_t len, uint16_t chip,
     const enum inkwell_esp_image_verdict boot =
         loader < len ? inkwell_esp_image_validate(bytes + loader, len - loader, chip, &info)
                      : INKWELL_ESP_IMAGE_TOO_SHORT;
-    if (boot != INKWELL_ESP_IMAGE_OK && boot != INKWELL_ESP_IMAGE_NOT_AN_APP) {
+    /* An image for this chip that is *not* an application: an app where the bootloader goes
+       would be booted by the ROM as one, which is a board that starts nothing it should. */
+    if (boot != INKWELL_ESP_IMAGE_NOT_AN_APP) {
         *why = boot == INKWELL_ESP_IMAGE_WRONG_CHIP ? "a bootloader for another chip"
+               : boot == INKWELL_ESP_IMAGE_OK       ? "an application where the bootloader goes"
                                                     : "no bootloader where the ROM looks";
         return false;
     }
