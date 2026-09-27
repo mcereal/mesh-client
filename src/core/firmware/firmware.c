@@ -330,17 +330,17 @@ static void firmware_on_index(void *userdata, const struct inkwell_fetch_result 
 /* The verdict, once a release is known: whichever source's documents named it. */
 static void firmware_conclude(struct mesh_firmware *firmware) {
     /*
-     * A switch goes over USB or not at all: the whole flash through an ESP32's ROM, or a UF2 to
-     * an nRF52's bootloader. So the board's path is USB when it takes USB, and the version is
-     * news whatever it is - the radio runs the other firmware, whose numbers mean nothing here.
+     * A switch is the whole flash through an ESP32's ROM, over USB, or nothing: the version is
+     * news whatever it is, since the radio runs the other firmware and its numbers mean nothing
+     * here. An nRF52 has no path yet - its UF2 writes the application and leaves the settings
+     * the last firmware kept, so it would not start again as the new node a switch promises.
      */
     if (firmware->switching) {
         for (uint8_t i = 0; i < firmware->boards.count; ++i) {
             struct mesh_firmware_board *const board = &firmware->boards.entries[i];
-            const bool usb =
-                mesh_firmware_board_takes(board, MESH_FIRMWARE_PATH_USB) ||
-                mesh_firmware_path_for_architecture(board->architecture) == MESH_FIRMWARE_PATH_USB;
-            board->path = usb ? MESH_FIRMWARE_PATH_USB : MESH_FIRMWARE_PATH_NONE;
+            board->path = mesh_firmware_architecture_uses_esp_rom(board->architecture)
+                              ? MESH_FIRMWARE_PATH_USB
+                              : MESH_FIRMWARE_PATH_NONE;
         }
         firmware_recompute_blocker(firmware);
         firmware_set(firmware, MESH_FIRMWARE_AVAILABLE, firmware->release.version);

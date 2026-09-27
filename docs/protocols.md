@@ -261,8 +261,7 @@ end.
   never a name that looks alike - and a board with no row is not offered the switch. An ESP32
   gets the `-merged.bin` or `.factory.bin` at 0x0 through its ROM, then every data partition
   that image's own table declares past its end is erased, so the new firmware starts blank
-  rather than reading the old one's filesystem; an nRF52 gets its UF2, armed the way the
-  running firmware is, and its internal filesystem is left as it was - the two keep different
-  files there, so neither reads the other's, but switching back finds the old identity. Either way the radio comes back a new node, which is what the confirm
-  sheet says. Afterwards the port is asked in the new protocol first, with a 45 s window: a
+  rather than reading the old one's filesystem. An nRF52 is not offered one yet: its UF2
+  writes the application and leaves the internal filesystem, so switching back would find the
+  old identity, keys and contacts - the opposite of what the confirm sheet says. Afterwards the port is asked in the new protocol first, with a 45 s window: a
   wiped MeshCore ESP32 formats and keys itself for about 20 s before its first frame.

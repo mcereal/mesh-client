@@ -1316,7 +1316,10 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
                              : app->meshcore_bound
                                  ? mesh_firmware_meshcore_target_for_device(board->name)
                                  : mesh_firmware_meshcore_device_for_target(board->target);
+    /* ESP32 only: a switch has to erase what the last firmware kept, and only the ROM path
+       erases (see firmware_conclude()). */
     dst->fw_switch_offer = settled && twin != NULL && !dst->fw_busy &&
+                           mesh_firmware_architecture_uses_esp_rom(board->architecture) &&
                            !mesh_firmware_update_busy(update) &&
                            !mesh_firmware_update_can_resume(update);
 }

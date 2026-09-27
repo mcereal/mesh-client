@@ -700,19 +700,17 @@ MESH_TEST_CASE(firmware_switch_reads_the_other_firmware_for_the_same_board, unit
         goto cleanup;
     }
 
-    /* An nRF52 would take Meshtastic over BLE, but not from MeshCore, which cannot be asked
-       into its bootloader over the air - and not as a whole flash. */
+    /* An nRF52 has no switch yet: its UF2 would leave the old firmware's settings behind. */
     if (mesh_firmware_check_switch_to_meshtastic(firmware, "RAK 4631", "v1.17.1-d929643", false,
                                                  "RAK WisBlock / WisMesh (RAK 4631)", 0U) != 0 ||
         !firmware_settle(&harness)) {
         failure = "the RAK's switch should start and finish";
         goto cleanup;
     }
-    mesh_firmware_set_bus(firmware, MESH_FIRMWARE_PATH_BLE, true);
     board = mesh_firmware_board(firmware);
     if (board == NULL || strcmp(board->target, "rak4631") != 0 ||
-        firmware->blocker != MESH_FIRMWARE_BLOCKER_WRONG_BUS) {
-        failure = "a RAK on MeshCore is switched over USB";
+        firmware->blocker != MESH_FIRMWARE_BLOCKER_NO_PATH) {
+        failure = "a RAK is identified, and has no path to a switch";
         goto cleanup;
     }
 
