@@ -1048,6 +1048,16 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
     MESH_TEST_FAIL_IF(pin_count < 2U || user_rows[pin_count - 2U].number != 0U ||
                           user_rows[pin_count - 1U].text[0] != '\0',
                       "and a random one is Random with no digits to show");
+    /* A PIN typed over a random one reads as Fixed before it is saved. */
+    struct mesh_ui_setting_edit typed_pin;
+    memset(&typed_pin, 0, sizeof typed_pin);
+    typed_pin.field = MESH_UI_FIELD_MESHCORE_PIN;
+    snprintf(typed_pin.text, sizeof typed_pin.text, "%s", "123456");
+    pin_count = mesh_ui_settings_items(&settings, &handshake, &typed_pin, 1U, MESH_UI_SETTINGS_USER,
+                                       MESH_UI_SETTINGS_NO_CHANNEL, user_rows, 16U);
+    MESH_TEST_FAIL_IF(pin_count < 2U || user_rows[pin_count - 2U].number != 1U ||
+                          strcmp(user_rows[pin_count - 1U].text, "123456") != 0,
+                      "a typed PIN shows Pairing as Fixed before the save");
     settings.has_meshcore_pin = false;
     settings.has_meshcore_other = false;
     MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_POSITION,
