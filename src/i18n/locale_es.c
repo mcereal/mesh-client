@@ -1148,8 +1148,11 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CHANNELS_CLEAR_ROW] = "Vaciar esta ranura",
     [MESH_STR_CHANNELS_SHARE_ROW] = "Compartir estos canales",
     [MESH_STR_CHANNELS_IMPORT_ROW] = "Añadir desde un enlace",
+    [MESH_STR_CHANNELS_SHARE_ONE_ROW] = "Compartir este canal",
     [MESH_STR_SHARE_TITLE] = "Compartir canales",
+    [MESH_STR_SHARE_TITLE_ONE] = "Compartir canal",
     [MESH_STR_SHARE_SUMMARY_ONE] = "%u canal. Escanéalo con la app de Meshtastic para unirte.",
+    [MESH_STR_SHARE_SUMMARY_MESHCORE] = "%s. Escanéalo con la app de MeshCore para unirte.",
     [MESH_STR_SHARE_SUMMARY_OTHER] = "%u canales. Escanéalos con la app de Meshtastic para unirte.",
     [MESH_STR_SHARE_NOTHING] = "Nada que compartir todavía: esta radio no ha enviado sus canales.",
     [MESH_STR_SHARE_NO_CODE] =
@@ -1395,6 +1398,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Se borran el nombre y la clave. Una clave sin copia en otro sitio se pierde para "
         "siempre.",
     [MESH_STR_CONFIRM_TITLE_IMPORT] = "¿Unirse a %s?",
+    [MESH_STR_CONFIRM_TEXT_IMPORT_MESHCORE] =
+        "Se añade en una ranura de canal libre; los canales que ya tiene esta radio no cambian.",
     [MESH_STR_CONFIRM_TEXT_IMPORT_ONE] =
         "El enlace lleva %u canal y los ajustes LoRa de su radio. Reemplaza todos los canales de "
         "esta radio y la radio se reiniciará; los nodos de los canales antiguos ya no podrán "
@@ -1542,11 +1547,14 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_HISTORY_FAILED] = "No se pudieron pedir los mensajes (%d)",
     [MESH_STR_TOAST_FORGOT_NODES_ONE] = "Se olvidó %d nodo; fijados conservados",
     [MESH_STR_TOAST_FORGOT_NODES_OTHER] = "Se olvidaron %d nodos; fijados conservados",
-    [MESH_STR_TOAST_IMPORT_NOT_A_LINK] = "No es un enlace de canal de Meshtastic",
+    [MESH_STR_TOAST_IMPORT_NOT_A_LINK] = "No es un enlace de canal",
     [MESH_STR_TOAST_IMPORT_QUEUED_ONE] = "Uniéndose: escribiendo %u canal",
     [MESH_STR_TOAST_IMPORT_QUEUED_OTHER] = "Uniéndose: escribiendo %u canales",
     [MESH_STR_TOAST_IMPORT_FAILED] = "No se pudieron escribir los canales en la radio",
     [MESH_STR_TOAST_IMPORT_NO_CHANGE] = "Esta radio ya está en esos canales",
+    [MESH_STR_TOAST_CHANNEL_JOINING] = "Uniéndose a %s en la ranura %u",
+    [MESH_STR_TOAST_CHANNEL_SLOTS_FULL] = "Todas las ranuras de canal están en uso; libera una",
+    [MESH_STR_TOAST_CHANNEL_LINK_OTHER] = "Ese enlace de canal es para otro tipo de radio",
     [MESH_STR_TOAST_CONTACT_LINK_INVALID] = "No es un enlace de contacto",
     [MESH_STR_TOAST_CONTACT_LINK_OTHER] = "Ese enlace es para otro tipo de radio",
     [MESH_STR_TOAST_CONTACT_EXISTS] = "%.20s ya es un contacto",

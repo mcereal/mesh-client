@@ -2807,9 +2807,14 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_settings.meshcore_multi_acks = app->meshcore.self.multi_acks;
     }
     /* This radio as the MeshCore app's contact link - never the Meshtastic one the flatten may
-       have made from the same name, which that app could not read. */
+       have made from the same name, which that app could not read. Its channels share one to a
+       link, built from each slot on the share screen, so the set's Meshtastic link is dropped
+       too; and the table is settled once the sync has read every slot, which is what READY
+       means, rather than on Meshtastic's LoRa-and-eight-slots test. */
     if (app->meshcore_bound) {
         ui_settings.meshcore_ready = mesh_meshcore_ready(&app->meshcore);
+        ui_settings.share_url[0] = '\0';
+        ui_settings.channels_settled = ui_settings.meshcore_ready;
         ui_settings.contact_url[0] = '\0';
         if (app->meshcore.has_self) {
             struct mesh_meshcore_contact_link link;

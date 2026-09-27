@@ -631,6 +631,15 @@ int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
  */
 int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
                                  const struct mesh_meshcore_settings_write *write);
+/*
+ * Joins a channel from a link: writes `name` and `secret` into the first slot the sync read as
+ * unused, through mesh_meshcore_write_settings(), and says which through `out_slot`. The same
+ * returns as that call, and -EINVAL for an empty name or one past 31 bytes, -ENOTCONN until the
+ * handshake is done, -EEXIST - with its slot - when a slot already holds that name and secret,
+ * -ENOSPC when every slot read is in use.
+ */
+int mesh_meshcore_import_channel(struct mesh_meshcore *meshcore, const char *name,
+                                 const uint8_t secret[MESH_MESHCORE_SECRET_LEN], uint8_t *out_slot);
 /* Asks for SELF_INFO again, which re-projects the settings. 1 when asked, 0 when already
    asked, -ENOTCONN without a link. */
 int mesh_meshcore_refresh_settings(struct mesh_meshcore *meshcore);

@@ -25,7 +25,9 @@
 #include "inkwell/codec/base64.h"
 #include "inkwell/codec/sha256.h"
 #include "mesh/core/channel_share.h"
+#include "mesh/i18n/strings.h"
 #include "mesh/proto/channel_url.h"
+#include "mesh/proto/meshcore_url.h"
 #include "mesh/ui/channel_share.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
@@ -664,5 +666,119 @@ MESH_TEST_CASE(channel_share_rows_drive_the_two_screens, unit) {
 cleanup:
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* MeshCore's channel link is one channel: its name and 16-byte secret, as the firmware docs spell
+   it. The docs' own example reads, and what is written reads back. */
+MESH_TEST_CASE(meshcore_channel_url_round_trips, unit) {
+    struct mesh_meshcore_channel_link link;
+    MESH_TEST_FAIL_IF(
+        !mesh_meshcore_channel_url_decode(
+            "meshcore://channel/add?name=Public&secret=8b3387e9c5cdea6ac9e5edbaa115cd72", &link) ||
+            strcmp(link.name, "Public") != 0 || link.secret[0] != 0x8bU || link.secret[15] != 0x72U,
+        "the firmware docs' own example reads");
+
+    struct mesh_meshcore_channel_link wrote;
+    memset(&wrote, 0, sizeof wrote);
+    /* The longest name the radio keeps, every byte of it escaped. */
+    memset(wrote.name, '#', MESH_MESHCORE_URL_CHANNEL_NAME_LEN);
+    for (size_t i = 0; i < sizeof wrote.secret; ++i) {
+        wrote.secret[i] = (uint8_t)(0xF0U + i);
+    }
+    char url[MESH_MESHCORE_CHANNEL_URL_MAX];
+    const size_t n = mesh_meshcore_channel_url_encode(&wrote, url, sizeof url);
+    MESH_TEST_FAIL_IF(n == 0U || n + 1U != sizeof url, "the longest link fills the bound exactly");
+    MESH_TEST_FAIL_IF(!mesh_meshcore_channel_url_decode(url, &link) ||
+                          strcmp(link.name, wrote.name) != 0 ||
+                          memcmp(link.secret, wrote.secret, sizeof link.secret) != 0,
+                      "and reads back whole");
+    MESH_TEST_FAIL_IF(mesh_meshcore_channel_url_encode(&wrote, url, sizeof url - 1U) != 0U ||
+                          url[0] != '\0',
+                      "a buffer a byte short is left empty");
+    snprintf(wrote.name, sizeof wrote.name, "%s", "night owls");
+    MESH_TEST_FAIL_IF(mesh_meshcore_channel_url_encode(&wrote, url, sizeof url) == 0U ||
+                          strstr(url, "name=night+owls&secret=f0f1") == NULL,
+                      "a space is a plus, as the apps write one");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(meshcore_channel_url_decode_is_strict, unit) {
+    struct mesh_meshcore_channel_link link;
+    MESH_TEST_FAIL_IF(!mesh_meshcore_channel_url_decode(
+                          "MESHCORE://channel/add?secret=8b3387e9c5cdea6ac9e5edbaa115cd72&"
+                          "region_scope=x&name=%23mesh",
+                          &link) ||
+                          strcmp(link.name, "#mesh") != 0,
+                      "any order, any case of scheme, an unknown parameter skipped");
+    const char *bad[] = {
+        "meshcore://channel/add?secret=8b3387e9c5cdea6ac9e5edbaa115cd72",
+        "meshcore://channel/add?name=&secret=8b3387e9c5cdea6ac9e5edbaa115cd72",
+        "meshcore://channel/add?name=Public",
+        "meshcore://channel/add?name=Public&secret=8b3387e9",
+        "meshcore://channel/add?name=Public&secret=zz3387e9c5cdea6ac9e5edbaa115cd72",
+        "meshcore://channel/add?name=%zz&secret=8b3387e9c5cdea6ac9e5edbaa115cd72",
+        "meshcore://channel/add?name=0123456789abcdef0123456789abcdef&"
+        "secret=8b3387e9c5cdea6ac9e5edbaa115cd72",
+        "meshcore://contact/add?name=Public&secret=8b3387e9c5cdea6ac9e5edbaa115cd72",
+        "https://meshtastic.org/e/#CgMSAQE",
+        "",
+    };
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; ++i) {
+        MESH_TEST_FAIL_IF(mesh_meshcore_channel_url_decode(bad[i], &link),
+                          "not a channel link the radio could hold");
+    }
+    record_success(test_name);
+}
+
+/* On MeshCore the share screen's link is one slot's, the summary names that channel, and the
+   sheet in front of a typed link says it is added beside the rest rather than replacing them. */
+MESH_TEST_CASE(meshcore_channel_link_views, unit) {
+    static struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.protocol = MESH_UI_PROTOCOL_MESHCORE;
+    struct mesh_ui_channel_detail *owls = &settings.channels[1];
+    owls->present = true;
+    owls->index = 1U;
+    owls->role = 2U;
+    snprintf(owls->name, sizeof owls->name, "%s", "Owls");
+    owls->psk_len = 16U;
+    for (uint8_t i = 0; i < 16U; ++i) {
+        owls->psk[i] = (uint8_t)(i + 1U);
+    }
+    settings.channels[2].present = true; /* read, and unused */
+
+    char url[MESH_UI_CHANNEL_URL_MAX];
+    struct mesh_meshcore_channel_link link;
+    MESH_TEST_FAIL_IF(!mesh_ui_channel_share_link(&settings, 1U, url, sizeof url) ||
+                          !mesh_meshcore_channel_url_decode(url, &link) ||
+                          strcmp(link.name, "Owls") != 0 || link.secret[15] != 16U,
+                      "a slot's link is its name and secret");
+    MESH_TEST_FAIL_IF(mesh_ui_channel_share_link(&settings, 2U, url, sizeof url) || url[0] != '\0',
+                      "an unused slot has nothing to share");
+    MESH_TEST_FAIL_IF(mesh_ui_channel_share_link(&settings, 1U, NULL, 0U) != true,
+                      "and asking without a buffer says whether there is one");
+    char text[160];
+    (void)mesh_ui_channel_share_link(&settings, 1U, url, sizeof url);
+    MESH_TEST_FAIL_IF(!mesh_ui_channel_share_summary(url, text, sizeof text) ||
+                          strstr(text, "Owls") != text || strstr(text, "MeshCore") == NULL,
+                      "the summary names the channel and the app that scans it");
+
+    char headline[96];
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_channel_link_valid(url) ||
+            !mesh_ui_channel_import_sheet(url, headline, sizeof headline, text, sizeof text) ||
+            strstr(headline, "Owls") == NULL ||
+            strcmp(text, inkcell_str(MESH_STR_CONFIRM_TEXT_IMPORT_MESHCORE)) != 0,
+        "a typed MeshCore link raises a sheet that says it adds one channel");
+
+    /* Meshtastic's is the set's, whichever slot is open. */
+    settings.protocol = MESH_UI_PROTOCOL_MESHTASTIC;
+    MESH_TEST_FAIL_IF(mesh_ui_channel_share_link(&settings, 1U, url, sizeof url),
+                      "no set link, nothing to share");
+    snprintf(settings.share_url, sizeof settings.share_url, "%s", "https://meshtastic.org/e/#x");
+    MESH_TEST_FAIL_IF(!mesh_ui_channel_share_link(&settings, 0xFFU, url, sizeof url) ||
+                          strcmp(url, settings.share_url) != 0,
+                      "Meshtastic's link is the set's");
     record_success(test_name);
 }

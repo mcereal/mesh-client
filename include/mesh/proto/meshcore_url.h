@@ -2,8 +2,9 @@
 #define MESH_PROTO_MESHCORE_URL_H
 
 /*
- * MeshCore's contact link: one node's key, name and kind as the MeshCore apps write it into a
- * QR code.
+ * MeshCore's contact and channel links, as the MeshCore apps write them into a QR code.
+ *
+ * The contact link: one node's key, name and kind.
  *
  * `meshcore://contact/add?name=<name>&public_key=<64 hex>&type=<n>`, from the firmware's
  * docs/qr_codes.md. Unlike Meshtastic's link it is a plain query string rather than a protobuf,
@@ -54,6 +55,36 @@ size_t mesh_meshcore_contact_url_encode(const struct mesh_meshcore_contact_link 
  * module does not know is skipped, since the apps add optional ones over time.
  */
 bool mesh_meshcore_contact_url_decode(const char *text, struct mesh_meshcore_contact_link *out);
+
+/*
+ * MeshCore's channel link: one channel's name and 16-byte secret.
+ *
+ * `meshcore://channel/add?name=<name>&secret=<32 hex>`, from the same docs/qr_codes.md. One link
+ * is one channel, where Meshtastic's is the radio's whole set. The name is at most 31 bytes, as
+ * SET_CHANNEL keeps it; the app's optional `region_scope` is skipped.
+ */
+#define MESH_MESHCORE_URL_CHANNEL_PREFIX "meshcore://channel/add?"
+#define MESH_MESHCORE_URL_CHANNEL_NAME_LEN 31U
+#define MESH_MESHCORE_URL_SECRET_LEN 16U
+
+#define MESH_MESHCORE_CHANNEL_URL_MAX                                                              \
+    (sizeof(MESH_MESHCORE_URL_CHANNEL_PREFIX) + sizeof("name=") - 1U +                             \
+     MESH_MESHCORE_URL_CHANNEL_NAME_LEN * 3U + sizeof("&secret=") - 1U +                           \
+     MESH_MESHCORE_URL_SECRET_LEN * 2U)
+
+struct mesh_meshcore_channel_link {
+    char name[MESH_MESHCORE_URL_CHANNEL_NAME_LEN + 1U];
+    uint8_t secret[MESH_MESHCORE_URL_SECRET_LEN];
+};
+
+/* Writes `link` as a channel link. Returns the characters written, or 0 for an empty or
+   too-long name or an `out` too small - in which case `out` is left empty. */
+size_t mesh_meshcore_channel_url_encode(const struct mesh_meshcore_channel_link *link, char *out,
+                                        size_t out_len);
+
+/* Reads a channel link: true only for the `channel/add` path with a name and a whole
+   32-character secret, parameters in any order and unknown ones skipped. */
+bool mesh_meshcore_channel_url_decode(const char *text, struct mesh_meshcore_channel_link *out);
 
 #ifdef __cplusplus
 }

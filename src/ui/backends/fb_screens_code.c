@@ -136,11 +136,17 @@ static void fb_draw_code_body(struct inkcell_draw_state *state, struct inkcell_f
 /* The share sheet: this radio's channel set as a code, for a phone that is about to join. */
 void fb_render_share(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                      struct inkcell_fb_layout *layout) {
-    fb_draw_app_bar(state, layout,
-                    &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_SHARE_TITLE)});
+    fb_draw_app_bar(
+        state, layout,
+        &(const struct inkcell_fb_app_bar){
+            .title = inkcell_str(snapshot->settings.protocol == MESH_UI_PROTOCOL_MESHCORE
+                                     ? MESH_STR_SHARE_TITLE_ONE
+                                     : MESH_STR_SHARE_TITLE)});
 
-    const char *const url = snapshot->settings.share_url;
-    char summary[96];
+    char url[MESH_UI_CHANNEL_URL_MAX];
+    (void)mesh_ui_channel_share_link(&snapshot->settings, snapshot->nav.settings_channel, url,
+                                     sizeof url);
+    char summary[128];
     if (!mesh_ui_channel_share_summary(url, summary, sizeof summary)) {
         /* The row that opens this screen is only offered when there is a link, so getting here
            means the radio dropped its table between the press and this frame. */
