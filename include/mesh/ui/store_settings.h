@@ -484,6 +484,10 @@ struct mesh_ui_settings {
     uint8_t meshcore_telemetry_modes;
     uint8_t meshcore_advert_loc_policy;
     uint8_t meshcore_multi_acks;
+    /* The Bluetooth PIN DEVICE_INFO reports, 0 for a random one each boot; `has_meshcore_pin`
+       is false until it has, and for any other protocol. */
+    bool has_meshcore_pin;
+    uint32_t meshcore_ble_pin;
     bool ignore_mqtt;
     bool config_ok_to_mqtt;
     /*

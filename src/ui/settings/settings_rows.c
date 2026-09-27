@@ -1238,6 +1238,17 @@ static void build_meshcore_other(const struct mesh_ui_settings *s, struct item_l
     item_heading(list, MESH_STR_USER_CONTACTS_HEAD);
     item_field(list, MESH_UI_FIELD_AUTO_ADD, s->meshcore_manual_add == 0U ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_EXTRA_ACKS, s->meshcore_multi_acks != 0U ? 1U : 0U, NULL);
+    /* The PIN is kept whichever build is running, so it can be set over a cable before the
+       radio moves to Bluetooth. */
+    if (s->has_meshcore_pin) {
+        char pin[8] = "";
+        if (s->meshcore_ble_pin != 0U) {
+            snprintf(pin, sizeof pin, "%06u", (unsigned)(s->meshcore_ble_pin % 1000000U));
+        }
+        item_heading(list, MESH_STR_HEAD_CONN_BLUETOOTH);
+        item_field(list, MESH_UI_FIELD_MESHCORE_PAIRING, s->meshcore_ble_pin != 0U ? 1U : 0U, NULL);
+        item_field(list, MESH_UI_FIELD_MESHCORE_PIN, 0U, pin);
+    }
 }
 
 static void build_contact_links(const struct mesh_ui_settings *s, struct item_list *list,

@@ -758,6 +758,46 @@ MESH_TEST_CASE(meshcore_settings_write_the_link_refuses_is_settled, unit) {
     record_success(test_name);
 }
 
+/* The Bluetooth PIN is one u32 in DEVICE_INFO rather than SELF_INFO: its OK is the whole
+   answer, with no APP_START after it, and a value the firmware would refuse is never sent. */
+MESH_TEST_CASE(meshcore_settings_write_sets_the_bluetooth_pin, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const struct mesh_radio_settings *settings = mesh_session_settings(&g_model);
+    const uint32_t acked = settings->writes_acked;
+
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.set_pin = true;
+    write.ble_pin = 12345U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EINVAL,
+                      "five digits is a PIN the firmware refuses");
+    write.ble_pin = 1000000U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EINVAL,
+                      "and so is seven");
+
+    write.ble_pin = 482913U;
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1, "one command");
+    MESH_TEST_FAIL_IF(wire.count != before + 1U ||
+                          wire.frames[before][0] != MESH_MESHCORE_CMD_SET_DEVICE_PIN ||
+                          wire.lens[before] != 5U || frame_u32(wire.frames[before] + 1) != 482913U,
+                      "SET_DEVICE_PIN and the PIN, little-endian");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(settings->writes_acked != acked + 1U, "its OK settles the save");
+    MESH_TEST_FAIL_IF(wire.count != before + 1U, "and nothing is read back after it");
+    MESH_TEST_FAIL_IF(g_meshcore.device.ble_pin != 482913U, "the OK moves DEVICE_INFO's PIN");
+
+    /* Zero is the firmware's random PIN, not a PIN out of range. */
+    write.ble_pin = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1,
+                      "zero goes back to a random PIN");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(g_meshcore.device.ble_pin != 0U, "and the OK says so");
+    record_success(test_name);
+}
+
 /* A save is each group's command and then APP_START, whose SELF_INFO is the read-back; the
    answers settle into the write counters the app's save toast watches. */
 MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {

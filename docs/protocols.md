@@ -100,7 +100,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `MODULES` | the Modules row in Settings |
 | `REACTIONS` | React on X, and X itself inside a thread |
 | `RADIO_FIRMWARE` | the radio firmware check and install rows |
-| `FULL_CONFIG` | every Settings section but User, Position, LoRa and Channels, and inside those every row but the name, the coordinates, the frequency, bandwidth, spread factor, coding rate and power, a MeshCore channel's name and key, and MeshCore's other parameters under the name; the Radio details' capability, reboot-count and admin-session rows |
+| `FULL_CONFIG` | every Settings section but User, Position, LoRa and Channels, and inside those every row but the name, the coordinates, the frequency, bandwidth, spread factor, coding rate and power, a MeshCore channel's name and key, MeshCore's other parameters and its Bluetooth PIN under the name; the Radio details' capability, reboot-count and admin-session rows |
 | `RADIO_MAINTENANCE` | shut down, NodeDB reset, backup, restore and factory reset - Reboot stays |
 
 A LoRa save without `FULL_CONFIG` gets its own confirm sentence
@@ -168,6 +168,10 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   everyone), auto-add and multi-acks - are rows under the name in User, and one
   `SET_OTHER_PARAMS` with all four bytes over what SELF_INFO reported. "Add heard nodes" is the
   firmware's `manual_add_contacts` turned over.
+- **The Bluetooth PIN** is DEVICE_INFO's `ble_pin`, under its own heading below them: Pairing
+  (random, 0; fixed) and the six digits, one `SET_DEVICE_PIN` u32 with no read-back - its OK
+  moves the PIN. The firmware reads it at boot, so it takes effect on the next restart, and a
+  USB build keeps it too: set it over the cable before moving the radio to Bluetooth.
 - **A channel slot is edited** as a name (31 bytes; `MESH_UI_FIELD_CHANNEL_ANY_NAME`) and a
   16-byte secret (`_ANY_KEY`) and nothing else, written whole with `SET_CHANNEL` and read back
   with `GET_CHANNEL` for that slot alone. The walk keeps each slot's secret in the settings

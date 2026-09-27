@@ -2157,6 +2157,27 @@ cleanup:
     record_success(test_name);
 }
 
+/* MeshCore's Pairing and PIN rows are one u32 on the wire, settled the same whichever edit
+   came first. */
+MESH_TEST_CASE(app_meshcore_pin_from_pairing_and_typed, unit) {
+    uint32_t pin = 7U;
+    MESH_TEST_FAIL_IF(mesh_app_meshcore_pin(-1, 0U, 482913U, &pin) != 0 || pin != 7U,
+                      "neither row edited writes nothing");
+    MESH_TEST_FAIL_IF(mesh_app_meshcore_pin(0, 0U, 482913U, &pin) != 1 || pin != 0U,
+                      "random is zero");
+    MESH_TEST_FAIL_IF(mesh_app_meshcore_pin(0, 123456U, 482913U, &pin) != 1 || pin != 0U,
+                      "random wins over a PIN typed beside it");
+    MESH_TEST_FAIL_IF(mesh_app_meshcore_pin(-1, 123456U, 0U, &pin) != 1 || pin != 123456U,
+                      "a PIN typed alone is a fixed one");
+    MESH_TEST_FAIL_IF(mesh_app_meshcore_pin(1, 123456U, 482913U, &pin) != 1 || pin != 123456U,
+                      "fixed with a PIN typed is that PIN");
+    MESH_TEST_FAIL_IF(mesh_app_meshcore_pin(1, 0U, 482913U, &pin) != 1 || pin != 482913U,
+                      "fixed alone keeps the one the radio has");
+    MESH_TEST_FAIL_IF(mesh_app_meshcore_pin(1, 0U, 0U, &pin) != -EINVAL,
+                      "and is refused when it has none to keep");
+    record_success(test_name);
+}
+
 /*
  * A radio that does not come back after its own update has its bond dropped for it.
  *

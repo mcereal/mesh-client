@@ -68,6 +68,8 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY = 30,
     MESH_MESHCORE_CMD_GET_CHANNEL = 31,
     MESH_MESHCORE_CMD_SET_CHANNEL = 32,
+    /* A u32: 0 for a new random PIN each boot, else six digits; read at boot, not before. */
+    MESH_MESHCORE_CMD_SET_DEVICE_PIN = 37,
     MESH_MESHCORE_CMD_SET_OTHER_PARAMS = 38,
     MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ = 39,
     MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ = 52,
@@ -514,6 +516,9 @@ struct mesh_meshcore_settings_write {
     uint8_t telemetry_modes;
     uint8_t advert_loc_policy;
     uint8_t multi_acks;
+    /* The Bluetooth PIN DEVICE_INFO reports: 0 or 100000..999999, as the firmware takes it. */
+    bool set_pin;
+    uint32_t ble_pin;
     /* One channel slot, whole: an empty name and an all-zero secret is an unused slot. */
     bool set_channel;
     uint8_t channel_index;

@@ -157,6 +157,11 @@ void mesh_app_mqtt_publish_state(const struct mesh_app *app, struct mesh_ui_mqtt
 /* ---- app_settings.c --------------------------------------------------------------------- */
 
 /* Queues the admin write a MESH_UI_ACTION_SAVE_SETTINGS asks for and toasts the outcome. */
+/* MeshCore's Bluetooth PIN from a save's two rows: `pairing` is -1 when that row was not
+   edited, 0 random, 1 fixed; `typed` is 0 when no PIN was typed; `current` is the radio's. 1
+   with `*out` set, 0 when neither row was edited, -EINVAL for fixed with no PIN to fix. */
+int mesh_app_meshcore_pin(int pairing, uint32_t typed, uint32_t current, uint32_t *out);
+
 void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *action,
                             uint64_t now);
 
