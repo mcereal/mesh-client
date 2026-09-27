@@ -903,21 +903,39 @@ static void mesh_app_publish_messages(struct mesh_app *app,
 static uint8_t mesh_app_flatten_route(const struct mesh_handshake_status *status,
                                       uint32_t first_node, const uint32_t *route,
                                       uint8_t route_count, const int8_t *snr, uint8_t snr_count,
-                                      uint32_t last_node, struct mesh_ui_traceroute_hop *out) {
+                                      const uint8_t (*hashes)[MESH_TRACEROUTE_HASH_MAX],
+                                      uint8_t hash_size, uint32_t last_node,
+                                      struct mesh_ui_traceroute_hop *out) {
     uint8_t count = 0U;
     /* The path is first_node, then every node that forwarded it, then the far end. */
     uint32_t path[MESH_UI_TRACEROUTE_MAX_HOPS];
+    /* Which route entry each stop came from, for a MeshCore hop named only by its bytes. */
+    int from_route[MESH_UI_TRACEROUTE_MAX_HOPS];
+    from_route[count] = -1;
     path[count++] = first_node;
     for (uint8_t i = 0; i < route_count && count < MESH_UI_TRACEROUTE_MAX_HOPS - 1U; ++i) {
+        from_route[count] = (int)i;
         path[count++] = route[i];
     }
+    from_route[count] = -1;
     path[count++] = last_node;
 
     for (uint8_t i = 0; i < count; ++i) {
         struct mesh_ui_traceroute_hop *hop = &out[i];
         memset(hop, 0, sizeof *hop);
         hop->node_id = path[i];
-        mesh_app_format_peer_name(status, path[i], hop->name, sizeof hop->name);
+        if (path[i] == 0U && from_route[i] >= 0 && hash_size > 0U &&
+            hash_size <= MESH_TRACEROUTE_HASH_MAX) {
+            /* A repeater the roster cannot name alone: the bytes the packet named it by, as a
+               relay chip draws the one byte Meshtastic's header gives. */
+            char hex[2U * MESH_TRACEROUTE_HASH_MAX + 1U];
+            for (uint8_t b = 0; b < hash_size; ++b) {
+                snprintf(hex + 2U * b, sizeof hex - 2U * b, "%02x", hashes[from_route[i]][b]);
+            }
+            inkcell_str_format(hop->name, sizeof hop->name, MESH_STR_NODE_VAL_HASH_HEX, hex);
+        } else {
+            mesh_app_format_peer_name(status, path[i], hop->name, sizeof hop->name);
+        }
         /* The first stop is the sender: nothing carried the packet *to* it. */
         if (i > 0U && (uint8_t)(i - 1U) < snr_count) {
             hop->has_snr = true;
@@ -940,15 +958,15 @@ void mesh_app_flatten_traceroute(const struct mesh_handshake_status *status,
     if (src->state != MESH_TRACEROUTE_DONE) {
         return;
     }
-    dst->forward_count =
-        mesh_app_flatten_route(status, my_node, src->route, src->route_count, src->snr,
-                               src->snr_count, src->target, dst->forward);
+    dst->forward_count = mesh_app_flatten_route(status, my_node, src->route, src->route_count,
+                                                src->snr, src->snr_count, src->route_hash,
+                                                src->hash_size, src->target, dst->forward);
     /* The way back is only drawn when the firmware measured it; an empty route_back with no
        readings would otherwise render as a bare two-stop path that says nothing. */
     if (src->snr_back_count > 0U || src->back_count > 0U) {
-        dst->back_count =
-            mesh_app_flatten_route(status, src->target, src->route_back, src->back_count,
-                                   src->snr_back, src->snr_back_count, my_node, dst->back);
+        dst->back_count = mesh_app_flatten_route(
+            status, src->target, src->route_back, src->back_count, src->snr_back,
+            src->snr_back_count, src->back_hash, src->back_hash_size, my_node, dst->back);
     }
 }
 

@@ -1740,6 +1740,104 @@ MESH_TEST_CASE(meshcore_status_lands_on_the_node, unit) {
     record_success(test_name);
 }
 
+/* MeshCore's traceroute is a path discovery: PATH_DISCOVERY_REQ by key, flooded, answered with
+   the path out and the path back as repeater key prefixes - each named from the roster where
+   exactly one node answers to it and kept as its bytes where none or several do - into the
+   model's traceroute, under the one lock every request to another node shares. */
+MESH_TEST_CASE(meshcore_path_discovery_is_the_traceroute, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const uint32_t alice = 0x40414243U;
+    /* A second node under Alice's first byte, so that byte alone names nobody. */
+    struct mesh_node_summary *twin = mesh_session_model_node(g_meshcore.model, 0x40999999U, false);
+    MESH_TEST_FAIL_IF(twin == NULL, "a node shares Alice's first byte");
+    twin->public_key_len = 32U;
+    memset(twin->public_key, 0x99, 32U);
+    twin->public_key[0] = 0x40;
+
+    MESH_TEST_FAIL_IF(mesh_meshcore_discover_path(&g_meshcore, 0x12345678U) != -ENOENT,
+                      "a node the radio does not carry is not traced");
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_discover_path(&g_meshcore, alice) != 0, "Alice is traced");
+    MESH_TEST_FAIL_IF(
+        wire.lens[0] != 34U || wire.frames[0][0] != MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ ||
+            wire.frames[0][1] != 0U || wire.frames[0][2] != 0x40 || wire.frames[0][33] != 0x40 + 31,
+        "by a reserved zero and her whole key");
+    const struct mesh_traceroute *trace = &g_meshcore.model->traceroute;
+    MESH_TEST_FAIL_IF(trace->state != MESH_TRACEROUTE_PENDING || trace->target != alice,
+                      "the trace is running");
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_status(&g_meshcore, alice) != -EBUSY,
+                      "and holds the lock");
+    static const uint8_t k_sent[10] = {MESH_MESHCORE_RESP_SENT, 1, 1, 2, 3, 4, 0x30, 0x75, 0, 0};
+    feed(&protocol, k_sent, sizeof k_sent);
+
+    /* Out: two one-byte hops, one nobody's and one both Alice's and her twin's. Back: two
+       two-byte hops, one only Alice's and one nobody's. */
+    static const uint8_t k_route[] = {MESH_MESHCORE_PUSH_PATH_DISCOVERY_RESPONSE,
+                                      0,
+                                      0x40,
+                                      0x41,
+                                      0x42,
+                                      0x43,
+                                      0x44,
+                                      0x45,
+                                      0x02,
+                                      0xEE,
+                                      0x40,
+                                      0x42,
+                                      0x40,
+                                      0x41,
+                                      0xAB,
+                                      0xCD};
+    feed(&protocol, k_route, sizeof k_route);
+    MESH_TEST_FAIL_IF(g_meshcore.notice.cmd != MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ ||
+                          g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_ROUTE ||
+                          g_meshcore.request_cmd != 0U,
+                      "her answer ends the request");
+    MESH_TEST_FAIL_IF(trace->state != MESH_TRACEROUTE_DONE || trace->target != alice ||
+                          trace->completed == 0U,
+                      "and finishes the trace");
+    MESH_TEST_FAIL_IF(trace->route_count != 2U || trace->hash_size != 1U || trace->route[0] != 0U ||
+                          trace->route_hash[0][0] != 0xEE || trace->route[1] != 0U ||
+                          trace->route_hash[1][0] != 0x40,
+                      "a byte nobody or several answer to is kept as its byte");
+    MESH_TEST_FAIL_IF(trace->back_count != 2U || trace->back_hash_size != 2U ||
+                          trace->route_back[0] != alice || trace->route_back[1] != 0U ||
+                          trace->back_hash[1][0] != 0xAB || trace->back_hash[1][1] != 0xCD,
+                      "and the way back names its hops at its own width");
+
+    /* A width the firmware reserves is unreadable, and ends the trace rather than guessing. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_discover_path(&g_meshcore, alice) != 0, "traced again");
+    feed(&protocol, k_sent, sizeof k_sent);
+    static const uint8_t k_reserved[] = {MESH_MESHCORE_PUSH_PATH_DISCOVERY_RESPONSE,
+                                         0,
+                                         0x40,
+                                         0x41,
+                                         0x42,
+                                         0x43,
+                                         0x44,
+                                         0x45,
+                                         0xC1,
+                                         1,
+                                         2,
+                                         3,
+                                         4,
+                                         0};
+    feed(&protocol, k_reserved, sizeof k_reserved);
+    MESH_TEST_FAIL_IF(trace->state != MESH_TRACEROUTE_TIMEOUT || g_meshcore.request_cmd != 0U,
+                      "a reserved width is not read");
+
+    /* Silence is a trace that timed out. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_discover_path(&g_meshcore, alice) != 0, "traced unheard");
+    feed(&protocol, k_sent, sizeof k_sent);
+    mesh_protocol_tick(&protocol, g_meshcore.request_until_ms);
+    MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_SILENT ||
+                          trace->state != MESH_TRACEROUTE_TIMEOUT,
+                      "nothing by the deadline times the trace out");
+    record_success(test_name);
+}
+
 /* A login queued behind a reboot is still the open request once the handshake starts over:
    it is written first, and its SENT arms the deadline its answer is held to. */
 MESH_TEST_CASE(meshcore_request_outlives_a_reboot_restart, unit) {

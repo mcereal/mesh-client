@@ -84,7 +84,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | Feature | What disappears without it |
 |---|---|
 | `WAYPOINTS` | "Send a waypoint" on a node's sheet; the Nodes list's Waypoints row dims and a press says why, since every row under it is counted from it (`MESH_UI_NODES_LEAD_ROWS`) |
-| `TRACEROUTE` | the traceroute verb |
+| `TRACEROUTE` | the traceroute verb (on MeshCore, a path discovery to a contact) |
 | `NODE_REQUESTS` | asking a node for its name or position |
 | `NODE_TELEMETRY` | asking a node for its readings (on MeshCore, a contact) |
 | `NODE_LOGIN` | logging in to a MeshCore repeater or room server - MeshCore's alone |
@@ -203,6 +203,14 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   post counts - the same length, so the contact's kind picks the reading. They land on the
   node's `relay` group, the battery on `metrics`. A node answers only a client on its access
   list, so silence is said as "log in to it first".
+- **A traceroute** is `SEND_PATH_DISCOVERY_REQ` by the whole key, flooded, answered by
+  `PATH_DISCOVERY_RESPONSE`: the path our flood took out and the path the answer took back, each
+  a length byte (hop count in the low six bits, bytes per hop less one in the top two) and the
+  hops. A hop is the first one to three bytes of a repeater's key, so it is named from the roster
+  only where exactly one node answers to it, and drawn as `!..ab` otherwise. It fills the same
+  `mesh_traceroute` Meshtastic's does, with no SNR; silence is a trace that timed out. The
+  firmware's other trace, `SEND_TRACE_PATH`, measures SNR along a path given to it and is not
+  sent yet.
 - **One request to another node at a time.** The firmware keeps one pending and clears it for
   any new login, status or telemetry request (`clearPendingReqs()`), so a second is refused
   while the first is queued and until its answer or the deadline its `SENT` names. How each one
@@ -222,7 +230,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `RESP_CODE_SENT` named. It is tried three times with the same timestamp - the last after
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
-Not yet spoken: trace paths, channel links and the signed contact card. The
+Not yet spoken: a trace along a given path, channel links and the signed contact card. The
 `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
 end.
