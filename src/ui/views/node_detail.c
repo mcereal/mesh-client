@@ -1433,8 +1433,10 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
             rows_toggle(&rows, MESH_STR_NODE_ACT_PIN, node->is_favorite,
                         MESH_UI_NODE_ACTION_FAVORITE);
         }
-        /* Tracing the route to ourselves is a question with no links in it. */
-        if (node_actions_offer(lacks, MESH_UI_FEATURE_TRACEROUTE)) {
+        /* Tracing the route to ourselves is a question with no links in it. MeshCore's radio
+           discovers a path only to a contact, as it asks one for readings. */
+        if (node_actions_offer(lacks, MESH_UI_FEATURE_TRACEROUTE) &&
+            (flags || (node->in_nodedb && node->public_key_len == sizeof node->public_key))) {
             node_rows_route_action(&rows, node, trace);
         }
         /* The one row that answers "who is this?" for a node that joined after the NodeDB

@@ -40,6 +40,8 @@ extern "C" {
 /* RouteDiscovery's arrays are capped at 8 upstream (proto/meshtastic/mesh.options), so a
    trace can cross at most that many intermediate nodes in each direction. */
 #define MESH_TRACEROUTE_MAX_HOPS 8U
+/* The widest hop MeshCore names a repeater by: three bytes of its key (the fourth is reserved). */
+#define MESH_TRACEROUTE_HASH_MAX 3U
 
 /* How long a traceroute waits before it is called lost. A reply has to cross the mesh twice,
    and the firmware answers only after the request has reached the far end, so this is much
@@ -509,6 +511,11 @@ enum mesh_traceroute_state {
  * reading per link rather than per node. The firmware sends SNR scaled by 4 and uses INT8_MIN
  * for a link it could not measure; both are kept raw here and resolved for display.
  *
+ * MeshCore's path discovery lands here too, without readings: it names each repeater by the
+ * first one to three bytes of its key rather than by a node number, so a hop the roster cannot
+ * name alone is 0 in `route` with its bytes in `route_hash`, `hash_size` long (and the same for
+ * the way back).
+ *
  * One trace at a time, and the result is kept after it completes so the node detail can show
  * the last known route without re-running it - the firmware rate-limits traceroutes, and a
  * screen that re-traced on every repaint would be refused and would flood the mesh.
@@ -527,6 +534,10 @@ struct mesh_traceroute {
     uint32_t route_back[MESH_TRACEROUTE_MAX_HOPS];
     uint8_t snr_back_count;
     int8_t snr_back[MESH_TRACEROUTE_MAX_HOPS + 1U];
+    uint8_t hash_size; /* 0 for Meshtastic's node numbers */
+    uint8_t route_hash[MESH_TRACEROUTE_MAX_HOPS][MESH_TRACEROUTE_HASH_MAX];
+    uint8_t back_hash_size; /* each way is its own packet, and names its hops its own width */
+    uint8_t back_hash[MESH_TRACEROUTE_MAX_HOPS][MESH_TRACEROUTE_HASH_MAX];
 };
 
 struct mesh_channel_summary {

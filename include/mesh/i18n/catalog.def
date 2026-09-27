@@ -1105,6 +1105,9 @@ MESH_STR_ENTRY(NODE_VAL_USER_ID_HEX,      "!%08x")
    LoRa header had no room for, so the id reads as the partial one it is rather than as a node
    number that happens to be small. */
 MESH_STR_ENTRY(NODE_VAL_RELAY_HEX,        "!..%02x")
+/* A MeshCore repeater on a traced route that the roster cannot name alone: the one to three
+   bytes of its key the packet named it by, in hex. */
+MESH_STR_ENTRY(NODE_VAL_HASH_HEX,         "!..%s")
 MESH_STR_ENTRY(NODE_VAL_NUMBER,           "%u")
 MESH_STR_ENTRY(NODE_VAL_SNR,              "%.2f dB")
 MESH_STR_ENTRY(NODE_VAL_RSSI,             "%d dBm")

@@ -1218,12 +1218,20 @@ static void on_traceroute(struct mesh_app *app, const struct mesh_ui_action *act
 
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
-    const int result = mesh_session_send_traceroute(&app->session, action->dest);
+    /* MeshCore's trace is its path discovery, which is one of the requests its radio keeps
+       one of at a time - so busy there is the shared lock, not a trace already running. */
+    const int result = app->meshcore_bound
+                           ? mesh_meshcore_discover_path(&app->meshcore, action->dest)
+                           : mesh_session_send_traceroute(&app->session, action->dest);
     if (result == 0) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_TRACING, name);
         inkwell_log_info("ui", "Traceroute to 0x%08x from the Nodes tab", action->dest);
     } else if (result == -ENOTCONN) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else if (result == -ENOENT) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
+    } else if (result == -EBUSY && app->meshcore_bound) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_REQUEST_BUSY));
     } else if (result == -EBUSY) {
         /* One trace at a time is this client's half of the firmware's rate limit. */
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_TRACE_RUNNING));

@@ -305,6 +305,20 @@ MESH_TEST_CASE(ui_protocol_meshcore_asks_a_repeater_for_status, unit) {
         offered = offered || items[i].action == MESH_UI_NODE_ACTION_REQUEST_STATUS;
     }
     MESH_TEST_FAIL_IF(!offered, "the repeater's sheet offers its status");
+    /* The trace is MeshCore's path discovery, which the radio runs only to a contact. */
+    bool traced = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        traced = traced || items[i].action == MESH_UI_NODE_ACTION_TRACEROUTE;
+    }
+    MESH_TEST_FAIL_IF(!traced, "a contact's sheet offers a trace");
+    node.in_nodedb = false;
+    count = mesh_ui_node_actions_build(&node, false, NULL, false, lacks, items,
+                                       MESH_UI_NODE_ACTIONS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        MESH_TEST_FAIL_IF(items[i].action == MESH_UI_NODE_ACTION_TRACEROUTE,
+                          "a node the radio does not carry is not traced");
+    }
+    node.in_nodedb = true;
 
     const char *heading = inkcell_str(MESH_STR_NODE_HEAD_RELAY);
     count = mesh_ui_node_detail_build(&node, false, 1750000000U, NULL, NULL, NULL, false, items,

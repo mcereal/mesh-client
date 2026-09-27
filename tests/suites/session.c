@@ -692,6 +692,48 @@ MESH_TEST_CASE(session_traceroute, unit) {
     record_success(test_name);
 }
 
+/* A MeshCore route names each repeater by a prefix of its key and reads no SNR: a hop the roster
+   could not name is drawn as the bytes it was named by, at its own direction's width, and no
+   stop claims a reading. */
+MESH_TEST_CASE(session_meshcore_route_names_hops_by_their_hash, unit) {
+    static struct mesh_session session;
+    mesh_session_init(&session);
+    static struct mesh_traceroute trace;
+    memset(&trace, 0, sizeof trace);
+    trace.state = MESH_TRACEROUTE_DONE;
+    trace.target = 0x3333U;
+    trace.route_count = 2U;
+    trace.route[0] = 0U;
+    trace.route[1] = 0x2222U;
+    trace.hash_size = 1U;
+    trace.route_hash[0][0] = 0xEE;
+    trace.route_hash[1][0] = 0x22;
+    trace.back_count = 1U;
+    trace.back_hash_size = 2U;
+    trace.back_hash[0][0] = 0xAB;
+    trace.back_hash[0][1] = 0xCD;
+
+    static struct mesh_ui_traceroute ui;
+    mesh_app_flatten_traceroute(mesh_session_handshake(&session), &trace, 0x1111U, &ui);
+    MESH_TEST_FAIL_IF(ui.forward_count != 4U || strcmp(ui.forward[1].name, "!..ee") != 0 ||
+                          ui.forward[1].node_id != 0U || ui.forward[2].node_id != 0x2222U ||
+                          strcmp(ui.forward[2].name, "!..ee") == 0,
+                      "an unnamed hop is its byte; a named one is its node");
+    MESH_TEST_FAIL_IF(ui.back_count != 3U || strcmp(ui.back[1].name, "!..abcd") != 0,
+                      "the way back names its hops at its own width");
+    for (uint8_t i = 0; i < ui.forward_count; ++i) {
+        MESH_TEST_FAIL_IF(ui.forward[i].has_snr, "a path discovery reads no SNR");
+    }
+    /* An answer that came straight back crossed no repeater, and is still a way back. */
+    trace.back_count = 0U;
+    trace.back_hash_size = 1U;
+    mesh_app_flatten_traceroute(mesh_session_handshake(&session), &trace, 0x1111U, &ui);
+    MESH_TEST_FAIL_IF(ui.back_count != 2U || ui.back[0].node_id != 0x3333U ||
+                          ui.back[1].node_id != 0x1111U,
+                      "a direct way back is the target, then us");
+    record_success(test_name);
+}
+
 /*
  * The two Nodes-tab actions that talk to the radio about another node. Ignore is an admin
  * write with no read-back, so the cached flag has to move here or the row would lie until the

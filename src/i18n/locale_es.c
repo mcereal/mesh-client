@@ -578,6 +578,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_VERIFY_NUMBER_PROMPT] = "Seis dígitos de %s",
     [MESH_STR_NODE_VAL_USER_ID_HEX] = "!%08x",
     [MESH_STR_NODE_VAL_RELAY_HEX] = "!..%02x",
+    [MESH_STR_NODE_VAL_HASH_HEX] = "!..%s",
     [MESH_STR_NODE_VAL_NUMBER] = "%u",
     [MESH_STR_NODE_VAL_SNR] = "%.2f dB",
     [MESH_STR_NODE_VAL_RSSI] = "%d dBm",

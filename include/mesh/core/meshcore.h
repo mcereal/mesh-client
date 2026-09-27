@@ -69,6 +69,7 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_SET_CHANNEL = 32,
     MESH_MESHCORE_CMD_SET_OTHER_PARAMS = 38,
     MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ = 39,
+    MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ = 52,
 };
 
 enum mesh_meshcore_resp {
@@ -103,6 +104,7 @@ enum mesh_meshcore_push {
     MESH_MESHCORE_PUSH_LOG_RX_DATA = 0x88,
     MESH_MESHCORE_PUSH_NEW_ADVERT = 0x8A,
     MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE = 0x8B,
+    MESH_MESHCORE_PUSH_PATH_DISCOVERY_RESPONSE = 0x8D,
     MESH_MESHCORE_PUSH_CONTACT_DELETED = 0x8F,
     MESH_MESHCORE_PUSH_CONTACTS_FULL = 0x90,
 };
@@ -416,11 +418,12 @@ enum mesh_meshcore_answer {
     MESH_MESHCORE_ANSWER_SILENT,       /* no answer by the radio's deadline */
     MESH_MESHCORE_ANSWER_UNSENT,       /* the radio would not send it */
     MESH_MESHCORE_ANSWER_STATUS,       /* its status arrived */
+    MESH_MESHCORE_ANSWER_ROUTE,        /* the routes to it and back arrived */
 };
 
 struct mesh_meshcore_notice {
     uint32_t node_id;
-    uint8_t cmd;    /* the request: SEND_LOGIN, SEND_STATUS_REQ or SEND_TELEMETRY_REQ */
+    uint8_t cmd;    /* the request: a login, a status, readings or a path discovery */
     uint8_t answer; /* enum mesh_meshcore_answer */
 };
 
@@ -595,6 +598,14 @@ int mesh_meshcore_login(struct mesh_meshcore *meshcore, uint32_t node_id, const 
  * returns.
  */
 int mesh_meshcore_request_status(struct mesh_meshcore *meshcore, uint32_t node_id);
+/*
+ * Finds the routes to a contact and back: SEND_PATH_DISCOVERY_REQ, flooded, answered by a
+ * PATH_DISCOVERY_RESPONSE naming the repeaters each way by a prefix of their keys. They land in
+ * the model's traceroute, where Meshtastic's trace does, as the path out and the path back;
+ * silence, or a radio that would not send it, is a trace that timed out. The same one request as
+ * mesh_meshcore_request_telemetry(), and the same returns.
+ */
+int mesh_meshcore_discover_path(struct mesh_meshcore *meshcore, uint32_t node_id);
 /*
  * Asks the radio to make a contact of a node known only from a link: its whole key, its name and
  * the kind of node it is (enum mesh_meshcore_adv_type), with no route and no advert stamp, so the
