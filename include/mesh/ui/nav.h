@@ -793,8 +793,14 @@ struct mesh_ui_nav {
      * disconnect also holds auto-connect, so a thumb that slipped one row on the cards left the
      * reader offline until they went and reconnected by hand. Any other press stands it down,
      * B included - which then does nothing else, since the bar named it "cancel".
+     *
+     * Armed against one radio, named in `disconnect_link`: a link that drops between the two
+     * presses, and one auto-connect brings up in its place, is not the link the first press was
+     * about. mesh_ui_nav_disconnect_pending() is the question every reader asks, so a stale
+     * arming reads as none and the next press is a first one again.
      */
     bool disconnect_armed;
+    char disconnect_link[64];
     /*
      * A window's right-click menu over the row under the cursor: that row's verbs, at the
      * pointer. The verbs are not held here - the frame reads them off the action table for the
@@ -1395,6 +1401,12 @@ bool mesh_ui_nav_status_showing(const struct mesh_ui_nav *nav);
  * pins a node, and a trigger crosses a card or pages a list - presses a hold must not repeat.
  */
 bool mesh_ui_nav_key_repeats(const struct mesh_ui_nav *nav, enum inkcell_key key);
+
+struct mesh_ui_device;
+/* A disconnect armed against a radio that is still the connected one - see `disconnect_armed`.
+   Asked with the store's devices by the nav and the snapshot's by the bar and the renderer. */
+bool mesh_ui_nav_disconnect_pending(const struct mesh_ui_nav *nav,
+                                    const struct mesh_ui_device *devices, size_t count);
 
 /*
  * The settings section the panel is showing, on whichever tab shows it: the Settings tab's open

@@ -651,14 +651,33 @@ static void mesh_ui_nav_fill_resend(struct mesh_ui_action *action,
 
 /* ---- rows and cursors --------------------------------------------------------------------- */
 
-/* Whether a radio is connected - not merely coming up, which a disconnect only stops. */
-static bool mesh_ui_nav_link_up(const struct mesh_ui_store *store) {
+/* The radio that is connected - not merely coming up, which a disconnect only stops - or NULL. */
+static const struct mesh_ui_device *mesh_ui_nav_link_up(const struct mesh_ui_store *store) {
     for (size_t i = 0; i < store->device_count; ++i) {
         if (store->devices[i].connected) {
+            return &store->devices[i];
+        }
+    }
+    return NULL;
+}
+
+bool mesh_ui_nav_disconnect_pending(const struct mesh_ui_nav *nav,
+                                    const struct mesh_ui_device *devices, size_t count) {
+    if (nav == NULL || !nav->disconnect_armed || devices == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (devices[i].connected && strcmp(devices[i].identifier, nav->disconnect_link) == 0) {
             return true;
         }
     }
     return false;
+}
+
+/* The first of a disconnect's two presses, against the radio that is up now. */
+static void mesh_ui_nav_arm_disconnect(struct mesh_ui_nav *nav, const struct mesh_ui_device *link) {
+    nav->disconnect_armed = true;
+    snprintf(nav->disconnect_link, sizeof nav->disconnect_link, "%s", link->identifier);
 }
 
 /*
@@ -1286,7 +1305,7 @@ static bool mesh_ui_nav_has_groups(const struct mesh_ui_nav *nav,
 static bool mesh_ui_nav_cursor_page(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                     int delta) {
     /* The Status cards walk verbs, not rows; the map's cursor is the world. */
-    if (mesh_ui_nav_status_showing(nav) || nav->map_open) {
+    if (mesh_ui_nav_status_showing(nav) || (nav->map_open && nav->screen == MESH_UI_SCREEN_NODES)) {
         return false;
     }
     bool moved = false;
@@ -2159,9 +2178,14 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             nav->devices_forget_armed = false;
             return true;
         case MESH_UI_STATUS_VERB_DISCONNECT:
-            /* The first press only arms it - see `disconnect_armed`. */
-            if (!nav->disconnect_armed) {
-                nav->disconnect_armed = true;
+            /* The first press only arms it - see `disconnect_armed`. The verb is offered only
+               with a link up, so there is one to arm against. */
+            if (!mesh_ui_nav_disconnect_pending(nav, store->devices, store->device_count)) {
+                const struct mesh_ui_device *link = mesh_ui_nav_link_up(store);
+                if (link == NULL) {
+                    return false;
+                }
+                mesh_ui_nav_arm_disconnect(nav, link);
                 return true;
             }
             nav->disconnect_armed = false;
@@ -2828,8 +2852,10 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
                taking the radio straight back. A link that is up costs a second press - see
                `disconnect_armed` - and one still coming up does not: stopping an attempt
                loses nothing. */
-            if (mesh_ui_nav_link_up(store) && !nav->disconnect_armed) {
-                nav->disconnect_armed = true;
+            const struct mesh_ui_device *link = mesh_ui_nav_link_up(store);
+            if (link != NULL &&
+                !mesh_ui_nav_disconnect_pending(nav, store->devices, store->device_count)) {
+                mesh_ui_nav_arm_disconnect(nav, link);
                 return true;
             }
             nav->disconnect_armed = false;

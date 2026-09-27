@@ -484,7 +484,7 @@ static void actions_devices(const struct mesh_ui_nav *nav, const struct mesh_ui_
         command_add(bar, MESH_UI_COMMAND_CANCEL, MESH_STR_ACTION_CANCEL, INKCELL_BUTTON_B);
         return;
     }
-    if (nav->disconnect_armed) {
+    if (mesh_ui_nav_disconnect_pending(nav, snapshot->devices, snapshot->device_count)) {
         command_add(bar, MESH_UI_COMMAND_CONFIRM_DISCONNECT, MESH_STR_ACTION_CONFIRM_DISCONNECT,
                     INKCELL_BUTTON_X);
         command_add(bar, MESH_UI_COMMAND_CANCEL, MESH_STR_ACTION_CANCEL, INKCELL_BUTTON_B);
@@ -821,7 +821,7 @@ static void actions_status(const struct mesh_ui_snapshot *snapshot,
     const bool connected = mesh_ui_snapshot_connected_device(snapshot) != NULL;
 
     /* A disconnect armed on the Link card asks one question, as every armed press does. */
-    if (snapshot->nav.disconnect_armed) {
+    if (mesh_ui_nav_disconnect_pending(&snapshot->nav, snapshot->devices, snapshot->device_count)) {
         command_add(bar, MESH_UI_COMMAND_CONFIRM_DISCONNECT, MESH_STR_ACTION_CONFIRM_DISCONNECT,
                     INKCELL_BUTTON_A);
         command_add(bar, MESH_UI_COMMAND_CANCEL, MESH_STR_ACTION_CANCEL, INKCELL_BUTTON_B);

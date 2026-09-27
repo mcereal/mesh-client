@@ -224,7 +224,7 @@ void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_sn
         /* Armed to be forgotten, or - the link that is up - armed to be dropped. Either is a
            second press away from losing something, and the row says so the same way. */
         const bool armed = (nav->devices_forget_armed && nav->devices_forget_row == i) ||
-                           (nav->disconnect_armed && device->connected);
+                           (device->connected && mesh_ui_nav_disconnect_pending(nav, device, 1U));
         enum inkcell_tone tone = INKCELL_TONE_NORMAL;
         if (armed) {
             tone = INKCELL_TONE_ERROR;

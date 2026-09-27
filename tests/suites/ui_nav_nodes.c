@@ -1312,6 +1312,24 @@ MESH_TEST_CASE(ui_nav_devices_disconnect_forget, unit) {
         return;
     }
 
+    /* Armed against one radio, and another comes up in its place: the next X is a first press
+       again, not the second one that would drop a link nobody asked about. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    devices[0].connected = false;
+    devices[1].connected = true;
+    mesh_ui_store_set_discovery(&store, devices, sizeof devices / sizeof devices[0]);
+    mesh_ui_store_consume_updates(&store, NULL);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_NONE ||
+        !mesh_ui_nav_disconnect_pending(&store.nav, store.devices, store.device_count)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "a disconnect armed for one radio must not drop another");
+        return;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    devices[1].connected = false;
+    devices[0].connected = true;
+
     /* A link still coming up is stopped at once: there is nothing yet to lose. */
     devices[0].connected = false;
     devices[0].busy = true;
@@ -2647,6 +2665,15 @@ MESH_TEST_CASE(ui_nav_triggers_page_a_list_with_no_groups, unit) {
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
     if (*cursor != 0U || store.nav.node_detail_open || store.nav.map_open) {
         failure = "L2 near the top should stop on the first row and open nothing";
+        goto cleanup;
+    }
+
+    /* The map stays open behind a change of tab, and must not take paging with it. */
+    store.nav.map_open = true;
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES);
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action) ||
+        store.nav.cursor[MESH_UI_SCREEN_MESSAGES] == 0U) {
+        failure = "a map left open on Nodes should not stop R2 paging the conversation list";
         goto cleanup;
     }
 
