@@ -120,6 +120,22 @@ static bool mesh_app_firmware_radio_ready(void *userdata) {
        answered, and its name is what it is held to - the image was chosen for the flasher's
        device that name matched, and a MeshCore board carries no model number (a Meshtastic
        one always does, so an install chosen for one never takes the other). */
+    /* A switch's board is the other firmware's, which this radio is not yet: it is held to
+       what it said it was when the install was pressed instead. */
+    if (update->release.wipe) {
+        if (identifier == NULL || mesh_app_firmware_bus() != update->path) {
+            return false;
+        }
+        const bool same =
+            app->meshcore_bound
+                ? app->meshcore.has_device && app->firmware_switch_model[0] != '\0' &&
+                      strcmp(app->meshcore.device.model, app->firmware_switch_model) == 0
+                : metadata != NULL && app->firmware_switch_hw_model != 0U &&
+                      (uint32_t)metadata->hw_model == app->firmware_switch_hw_model;
+        const char *const now_at = mesh_serial_transport_connected_id(mesh_serial_transport());
+        return same && (update->where[0] == '\0' ||
+                        (now_at != NULL && strcasecmp(now_at, update->where) == 0));
+    }
     const bool meshcore =
         app->meshcore_bound && app->meshcore.has_device && update->hw_model == 0U &&
         mesh_firmware_meshcore_names(app->meshcore.device.model, update->board.name);
@@ -337,6 +353,10 @@ void mesh_app_firmware_update_done(void *userdata, const struct mesh_firmware_up
          */
         mesh_firmware_forget(&app->firmware);
         mesh_app_firmware_watch_bond(app, update, now);
+        /* A switch: the cable now carries the other protocol, from a blank flash. */
+        if (update->release.wipe && update->path == MESH_FIRMWARE_PATH_USB) {
+            mesh_app_probe_expect(app, update->where, update->board.meshcore, now);
+        }
     } else {
         /* The radio's own words where it supplied any, our name for the category where not.
            Untranslated either way, like a log line. */
@@ -1873,6 +1893,48 @@ static void on_check_radio_firmware(struct mesh_app *app, const struct mesh_ui_a
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
+/*
+ * What the other firmware has for this board: MeshCore's USB companion for a radio on
+ * Meshtastic, Meshtastic's newest for one on MeshCore. The board is the one the last check
+ * named - a switch is asked of a board already identified, through the twin table - and the
+ * radio is described as a check describes it, so the answer is held to it the same way.
+ */
+static void on_check_firmware_switch(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = inkwell_time_monotonic_ms();
+    (void)action;
+    const struct mesh_firmware_board *const board = mesh_firmware_board(&app->firmware);
+    if (board == NULL || app->firmware.switching) {
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
+        return;
+    }
+    /* Copied out: the check forgets the answer `board` points into before it reads it. */
+    char named[MESH_FIRMWARE_TARGET_MAX];
+    inkwell_str_copy(named, sizeof named, app->meshcore_bound ? board->name : board->target);
+    const meshtastic_DeviceMetadata *const metadata =
+        mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
+    const int result =
+        app->meshcore_bound
+            ? mesh_firmware_check_switch_to_meshtastic(
+                  &app->firmware, app->meshcore.has_device ? app->meshcore.device.model : "",
+                  app->meshcore.has_device ? app->meshcore.device.version : "",
+                  mesh_app_firmware_bus() == MESH_FIRMWARE_PATH_USB, named, now)
+            : mesh_firmware_check_switch_to_meshcore(
+                  &app->firmware, metadata != NULL ? (uint32_t)metadata->hw_model : 0U,
+                  metadata != NULL ? metadata->firmware_version : "", named, now);
+    if (result == 0) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_CHECKING_FIRMWARE));
+    } else if (result == -ENOTSUP) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_UPDATES_UNAVAILABLE));
+    } else if (result == -EBUSY) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_ALREADY_CHECKING));
+    } else {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_UPDATE_CHECK_FAILED, result);
+        inkwell_log_warn("ui", "Firmware switch check could not start: %d", result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 static void on_install_update(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
@@ -1907,9 +1969,17 @@ static void on_install_update(struct mesh_app *app, const struct mesh_ui_action 
  * is armed (firmware_ota.c takes a NULL arm as "already in there") and nothing is waited for (a
  * NULL radio_ready is "go now").
  */
-static bool firmware_resume_install(struct mesh_app *app, uint64_t now) {
+static bool firmware_resume_install(struct mesh_app *app, uint64_t now, bool switch_agreed) {
     if (!mesh_firmware_update_can_resume(&app->firmware_update)) {
         return false;
+    }
+    /* The sheet agreed to has to be the one for what the retry writes: a whole flash only
+       under the switch sheet, and an update only under an update's. */
+    if (app->firmware_update.release.wipe != switch_agreed) {
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
+        inkwell_log_warn("ui", "Refusing a firmware resume: the sheet and the job disagree "
+                               "about whether this is a switch");
+        return true;
     }
     char toast[MESH_UI_NAV_TOAST_MAX];
     const struct mesh_firmware_board board = app->firmware_update.board;
@@ -1942,7 +2012,7 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
 
-    if (firmware_resume_install(app, now)) {
+    if (firmware_resume_install(app, now, action->number == 2U)) {
         return;
     }
     /*
@@ -1968,6 +2038,16 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
      */
     const enum mesh_firmware_path agreed =
         action->number == 1U ? MESH_FIRMWARE_PATH_BLE : MESH_FIRMWARE_PATH_USB;
+    /* And the sheet for a switch - the one that says everything on the radio goes - against
+       whether the answer is one: an update agreed to must never write the whole flash, nor a
+       switch go ahead on the milder sheet. */
+    const bool switch_agreed = action->number == 2U;
+    if (switch_agreed != app->firmware.switching || app->firmware.release.wipe != switch_agreed) {
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
+        inkwell_log_warn("ui", "Refusing a firmware install: the sheet and the answer disagree "
+                               "about whether this is a switch");
+        return;
+    }
     if (!mesh_firmware_board_takes(board, agreed) || app->firmware.bus != agreed) {
         mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
         inkwell_log_warn("ui",
@@ -2004,6 +2084,10 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
      */
     const struct mesh_client_notification *const seen = mesh_session_notification(&app->session);
     app->firmware_notification_seq = seen != NULL ? seen->seq : 0U;
+    /* What the radio is before a switch makes it the other firmware's board. */
+    app->firmware_switch_hw_model = app->firmware.switching ? app->firmware.hw_model : 0U;
+    inkwell_str_copy(app->firmware_switch_model, sizeof app->firmware_switch_model,
+                     app->firmware.switching ? app->firmware.model : "");
     const struct mesh_firmware_update_hooks hooks = mesh_app_firmware_hooks(app);
     const int result = mesh_firmware_update_start(
         &app->firmware_update, board, &app->firmware.release, agreed, where != NULL ? where : "",
@@ -2287,6 +2371,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_CHECK_UPDATE, on_check_update, false},
     {MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL, on_cycle_firmware_channel, false},
     {MESH_UI_ACTION_CHECK_RADIO_FIRMWARE, on_check_radio_firmware, false},
+    {MESH_UI_ACTION_CHECK_FIRMWARE_SWITCH, on_check_firmware_switch, false},
     {MESH_UI_ACTION_INSTALL_UPDATE, on_install_update, false},
     {MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE, on_install_radio_firmware, false},
     {MESH_UI_ACTION_IMPORT_CHANNELS, on_import_channels, false},

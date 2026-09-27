@@ -872,6 +872,17 @@ struct mesh_ui_settings {
      * computer this client is not currently talking to.
      */
     bool fw_radio_in_loader;
+    /*
+     * The other firmware - MeshCore under a Meshtastic `protocol`, and the reverse. The board
+     * can be moved to it (`fw_switch_offer`: it has a twin there and the check named it), or
+     * the answer above is about it (`fw_switching`), which makes that a switch rather than an
+     * update: its row is labelled by the firmware and its press is the whole flash.
+     */
+    bool fw_switch_offer;
+    bool fw_switching;
+    /* Where a switch goes: MeshCore, or Meshtastic. The radio's protocol says it for a fresh
+       answer, but a switch that stopped half way may be answering in either - the job knows. */
+    bool fw_switch_to_meshcore;
 };
 
 #ifdef __cplusplus

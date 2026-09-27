@@ -460,6 +460,178 @@ MESH_TEST_CASE(firmware_serial_writes_the_app_and_blanks_otadata, unit) {
     record_success(test_name);
 }
 
+/* One partition table row. */
+static void table_row(uint8_t *at, uint8_t type, uint8_t subtype, uint32_t offset, uint32_t size,
+                      const char *label) {
+    memset(at, 0, 32U);
+    at[0] = 0xAAU;
+    at[1] = 0x50U;
+    at[2] = type;
+    at[3] = subtype;
+    memcpy(at + 4, &offset, 4U);
+    memcpy(at + 8, &size, 4U);
+    memcpy(at + 12, label, strlen(label));
+}
+
+/*
+ * A whole-flash image as merge_bin lays one out, shrunk to the fake's 128 KB: an S3 bootloader
+ * at 0x0, the table at 0x8000, the app at 0x10000, 0xFF between. Two data partitions sit past
+ * its end, where the last firmware's filesystem and core dump would be.
+ */
+static uint8_t g_whole[0x10000U + sizeof g_image];
+
+static void fill_whole(void) {
+    memset(g_whole, 0xFF, sizeof g_whole);
+    memcpy(g_whole, k_s3_header, sizeof k_s3_header);
+    memset(g_whole + 32, 0x00, 4U); /* a bootloader carries no app descriptor */
+    uint8_t *const table = g_whole + 0x8000U;
+    table_row(table + 0, 0x01U, 0x02U, 0x9000U, 0x5000U, "nvs");
+    table_row(table + 32, 0x01U, 0x00U, 0xE000U, 0x2000U, "otadata");
+    table_row(table + 64, 0x00U, 0x10U, 0x10000U, 0x8000U, "app0");
+    table_row(table + 96, 0x01U, 0x82U, 0x18000U, 0x4000U, "spiffs");
+    table_row(table + 128, 0x01U, 0x03U, 0x1C000U, 0x2000U, "coredump");
+    memcpy(g_whole + 0x10000U, g_image, sizeof g_image);
+    memcpy(g_whole + 0x10000U, k_s3_header, sizeof k_s3_header);
+}
+
+MESH_TEST_CASE(firmware_serial_writes_a_whole_flash_and_erases_what_the_last_one_kept, unit) {
+    fill();
+    fill_whole();
+    char path[256];
+    MESH_TEST_FAIL_IF(!stage(g_whole, sizeof g_whole, path, sizeof path), "no staging file");
+    int pair[2];
+    MESH_TEST_FAIL_IF_CLEANUP(open_pair(pair, &g_rom) != 0, unlink(path), "no socketpair");
+    /* The last firmware's bytes everywhere. */
+    memset(g_rom.flash, 0x5A, sizeof g_rom.flash);
+    struct inkwell_serial_port_info port;
+    memset(&port, 0, sizeof port);
+    snprintf(port.id, sizeof port.id, "1-1:1.0");
+    snprintf(port.path, sizeof port.path, "/dev/ttyUSB0");
+    port.kind = INKWELL_SERIAL_BRIDGE;
+    port.bound = true;
+    struct inkwell_serial_mock_config mock;
+    memset(&mock, 0, sizeof mock);
+    mock.ports = &port;
+    mock.port_count = 1U;
+    mock.open_fd = pair[1];
+    inkwell_serial_mock_enable(&mock);
+
+    static struct mesh_firmware_serial serial;
+    uint64_t now = 1000U;
+    const int started = mesh_firmware_serial_start_whole(&serial, NULL, path, "1-1:1.0",
+                                                         INKWELL_ESP_CHIP_ESP32_S3, now);
+    unsigned erasing_progress = 0U;
+    for (int turn = 0; turn < 20000 && mesh_firmware_serial_busy(&serial); ++turn) {
+        now += 10U;
+        mesh_firmware_serial_tick(&serial, now);
+        fake_service(&g_rom);
+        if (serial.loader.region >= 1U && serial.loader.state != MESH_ESP_LOADER_DONE &&
+            serial.loader.state != MESH_ESP_LOADER_RESTARTING) {
+            const unsigned progress = mesh_firmware_serial_progress(&serial);
+            erasing_progress = progress > erasing_progress ? progress : erasing_progress;
+        }
+    }
+    close_pair(pair);
+    unlink(path);
+
+    MESH_TEST_FAIL_IF(started != 0, serial.reason);
+    MESH_TEST_FAIL_IF(serial.state != MESH_FIRMWARE_SERIAL_DONE, serial.reason);
+    MESH_TEST_FAIL_IF(memcmp(g_rom.flash, g_whole, sizeof g_whole) != 0,
+                      "the image went down at 0x0, bootloader and table and all");
+    bool blank = true;
+    for (size_t i = 0x18000U; i < 0x1E000U; ++i) {
+        blank = blank && g_rom.flash[i] == 0xFFU;
+    }
+    MESH_TEST_FAIL_IF(!blank, "the filesystem and core dump past it were erased");
+    MESH_TEST_FAIL_IF(g_rom.flash[0x1E000U] != 0x5AU || g_rom.flash[0x12000U] != 0x5AU,
+                      "and nothing the table does not call data was touched");
+    MESH_TEST_FAIL_IF(g_rom.begins != 3U || g_rom.blocks != (sizeof g_whole + 1023U) / 1024U,
+                      "one write and two erases that send no blocks");
+    MESH_TEST_FAIL_IF(erasing_progress == 0U || erasing_progress >= 100U,
+                      "the bar is not full while the erases are still to come");
+    MESH_TEST_FAIL_IF(mesh_firmware_serial_progress(&serial) != 100U, "and all of it counted");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(firmware_serial_refuses_a_whole_image_that_is_not_one, unit) {
+    fill();
+    fill_whole();
+    char path[256];
+    static struct mesh_firmware_serial serial;
+    inkwell_serial_mock_enable(NULL);
+
+    /* An app image is not a whole flash: no bootloader, no table. */
+    memcpy(g_image, k_s3_header, sizeof k_s3_header);
+    MESH_TEST_FAIL_IF(!stage(g_image, sizeof g_image, path, sizeof path), "no staging file");
+    int result =
+        mesh_firmware_serial_start_whole(&serial, NULL, path, "", INKWELL_ESP_CHIP_ESP32_S3, 0U);
+    unlink(path);
+    MESH_TEST_FAIL_IF(result != -EINVAL || serial.error != MESH_FIRMWARE_SERIAL_ERROR_IMAGE,
+                      "an app image is refused as a whole flash");
+
+    /* The S3's whole image, for an original ESP32: its bootloader is at 0x1000. */
+    MESH_TEST_FAIL_IF(!stage(g_whole, sizeof g_whole, path, sizeof path), "no staging file");
+    result = mesh_firmware_serial_start_whole(&serial, NULL, path, "", INKWELL_ESP_CHIP_ESP32, 0U);
+    MESH_TEST_FAIL_IF_CLEANUP(result != -EINVAL, unlink(path), "another chip's whole flash");
+    unlink(path);
+
+    /* An application where the bootloader goes, with the table and app as they should be. */
+    memcpy(g_whole, k_s3_header, sizeof k_s3_header);
+    MESH_TEST_FAIL_IF_CLEANUP(!stage(g_whole, sizeof g_whole, path, sizeof path), unlink(path),
+                              "no staging file");
+    result =
+        mesh_firmware_serial_start_whole(&serial, NULL, path, "", INKWELL_ESP_CHIP_ESP32_S3, 0U);
+    unlink(path);
+    MESH_TEST_FAIL_IF_CLEANUP(result != -EINVAL, inkwell_serial_mock_disable(),
+                              "an app in the bootloader's slot");
+    memset(g_whole + 32, 0x00, 4U);
+
+    /* A data partition that starts inside the image and runs past its end. */
+    table_row(g_whole + 0x8000U + 96U, 0x01U, 0x82U, 0x11000U, 0x4000U, "spiffs");
+    MESH_TEST_FAIL_IF_CLEANUP(!stage(g_whole, sizeof g_whole, path, sizeof path), unlink(path),
+                              "no staging file");
+    result =
+        mesh_firmware_serial_start_whole(&serial, NULL, path, "", INKWELL_ESP_CHIP_ESP32_S3, 0U);
+    unlink(path);
+    MESH_TEST_FAIL_IF_CLEANUP(result != -EINVAL, inkwell_serial_mock_disable(),
+                              "a partition overlapping the image's end");
+    table_row(g_whole + 0x8000U + 96U, 0x01U, 0x82U, 0x18000U, 0x4000U, "spiffs");
+
+    /* A data partition past any flash an ESP32 has. */
+    table_row(g_whole + 0x8000U + 128U, 0x01U, 0x03U, 0x1C000U, 0x40000000U, "coredump");
+    MESH_TEST_FAIL_IF_CLEANUP(!stage(g_whole, sizeof g_whole, path, sizeof path), unlink(path),
+                              "no staging file");
+    result =
+        mesh_firmware_serial_start_whole(&serial, NULL, path, "", INKWELL_ESP_CHIP_ESP32_S3, 0U);
+    unlink(path);
+    MESH_TEST_FAIL_IF_CLEANUP(result != -EINVAL, inkwell_serial_mock_disable(),
+                              "a partition past the largest flash");
+    table_row(g_whole + 0x8000U + 128U, 0x01U, 0x03U, 0x1C000U, 0x2000U, "coredump");
+
+    /* An app partition smaller than the application in it. */
+    table_row(g_whole + 0x8000U + 64U, 0x00U, 0x10U, 0x10000U, 0x1000U, "app0");
+    MESH_TEST_FAIL_IF_CLEANUP(!stage(g_whole, sizeof g_whole, path, sizeof path), unlink(path),
+                              "no staging file");
+    result =
+        mesh_firmware_serial_start_whole(&serial, NULL, path, "", INKWELL_ESP_CHIP_ESP32_S3, 0U);
+    unlink(path);
+    MESH_TEST_FAIL_IF_CLEANUP(result != -EINVAL, inkwell_serial_mock_disable(),
+                              "an application past the end of its partition");
+    table_row(g_whole + 0x8000U + 64U, 0x00U, 0x10U, 0x10000U, 0x8000U, "app0");
+
+    /* A table with no app in it. */
+    memset(g_whole + 0x8000U + 64U, 0xFF, 96U);
+    MESH_TEST_FAIL_IF_CLEANUP(!stage(g_whole, sizeof g_whole, path, sizeof path), unlink(path),
+                              "no staging file");
+    result =
+        mesh_firmware_serial_start_whole(&serial, NULL, path, "", INKWELL_ESP_CHIP_ESP32_S3, 0U);
+    unlink(path);
+    inkwell_serial_mock_disable();
+    MESH_TEST_FAIL_IF(result != -EINVAL, "a table naming no application");
+    MESH_TEST_FAIL_IF(g_rom.begins != 0U, "and not one of them reached a ROM");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(firmware_serial_refuses_before_the_radio_is_touched, unit) {
     fill();
     char path[256];

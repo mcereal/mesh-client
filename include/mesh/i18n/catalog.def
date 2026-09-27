@@ -2481,6 +2481,7 @@ MESH_STR_ENTRY(CONFIRM_TITLE_RM_BACKUP,   "Delete the backup?")
 MESH_STR_ENTRY(CONFIRM_TITLE_HAM_MODE,    "Switch to ham mode?")
 MESH_STR_ENTRY(CONFIRM_TITLE_FW_USB,      "Update the radio over USB?")
 MESH_STR_ENTRY(CONFIRM_TITLE_FW_BLE,      "Update the radio over Bluetooth?")
+MESH_STR_ENTRY(CONFIRM_TITLE_FW_SWITCH,   "Switch the radio's firmware?")
 MESH_STR_ENTRY(CONFIRM_TITLE_CLEAR_CHAN,  "Clear channel %u?")
 MESH_STR_ENTRY(CONFIRM_TITLE_SAVE_CHANNEL,"Save channel %u?")
 MESH_STR_ENTRY(CONFIRM_TITLE_SAVE,        "Save %s?")
@@ -2501,6 +2502,7 @@ MESH_STR_ENTRY(CONFIRM_ACCEPT_RM_BACKUP,  "Delete backup")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_HAM_MODE,   "Switch to ham mode")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_USB,     "Update over USB")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_BLE,     "Update over Bluetooth")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_SWITCH,  "Erase and switch")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_SAVE,       "Save to radio")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_IMPORT,     "Join")
 /* "Add", not "Import": what the press does is put one node in a list. */
@@ -2552,6 +2554,9 @@ MESH_STR_ENTRY(CONFIRM_TEXT_HAM_MODE,     "Renames this node to your call sign, 
  * is the whole reason the sheet is not optional.
  */
 MESH_STR_ENTRY(CONFIRM_TEXT_FW_USB,       "The image downloads, then the radio restarts into its bootloader and the blocks are written over the cable. Keep it plugged in: an interrupted write leaves the bootloader running and is retried by writing again.")
+/* A switch between Meshtastic and MeshCore writes the whole flash: what is lost is everything
+   the radio was, which is the one thing this sheet has to say. */
+MESH_STR_ENTRY(CONFIRM_TEXT_FW_SWITCH,    "The radio is rewritten over the cable and starts again as a new node: its settings, keys, contacts and channels do not carry over. Keep it plugged in until it is back.")
 MESH_STR_ENTRY(CONFIRM_TEXT_FW_BLE,       "The image downloads, then the radio leaves the mesh and reboots into its update loader. There is no way back out of that loader except finishing, which takes about four minutes. Keep the Brick near the radio until it does.")
 MESH_STR_ENTRY(CONFIRM_TEXT_DEFAULT,      "The radio will reboot to apply this.")
 MESH_STR_ENTRY(CONFIRM_TEXT_PLAIN,        "Takes effect at once.")
@@ -3224,6 +3229,14 @@ MESH_STR_ENTRY(FW_UPDATE_ERR_CANCELLED,   "cancelled")
 /* The row that offers the press, and the two toasts around it. The version is a version and
    arrives untranslated. */
 MESH_STR_ENTRY(FW_INSTALL,                "Install firmware")
+/* Moving the board to the other firmware. The offer names the firmware it would move to; once
+   the check has found that firmware's release, the answer row is labelled by it and the press
+   says what it does. The firmware names are names, like a region code. */
+MESH_STR_ENTRY(FW_SWITCH_TO_MESHCORE,     "Switch to MeshCore")
+MESH_STR_ENTRY(FW_SWITCH_TO_MESHTASTIC,   "Switch to Meshtastic")
+MESH_STR_ENTRY(FW_SWITCH_MESHCORE,        "MeshCore firmware")
+MESH_STR_ENTRY(FW_SWITCH_MESHTASTIC,      "Meshtastic firmware")
+MESH_STR_ENTRY(FW_SWITCH_INSTALL,         "Switch firmware")
 MESH_STR_ENTRY(TOAST_INSTALLING_FIRMWARE, "Installing %s on the radio...")
 MESH_STR_ENTRY(TOAST_FIRMWARE_INSTALLED,  "The radio is running %s")
 /*

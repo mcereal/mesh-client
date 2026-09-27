@@ -1932,6 +1932,8 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
                 action->type = MESH_UI_ACTION_CHECK_RADIO_FIRMWARE;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL) {
                 action->type = MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH) {
+                action->type = MESH_UI_ACTION_CHECK_FIRMWARE_SWITCH;
             }
         }
         /* The row itself does not change; the app's reply comes back as new state. */

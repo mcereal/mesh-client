@@ -1198,7 +1198,7 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
        described itself, which leaves the old image installable through the handshake. */
     const enum mesh_firmware_source speaking =
         app->meshcore_bound ? MESH_FIRMWARE_SOURCE_MESHCORE : MESH_FIRMWARE_SOURCE_MESHTASTIC;
-    if (firmware->state != MESH_FIRMWARE_IDLE && firmware->source != speaking) {
+    if (firmware->state != MESH_FIRMWARE_IDLE && mesh_firmware_radio_source(firmware) != speaking) {
         mesh_firmware_forget(firmware);
     } else if (app->meshcore_bound) {
         /* A MeshCore radio names itself in DEVICE_INFO, and until it has there is nothing to
@@ -1223,7 +1223,10 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     inkwell_str_copy(dst->fw_latest, sizeof dst->fw_latest, firmware->release.version);
 
     const struct mesh_firmware_board *const board = mesh_firmware_board(firmware);
-    inkwell_str_copy(dst->fw_board, sizeof dst->fw_board, board != NULL ? board->name : "");
+    /* The radio's own board, which a switch answer is not: that is the other firmware's name
+       for it, and the Hardware row would read as the radio having changed already. */
+    inkwell_str_copy(dst->fw_board, sizeof dst->fw_board,
+                     board != NULL && !firmware->switching ? board->name : "");
 
     /*
      * The wrong-bus refusal is the one the module cannot phrase on its own: which bus to go and
@@ -1300,6 +1303,31 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
         dst->fw_can_install = true;
         dst->fw_bus = (uint8_t)update->path;
     }
+
+    /*
+     * The other firmware. Offered once a check has named this board and the board has a twin
+     * there - the twin table, never a name that looks alike - and not while anything is running
+     * or once the answer already is a switch.
+     */
+    /* A switch the recovery press would finish is one too, whatever the check holds now: the
+       retry writes the whole flash again, and its sheet has to say so. */
+    const bool resuming =
+        mesh_firmware_update_can_resume(update) && mesh_firmware_update_available(update);
+    dst->fw_switching = resuming ? update->release.wipe : firmware->switching;
+    dst->fw_switch_to_meshcore =
+        resuming ? update->board.meshcore : firmware->source == MESH_FIRMWARE_SOURCE_MESHCORE;
+    const bool settled =
+        firmware->state == MESH_FIRMWARE_AVAILABLE || firmware->state == MESH_FIRMWARE_UP_TO_DATE;
+    const char *const twin = board == NULL || firmware->switching ? NULL
+                             : app->meshcore_bound
+                                 ? mesh_firmware_meshcore_target_for_device(board->name)
+                                 : mesh_firmware_meshcore_device_for_target(board->target);
+    /* ESP32 only: a switch has to erase what the last firmware kept, and only the ROM path
+       erases (see firmware_conclude()). */
+    dst->fw_switch_offer = settled && twin != NULL && !dst->fw_busy &&
+                           mesh_firmware_architecture_uses_esp_rom(board->architecture) &&
+                           !mesh_firmware_update_busy(update) &&
+                           !mesh_firmware_update_can_resume(update);
 }
 
 /*

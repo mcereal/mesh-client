@@ -156,8 +156,9 @@ static bool catalog_read_board(struct inkwell_json *json, struct mesh_firmware_b
     return true;
 }
 
-bool mesh_firmware_boards_parse(const char *json_text, size_t len, uint32_t hw_model,
-                                struct mesh_firmware_boards *out) {
+/* Every board `hw_model` claims, or with `target` the one build of that name. */
+static bool catalog_boards_parse(const char *json_text, size_t len, uint32_t hw_model,
+                                 const char *target, struct mesh_firmware_boards *out) {
     if (json_text == NULL || out == NULL) {
         return false;
     }
@@ -173,7 +174,8 @@ bool mesh_firmware_boards_parse(const char *json_text, size_t len, uint32_t hw_m
         if (!catalog_read_board(&json, &board)) {
             return false;
         }
-        if (board.hw_model != hw_model || board.target[0] == '\0') {
+        if (board.target[0] == '\0' ||
+            (target != NULL ? strcmp(board.target, target) != 0 : board.hw_model != hw_model)) {
             continue;
         }
         /* Counted before it is stored, so a tenth variant of one model is visible as an
@@ -186,6 +188,19 @@ bool mesh_firmware_boards_parse(const char *json_text, size_t len, uint32_t hw_m
         }
     }
     return true;
+}
+
+bool mesh_firmware_boards_parse(const char *json_text, size_t len, uint32_t hw_model,
+                                struct mesh_firmware_boards *out) {
+    return catalog_boards_parse(json_text, len, hw_model, NULL, out);
+}
+
+bool mesh_firmware_boards_parse_target(const char *json_text, size_t len, const char *target,
+                                       struct mesh_firmware_boards *out) {
+    if (target == NULL || target[0] == '\0') {
+        return false;
+    }
+    return catalog_boards_parse(json_text, len, 0U, target, out);
 }
 
 /* ---- the release index ------------------------------------------------------------------- */
@@ -505,6 +520,21 @@ mesh_firmware_manifest_image(const struct mesh_firmware_manifest *manifest,
             if (catalog_name_ends_with(manifest->files[i].name, "-ota.zip")) {
                 return &manifest->files[i];
             }
+        }
+    }
+    return NULL;
+}
+
+const struct mesh_firmware_image *
+mesh_firmware_manifest_whole_image(const struct mesh_firmware_manifest *manifest) {
+    if (manifest == NULL) {
+        return NULL;
+    }
+    for (uint8_t i = 0; i < manifest->count; ++i) {
+        const struct mesh_firmware_image *const file = &manifest->files[i];
+        if (catalog_name_ends_with(file->name, ".factory.bin") ||
+            catalog_name_ends_with(file->name, ".uf2")) {
+            return file;
         }
     }
     return NULL;

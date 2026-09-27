@@ -919,6 +919,8 @@ enum mesh_ui_action_type {
     /* Steps the firmware channel and remembers it, as CYCLE_UPDATE_CHANNEL does for the
        client's own. Its own action for the same reason the check is: two projects. */
     MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL,
+    /* Ask what the *other* firmware has for this board - a switch, read the way a check is. */
+    MESH_UI_ACTION_CHECK_FIRMWARE_SWITCH,
     /*
      * Install what the check found. `number` is the bus - 0 for USB, 1 for Bluetooth - taken
      * from which of the two rows was confirmed rather than re-read from the snapshot, because

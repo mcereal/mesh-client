@@ -196,6 +196,8 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE] = INKCELL_ICON_REFRESH,
     [MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL] = INKCELL_ICON_SWAP,
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB] = INKCELL_ICON_USB,
+    [MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH] = INKCELL_ICON_SWAP,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH] = INKCELL_ICON_USB,
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE] = INKCELL_ICON_BLUETOOTH,
 
     /* The two link pairs: a channel set and a contact, each going out as a code and coming back
@@ -284,6 +286,8 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
        loader it cannot come back out of on its own, which is the difference the two rows exist
        for and the reason only one of them is red. */
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB] = INKCELL_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH] = INKCELL_TONE_ERROR,
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE] = INKCELL_TONE_ERROR,
 
     /* Showing a code touches nothing. Taking one in overwrites this radio's channel table,
@@ -2923,7 +2927,8 @@ bool mesh_ui_settings_action_is_cycle(enum mesh_ui_settings_action action) {
    four places want the question and a fifth arriving is how they stop agreeing. */
 bool mesh_ui_settings_action_is_install_firmware(enum mesh_ui_settings_action action) {
     return action == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB ||
-           action == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE;
+           action == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE ||
+           action == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH;
 }
 
 /* Spelled out rather than "everything that needs confirming, plus the position pair": the
@@ -2993,6 +2998,9 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FW_BLE));
         return;
+    case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FW_SWITCH));
+        return;
     case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_HAM_MODE));
         return;
@@ -3039,6 +3047,8 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FW_USB);
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FW_BLE);
+    case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH:
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FW_SWITCH);
     case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_HAM_MODE);
     /* "Clear the slot", not "Save": what stands behind this sheet is a write like any other,
@@ -3157,6 +3167,9 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
         return;
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_FW_BLE));
+        return;
+    case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_FW_SWITCH));
         return;
     case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_RM_BACKUP));

@@ -112,6 +112,8 @@ struct mesh_firmware_fetch {
     char expect_architecture[MESH_FIRMWARE_ARCH_MAX];
     char staging[INKWELL_FETCH_PATH_MAX];
     enum mesh_firmware_path bus;
+    /* The whole flash rather than the application - see `mesh_firmware_release.wipe`. */
+    bool whole;
 
     /* What the documents answered. */
     char platform[MESH_FIRMWARE_ARCH_MAX];
@@ -153,15 +155,16 @@ struct mesh_firmware_fetch {
  *
  * `bus` is the bus the image will go over, which picks the file: an nRF52 publishes a UF2 for
  * USB and a DFU package for BLE. NONE takes the architecture's first path, which is what an
- * inspection wants.
+ * inspection wants. `whole` takes the whole flash instead - an ESP32's `.factory.bin` - which
+ * only the USB path writes.
  *
  * Returns 0, or -errno. On 0 `on_done` is called exactly once, later, from the loop.
  */
 int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct inkwell_fetch *fetcher,
                               const char *target, const char *version, const char *manifest_url,
                               const char *expect_architecture, enum mesh_firmware_path bus,
-                              const char *staging_dir, mesh_firmware_fetch_done_fn on_done,
-                              void *userdata);
+                              bool whole, const char *staging_dir,
+                              mesh_firmware_fetch_done_fn on_done, void *userdata);
 
 /*
  * Fetches an image a release names directly - MeshCore's, whose release is a list of files
@@ -170,8 +173,9 @@ int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct inkwell_
  * `expect_architecture` is the family the catalog knew ("esp32", "nrf52840"). For the ESP32
  * family the image's own header then says which chip it is for, and that is what
  * `manifest.architecture` carries afterwards - the serial handover checks the chip on the end
- * of the cable against it before anything is erased. An nRF52's UF2 is checked for its family
- * as a manifest's would be.
+ * of the cable against it before anything is erased; with `whole`, the image is a whole flash
+ * and the chip is its bootloader's. An nRF52's UF2 is checked for its family as a manifest's
+ * would be.
  *
  * Returns as mesh_firmware_fetch_start().
  */
@@ -179,8 +183,8 @@ int mesh_firmware_fetch_start_direct(struct mesh_firmware_fetch *fetch,
                                      struct inkwell_fetch *fetcher, const char *image_url,
                                      const char *image_name, uint64_t bytes,
                                      const char *expect_architecture, enum mesh_firmware_path bus,
-                                     const char *staging_dir, mesh_firmware_fetch_done_fn on_done,
-                                     void *userdata);
+                                     bool whole, const char *staging_dir,
+                                     mesh_firmware_fetch_done_fn on_done, void *userdata);
 
 /* Drives the download's own tick. Call every loop turn. */
 void mesh_firmware_fetch_tick(struct mesh_firmware_fetch *fetch, uint64_t now_ms);

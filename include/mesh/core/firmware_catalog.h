@@ -134,6 +134,14 @@ struct mesh_firmware_release {
     char image_name[MESH_FIRMWARE_FILE_NAME_MAX];
     char image_url[MESH_FIRMWARE_URL_MAX];
     uint64_t image_bytes;
+    /*
+     * The install is the whole flash rather than the application: the image the other firmware
+     * would be moved onto the board with (a `-merged.bin` or a `.factory.bin` on an ESP32),
+     * with every data partition its table names erased after it. What a switch between
+     * Meshtastic and MeshCore writes, and it takes the radio's settings with it. An nRF52's UF2
+     * is the same file either way.
+     */
+    bool wipe;
 };
 
 /*
@@ -230,6 +238,15 @@ mesh_firmware_manifest_image(const struct mesh_firmware_manifest *manifest,
                              enum mesh_firmware_path path);
 
 /*
+ * The file in `manifest` that is the *whole* flash for the USB path, or NULL: the
+ * `.factory.bin` of an ESP32 - bootloader, partition table and app from 0x0 - and the `.uf2`
+ * of an nRF52, which is already all a UF2 bootloader takes. What moves a board onto this
+ * firmware from another one, whose partition table it cannot assume.
+ */
+const struct mesh_firmware_image *
+mesh_firmware_manifest_whole_image(const struct mesh_firmware_manifest *manifest);
+
+/*
  * Collects every board in `deviceHardware` claiming `hw_model`.
  *
  * True when the document parsed, whatever it held - `out->found == 0` is "this radio's model
@@ -238,6 +255,10 @@ mesh_firmware_manifest_image(const struct mesh_firmware_manifest *manifest,
  */
 bool mesh_firmware_boards_parse(const char *json, size_t len, uint32_t hw_model,
                                 struct mesh_firmware_boards *out);
+/* The same, for the board whose `platformioTarget` is `target` - one build rather than a
+   model several builds can claim, which is how a board is named across firmwares. */
+bool mesh_firmware_boards_parse_target(const char *json, size_t len, const char *target,
+                                       struct mesh_firmware_boards *out);
 
 /*
  * Reads the newest release on `channel` out of the release index. False when the document had

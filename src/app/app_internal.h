@@ -280,6 +280,10 @@ void mesh_app_bind_protocol(struct mesh_app *app, bool meshcore);
 #define MESH_APP_PROBE_WINDOW_MS 6000U
 /* How long a link that answered neither is passed over by auto-connect. */
 #define MESH_APP_PROBE_MUTE_MS 60000U
+/* The window after a switch, and how long after it the port is still owed one. A wiped
+   MeshCore ESP32 formats its filesystem and makes its keys before its first frame. */
+#define MESH_APP_PROBE_FIRST_BOOT_WINDOW_MS 45000U
+#define MESH_APP_PROBE_FIRST_BOOT_MS 120000U
 
 /* Binds the protocol to open `identifier` with and starts the question. `kind` is
    MESH_UI_DEVICE_SERIAL or MESH_UI_DEVICE_TCP. */
@@ -288,6 +292,9 @@ void mesh_app_probe_begin(struct mesh_app *app, uint8_t kind, const char *identi
 /* Whether auto-connect should pass the link remembered as `key` over for now: a USB port's
    sysfs id, or a host as written. */
 bool mesh_app_probe_muted(const struct mesh_app *app, const char *key, uint64_t now_ms);
+/* The port remembered as `key` now runs `meshcore`'s firmware, freshly written: ask it in that
+   protocol first, lift any mute, and give its first boot the longer window. */
+void mesh_app_probe_expect(struct mesh_app *app, const char *key, bool meshcore, uint64_t now_ms);
 struct mesh_protocol mesh_app_protocol(struct mesh_app *app);
 
 #endif /* MESH_CORE_APP_INTERNAL_H */

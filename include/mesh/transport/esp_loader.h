@@ -51,9 +51,11 @@ extern "C" {
 
 struct inkwell_loop;
 
-/* A bootloader, a partition table and an application, or one merged image, or an application
-   and the otadata erased beside it: four covers every layout a release ships. */
-#define MESH_ESP_LOADER_REGIONS 4U
+/* A bootloader, a partition table and an application, or one whole-flash image and each data
+   partition its table names erased after it, or an application and the otadata erased beside
+   it. A whole-flash table has six or seven partitions, so eight covers every layout a release
+   ships. */
+#define MESH_ESP_LOADER_REGIONS 8U
 /* The rate the write runs at once the ROM is found. The ROM is the ceiling above this. */
 #define MESH_ESP_LOADER_WRITE_BAUD 460800U
 /* Accepts whichever chip answers. */
@@ -96,7 +98,8 @@ enum mesh_esp_loader_error {
     MESH_ESP_LOADER_ERROR_COUNT,
 };
 
-/* One contiguous write. `data` is borrowed until the conversation ends. */
+/* One contiguous write. `data` is borrowed until the conversation ends; NULL erases the region
+   and writes nothing, and it verifies as blank. */
 struct mesh_esp_loader_region {
     uint32_t offset;
     const uint8_t *data;

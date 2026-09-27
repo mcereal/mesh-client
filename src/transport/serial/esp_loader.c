@@ -24,6 +24,12 @@
 #define LOADER_RESET_TRIES 3U
 /* After CHANGE_BAUDRATE's answer, the ROM needs a moment at the new rate before it listens. */
 #define LOADER_BAUD_SETTLE_MS 50U
+/* An erase-only region counts toward progress as this fraction of its length: erasing is about
+   an eighth of writing per byte, as a Heltec V3 measured it (1.5 MB in 6 s against 2.3 MB in
+   80 s). Enough that the bar is not full while the erases still stand between the radio and a
+   blank flash. */
+#define LOADER_ERASE_PROGRESS_SHARE 8U
+
 /* esptool's allowances: 3 s for anything, and per megabyte 30 s to erase and 8 s to hash. */
 #define LOADER_COMMAND_TIMEOUT_MS 3000U
 #define LOADER_ERASE_MS_PER_MB 30000U
@@ -299,10 +305,22 @@ static void loader_answered(struct mesh_esp_loader *loader,
         loader->region = 0U;
         loader_begin_region(loader, now_ms);
         return;
-    case MESH_ESP_LOADER_ERASING:
-        loader->state = MESH_ESP_LOADER_WRITING;
-        loader_send_block(loader, now_ms);
+    case MESH_ESP_LOADER_ERASING: {
+        const struct mesh_esp_loader_region *region = &loader->regions[loader->region];
+        if (region->data != NULL) {
+            loader->state = MESH_ESP_LOADER_WRITING;
+            loader_send_block(loader, now_ms);
+            return;
+        }
+        /* Erased and nothing to write: the hash is of a blank region. */
+        loader->state = MESH_ESP_LOADER_VERIFYING;
+        loader_send(loader,
+                    inkwell_esp_rom_flash_md5(region->offset, (uint32_t)region->len, loader->tx,
+                                              sizeof loader->tx),
+                    INKWELL_ESP_ROM_SPI_FLASH_MD5, per_mb(region->len, LOADER_MD5_MS_PER_MB),
+                    now_ms);
         return;
+    }
     case MESH_ESP_LOADER_WRITING: {
         const struct mesh_esp_loader_region *region = &loader->regions[loader->region];
         const size_t at = (size_t)loader->block * INKWELL_ESP_ROM_BLOCK;
@@ -331,6 +349,10 @@ static void loader_answered(struct mesh_esp_loader *loader,
         inkwell_log_info("esp_loader", "Verified %zu bytes at 0x%06x",
                          loader->regions[loader->region].len,
                          (unsigned)loader->regions[loader->region].offset);
+        if (loader->regions[loader->region].data == NULL) {
+            loader->bytes_written +=
+                loader->regions[loader->region].len / LOADER_ERASE_PROGRESS_SHARE;
+        }
         loader->region += 1U;
         if (loader->region < loader->region_count) {
             loader_begin_region(loader, now_ms);
@@ -457,8 +479,8 @@ void mesh_esp_loader_tick(struct mesh_esp_loader *loader, uint64_t now_ms) {
         }
         loader->state = MESH_ESP_LOADER_DONE;
         loader->finished_ms = now_ms;
-        inkwell_log_info("esp_loader", "Wrote and verified %zu bytes in %llu ms; restarted",
-                         loader->bytes_total, (unsigned long long)(now_ms - loader->started_ms));
+        inkwell_log_info("esp_loader", "Wrote and verified %zu region(s) in %llu ms; restarted",
+                         loader->region_count, (unsigned long long)(now_ms - loader->started_ms));
         loader_close(loader);
         return;
     default:
@@ -493,7 +515,7 @@ int mesh_esp_loader_start(struct mesh_esp_loader *loader, struct inkwell_loop *l
         return -EINVAL;
     }
     for (size_t i = 0; i < region_count; ++i) {
-        if (regions[i].data == NULL || regions[i].len == 0U || regions[i].len > UINT32_MAX) {
+        if (regions[i].len == 0U || regions[i].len > UINT32_MAX) {
             return -EINVAL;
         }
     }
@@ -506,10 +528,24 @@ int mesh_esp_loader_start(struct mesh_esp_loader *loader, struct inkwell_loop *l
     loader->flash_size = flash_size != 0U ? flash_size : flash_size_for(regions, region_count);
     for (size_t i = 0; i < region_count; ++i) {
         loader->regions[i] = regions[i];
-        loader->bytes_total += regions[i].len;
         struct inkwell_md5 md5;
         inkwell_md5_init(&md5);
-        inkwell_md5_update(&md5, regions[i].data, regions[i].len);
+        if (regions[i].data != NULL) {
+            loader->bytes_total += regions[i].len;
+        } else {
+            loader->bytes_total += regions[i].len / LOADER_ERASE_PROGRESS_SHARE;
+        }
+        if (regions[i].data != NULL) {
+            inkwell_md5_update(&md5, regions[i].data, regions[i].len);
+        } else {
+            /* What an erased region reads back as. */
+            uint8_t blank[256];
+            memset(blank, 0xFF, sizeof blank);
+            for (size_t done = 0U; done < regions[i].len; done += sizeof blank) {
+                const size_t left = regions[i].len - done;
+                inkwell_md5_update(&md5, blank, left < sizeof blank ? left : sizeof blank);
+            }
+        }
         inkwell_md5_final(&md5, loader->digests[i]);
     }
 

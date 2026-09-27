@@ -612,6 +612,15 @@ MESH_TEST_CASE(firmware_update_refuses_before_it_starts, unit) {
         failure = "a release with no manifest should refuse";
         goto cleanup;
     }
+    /* A whole flash - a switch between firmwares - goes over USB and nowhere else, even for
+       a board that takes BLE. */
+    struct mesh_firmware_release whole = release;
+    whole.wipe = true;
+    if (mesh_firmware_update_start(&harness.update, &board, &whole, MESH_FIRMWARE_PATH_BLE, "",
+                                   &hooks, update_probe_done, &probe) != -ENOTSUP) {
+        failure = "a whole flash over BLE should refuse";
+        goto cleanup;
+    }
     if (probe.calls != 0U) {
         failure = "none of those should have reported through the callback";
         goto cleanup;
@@ -861,6 +870,11 @@ MESH_TEST_CASE(firmware_update_knows_when_it_can_go_back, unit) {
     update.release.manifest_url[0] = '\0';
     MESH_TEST_FAIL_IF(mesh_firmware_update_can_resume(&update),
                       "and there has to be something to fetch");
+    /* A MeshCore release names its file instead, and that is something to fetch too. */
+    inkwell_str_copy(update.release.image_url, sizeof update.release.image_url,
+                     "https://example.invalid/Heltec_v3_companion_radio_usb-v1.17.1-merged.bin");
+    MESH_TEST_FAIL_IF(!mesh_firmware_update_can_resume(&update),
+                      "a release that names its image directly can be fetched again");
     mesh_firmware_update_shutdown(&update);
     record_success(test_name);
 }

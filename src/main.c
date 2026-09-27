@@ -367,7 +367,7 @@ static void cli_firmware_index(void *userdata, const struct inkwell_fetch_result
     printf("Newest %s: %s\n", mesh_firmware_channel_name(run->channel), run->release.version);
     run->resolved = true;
     if (mesh_firmware_fetch_start(&run->fetch, run->fetcher, run->target, run->release.version,
-                                  run->release.manifest_url, "", run->bus, run->staging,
+                                  run->release.manifest_url, "", run->bus, false, run->staging,
                                   cli_firmware_done, run) != 0) {
         fprintf(stderr, "Could not start the fetch.\n");
         run->finished = true;
