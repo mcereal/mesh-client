@@ -41,9 +41,10 @@ hold 3000
 key b
 hold 900
 
-# The ladder. The two steps with a fraction fill the meter; the ones without draw an
-# indeterminate bar rather than a bar stuck at nothing, because forty seconds of waiting for a
-# bootloader at 0% reads as a job that stalled.
+# The ladder, on the install's own screen: it takes the panel the moment the job starts, with a
+# dial for how far through this stage and the four stages under it. The two rungs with a
+# fraction fill the ring; the ones without spin it rather than draw a ring stuck at nothing,
+# because forty seconds of waiting for a bootloader at 0% reads as a job that stalled.
 firmware-install resolving ble
 hold 1400
 firmware-install downloading ble 62
@@ -56,15 +57,30 @@ firmware-install waiting ble
 hold 1400
 firmware-install writing ble 43
 hold 1800
+
+# B hides it and the job runs on: the section is back, its meter still reporting, with the row
+# under it that brings the screen back.
+key b
+hold 1800
+firmware-install writing ble 78
+hold 1400
+key up
+key a
+hold 1400
 firmware-install restarting ble
 hold 1400
 firmware-install done ble
-hold 1800
+hold 2400
+key b
+hold 900
 
-# And the failure that leaves a radio somewhere it cannot leave on its own. The row carries the
-# radio's own words, and the banner is what says the same thing from every other screen - so the
-# scene walks off this tab to show it, since the details page is precisely where it stands down.
+# And the failure that leaves a radio somewhere it cannot leave on its own. The screen carries
+# the radio's own words, and the banner is what says the same thing from every other screen - so
+# the scene puts the screen away and walks off this tab to show it, since the details page is
+# precisely where it stands down.
+firmware-install resolving ble
 firmware-install failed ble
 hold 2400
+key b
 tab messages
 hold 3000

@@ -836,9 +836,12 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
      */
     struct mesh_ui_route body;
     mesh_ui_route_under_layers(&snapshot->nav, &body);
+    /* The install's screen is the one place with no tabs: it is the whole panel, and nothing
+       across the strip can be reached from it anyway. */
+    const bool takeover = body.level == MESH_UI_ROUTE_FIRMWARE;
     const struct inkcell_fb_scaffold scaffold = {
-        .destinations = fb_tab_chips(snapshot),
-        .count = MESH_UI_SCREEN_COUNT,
+        .destinations = takeover ? NULL : fb_tab_chips(snapshot),
+        .count = takeover ? 0U : MESH_UI_SCREEN_COUNT,
         .active = (size_t)snapshot->nav.screen,
         .compact_nav = INKCELL_FB_COMPACT_NAV_TOP,
         .footer = !footless,
@@ -848,7 +851,9 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .footer_kind = footless ? INKCELL_FB_FOOTER_NONE : INKCELL_FB_FOOTER_COMPACT,
         .back = back,
         .split = fb_frame_split(snapshot, &body),
-        .busy = mesh_ui_chrome_busy(snapshot),
+        /* Not over the install's own screen, which is the busy indicator for the one job it is
+           about. */
+        .busy = !takeover && mesh_ui_chrome_busy(snapshot),
         .banner = has_banner ? &drawn_banner : NULL,
     };
     struct inkcell_fb_scaffold_frame frame;
@@ -896,6 +901,10 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
            the two things above it that a radio can raise at any moment - a pairing PIN and a key
            verification - must not end up behind a code somebody is scanning. */
         fb_render_share(state, snapshot, &layout);
+    } else if (body.level == MESH_UI_ROUTE_FIRMWARE) {
+        /* Over the section or page whose row started it, and under the questions a radio can
+           raise at any moment, for the share sheet's reason. */
+        fb_render_firmware(state, snapshot, &layout);
     } else if (body.level == MESH_UI_ROUTE_CONTACT) {
         /* Beside the share sheet and under the same overlays, for the same reason: it is a
            level of the Settings tab raised by a row, not a question. */

@@ -76,6 +76,9 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         if (nav->contact_open) {
             depth++; /* the contact code sheet, reached through a row of the User section */
         }
+        if (nav->firmware_open) {
+            depth++; /* the install's screen, over About radio */
+        }
         return depth;
     }
     case MESH_UI_SCREEN_RADIO:
@@ -83,6 +86,10 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
            picture rather than a list of something. The chart still counts, because what a depth
            buys is the slide, the back arrow and the B keycap - none of which care what is being
            drawn at the bottom of it. */
+        if (nav->firmware_open) {
+            /* The install's screen, over the details page whose row started it. */
+            return nav->radio_page != MESH_UI_RADIO_PAGE_NONE ? 2U : 1U;
+        }
         return (nav->devices_open || nav->trend_open || nav->radio_page != MESH_UI_RADIO_PAGE_NONE)
                    ? 1U
                    : 0U;
@@ -164,7 +171,13 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
             return;
         }
         /* The topmost first, as the Nodes tab does it. The share sheet is the deepest thing
-           this tab opens: a row of the Channels list raises it. */
+           this tab opens: a row of the Channels list raises it. The install's screen is over
+           any of them, because it opens itself. */
+        if (nav->firmware_open) {
+            out->level = MESH_UI_ROUTE_FIRMWARE;
+            out->slot = nav->settings_section;
+            return;
+        }
         if (nav->share_open) {
             out->level = MESH_UI_ROUTE_SHARE;
             out->slot = nav->settings_section;
@@ -184,6 +197,10 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
         out->slot = nav->settings_section;
         return;
     case MESH_UI_SCREEN_RADIO:
+        if (nav->firmware_open) {
+            out->level = MESH_UI_ROUTE_FIRMWARE;
+            return;
+        }
         if (nav->devices_open) {
             out->level = MESH_UI_ROUTE_DEVICES;
             return;
@@ -431,6 +448,7 @@ static const char *const k_level_names[MESH_UI_ROUTE_COUNT] = {
     [MESH_UI_ROUTE_CONTACT] = "contact",
     [MESH_UI_ROUTE_DEVICES] = "devices",
     [MESH_UI_ROUTE_WAYPOINTS] = "waypoints",
+    [MESH_UI_ROUTE_FIRMWARE] = "firmware",
 };
 
 const char *mesh_ui_screen_id(enum mesh_ui_screen screen) {

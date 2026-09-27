@@ -3258,6 +3258,41 @@ MESH_STR_ENTRY(TOAST_FIRMWARE_FAILED,     "Firmware install failed: %s")
 MESH_STR_ENTRY(BANNER_RADIO_IN_LOADER,    "The radio is in update mode")
 MESH_STR_ENTRY(BANNER_RADIO_IN_LOADER_HINT, "It stays off the mesh until an update finishes. Radio > details > Install firmware")
 
+/*
+ * The install's own screen. Sentences where the row's values are single words, because this is
+ * the screen that is about the job and has a line to itself for each: the status under the
+ * dial, and the hint under that. Still bus-neutral in the status - the hint is where the bus is
+ * named, because what the reader should not do is different on each.
+ */
+MESH_STR_ENTRY(FW_SCREEN_TITLE,           "Updating radio firmware")
+MESH_STR_ENTRY(FW_SCREEN_TITLE_SWITCH,    "Switching radio firmware")
+/* The radio's version and the one going on, when both are known. Versions, untranslated. */
+MESH_STR_ENTRY(FW_SCREEN_VERSIONS,        "%s → %s")
+MESH_STR_ENTRY(FW_SCREEN_RESOLVING,       "Finding the right image")
+MESH_STR_ENTRY(FW_SCREEN_DOWNLOADING,     "Downloading")
+MESH_STR_ENTRY(FW_SCREEN_READY,           "Waiting for the radio")
+MESH_STR_ENTRY(FW_SCREEN_ARMING,          "Getting the radio ready")
+MESH_STR_ENTRY(FW_SCREEN_WAITING,         "Waiting for the updater")
+MESH_STR_ENTRY(FW_SCREEN_WRITING,         "Installing")
+MESH_STR_ENTRY(FW_SCREEN_RESTARTING,      "Restarting the radio")
+MESH_STR_ENTRY(FW_SCREEN_DONE,            "Update complete")
+MESH_STR_ENTRY(FW_SCREEN_FAILED,          "Update failed")
+MESH_STR_ENTRY(FW_SCREEN_HINT_USB,        "Keep the radio plugged in until this finishes.")
+MESH_STR_ENTRY(FW_SCREEN_HINT_BLE,        "Keep the radio close by until this finishes.")
+MESH_STR_ENTRY(FW_SCREEN_HINT_DONE,       "The radio is running the new firmware.")
+MESH_STR_ENTRY(FW_SCREEN_HINT_UNTOUCHED,  "The radio was not changed. You can try again.")
+MESH_STR_ENTRY(FW_SCREEN_HINT_HANDOVER,   "The radio may be in its bootloader. Install again to finish.")
+MESH_STR_ENTRY(FW_SCREEN_HINT_LOADER,     "The radio stays off the mesh until an update finishes. Install again to finish.")
+/* The four stages the steps row names. One word each: four of them share a row. */
+MESH_STR_ENTRY(FW_STAGE_DOWNLOAD,         "Download")
+MESH_STR_ENTRY(FW_STAGE_PREPARE,          "Prepare")
+MESH_STR_ENTRY(FW_STAGE_INSTALL,          "Install")
+MESH_STR_ENTRY(FW_STAGE_RESTART,          "Restart")
+/* The row under Installing that brings the screen back, and B on the screen: it hides the
+   screen and leaves the job running, which is not what "back" or "cancel" would say. */
+MESH_STR_ENTRY(FW_SHOW_PROGRESS,          "Show progress")
+MESH_STR_ENTRY(ACTION_HIDE,               "hide")
+
 /* ---- language ------------------------------------------------------------------------------------ */
 
 /*

@@ -15,6 +15,7 @@
 #include "nav_internal.h"
 
 #include "inkstand/nav/dialog.h"
+#include "mesh/core/firmware_update.h"
 #include "mesh/core/message.h"
 #include "mesh/ui/channel_share.h"
 #include "mesh/ui/devices.h"
@@ -882,6 +883,15 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
        gone. */
     if (nav->contact_open && store->settings.contact_url[0] == '\0') {
         nav->contact_open = false;
+        moved = true;
+    }
+    /* And the install's screen, once there is no install to show - or once the tab it stood
+       on is not one it can stand on. A finished or failed job stays: that is the answer the
+       screen is there to give, and B is how it is read and put away. */
+    if (nav->firmware_open &&
+        (store->settings.fw_update_state == (uint8_t)MESH_FIRMWARE_UPDATE_IDLE ||
+         (nav->screen != MESH_UI_SCREEN_SETTINGS && nav->screen != MESH_UI_SCREEN_RADIO))) {
+        nav->firmware_open = false;
         moved = true;
     }
     /*
@@ -1883,6 +1893,11 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
             mesh_ui_nav_open_contact_url_keyboard(nav);
             return true;
         }
+        /* And the install's screen, back from wherever B put it. */
+        if (which == MESH_UI_SETTINGS_ACTION_SHOW_FIRMWARE) {
+            nav->firmware_open = true;
+            return true;
+        }
         /* The way back from remote administration. Not a radio action - nothing goes
            over the air - and it carries `dest` 0, which is the verb's spelling of "the
            radio on the end of the link". */
@@ -2349,6 +2364,20 @@ bool mesh_ui_nav_contact_key(struct mesh_ui_nav *nav, enum inkcell_key key) {
 }
 
 /*
+ * B on the install's screen, which hides it and does nothing else: the job runs on and the row
+ * under the section reports it. Every other key is swallowed rather than passed to the list
+ * underneath - a screen that is the whole panel should not have A press a row nobody can see,
+ * and a tab change halfway through a write is a way to lose track of it.
+ */
+bool mesh_ui_nav_firmware_key(struct mesh_ui_nav *nav, enum inkcell_key key) {
+    if (key != INKCELL_KEY_B) {
+        return false;
+    }
+    nav->firmware_open = false;
+    return true;
+}
+
+/*
  * B held: back to the top of the tab, as the presses of B it stands for.
  *
  * The press that began the hold has already gone back one step; this carries on, one ordinary B
@@ -2463,6 +2492,8 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         return mesh_ui_nav_share_key(nav, key) || changed;
     case MESH_UI_ROUTE_CONTACT:
         return mesh_ui_nav_contact_key(nav, key) || changed;
+    case MESH_UI_ROUTE_FIRMWARE:
+        return mesh_ui_nav_firmware_key(nav, key) || changed;
     default:
         break;
     }
@@ -3067,6 +3098,20 @@ bool mesh_ui_nav_close_passkey(struct mesh_ui_nav *nav) {
  * The sheet takes no argument at all - everything it says is in the snapshot, because it is a
  * description of what the radio is doing rather than of where the user is.
  */
+bool mesh_ui_nav_open_firmware(struct mesh_ui_nav *nav) {
+    if (nav == NULL) {
+        return false;
+    }
+    const bool here = (nav->screen == MESH_UI_SCREEN_SETTINGS &&
+                       nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) ||
+                      nav->screen == MESH_UI_SCREEN_RADIO;
+    if (!here) {
+        return false;
+    }
+    nav->firmware_open = true;
+    return true;
+}
+
 bool mesh_ui_nav_open_verify(struct mesh_ui_nav *nav) {
     if (nav == NULL || nav->verify_open) {
         return false;

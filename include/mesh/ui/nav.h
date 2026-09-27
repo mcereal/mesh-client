@@ -776,6 +776,16 @@ struct mesh_ui_nav {
      */
     bool contact_open;
     /*
+     * The firmware install's own screen, over the About radio section or the Radio tab's
+     * details page - whichever the install was started from.
+     *
+     * It opens itself when an install starts (mesh_ui_store_set_settings() sees the job go
+     * busy) and B hides it rather than cancelling anything: the job runs on, the section's
+     * row keeps reporting it, and the row under that reopens this. What it never does is
+     * outlive the job's whole record - an install back at IDLE has nothing to show.
+     */
+    bool firmware_open;
+    /*
      * A channel link that has been typed and parsed, waiting on the sheet in front of it.
      *
      * Its own buffer rather than the draft, because the keyboard closes before the sheet opens
@@ -1075,6 +1085,14 @@ bool mesh_ui_nav_open_verify(struct mesh_ui_nav *nav);
 bool mesh_ui_nav_close_verify(struct mesh_ui_nav *nav);
 bool mesh_ui_nav_open_verify_number(struct mesh_ui_nav *nav);
 bool mesh_ui_nav_close_verify_number(struct mesh_ui_nav *nav);
+
+/*
+ * The firmware install's screen, raised because an install has just started. True when it is
+ * now up. Only over the two places an install is started from - a Settings section or the
+ * Radio tab - so a job that goes busy while the reader is on another tab leaves them there,
+ * and the row still reopens it.
+ */
+bool mesh_ui_nav_open_firmware(struct mesh_ui_nav *nav);
 
 /* Applies one button press. Returns true when the visible state changed. When the press
    asks the app to do something, *out_action is filled in (may be NULL to discard). The store

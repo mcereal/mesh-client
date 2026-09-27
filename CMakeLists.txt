@@ -133,6 +133,7 @@ add_library(meshclient_core
     src/ui/tables/actions.c
     src/ui/views/channel_share.c
     src/ui/views/contact_share.c
+    src/ui/views/firmware_progress.c
     src/ui/tables/chrome.c
     src/ui/tables/help.c
     src/ui/tables/delivery.c
@@ -171,6 +172,7 @@ add_library(meshclient_core
     src/ui/backends/fb_map.c
     src/ui/backends/fb_screens_chart.c
     src/ui/backends/fb_screens_code.c
+    src/ui/backends/fb_screens_firmware.c
     src/ui/backends/fb_screens_compose.c
     src/ui/backends/fb_screens_devices.c
     src/ui/backends/fb_screens_frame.c
