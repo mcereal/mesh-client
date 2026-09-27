@@ -343,6 +343,35 @@ MESH_TEST_CASE(esp_loader_reports_a_refusal_and_a_bad_digest, unit) {
     record_success(test_name);
 }
 
+MESH_TEST_CASE(esp_loader_cancelled_in_the_rom_resets_the_chip_out, unit) {
+    fill();
+    int pair[2];
+    MESH_TEST_FAIL_IF(open_pair(pair, &g_rom) != 0, "no socketpair");
+    const struct mesh_esp_loader_region region = {0x4000U, g_image, sizeof g_image};
+    static struct mesh_esp_loader loader;
+    uint64_t now = 1000U;
+    (void)mesh_esp_loader_start(&loader, NULL, "/dev/ttyUSB0", MESH_ESP_LOADER_ANY_CHIP, &region,
+                                1U, 0U, now);
+    for (int turn = 0; turn < 6000 && loader.state != MESH_ESP_LOADER_ATTACHING; ++turn) {
+        now += 10U;
+        mesh_esp_loader_tick(&loader, now);
+        fake_service(&g_rom);
+        mesh_esp_loader_pump(&loader, now);
+        fake_service(&g_rom);
+    }
+    const bool in_rom = loader.state == MESH_ESP_LOADER_ATTACHING;
+    mesh_esp_loader_cancel(&loader);
+    bool dtr = true;
+    bool rts = true;
+    const size_t lines = inkwell_serial_mock_lines_calls(&dtr, &rts);
+    close_pair(pair);
+    MESH_TEST_FAIL_IF(!in_rom || loader.erase_sent, "stopped in the ROM, before any erase");
+    MESH_TEST_FAIL_IF(lines != 5U || dtr || rts,
+                      "reset in, then a reset out on the way, not a chip left in download mode");
+    MESH_TEST_FAIL_IF(mesh_esp_loader_busy(&loader), "and the loader let go");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(esp_loader_refuses_what_it_cannot_write, unit) {
     static struct mesh_esp_loader loader;
     const struct mesh_esp_loader_region empty = {0x4000U, g_image, 0U};

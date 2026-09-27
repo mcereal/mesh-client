@@ -537,8 +537,12 @@ void mesh_esp_loader_cancel(struct mesh_esp_loader *loader) {
     if (loader == NULL) {
         return;
     }
-    /* Neither line held, so a chip stopped mid-reset is not left held in it. */
+    /* A reset out on the way: RTS alone and then neither, with the strap high. Cancel cannot
+       wait out the hold a failure does, and needs none - EN is low for as long as the second
+       control transfer takes to follow the first, a millisecond or so, where the chip asks for
+       50 us. Without it a chip stopped in download mode stays there, off the mesh. */
     if (loader->port_open && loader->attempts > 0U) {
+        (void)inkwell_serial_set_lines(loader->fd, false, true);
         (void)inkwell_serial_set_lines(loader->fd, false, false);
     }
     if (loader->port_open || loader->watched) {
