@@ -752,6 +752,18 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         app->autoconnect_tcp_retry_at_ms = 0U;
         app->autoconnect_waiting_logged = false;
         app->autoconnect_after_link = mesh_app_preferred_ble_link_up(app, ble);
+        /* The radio moved to Bluetooth is reached once it is the node on the other end of a
+           Bluetooth link - not when a connect to it was merely started, which can still fail
+           and would leave the retry to the unattended path that refuses its PIN. */
+        char reached[sizeof app->firmware_ble_handoff];
+        if (app->firmware_ble_handoff[0] != '\0' && app->meshcore_bound && app->meshcore.has_self &&
+            mesh_ble_transport_connected_address(ble) != NULL) {
+            snprintf(reached, sizeof reached, "%s%s", MESH_BLE_MESHCORE_NAME_PREFIX,
+                     app->meshcore.self.name);
+            if (strcasecmp(reached, app->firmware_ble_handoff) == 0) {
+                app->firmware_ble_handoff[0] = '\0';
+            }
+        }
     }
     if (ble == NULL || link_up || mesh_app_link_connecting()) {
         return;
@@ -913,7 +925,6 @@ void mesh_app_autoconnect(struct mesh_app *app) {
                              device->name, device->address, (int)device->rssi);
             target = device;
             handoff = true;
-            app->firmware_ble_handoff[0] = '\0';
             break;
         }
     }

@@ -355,6 +355,8 @@ void mesh_app_firmware_update_done(void *userdata, const struct mesh_firmware_up
         mesh_firmware_forget(&app->firmware);
         mesh_app_firmware_watch_bond(app, update, now);
         if (app->firmware_ble_handoff[0] != '\0') {
+            /* From now: the write may have been resumed long after it was started. */
+            app->firmware_ble_handoff_until_ms = now + MESH_APP_BLE_HANDOFF_MS;
             inkwell_log_info("ui", "Looking for %s over Bluetooth", app->firmware_ble_handoff);
         }
         /* A switch: the cable now carries the other protocol, from a blank flash. */
@@ -370,7 +372,11 @@ void mesh_app_firmware_update_done(void *userdata, const struct mesh_firmware_up
                                : mesh_firmware_update_error_name(update->error));
         inkwell_log_warn("ui", "Radio firmware install failed: %s (%s)",
                          mesh_firmware_update_error_name(update->error), update->detail);
-        app->firmware_ble_handoff[0] = '\0';
+        /* Kept for a write that can be resumed: the retry returns through the resume and never
+           reaches the press that set it, and what it finishes is still the Bluetooth build. */
+        if (!mesh_firmware_update_can_resume(update)) {
+            app->firmware_ble_handoff[0] = '\0';
+        }
     }
     /* Posted rather than set: the press that started this was minutes ago and whatever is on
        the screen now is the answer to something else. */
