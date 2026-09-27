@@ -100,6 +100,10 @@ bool mesh_ui_nav_commit_channel_url(struct mesh_ui_nav *nav);
 void mesh_ui_nav_open_contact_url_keyboard(struct mesh_ui_nav *nav);
 /* The Nodes list's Find row: its text on the keyboard, to edit. */
 void mesh_ui_nav_open_node_query_keyboard(struct mesh_ui_nav *nav);
+/* A prompt the radio raised over the password keyboard closes it first, password wiped, rather
+   than parking it the way it parks any other keyboard: a parked draft is published and
+   restored, and a password is neither. It is short to type again. */
+void mesh_ui_nav_abandon_login(struct mesh_ui_nav *nav);
 /* The password keyboard for logging in to `node_id`, headed with `name`. */
 void mesh_ui_nav_open_login_keyboard(struct mesh_ui_nav *nav, uint32_t node_id, const char *name);
 bool mesh_ui_nav_commit_contact_url(struct mesh_ui_nav *nav);

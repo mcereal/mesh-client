@@ -284,7 +284,7 @@ MESH_TEST_CASE(ui_protocol_meshcore_logs_in_to_a_repeater, unit) {
         goto cleanup;
     }
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "hi");
-    for (int round = 0; round < 3; ++round) {
+    for (int round = 0; round < 4; ++round) {
         while (store.nav.node_actions_cursor < login_row &&
                mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action)) {
         }
@@ -311,6 +311,27 @@ MESH_TEST_CASE(ui_protocol_meshcore_logs_in_to_a_repeater, unit) {
                 failure = "a password is shown as one mark per character";
                 goto cleanup;
             }
+        }
+        if (round == 3) {
+            /* A pairing comparison arriving over it: the login gives way, password and all,
+               and the six digits are shown as they are, since they are the thing to compare. */
+            mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+            mesh_ui_store_open_passkey_prompt(&store, "Radio", 123456U, true);
+            static struct mesh_ui_snapshot prompted;
+            (void)mesh_ui_store_consume_updates(&store, &prompted);
+            if (!store.nav.keyboard_passkey || store.nav.keyboard_login ||
+                strcmp(prompted.nav.draft, "123456") != 0 ||
+                strcmp(prompted.nav.draft_saved, "hi") != 0) {
+                failure = "a pairing prompt closes the login and shows its digits unmasked";
+                goto cleanup;
+            }
+            mesh_ui_store_close_passkey_prompt(&store);
+            if (store.nav.keyboard_open || strcmp(store.nav.draft, "hi") != 0) {
+                failure = "and nothing of the login comes back when it closes";
+                goto cleanup;
+            }
+            memset(&action, 0, sizeof action);
+            continue;
         }
         if (round == 2) {
             /* Longer than the draft it parked, so what B leaves is the test. */

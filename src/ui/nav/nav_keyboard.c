@@ -495,6 +495,12 @@ void mesh_ui_nav_open_node_query_keyboard(struct mesh_ui_nav *nav) {
     nav->screen = MESH_UI_SCREEN_NODES;
 }
 
+void mesh_ui_nav_abandon_login(struct mesh_ui_nav *nav) {
+    if (nav != NULL && nav->keyboard_open && nav->keyboard_login) {
+        mesh_ui_nav_keyboard_close(nav);
+    }
+}
+
 void mesh_ui_nav_open_login_keyboard(struct mesh_ui_nav *nav, uint32_t node_id, const char *name) {
     if (nav == NULL) {
         return;
