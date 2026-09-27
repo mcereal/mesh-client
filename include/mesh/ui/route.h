@@ -83,6 +83,9 @@ enum mesh_ui_route_level {
     MESH_UI_ROUTE_DEVICES,
     /* The shared places, over the Nodes roster. One place's detail is MESH_UI_ROUTE_WAYPOINT. */
     MESH_UI_ROUTE_WAYPOINTS,
+    /* A radio firmware install, as the whole screen: the dial, the stage, the steps. Over the
+       section or page whose row started it, on the Settings tab or the Radio tab. */
+    MESH_UI_ROUTE_FIRMWARE,
     MESH_UI_ROUTE_COUNT
 };
 

@@ -378,6 +378,9 @@ void fb_render_share(struct inkcell_draw_state *state, const struct mesh_ui_snap
                      struct inkcell_fb_layout *layout);
 void fb_render_contact(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                        struct inkcell_fb_layout *layout);
+/* A radio firmware install, as the whole screen: mesh/ui/firmware_progress.h laid out. */
+void fb_render_firmware(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                        struct inkcell_fb_layout *layout);
 /* The radio's airtime, over the Status cards that offered it. */
 void fb_render_trend(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                      struct inkcell_fb_layout *layout);

@@ -213,6 +213,8 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     /* Stop configuring somebody else's radio. The way back, which is what that arrow means
        everywhere else in this client. */
     [MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL] = INKCELL_ICON_BACK,
+    /* The job it reopens, which is a download before it is anything else. */
+    [MESH_UI_SETTINGS_ACTION_SHOW_FIRMWARE] = INKCELL_ICON_DOWNLOAD,
 };
 
 /*
@@ -304,6 +306,7 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_ADMIN_LOCAL] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_SEND_ADVERT] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_SHOW_FIRMWARE] = INKCELL_TONE_NORMAL,
 };
 
 enum inkcell_icon mesh_ui_settings_action_icon(enum mesh_ui_settings_action action) {
@@ -2893,7 +2896,8 @@ bool mesh_ui_settings_action_opens(enum mesh_ui_settings_action action) {
            action == MESH_UI_SETTINGS_ACTION_SHARE_CHANNELS ||
            action == MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS ||
            action == MESH_UI_SETTINGS_ACTION_SHARE_CONTACT ||
-           action == MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT;
+           action == MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT ||
+           action == MESH_UI_SETTINGS_ACTION_SHOW_FIRMWARE;
 }
 
 /*

@@ -848,7 +848,7 @@ static void build_connection(const struct mesh_ui_connection_status *conn, struc
  * Nothing else here is pressable while it does: the channel decides which question a *check*
  * asks and the check would take the fetcher, and there is no second install to start. So the
  * section drops to one row that says where the job has got to, plus its detail where the radio
- * or the loader said something in its own words.
+ * or the loader said something in its own words, and the press that brings its screen back.
  *
  * A meter rather than a plain row, and only two of the states carry a level: `firmware_update.c`
  * answers 0 for the steps that have no fraction, and a bar drawn at 0% through a forty-second
@@ -877,6 +877,9 @@ static bool build_radio_firmware_running(const struct mesh_ui_settings *s, struc
     if (s->fw_latest[0] != '\0') {
         item_text(list, MESH_STR_FW_NEWER, INKSTAND_FORM_INFO, s->fw_latest);
     }
+    /* The install's own screen opened itself when the job started; this is the way back to it
+       once B has put it away. */
+    item_verb(list, MESH_STR_FW_SHOW_PROGRESS, MESH_UI_SETTINGS_ACTION_SHOW_FIRMWARE);
     return true;
 }
 

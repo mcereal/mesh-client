@@ -53,6 +53,7 @@ static bool mesh_ui_nav_click_modal(const struct mesh_ui_nav *nav) {
     case MESH_UI_ROUTE_REACTION:
     case MESH_UI_ROUTE_SHARE:
     case MESH_UI_ROUTE_CONTACT:
+    case MESH_UI_ROUTE_FIRMWARE:
         return true;
     default:
         return false;
@@ -100,7 +101,7 @@ static uint32_t *mesh_ui_nav_click_cursor(struct mesh_ui_nav *nav, uint32_t bloc
         if (nav->reaction_open) {
             return &nav->reaction_cursor;
         }
-        if (nav->share_open || nav->contact_open) {
+        if (nav->share_open || nav->contact_open || nav->firmware_open) {
             return NULL;
         }
         if (nav->node_actions_open && nav->screen == MESH_UI_SCREEN_NODES) {
@@ -118,7 +119,7 @@ static uint32_t *mesh_ui_nav_click_cursor(struct mesh_ui_nav *nav, uint32_t bloc
     if (nav->compose_open) {
         return &nav->compose_cursor;
     }
-    if (nav->reaction_open || nav->share_open || nav->contact_open) {
+    if (nav->reaction_open || nav->share_open || nav->contact_open || nav->firmware_open) {
         return NULL;
     }
     if (nav->screen == MESH_UI_SCREEN_NODES && nav->node_actions_open) {

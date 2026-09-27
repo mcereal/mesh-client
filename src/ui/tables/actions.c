@@ -2,6 +2,7 @@
 #include "inkcell/ui/input.h"
 #include "inkcell/ui/input_profile.h"
 
+#include "mesh/core/firmware_update.h"
 #include "mesh/ui/actions.h"
 #include "mesh/ui/commands.h"
 #include "mesh/ui/devices.h"
@@ -566,6 +567,19 @@ static void commands_add_help(const struct mesh_ui_snapshot *snapshot,
     }
 }
 
+/*
+ * The install's screen: B and nothing else, and what B is called depends on whether the job is
+ * still running. While it runs, B hides the screen and the job carries on, which "back" would
+ * not say; once it has finished, B is the reader being done with the answer.
+ */
+static void actions_firmware(const struct mesh_ui_snapshot *snapshot,
+                             struct mesh_ui_command_set *bar) {
+    const bool running = mesh_firmware_update_state_busy(
+        (enum mesh_firmware_update_state)snapshot->settings.fw_update_state);
+    command_add(bar, MESH_UI_COMMAND_BACK, running ? MESH_STR_ACTION_HIDE : MESH_STR_ACTION_DONE,
+                INKCELL_BUTTON_B);
+}
+
 static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
                              struct mesh_ui_command_set *bar) {
     /*
@@ -576,6 +590,10 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
      * for the same reason help leaves them off - walking sideways out of a code somebody is
      * scanning is not a move anyone means to make.
      */
+    if (nav->firmware_open && nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+        actions_firmware(snapshot, bar);
+        return;
+    }
     if (nav->share_open || nav->contact_open) {
         command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
         commands_add_help(snapshot, bar);
@@ -1061,7 +1079,9 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
     default:
         /* The three levels over the cards, on the same terms the map is drawn over the node list:
            the screen is checked as well as the flag, because the flag outlives a change of tab. */
-        if (nav->devices_open) {
+        if (nav->firmware_open) {
+            actions_firmware(snapshot, out);
+        } else if (nav->devices_open) {
             actions_devices(nav, snapshot, out);
         } else if (nav->trend_open) {
             actions_trend(snapshot, out);

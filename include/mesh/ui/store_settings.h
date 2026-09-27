@@ -867,6 +867,15 @@ struct mesh_ui_settings {
        like a log line - see docs/i18n.md. */
     char fw_update_detail[96];
     /*
+     * The release the install is writing, and whether it is a switch - the install's own copy,
+     * not the check's. A finished install drops the check's answer (the rows go back to "not
+     * checked" rather than offering what is now installed), so `fw_latest` and `fw_switching`
+     * are empty at exactly the moment the install's screen shows its result. Empty with no
+     * install on record.
+     */
+    char fw_update_version[MESH_UI_FW_VERSION_MAX];
+    bool fw_update_switch;
+    /*
      * The radio is sitting in its ESP32 update loader: off the mesh, and out of it only by an
      * image finishing. What the banner reads, and the one client state that is true about a
      * computer this client is not currently talking to.

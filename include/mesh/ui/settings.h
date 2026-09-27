@@ -707,6 +707,12 @@ enum mesh_ui_settings_action {
        it; its NodeInfo goes out on the radio's own schedule. */
     MESH_UI_SETTINGS_ACTION_SEND_ADVERT,
     MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT,
+    /*
+     * The install's own screen, back from wherever B put it. Drawn only while an install runs
+     * or has just finished, under the row that reports it; it opens the route and reaches
+     * neither the app nor the radio, like the two share rows.
+     */
+    MESH_UI_SETTINGS_ACTION_SHOW_FIRMWARE,
     /* Not an action: what the two verb tables below are sized by, so a row added above without
        a symbol or a weight is a hole in an array rather than a row that quietly draws nothing.
        Last, so no existing value moves - nav->confirm.subject carries one in a uint8_t. */

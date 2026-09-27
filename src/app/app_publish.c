@@ -1252,6 +1252,11 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     dst->fw_update_error = (uint8_t)update->error;
     dst->fw_update_progress = (uint8_t)mesh_firmware_update_progress(update);
     inkwell_str_copy(dst->fw_update_detail, sizeof dst->fw_update_detail, update->detail);
+    if (update->state != MESH_FIRMWARE_UPDATE_IDLE) {
+        inkwell_str_copy(dst->fw_update_version, sizeof dst->fw_update_version,
+                         update->release.version);
+        dst->fw_update_switch = update->release.wipe;
+    }
     dst->fw_radio_in_loader = mesh_firmware_update_radio_in_loader(update);
     /*
      * Whether the press is offered at all.

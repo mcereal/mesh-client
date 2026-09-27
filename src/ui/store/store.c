@@ -8,6 +8,7 @@
 
 #include "store_internal.h"
 
+#include "mesh/core/firmware_update.h"
 #include "mesh/core/message.h"
 /* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte: telling a trace
    in flight from a route already measured is the one question this file asks of it. */
@@ -609,6 +610,19 @@ void mesh_ui_store_set_settings(struct mesh_ui_store *store,
         mesh_ui_history_note_airtime(&store->history, (uint32_t)store->now_ms,
                                      inkcell_percent_permille(next.stats.channel_utilization),
                                      inkcell_percent_permille(next.stats.air_util_tx));
+    }
+    /*
+     * An install that has just started takes the screen, which is the one moment the reader is
+     * certainly looking at it: they have just answered the sheet that started it. Here rather
+     * than in the app so it is the same edge wherever the settings come from - a scene sets
+     * them too. Going busy is the edge, not being busy, so B hiding the screen stays hidden.
+     */
+    const bool was_busy = mesh_firmware_update_state_busy(
+        (enum mesh_firmware_update_state)store->settings.fw_update_state);
+    const bool is_busy =
+        mesh_firmware_update_state_busy((enum mesh_firmware_update_state)next.fw_update_state);
+    if (!was_busy && is_busy && mesh_ui_nav_open_firmware(&store->nav)) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
     }
     store->settings = next;
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_SETTINGS);

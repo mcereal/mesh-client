@@ -115,6 +115,7 @@ bool mesh_ui_nav_share_key(struct mesh_ui_nav *nav, enum inkcell_key key);
 
 /* B on the contact code sheet, the share sheet's counterpart and for its reason. */
 bool mesh_ui_nav_contact_key(struct mesh_ui_nav *nav, enum inkcell_key key);
+bool mesh_ui_nav_firmware_key(struct mesh_ui_nav *nav, enum inkcell_key key);
 
 /* ---- nav_waypoints.c --------------------------------------------------------------------- */
 
