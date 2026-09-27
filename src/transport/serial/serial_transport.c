@@ -616,12 +616,22 @@ const char *mesh_serial_transport_connected_port(struct mesh_transport *transpor
 }
 
 int mesh_serial_transport_touch_bootloader(struct mesh_transport *transport) {
-    const char *const connected = mesh_serial_transport_connected_port(transport);
-    if (connected == NULL) {
+    const struct inkwell_serial_port_info *const connected =
+        mesh_serial_transport_connected_device(transport);
+    if (connected == NULL || connected->path[0] == '\0') {
         return -ENOTCONN;
     }
-    char path[sizeof((struct inkwell_serial_port_info *)0)->path];
-    inkwell_str_copy(path, sizeof path, connected);
+    /* A port on the generic usbserial driver (the Brick's native-USB boards) is not a CDC tty:
+       neither its rate nor its DTR reaches the device, and usbfs carries only the line state,
+       not the 1200-baud line coding the bootloader reads with it. Refused before the link is
+       let go, so the install fails at once instead of waiting for a drive that never comes. */
+    if (connected->needs_line_state) {
+        inkwell_log_warn("serial", "%s is on the generic driver; it cannot be touched at %u baud",
+                         connected->path, MESH_SERIAL_TOUCH_BAUD);
+        return -ENOTSUP;
+    }
+    char path[sizeof connected->path];
+    inkwell_str_copy(path, sizeof path, connected->path);
     /* The link's descriptor first: a second open of one tty shares its line settings with the
        first, and the rate is the whole message. */
     (void)mesh_serial_transport_disconnect(transport);
