@@ -93,6 +93,10 @@ struct mesh_firmware_board {
        over its serial port. Every nRF52840 sets it. */
     bool requires_dfu;
     enum mesh_firmware_path path;
+    /* A MeshCore build, out of firmware_meshcore.h. It has no admin verb to send it into a
+       loader, so an nRF52 is reached over USB by a 1200-baud touch and not over BLE at all -
+       the Nordic DFU path arms a radio by asking it, and this one cannot be asked. */
+    bool meshcore;
 };
 
 struct mesh_firmware_boards {

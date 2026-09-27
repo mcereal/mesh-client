@@ -33,6 +33,9 @@ extern "C" {
 /* The rate Meshtastic's serial API runs at. Meaningless over a native node's USB CDC; a bridge
    passes it to the UART. */
 #define MESH_SERIAL_BAUD 115200U
+/* The rate whose line coding, with DTR dropped, resets an Adafruit-core nRF52 into its UF2
+   bootloader. */
+#define MESH_SERIAL_TOUCH_BAUD 1200U
 
 /* A UF2 bootloader: a native port with a mass-storage interface beside it. Not a radio - it is
    the drive a .uf2 is written to. */

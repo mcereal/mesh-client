@@ -51,7 +51,7 @@ extern "C" {
  * USB companion, otherwise the BLE one. Each is a board whose `target` is the build's asset
  * prefix ("Heltec_v3_companion_radio_usb"), `name` the flasher's device name and
  * `architecture` "esp32" for the ESP32 family - which chip is read off the image itself - or
- * "nrf52840".
+ * "nrf52840", and `meshcore` set: both install over USB, the nRF52 by the 1200-baud touch.
  *
  * `found` counts every match, as mesh_firmware_boards_parse() does. False on a document that
  * is not the flasher's shape.

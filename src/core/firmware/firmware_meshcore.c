@@ -152,9 +152,11 @@ static bool meshcore_read_builds(struct inkwell_json *json, const char *name, co
                          : strcmp(type, "nrf52") == 0 ? "nrf52840"
                                                       : type);
         board.actively_supported = true;
-        /* Over USB through the ROM for an ESP32. An nRF52's USB path needs its bootloader
-           reached without an admin verb, which MeshCore does not have. */
-        board.path = esp32 ? MESH_FIRMWARE_PATH_USB : MESH_FIRMWARE_PATH_NONE;
+        board.meshcore = true;
+        /* Over USB either way: an ESP32 through its ROM, an nRF52 through the UF2 bootloader a
+           1200-baud touch reaches. Anything else the flasher lists has no path from here. */
+        board.path = esp32 || strcmp(board.architecture, "nrf52840") == 0 ? MESH_FIRMWARE_PATH_USB
+                                                                          : MESH_FIRMWARE_PATH_NONE;
         if (out->found < UINT8_MAX) {
             out->found++;
         }

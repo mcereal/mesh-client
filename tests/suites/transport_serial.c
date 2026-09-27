@@ -511,6 +511,166 @@ cleanup:
 }
 
 /*
+ * The 1200-baud touch, which is how a MeshCore nRF52 is sent to its bootloader: the link lets
+ * go, the port is opened again at 1200 and DTR drops. Nothing waits for the board to go - the
+ * install watches for that.
+ */
+/* The Brick's native-USB boards sit on the generic driver: no tty rate or DTR reaches them. */
+MESH_TEST_CASE(serial_transport_refuses_to_touch_a_generic_driver_port, unit) {
+    int pair[2] = {-1, -1};
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) {
+        record_failure(test_name, "socketpair failed");
+        return;
+    }
+    (void)fcntl(pair[0], F_SETFL, O_NONBLOCK);
+    (void)fcntl(pair[1], F_SETFL, O_NONBLOCK);
+
+    struct inkwell_serial_port_info device = mesh_test_serial_device();
+    device.bound = true;
+    device.needs_line_state = true;
+    snprintf(device.path, sizeof device.path, "%s", "/dev/ttyUSB0");
+    device.control_interface = 0;
+    const struct inkwell_serial_port_info devices[] = {device};
+
+    struct inkwell_serial_mock_config mock;
+    memset(&mock, 0, sizeof mock);
+    mock.ports = devices;
+    mock.port_count = 1U;
+    mock.open_fd = pair[0];
+    inkwell_serial_mock_enable(&mock);
+
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        goto cleanup;
+    }
+    struct mesh_transport *transport = mesh_serial_transport();
+    struct mesh_app_config config = mesh_app_config_default();
+    if (transport->ops->start(transport, &config, &loop) != 0) {
+        record_failure(test_name, "serial start failed");
+        goto cleanup_loop;
+    }
+    if (mesh_serial_transport_connect(transport, "/dev/ttyUSB0") != 0) {
+        record_failure(test_name, "connect failed");
+        goto cleanup_transport;
+    }
+    mesh_test_serial_sleep_ms(150);
+    transport->ops->tick(transport);
+    if (mesh_serial_transport_connected_port(transport) == NULL) {
+        record_failure(test_name, "expected a connected link");
+        goto cleanup_transport;
+    }
+
+    const size_t lines_before = inkwell_serial_mock_lines_calls(NULL, NULL);
+    if (mesh_serial_transport_touch_bootloader(transport) != -ENOTSUP ||
+        inkwell_serial_mock_lines_calls(NULL, NULL) != lines_before ||
+        inkwell_serial_mock_baud() == MESH_SERIAL_TOUCH_BAUD) {
+        record_failure(test_name, "a touch that cannot reach the board is refused, not sent");
+        goto cleanup_transport;
+    }
+    if (mesh_serial_transport_connected_port(transport) == NULL) {
+        record_failure(test_name, "and the link is kept");
+        goto cleanup_transport;
+    }
+    record_success(test_name);
+
+cleanup_transport:
+    transport->ops->stop(transport);
+cleanup_loop:
+    inkwell_loop_shutdown(&loop);
+cleanup:
+    inkwell_serial_mock_disable();
+    if (pair[0] >= 0) {
+        close(pair[0]);
+    }
+    if (pair[1] >= 0) {
+        close(pair[1]);
+    }
+}
+
+MESH_TEST_CASE(serial_transport_touches_a_board_into_its_bootloader, unit) {
+    int pair[2] = {-1, -1};
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) {
+        record_failure(test_name, "socketpair failed");
+        return;
+    }
+    (void)fcntl(pair[0], F_SETFL, O_NONBLOCK);
+    (void)fcntl(pair[1], F_SETFL, O_NONBLOCK);
+
+    struct inkwell_serial_port_info device = mesh_test_serial_device();
+    device.bound = true;
+    device.needs_line_state = false;
+    snprintf(device.path, sizeof device.path, "%s", "/dev/ttyACM0");
+    device.control_interface = -1;
+    const struct inkwell_serial_port_info devices[] = {device};
+
+    struct inkwell_serial_mock_config mock;
+    memset(&mock, 0, sizeof mock);
+    mock.ports = devices;
+    mock.port_count = 1U;
+    mock.open_fd = pair[0];
+    inkwell_serial_mock_enable(&mock);
+
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        goto cleanup;
+    }
+    struct mesh_transport *transport = mesh_serial_transport();
+    struct mesh_app_config config = mesh_app_config_default();
+    if (transport->ops->start(transport, &config, &loop) != 0) {
+        record_failure(test_name, "serial start failed");
+        goto cleanup_loop;
+    }
+    if (mesh_serial_transport_touch_bootloader(transport) != -ENOTCONN) {
+        record_failure(test_name, "with no link there is nothing to touch");
+        goto cleanup_transport;
+    }
+    if (mesh_serial_transport_connect(transport, "/dev/ttyACM0") != 0) {
+        record_failure(test_name, "connect failed");
+        goto cleanup_transport;
+    }
+    mesh_test_serial_sleep_ms(150);
+    transport->ops->tick(transport);
+    if (mesh_serial_transport_connected_port(transport) == NULL) {
+        record_failure(test_name, "expected a connected link");
+        goto cleanup_transport;
+    }
+
+    const size_t lines_before = inkwell_serial_mock_lines_calls(NULL, NULL);
+    const int touched = mesh_serial_transport_touch_bootloader(transport);
+    bool dtr = true;
+    bool rts = true;
+    const size_t lines_after = inkwell_serial_mock_lines_calls(&dtr, &rts);
+    if (touched != 0 || inkwell_serial_mock_baud() != MESH_SERIAL_TOUCH_BAUD) {
+        record_failure(test_name, "the port should be reopened at 1200 baud");
+        goto cleanup_transport;
+    }
+    if (lines_after != lines_before + 1U || dtr) {
+        record_failure(test_name, "and DTR dropped, which is the touch");
+        goto cleanup_transport;
+    }
+    if (mesh_serial_transport_connected_port(transport) != NULL) {
+        record_failure(test_name, "having let go of the link first");
+        goto cleanup_transport;
+    }
+    record_success(test_name);
+
+cleanup_transport:
+    transport->ops->stop(transport);
+cleanup_loop:
+    inkwell_loop_shutdown(&loop);
+cleanup:
+    inkwell_serial_mock_disable();
+    if (pair[0] >= 0) {
+        close(pair[0]);
+    }
+    if (pair[1] >= 0) {
+        close(pair[1]);
+    }
+}
+
+/*
  * A tty that is slow to appear. The bind answers -EAGAIN instead of sleeping on the loop, and
  * the connect is a link in BINDING that the tick carries into WAKING once the tty is there -
  * with new_id written once however many times the tick asks.
