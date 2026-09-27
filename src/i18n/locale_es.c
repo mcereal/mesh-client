@@ -1823,6 +1823,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_FW_BOARDS_HEAD] = "Placas MeshCore",
     [MESH_STR_FW_CHOSEN_BOARD] = "Placa elegida",
     [MESH_STR_FW_BLANK_INSTALL] = "Instalar MeshCore",
+    [MESH_STR_FW_BLANK_INSTALL_MESHTASTIC] = "Instalar Meshtastic",
     [MESH_STR_FW_BLUETOOTH_CHECK] = "Buscar la versión Bluetooth",
     [MESH_STR_FW_BLUETOOTH_BUILD] = "Versión Bluetooth",
     [MESH_STR_FW_BLUETOOTH_INSTALL] = "Pasar a Bluetooth",

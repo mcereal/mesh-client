@@ -887,7 +887,8 @@ static bool build_radio_firmware_running(const struct mesh_ui_settings *s, struc
  * A radio on a USB port that answered neither protocol - a MeshCore BLE build, a repeater, an
  * erased flash - with nothing connected. It has said nothing about itself, so there is no check
  * to run: the press lists the boards it could be, one of them is picked by name, and that
- * board's USB companion goes on as the whole flash, under the switch's own sheet.
+ * board's USB companion goes on as the whole flash, under the switch's own sheet - or its
+ * Meshtastic build, which a board in the twin table can be turned to before the install.
  *
  * The list is rows in this section rather than a screen of its own: it is there only until the
  * pick, and every row is the same press with a different name in it. The board's name is the
@@ -922,10 +923,18 @@ static void build_radio_firmware_silent(const struct mesh_ui_settings *s, struct
         return;
     }
     item_text(list, MESH_STR_FW_CHOSEN_BOARD, INKSTAND_FORM_INFO, s->fw_chosen_board);
-    item_text(list, MESH_STR_FW_SWITCH_MESHCORE, INKSTAND_FORM_INFO,
+    const bool meshcore = s->fw_switch_to_meshcore;
+    item_text(list, meshcore ? MESH_STR_FW_SWITCH_MESHCORE : MESH_STR_FW_SWITCH_MESHTASTIC,
+              INKSTAND_FORM_INFO,
               s->fw_message[0] != '\0'
                   ? s->fw_message
                   : mesh_firmware_state_name((enum mesh_firmware_state)s->fw_state));
+    /* The same board's other firmware, under the answer it would replace. */
+    if (s->fw_blank_other) {
+        item_verb(list,
+                  meshcore ? MESH_STR_FW_SWITCH_TO_MESHTASTIC : MESH_STR_FW_SWITCH_TO_MESHCORE,
+                  MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH);
+    }
     if (!s->fw_can_install) {
         if (s->fw_blocker_reason[0] != '\0') {
             item_text(list, MESH_STR_FW_INSTALLING, INKSTAND_FORM_INFO, s->fw_blocker_reason);
@@ -939,7 +948,8 @@ static void build_radio_firmware_silent(const struct mesh_ui_settings *s, struct
                       : mesh_firmware_update_error_name(
                             (enum mesh_firmware_update_error)s->fw_update_error));
     }
-    item_verb(list, MESH_STR_FW_BLANK_INSTALL, MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH);
+    item_verb(list, meshcore ? MESH_STR_FW_BLANK_INSTALL : MESH_STR_FW_BLANK_INSTALL_MESHTASTIC,
+              MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH);
 }
 
 /*

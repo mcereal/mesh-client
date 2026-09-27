@@ -917,6 +917,9 @@ struct mesh_ui_settings {
     bool fw_silent_asked;
     bool fw_blank;
     char fw_chosen_board[MESH_UI_FW_BOARD_MAX];
+    /* That board has the other firmware too, and the answer can be turned to it
+       (`fw_switch_to_meshcore` says which firmware the answer is). */
+    bool fw_blank_other;
     uint8_t fw_choice_count;
     char fw_choices[MESH_UI_FW_CHOICES_MAX][MESH_UI_FW_BOARD_MAX];
 };

@@ -1385,7 +1385,14 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     dst->fw_silent_asked = firmware->blank;
     dst->fw_blank = firmware->blank && firmware->twin[0] != '\0';
     inkwell_str_copy(dst->fw_chosen_board, sizeof dst->fw_chosen_board,
-                     dst->fw_blank ? firmware->twin : "");
+                     dst->fw_blank ? firmware->blank_board : "");
+    /* The chosen board's other firmware: back to MeshCore always, on to Meshtastic where the
+       twin table has the board. */
+    dst->fw_blank_other =
+        dst->fw_blank && !dst->fw_busy &&
+        (firmware->source == MESH_FIRMWARE_SOURCE_MESHTASTIC ||
+         mesh_firmware_meshcore_target_for_device(firmware->blank_board) != NULL) &&
+        !mesh_firmware_update_busy(update) && !mesh_firmware_update_can_resume(update);
     dst->fw_choice_count = 0U;
     if (firmware->blank && firmware->state == MESH_FIRMWARE_CHOOSING) {
         for (uint8_t i = 0; i < firmware->choices.count && i < MESH_UI_FW_CHOICES_MAX; ++i) {

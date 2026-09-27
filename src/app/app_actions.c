@@ -1915,10 +1915,28 @@ static void on_check_radio_firmware(struct mesh_app *app, const struct mesh_ui_a
  * named - a switch is asked of a board already identified, through the twin table - and the
  * radio is described as a check describes it, so the answer is held to it the same way.
  */
+static void firmware_check_toast(struct mesh_app *app, int result, uint64_t now);
+
 static void on_check_firmware_switch(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
     (void)action;
+    /* A silent radio's board, chosen: the other firmware's answer for the same board. Nothing
+       runs on it to switch from, so the press only turns which of the two is on offer. */
+    if (app->firmware.blank) {
+        char chosen[MESH_FIRMWARE_TARGET_MAX];
+        inkwell_str_copy(chosen, sizeof chosen, app->firmware.blank_board);
+        if (chosen[0] == '\0' || mesh_firmware_busy(&app->firmware)) {
+            mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
+            return;
+        }
+        firmware_check_toast(app,
+                             app->firmware.source == MESH_FIRMWARE_SOURCE_MESHCORE
+                                 ? mesh_firmware_check_blank_meshtastic(&app->firmware, chosen, now)
+                                 : mesh_firmware_check_blank(&app->firmware, chosen, now),
+                             now);
+        return;
+    }
     const struct mesh_firmware_board *const board = mesh_firmware_board(&app->firmware);
     if (board == NULL || app->firmware.switching) {
         mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
@@ -2136,8 +2154,9 @@ static void firmware_install_blank(struct mesh_app *app, const struct mesh_firmw
     if (result == 0) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE,
                            app->firmware.release.version);
-        inkwell_log_info("ui", "Installing MeshCore %s for \"%s\" on the silent radio at %s",
-                         app->firmware.release.version, board->name, port->path);
+        inkwell_log_info("ui", "Installing %s %s for \"%s\" on the silent radio at %s",
+                         board->meshcore ? "MeshCore" : "Meshtastic", app->firmware.release.version,
+                         app->firmware.blank_board, port->path);
     } else if (result == -EBUSY) {
         inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_ALREADY_WORKING));
     } else {
