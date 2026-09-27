@@ -614,6 +614,16 @@ const char *mesh_serial_transport_connected_port(struct mesh_transport *transpor
     return state->connected.path;
 }
 
+const struct inkwell_serial_port_info *
+mesh_serial_transport_connected_device(struct mesh_transport *transport) {
+    if (transport == NULL || transport->state == NULL) {
+        return NULL;
+    }
+    const struct mesh_serial_transport_state *state =
+        (const struct mesh_serial_transport_state *)transport->state;
+    return state->link_state == MESH_SERIAL_LINK_CONNECTED ? &state->connected : NULL;
+}
+
 const char *mesh_serial_transport_connected_id(struct mesh_transport *transport) {
     if (transport == NULL || transport->state == NULL) {
         return NULL;

@@ -234,9 +234,8 @@ MESH_TEST_CASE(firmware_catalog_nrf52_takes_either_bus, unit) {
                           mesh_firmware_architecture_uses_nordic_dfu("esp32-s3"),
                       "only the nRF52 speaks Nordic DFU");
     MESH_TEST_FAIL_IF(mesh_firmware_architecture_takes("rp2040", MESH_FIRMWARE_PATH_BLE) ||
-                          mesh_firmware_architecture_takes("esp32-s3", MESH_FIRMWARE_PATH_USB) ||
                           mesh_firmware_architecture_takes("esp32-c3", MESH_FIRMWARE_PATH_BLE),
-                      "nobody else gains a bus");
+                      "nobody else gains a bus from Nordic DFU");
     MESH_TEST_FAIL_IF(mesh_firmware_architecture_takes("nrf52840", MESH_FIRMWARE_PATH_NONE),
                       "and nothing travels over no bus");
     record_success(test_name);

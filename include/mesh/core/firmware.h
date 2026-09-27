@@ -107,6 +107,9 @@ struct mesh_firmware {
     enum mesh_firmware_path bus;
     /* Whether a radio is attached at all, whatever bus it is on. */
     bool bus_connected;
+    /* A USB bus that is the chip's own USB rather than a bridge, so an ESP32's ROM cannot be
+       reached through it. Zero is a bridge, or not known to be anything else. */
+    bool bus_native_usb;
 
     /* What the radio said about itself when the check started, kept so the answer cannot drift
        under the rows while a radio reconnects mid-check. */
@@ -153,6 +156,10 @@ bool mesh_firmware_busy(const struct mesh_firmware *firmware);
  */
 void mesh_firmware_set_bus(struct mesh_firmware *firmware, enum mesh_firmware_path bus,
                            bool connected);
+/* Whether the USB bus is the chip's own USB. An ESP32 board whose own path is not USB is then
+   refused USB, since its ROM is reached through a bridge's control lines, and the row names
+   the board's path instead. */
+void mesh_firmware_set_bus_native_usb(struct mesh_firmware *firmware, bool native);
 
 /*
  * Starts a check for the radio described by `hw_model` and `running`.

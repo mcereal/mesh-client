@@ -25,20 +25,24 @@ static const struct {
     /* The board's bootloader also takes Nordic's DFU over BLE, from the `-ota.zip` beside the
        UF2 - so the board can be updated from either bus, and BLE is its second path. */
     bool nordic_dfu;
+    /* The chip's ROM bootloader takes the app image over a USB serial bridge (see
+       firmware_serial.h) - so USB is this board's second path, and the one that works
+       whatever the flash holds. */
+    bool esp_rom;
 } k_architectures[] = {
-    {"nrf52840", MESH_FIRMWARE_PATH_USB, true},
-    {"rp2040", MESH_FIRMWARE_PATH_USB, false},
-    {"rp2350", MESH_FIRMWARE_PATH_USB, false},
-    {"esp32", MESH_FIRMWARE_PATH_BLE, false},
-    {"esp32-s3", MESH_FIRMWARE_PATH_BLE, false},
+    {"nrf52840", MESH_FIRMWARE_PATH_USB, true, false},
+    {"rp2040", MESH_FIRMWARE_PATH_USB, false, false},
+    {"rp2350", MESH_FIRMWARE_PATH_USB, false, false},
+    {"esp32", MESH_FIRMWARE_PATH_BLE, false, true},
+    {"esp32-s3", MESH_FIRMWARE_PATH_BLE, false, true},
     /* Named rather than left to fall through, because these are the ones somebody will come
        back to: their loader partition holds the pre-unified `bleota-c3.bin`, and current
        firmware refuses to boot into it. Not "we cannot speak that protocol" - the radio will
        not go there. */
-    {"esp32-c3", MESH_FIRMWARE_PATH_NONE, false},
-    {"esp32-c6", MESH_FIRMWARE_PATH_NONE, false},
+    {"esp32-c3", MESH_FIRMWARE_PATH_NONE, false, false},
+    {"esp32-c6", MESH_FIRMWARE_PATH_NONE, false, false},
     /* A Linux process pretending to be a radio. It updates the way any program does. */
-    {"portduino", MESH_FIRMWARE_PATH_NONE, false},
+    {"portduino", MESH_FIRMWARE_PATH_NONE, false, false},
 };
 
 static int catalog_architecture_row(const char *architecture) {
@@ -77,6 +81,11 @@ bool mesh_firmware_architecture_uses_nordic_dfu(const char *architecture) {
     return row >= 0 && k_architectures[row].nordic_dfu;
 }
 
+bool mesh_firmware_architecture_uses_esp_rom(const char *architecture) {
+    const int row = catalog_architecture_row(architecture);
+    return row >= 0 && k_architectures[row].esp_rom;
+}
+
 bool mesh_firmware_architecture_takes(const char *architecture, enum mesh_firmware_path bus) {
     if (bus == MESH_FIRMWARE_PATH_NONE) {
         return false;
@@ -87,7 +96,8 @@ bool mesh_firmware_architecture_takes(const char *architecture, enum mesh_firmwa
     }
     return k_architectures[row].path == bus ||
            (bus == MESH_FIRMWARE_PATH_BLE && k_architectures[row].nordic_dfu &&
-            mesh_firmware_nordic_dfu_available());
+            mesh_firmware_nordic_dfu_available()) ||
+           (bus == MESH_FIRMWARE_PATH_USB && k_architectures[row].esp_rom);
 }
 
 bool mesh_firmware_board_takes(const struct mesh_firmware_board *board,
@@ -98,7 +108,9 @@ bool mesh_firmware_board_takes(const struct mesh_firmware_board *board,
            (board->path == bus ||
             (bus == MESH_FIRMWARE_PATH_BLE &&
              mesh_firmware_architecture_uses_nordic_dfu(board->architecture) &&
-             mesh_firmware_nordic_dfu_available()));
+             mesh_firmware_nordic_dfu_available()) ||
+            (bus == MESH_FIRMWARE_PATH_USB &&
+             mesh_firmware_architecture_uses_esp_rom(board->architecture)));
 }
 
 /* ---- deviceHardware ---------------------------------------------------------------------- */
@@ -474,8 +486,9 @@ mesh_firmware_manifest_image(const struct mesh_firmware_manifest *manifest,
         if (path == MESH_FIRMWARE_PATH_USB) {
             /* The bootloader's drive takes a UF2 and nothing else, and an nRF52 manifest
                publishes exactly one. The `-ota.zip` beside it is the Nordic DFU package, which
-               is the BLE path's file. */
-            if (catalog_name_ends_with(file->name, ".uf2")) {
+               is the BLE path's file. An ESP32 publishes no UF2; over USB its ROM takes the
+               same `app0` image the BLE loader does. */
+            if (catalog_name_ends_with(file->name, ".uf2") || strcmp(file->part, "app0") == 0) {
                 return file;
             }
         } else if (path == MESH_FIRMWARE_PATH_BLE) {

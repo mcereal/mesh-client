@@ -5,6 +5,7 @@
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 
+#include "mesh/core/esp_image.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble_hci.h"
 
@@ -404,15 +405,103 @@ static void update_begin_ble(struct mesh_firmware_update *update, const char *im
     update_set(update, update_state_of_ota(update->ble.state), NULL);
 }
 
+/* The serial handover's states, folded onto the ladder. */
+static enum mesh_firmware_update_state
+update_state_of_serial(enum mesh_firmware_serial_state state) {
+    switch (state) {
+    case MESH_FIRMWARE_SERIAL_WAITING:
+        return MESH_FIRMWARE_UPDATE_WAITING;
+    case MESH_FIRMWARE_SERIAL_WRITING:
+        return MESH_FIRMWARE_UPDATE_WRITING;
+    case MESH_FIRMWARE_SERIAL_RESTARTING:
+        return MESH_FIRMWARE_UPDATE_RESTARTING;
+    case MESH_FIRMWARE_SERIAL_DONE:
+        return MESH_FIRMWARE_UPDATE_DONE;
+    case MESH_FIRMWARE_SERIAL_FAILED:
+        return MESH_FIRMWARE_UPDATE_FAILED;
+    case MESH_FIRMWARE_SERIAL_IDLE:
+    case MESH_FIRMWARE_SERIAL_STATE_COUNT:
+    default:
+        return MESH_FIRMWARE_UPDATE_IDLE;
+    }
+}
+
+/*
+ * Which of the four questions a serial failure answers. The ROM never answering is "no radio"
+ * - the lines moved and nothing came, and nothing was written - and so is a port that is not
+ * there; a chip or an image that does not match is the image; everything after the first
+ * answer is the handover breaking.
+ */
+static enum mesh_firmware_update_error
+update_error_of_serial(const struct mesh_firmware_serial *serial) {
+    switch (serial->error) {
+    case MESH_FIRMWARE_SERIAL_ERROR_IMAGE:
+        return MESH_FIRMWARE_UPDATE_ERROR_WRONG_IMAGE;
+    case MESH_FIRMWARE_SERIAL_ERROR_NO_PORT:
+        return MESH_FIRMWARE_UPDATE_ERROR_NO_RADIO;
+    case MESH_FIRMWARE_SERIAL_ERROR_NATIVE_USB:
+        return MESH_FIRMWARE_UPDATE_ERROR_UNAVAILABLE;
+    case MESH_FIRMWARE_SERIAL_ERROR_LOADER:
+        switch (serial->loader.error) {
+        case MESH_ESP_LOADER_ERROR_PORT:
+        case MESH_ESP_LOADER_ERROR_SILENT:
+            return MESH_FIRMWARE_UPDATE_ERROR_NO_RADIO;
+        case MESH_ESP_LOADER_ERROR_WRONG_CHIP:
+            return MESH_FIRMWARE_UPDATE_ERROR_WRONG_IMAGE;
+        default:
+            return MESH_FIRMWARE_UPDATE_ERROR_HANDOVER;
+        }
+    default:
+        return MESH_FIRMWARE_UPDATE_ERROR_HANDOVER;
+    }
+}
+
+/*
+ * The ESP32's USB path. Nothing to arm - the ROM is reached through two control lines, not
+ * through anything the firmware understands - so the link has nothing left to say and lets go
+ * of the port before the loader opens it.
+ */
+static void update_begin_serial(struct mesh_firmware_update *update, const char *image_path,
+                                uint64_t now_ms) {
+    uint16_t chip = 0U;
+    if (!mesh_esp_chip_for_architecture(update->board.architecture, &chip)) {
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_UNAVAILABLE,
+                      inkcell_str(MESH_STR_FW_UPDATE_ERR_UNAVAILABLE));
+        return;
+    }
+    update_release_link(update);
+    if (mesh_firmware_serial_start(&update->serial, update->loop, image_path, update->where, chip,
+                                   now_ms) < 0) {
+        update_finish(update, update_error_of_serial(&update->serial), update->serial.reason);
+        return;
+    }
+    update_set(update, update_state_of_serial(update->serial.state), NULL);
+}
+
+static void update_tick_serial(struct mesh_firmware_update *update, uint64_t now_ms) {
+    mesh_firmware_serial_tick(&update->serial, now_ms);
+    if (mesh_firmware_serial_busy(&update->serial)) {
+        update_set(update, update_state_of_serial(update->serial.state), NULL);
+        return;
+    }
+    if (update->serial.state == MESH_FIRMWARE_SERIAL_DONE) {
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NONE, update->release.version);
+        return;
+    }
+    update_finish(update, update_error_of_serial(&update->serial), update->serial.reason);
+}
+
 /* The image has landed and been checked. From here the two buses part company for good. */
-static void update_begin_handover(struct mesh_firmware_update *update) {
+static void update_begin_handover(struct mesh_firmware_update *update, uint64_t now_ms) {
     char image_path[INKWELL_FETCH_PATH_MAX];
     if (mesh_firmware_fetch_image_path(&update->image, image_path, sizeof image_path) == NULL) {
         update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_DOWNLOAD,
                       inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_IMAGE));
         return;
     }
-    if (update->path == MESH_FIRMWARE_PATH_USB) {
+    if (update->path == MESH_FIRMWARE_PATH_USB && update->esp_serial) {
+        update_begin_serial(update, image_path, now_ms);
+    } else if (update->path == MESH_FIRMWARE_PATH_USB) {
         update_begin_usb(update, image_path);
     } else {
         update_begin_ble(update, image_path);
@@ -534,6 +623,8 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
     update->path = bus;
     update->nordic_dfu = bus == MESH_FIRMWARE_PATH_BLE &&
                          mesh_firmware_architecture_uses_nordic_dfu(board->architecture);
+    update->esp_serial = bus == MESH_FIRMWARE_PATH_USB &&
+                         mesh_firmware_architecture_uses_esp_rom(board->architecture);
     update->hw_model = board->hw_model;
     update->release = *release;
     inkwell_str_copy(update->where, sizeof update->where, where != NULL ? where : "");
@@ -552,7 +643,7 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
     }
     inkwell_log_info("firmware-update", "Installing %s %s over %s", board->target, release->version,
                      update->path == MESH_FIRMWARE_PATH_USB
-                         ? "USB"
+                         ? (update->esp_serial ? "USB (ROM bootloader)" : "USB")
                          : (update->nordic_dfu ? "BLE (Nordic DFU)" : "BLE"));
     update_set(update, MESH_FIRMWARE_UPDATE_RESOLVING, release->version);
     return 0;
@@ -573,6 +664,7 @@ void mesh_firmware_update_cancel(struct mesh_firmware_update *update) {
     mesh_firmware_install_cancel(&update->usb);
     mesh_firmware_ota_cancel(&update->ble);
     mesh_firmware_dfu_cancel(&update->dfu);
+    mesh_firmware_serial_cancel(&update->serial);
     update_close_bluez(update);
     if (mesh_firmware_update_busy(update)) {
         update->error = MESH_FIRMWARE_UPDATE_ERROR_HANDOVER;
@@ -629,7 +721,7 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
         const bool ready = bluetooth && (update->hooks.radio_ready == NULL ||
                                          update->hooks.radio_ready(update->hooks.userdata));
         if (ready) {
-            update_begin_handover(update);
+            update_begin_handover(update, now_ms);
         } else if (now_ms >= update->deadline_ms) {
             update_close_bluez(update);
             if (!bluetooth) {
@@ -646,6 +738,10 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
     case MESH_FIRMWARE_UPDATE_WAITING:
     case MESH_FIRMWARE_UPDATE_WRITING:
     case MESH_FIRMWARE_UPDATE_RESTARTING: {
+        if (update->path == MESH_FIRMWARE_PATH_USB && update->esp_serial) {
+            update_tick_serial(update, now_ms);
+            break;
+        }
         if (update->path == MESH_FIRMWARE_PATH_USB) {
             mesh_firmware_install_tick(&update->usb, now_ms);
             if (mesh_firmware_install_busy(&update->usb)) {
@@ -716,12 +812,14 @@ bool mesh_firmware_update_holds_the_radio(const struct mesh_firmware_update *upd
     }
     return mesh_firmware_install_holds_the_radio(&update->usb) ||
            mesh_firmware_ota_holds_the_radio(&update->ble) ||
-           mesh_firmware_dfu_holds_the_radio(&update->dfu);
+           mesh_firmware_dfu_holds_the_radio(&update->dfu) ||
+           mesh_firmware_serial_holds_the_radio(&update->serial);
 }
 
 bool mesh_firmware_update_radio_in_loader(const struct mesh_firmware_update *update) {
     return update != NULL && (mesh_firmware_ota_radio_in_loader(&update->ble) ||
-                              mesh_firmware_dfu_radio_in_loader(&update->dfu));
+                              mesh_firmware_dfu_radio_in_loader(&update->dfu) ||
+                              mesh_firmware_serial_radio_in_loader(&update->serial));
 }
 
 bool mesh_firmware_update_can_resume(const struct mesh_firmware_update *update) {
@@ -738,7 +836,8 @@ unsigned mesh_firmware_update_progress(const struct mesh_firmware_update *update
         return mesh_firmware_fetch_progress(&update->image);
     case MESH_FIRMWARE_UPDATE_WRITING:
         if (update->path == MESH_FIRMWARE_PATH_USB) {
-            return mesh_firmware_install_progress(&update->usb);
+            return update->esp_serial ? mesh_firmware_serial_progress(&update->serial)
+                                      : mesh_firmware_install_progress(&update->usb);
         }
         return update->nordic_dfu ? mesh_firmware_dfu_progress(&update->dfu)
                                   : mesh_firmware_ota_progress(&update->ble);

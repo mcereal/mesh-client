@@ -10,9 +10,11 @@
 #include "inkwell/codec/sha256.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
+#include "mesh/core/esp_image.h"
 #include "mesh/core/firmware_fetch.h"
 #include "mesh/core/firmware_install.h"
 #include "mesh/core/firmware_ota.h"
+#include "mesh/core/firmware_serial.h"
 #include "mesh/core/firmware_update.h"
 #include "mesh/core/version.h"
 #include "mesh/map/source.h"
@@ -907,6 +909,63 @@ static int install_radio_firmware_dfu(struct mesh_app *app,
     return ok ? 0 : -EIO;
 }
 
+/*
+ * An ESP32 target with --serial: the app image to the chip's ROM bootloader over the bridge.
+ *
+ * No transport is started and no radio is asked anything. The ROM is reached by two control
+ * lines whatever the flash holds, so this is also the way back for a board a failed write left
+ * unbootable - and for one running firmware that speaks no protocol this client does.
+ * `--serial=ID` names the port by id or tty; a bare --serial takes the only bridge there is.
+ */
+static int install_radio_firmware_serial(struct mesh_app *app,
+                                         const struct cli_firmware_fetch *fetched,
+                                         const char *serial_identifier) {
+    char image_path[INKWELL_FETCH_PATH_MAX];
+    if (mesh_firmware_fetch_image_path(&fetched->fetch, image_path, sizeof image_path) == NULL) {
+        fprintf(stderr, "The image was fetched and then could not be found.\n");
+        return -EIO;
+    }
+    uint16_t chip = 0U;
+    if (!mesh_esp_chip_for_architecture(fetched->fetch.manifest.architecture, &chip)) {
+        fprintf(stderr, "No ESP chip for architecture '%s'.\n",
+                fetched->fetch.manifest.architecture);
+        return -ENOTSUP;
+    }
+    static struct mesh_firmware_serial serial;
+    int result = mesh_firmware_serial_start(&serial, &app->loop, image_path,
+                                            serial_identifier != NULL ? serial_identifier : "",
+                                            chip, inkwell_time_monotonic_ms());
+    if (result < 0) {
+        fprintf(stderr, "Could not start the install: %s: %s\n",
+                mesh_firmware_serial_error_name(serial.error), serial.reason);
+        return result;
+    }
+    printf("Writing %s to %s through its ROM bootloader\n", fetched->release.version, serial.path);
+    enum mesh_esp_loader_state last_state = MESH_ESP_LOADER_STATE_COUNT;
+    unsigned last_progress = 101U;
+    while (mesh_firmware_serial_busy(&serial)) {
+        (void)inkwell_loop_run(&app->loop, 20);
+        mesh_firmware_serial_tick(&serial, inkwell_time_monotonic_ms());
+        const unsigned progress = mesh_firmware_serial_progress(&serial);
+        if (serial.loader.state != last_state ||
+            (progress != last_progress && progress % 5U == 0U)) {
+            printf("  %s %u%%\n", mesh_esp_loader_state_name(serial.loader.state), progress);
+            fflush(stdout);
+            last_state = serial.loader.state;
+            last_progress = progress;
+        }
+    }
+    const bool ok = serial.state == MESH_FIRMWARE_SERIAL_DONE;
+    if (ok) {
+        printf("Installed. The board restarted into %s.\n", fetched->release.version);
+    } else {
+        fprintf(stderr, "Failed: %s: %s\n", mesh_firmware_serial_error_name(serial.error),
+                serial.reason);
+    }
+    mesh_firmware_serial_cancel(&serial);
+    return ok ? 0 : -EIO;
+}
+
 static int install_radio_firmware(struct mesh_app *app, const char *target, const char *staging,
                                   bool use_serial, const char *serial_identifier,
                                   const char *named_ble_device) {
@@ -917,12 +976,11 @@ static int install_radio_firmware(struct mesh_app *app, const char *target, cons
     }
     if (fetched.fetch.path == MESH_FIRMWARE_PATH_BLE) {
         if (use_serial) {
-            fprintf(stderr,
-                    "%s is an ESP32 target and cannot be factory-installed over USB by "
-                    "meshclient yet; --serial will not be ignored. Bootstrap it with a "
-                    "factory flasher, then update it here over BLE.\n",
-                    target);
-            return -ENOTSUP;
+            if (!mesh_firmware_architecture_uses_esp_rom(fetched.fetch.manifest.architecture)) {
+                fprintf(stderr, "%s has no USB path from here.\n", target);
+                return -ENOTSUP;
+            }
+            return install_radio_firmware_serial(app, &fetched, serial_identifier);
         }
         return install_radio_firmware_ble(app, &fetched);
     }

@@ -28,6 +28,7 @@
 #include "mesh/proto/meshcore_url.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
+#include "mesh/transport/serial_usb.h"
 #include "mesh/transport/tcp.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
@@ -1169,6 +1170,10 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     struct mesh_firmware *const firmware = &app->firmware;
     mesh_firmware_set_bus(firmware, mesh_app_firmware_bus(),
                           mesh_app_connected_identifier() != NULL);
+    const struct inkwell_serial_port_info *const port =
+        mesh_serial_transport_connected_device(mesh_serial_transport());
+    mesh_firmware_set_bus_native_usb(firmware,
+                                     port != NULL && !mesh_serial_device_reaches_esp_rom(port));
 
     /*
      * A check whose answer is about a radio that is no longer the one on the other end.
@@ -1275,7 +1280,7 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
      */
     if (mesh_firmware_update_can_resume(update) && mesh_firmware_update_available(update)) {
         dst->fw_can_install = true;
-        dst->fw_bus = (uint8_t)MESH_FIRMWARE_PATH_BLE;
+        dst->fw_bus = (uint8_t)update->path;
     }
 }
 

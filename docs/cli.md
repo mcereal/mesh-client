@@ -64,6 +64,7 @@ neither the flag nor `MESHCLIENT_TCP_HOST` named one.
 meshclient --fetch-firmware heltec-mesh-node-t114 --staging /mnt/UDISK    # download only
 meshclient --install-firmware heltec-mesh-node-t114 --staging /mnt/UDISK  # and write it
 meshclient --install-firmware heltec-v3 --staging /mnt/UDISK -p 9C:13:9E:9D:0A:D9   # ESP32, BLE
+meshclient --install-firmware heltec-v3 --staging /mnt/UDISK --serial              # ESP32, its ROM
 ```
 
 The fetch touches no radio and starts no transport: the board is named by its build target, so it
@@ -79,10 +80,13 @@ With `-p ADDRESS` and no `--serial`, an nRF52 target is instead finished at a DF
 it is already sitting in, which is the recovery for an in-app install that stopped part-way);
 an ESP32 target goes over BLE instead, where the radio reboots into its OTA
 loader (a second peripheral at its address plus one) and the client streams the image to it.
-`--serial` is therefore refused for an ESP32 install instead of being silently ignored. A blank
-ESP32 still needs one factory flash before mesh-client can update it; factory flashing requires
-the release's factory image, OTA loader and filesystem at the offsets in its `.mt.json`, not just
-the app image used for BLE updates.
+With `--serial`, an ESP32 or ESP32-S3 target is written through the chip's ROM bootloader
+over a USB serial bridge instead: no transport is started and nothing is asked of the radio,
+so it works whatever the board is running. `--serial=ID` names the port by id or tty, and a bare
+`--serial` takes the only bridge there is. See
+[`transport.md`](transport.md#firmware-over-a-cable-an-esp32s-rom). This writes the app image and
+erases `otadata`. A blank ESP32 still needs a factory flash, which means the release's
+bootloader, partition table, OTA loader and filesystem as well.
 
 - **Stage outside `/mnt/SDCARD`.** The nRF52 bootloader's ghost FAT gets mounted over the card,
   taking the pak, the binary and the log with it. Use `/mnt/UDISK`. The image is read into memory

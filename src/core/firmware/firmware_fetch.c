@@ -243,11 +243,17 @@ static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
                    "the image is not the length its manifest describes");
         return;
     }
-    if (fetch->path != MESH_FIRMWARE_PATH_USB) {
+    const char *const expected = fetch->expect_architecture[0] != '\0'
+                                     ? fetch->expect_architecture
+                                     : fetch->manifest.architecture;
+    if (fetch->path != MESH_FIRMWARE_PATH_USB ||
+        mesh_firmware_architecture_uses_esp_rom(expected)) {
         /* An ESP32 app image is a blob with a one-byte magic and nothing that names the board
            it is for. Phase 4 checks it by handing the loader a hash and being refused; there
            is nothing to read here. An nRF52's DFU package is checked by the install that
-           opens it, against the CRC16 its own init packet carries. */
+           opens it, against the CRC16 its own init packet carries. Over USB an ESP32's image
+           goes to its ROM, and the serial handover reads its header for the chip before
+           anything is erased. */
         fetch_finish(fetch, MESH_FIRMWARE_FETCH_READY, MESH_FIRMWARE_FETCH_ERROR_NONE, "");
         return;
     }
