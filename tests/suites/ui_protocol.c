@@ -70,7 +70,8 @@ static bool root_lists(const struct mesh_ui_settings *settings,
 }
 
 /*
- * The table the publish reads. The Meshtastic session lacks nothing; a protocol the table has
+ * The table the publish reads. The Meshtastic session lacks only the login a MeshCore repeater
+ * asks for; a protocol the table has
  * never heard of lacks everything, because offering it a Meshtastic verb is offering a press
  * that fails; and nothing on the link reads as the Meshtastic this client has always assumed.
  */
@@ -81,8 +82,9 @@ MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
     uint8_t id = 0xFFU;
     uint32_t lacks = 0xFFFFFFFFU;
     mesh_ui_protocol_features(&meshtastic, &id, &lacks);
-    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC || lacks != 0U,
-                      "the Meshtastic session has every feature");
+    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC ||
+                          lacks != (uint32_t)MESH_UI_FEATURE_NODE_LOGIN,
+                      "the Meshtastic session has every feature but MeshCore's login");
 
     static const struct mesh_protocol_ops k_stranger = {.name = "stranger"};
     const struct mesh_protocol stranger = {&k_stranger, &session};
@@ -101,12 +103,14 @@ MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
                           (lacks & MESH_UI_FEATURE_REMOTE_ADMIN) == 0U ||
                           (lacks & MESH_UI_FEATURE_CHANNEL_LINKS) == 0U,
                       "MeshCore lacks waypoints, Meshtastic's admin and its channel links");
-    MESH_TEST_FAIL_IF((lacks & MESH_UI_FEATURE_CONTACT_LINKS) != 0U,
-                      "and shares contacts in its own app's link");
+    MESH_TEST_FAIL_IF((lacks & MESH_UI_FEATURE_CONTACT_LINKS) != 0U ||
+                          (lacks & MESH_UI_FEATURE_NODE_LOGIN) != 0U,
+                      "and shares contacts in its own app's link, and logs in to a repeater");
 
     const struct mesh_protocol none = {NULL, NULL};
     mesh_ui_protocol_features(&none, &id, &lacks);
-    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC || lacks != 0U,
+    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC ||
+                          lacks != (uint32_t)MESH_UI_FEATURE_NODE_LOGIN,
                       "nothing on the link is the Meshtastic the cache was written by");
 
     struct mesh_ui_settings zeroed;
@@ -209,6 +213,202 @@ MESH_TEST_CASE(ui_protocol_node_sheet_offers_what_the_protocol_has, unit) {
     MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_TRACEROUTE) ||
                           !has_verb(items, count, MESH_UI_NODE_ACTION_ADMIN),
                       "lacking traceroute hides traceroute and nothing else");
+    record_success(test_name);
+}
+
+/*
+ * A login is offered on a MeshCore repeater or room server the radio carries by its whole key,
+ * and nowhere else: not on a chat node, not on one only heard, and not on Meshtastic, whose
+ * repeaters answer no such thing. Its row raises a keyboard whose Done sends what was typed -
+ * blank included, which is a guest's login - and whose B sends nothing.
+ */
+MESH_TEST_CASE(ui_protocol_meshcore_logs_in_to_a_repeater, unit) {
+    static const struct mesh_protocol_ops k_meshcore = {.name = "meshcore"};
+    static int meshcore_self;
+    const struct mesh_protocol meshcore_protocol = {&k_meshcore, &meshcore_self};
+    uint32_t meshcore_lacks = 0U;
+    mesh_ui_protocol_features(&meshcore_protocol, NULL, &meshcore_lacks);
+
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x1234U;
+    node.public_key_len = 32U;
+    memset(node.public_key, 0x42, 32U);
+    node.in_nodedb = true;
+    node.role = 4U; /* a repeater's advert */
+    MESH_TEST_FAIL_IF(!mesh_ui_node_loginable(&node, meshcore_lacks), "a repeater contact");
+    node.role = 12U; /* a room server's */
+    MESH_TEST_FAIL_IF(!mesh_ui_node_loginable(&node, meshcore_lacks), "a room server contact");
+    MESH_TEST_FAIL_IF(mesh_ui_node_loginable(&node, MESH_UI_FEATURE_NODE_LOGIN),
+                      "not on Meshtastic");
+    node.role = 0U;
+    MESH_TEST_FAIL_IF(mesh_ui_node_loginable(&node, meshcore_lacks), "not a chat node");
+    node.role = 4U;
+    node.in_nodedb = false;
+    MESH_TEST_FAIL_IF(mesh_ui_node_loginable(&node, meshcore_lacks), "not a heard repeater");
+
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    store.settings.protocol_lacks = meshcore_lacks;
+
+    struct mesh_ui_action action;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* Nodes */
+    for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    struct mesh_ui_node_summary *repeater = (struct mesh_ui_node_summary *)mesh_ui_node_detail_find(
+        &store.handshake, store.nav.node_detail_node);
+    if (!store.nav.node_detail_open || repeater == NULL) {
+        failure = "A opens a node's detail";
+        goto cleanup;
+    }
+    repeater->role = 4U;
+    repeater->in_nodedb = true;
+    repeater->public_key_len = 32U;
+    memset(repeater->public_key, 0x42, 32U);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    struct mesh_ui_node_item items[MESH_UI_NODE_ACTIONS_MAX];
+    const uint32_t count = mesh_ui_node_actions_build(repeater, false, NULL, false, meshcore_lacks,
+                                                      items, MESH_UI_NODE_ACTIONS_MAX);
+    uint32_t login_row = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].action == MESH_UI_NODE_ACTION_LOGIN) {
+            login_row = i;
+        }
+    }
+    if (!store.nav.node_actions_open || login_row >= count) {
+        failure = "the repeater's sheet carries a login";
+        goto cleanup;
+    }
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "hi");
+    for (int round = 0; round < 4; ++round) {
+        while (store.nav.node_actions_cursor < login_row &&
+               mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action)) {
+        }
+        memset(&action, 0, sizeof action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+        if (!store.nav.keyboard_open || !store.nav.keyboard_login ||
+            store.nav.login_node != repeater->node_id || store.nav.draft[0] != '\0') {
+            failure = "the row raises a blank keyboard for that node's password";
+            goto cleanup;
+        }
+        if (round == 0) {
+            mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* one character */
+            char shown[MESH_UI_DRAFT_MAX];
+            size_t caret_back = 0U;
+            static struct mesh_ui_snapshot published;
+            (void)mesh_ui_store_consume_updates(&store, &published);
+            if (strcmp(published.nav.draft, "*") != 0) {
+                failure = "a snapshot carries the password masked, never as typed";
+                goto cleanup;
+            }
+            if (strcmp(mesh_ui_nav_kb_shown(&store.nav, shown, sizeof shown, &caret_back), "*") !=
+                    0 ||
+                caret_back != 0U) {
+                failure = "a password is shown as one mark per character";
+                goto cleanup;
+            }
+        }
+        if (round == 3) {
+            /* A pairing comparison arriving over it: the login gives way, password and all,
+               and the six digits are shown as they are, since they are the thing to compare. */
+            mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+            mesh_ui_store_open_passkey_prompt(&store, "Radio", 123456U, true);
+            static struct mesh_ui_snapshot prompted;
+            (void)mesh_ui_store_consume_updates(&store, &prompted);
+            if (!store.nav.keyboard_passkey || store.nav.keyboard_login ||
+                strcmp(prompted.nav.draft, "123456") != 0 ||
+                strcmp(prompted.nav.draft_saved, "hi") != 0) {
+                failure = "a pairing prompt closes the login and shows its digits unmasked";
+                goto cleanup;
+            }
+            mesh_ui_store_close_passkey_prompt(&store);
+            if (store.nav.keyboard_open || strcmp(store.nav.draft, "hi") != 0) {
+                failure = "and nothing of the login comes back when it closes";
+                goto cleanup;
+            }
+            memset(&action, 0, sizeof action);
+            continue;
+        }
+        if (round == 2) {
+            /* Longer than the draft it parked, so what B leaves is the test. */
+            for (int typed = 0; typed < 15; ++typed) {
+                mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+            }
+            if (strlen(store.nav.draft) <= strlen("hi")) {
+                failure = "fifteen characters were typed";
+                goto cleanup;
+            }
+            mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+            if (action.type != MESH_UI_ACTION_NONE || store.nav.keyboard_open) {
+                failure = "B leaves without logging in";
+                goto cleanup;
+            }
+            const size_t parked = strlen("hi");
+            for (size_t at = parked + 1U; at < sizeof store.nav.draft; ++at) {
+                if (store.nav.draft[at] != '\0') {
+                    failure = "nothing of the password is left past the restored draft";
+                    goto cleanup;
+                }
+            }
+        } else {
+            mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
+            if (action.type != MESH_UI_ACTION_LOGIN || action.dest != repeater->node_id ||
+                (round == 0) != (action.text[0] != '\0') || store.nav.keyboard_open) {
+                failure = round == 0 ? "Done logs in with what was typed"
+                                     : "and with nothing typed, as a guest";
+                goto cleanup;
+            }
+        }
+        if (strcmp(store.nav.draft, "hi") != 0 || store.nav.login_node != 0U) {
+            failure = "the password goes, and the draft it parked comes back";
+            goto cleanup;
+        }
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* A password shows one mark per character, and the caret stays where the next one goes -
+   the start of the field included, and past a character wider than a byte. */
+MESH_TEST_CASE(ui_protocol_password_mask_keeps_the_caret, unit) {
+    static struct mesh_ui_nav nav;
+    memset(&nav, 0, sizeof nav);
+    nav.keyboard_open = true;
+    nav.keyboard_login = true;
+    snprintf(nav.draft, sizeof nav.draft, "%s",
+             "\xC3\xA9"
+             "a"); /* e-acute, then a */
+    char shown[MESH_UI_DRAFT_MAX];
+    static const struct {
+        size_t draft_back;
+        size_t shown_back;
+    } k_cases[] = {{0U, 0U}, {1U, 1U}, {3U, 2U}};
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_used(&nav) != 3U, "the cap counts bytes, as typed");
+    nav.login_draft_bytes = 3U;
+    snprintf(nav.draft, sizeof nav.draft, "%s", "**"); /* as a snapshot publishes it */
+    MESH_TEST_FAIL_IF(mesh_ui_nav_draft_used(&nav) != 3U,
+                      "and a published mask still counts the bytes the password is");
+    nav.login_draft_bytes = 0U;
+    snprintf(nav.draft, sizeof nav.draft, "%s",
+             "\xC3\xA9"
+             "a");
+    for (size_t i = 0; i < sizeof k_cases / sizeof k_cases[0]; ++i) {
+        size_t back = k_cases[i].draft_back;
+        MESH_TEST_FAIL_IF(strcmp(mesh_ui_nav_kb_shown(&nav, shown, sizeof shown, &back), "**") != 0,
+                          "two characters show as two marks");
+        MESH_TEST_FAIL_IF(back != k_cases[i].shown_back,
+                          "the caret is counted in marks: at the end, between, and at the start");
+    }
+    nav.keyboard_login = false;
+    MESH_TEST_FAIL_IF(mesh_ui_nav_kb_shown(&nav, shown, sizeof shown, NULL) != nav.draft,
+                      "any other keyboard shows its draft as typed");
     record_success(test_name);
 }
 

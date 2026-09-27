@@ -374,10 +374,13 @@ enum mesh_ui_feature {
     /* Asking a node for its readings now: Meshtastic's telemetry request, MeshCore's
        SEND_TELEMETRY_REQ - whose answer carries a position too, where the node shares one. */
     MESH_UI_FEATURE_NODE_TELEMETRY = 1U << 16,
+    /* Logging in to a repeater or a room server among the radio's contacts: MeshCore's alone,
+       and so the one bit Meshtastic lacks. */
+    MESH_UI_FEATURE_NODE_LOGIN = 1U << 17,
 };
 
-/* Every bit above: what a protocol with none of Meshtastic's verbs lacks. */
-#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_TELEMETRY << 1) - 1U))
+/* Every bit above: what a protocol this client has no row for lacks. */
+#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_LOGIN << 1) - 1U))
 
 /*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so the

@@ -1645,6 +1645,11 @@ static bool mesh_ui_nav_node_action_run(struct mesh_ui_nav *nav, const struct me
            something - which is a frame this press cannot predict. */
         return false;
     }
+    if (item->action == MESH_UI_NODE_ACTION_LOGIN) {
+        mesh_ui_nav_open_login_keyboard(
+            nav, node->node_id, node->long_name[0] != '\0' ? node->long_name : node->short_name);
+        return true;
+    }
     if (item->action == MESH_UI_NODE_ACTION_REMOVE) {
         if (!nav->node_remove_armed) {
             nav->node_remove_armed = true; /* the row now says "A again to remove" */
@@ -2861,6 +2866,7 @@ bool mesh_ui_nav_open_passkey(struct mesh_ui_nav *nav, const char *label, uint32
     if (nav->keyboard_passkey) {
         return false; /* already up for this pairing */
     }
+    mesh_ui_nav_abandon_login(nav);
 
     /* Whatever the keyboard was doing is parked, not lost: the prompt arrives in the middle of
        whatever the user was typing and BlueZ will not wait for them to finish. That includes a
@@ -2951,6 +2957,7 @@ bool mesh_ui_nav_open_verify_number(struct mesh_ui_nav *nav) {
     if (nav->keyboard_passkey) {
         return false;
     }
+    mesh_ui_nav_abandon_login(nav);
     /* The sheet and the keyboard are never both up: the number is one stage of the ceremony and
        the sheet draws the others. */
     nav->verify_open = false;

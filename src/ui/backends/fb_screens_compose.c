@@ -390,15 +390,20 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
         snprintf(title, sizeof title, "%s", inkcell_str(MESH_STR_IMPORT_PROMPT));
     } else if (nav->keyboard_contact_url) {
         snprintf(title, sizeof title, "%s", inkcell_str(MESH_STR_CONTACT_IMPORT_PROMPT));
+    } else if (nav->keyboard_login) {
+        inkcell_str_format(title, sizeof title, MESH_STR_LOGIN_PROMPT,
+                           nav->login_name[0] != '\0' ? nav->login_name
+                                                      : inkcell_str(MESH_STR_COMMON_UNKNOWN));
     } else {
         inkcell_str_format(title, sizeof title, MESH_STR_COMPOSE_TO, nav->target_name);
     }
     /* The same badge the compose sheet carries, for the same reason: this keyboard was raised
        over a bubble, and the destination in the title is not what says so. A setting's keyboard
        and the pairing prompt never carry one - `reply_to` belongs to the thread. */
-    const bool replying = (!for_passkey && !for_verify && !for_setting && !nav->keyboard_network &&
-                           !nav->keyboard_waypoint && !nav->keyboard_channel_url &&
-                           !nav->keyboard_contact_url && nav->reply_to != 0U);
+    const bool replying =
+        (!for_passkey && !for_verify && !for_setting && !nav->keyboard_network &&
+         !nav->keyboard_waypoint && !nav->keyboard_channel_url && !nav->keyboard_contact_url &&
+         !nav->keyboard_login && nav->reply_to != 0U);
     fb_draw_app_bar(state, layout,
                     &(const struct inkcell_fb_app_bar){
                         .title = title,
@@ -416,11 +421,13 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
      * it is.
      */
     char meter[32];
-    snprintf(meter, sizeof meter, "%zu/%zu", strlen(nav->draft), draft_cap);
+    snprintf(meter, sizeof meter, "%zu/%zu", mesh_ui_nav_draft_used(nav), draft_cap);
+    char masked[MESH_UI_DRAFT_MAX];
+    size_t caret_back = nav->kb.caret_back;
     struct inkcell_fb_text_field field = {
-        .value = nav->draft,
+        .value = mesh_ui_nav_kb_shown(nav, masked, sizeof masked, &caret_back),
         .caret = true,
-        .caret_back = nav->kb.caret_back,
+        .caret_back = caret_back,
         .lines = 2U,
         .counter = meter,
     };

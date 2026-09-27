@@ -40,6 +40,8 @@ struct mesh_session;
 /* MAX_TEXT_LEN in the firmware: ten AES blocks. A channel message spends some of it on the
    sender's name, which the radio prefixes itself. */
 #define MESH_MESHCORE_TEXT_MAX 160U
+/* A repeater's or room server's password, as its prefs keep it: 16 bytes with the NUL. */
+#define MESH_MESHCORE_PASSWORD_MAX 15U
 
 enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_APP_START = 1,
@@ -60,6 +62,7 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_REBOOT = 19,
     MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE = 20,
     MESH_MESHCORE_CMD_DEVICE_QUERY = 22,
+    MESH_MESHCORE_CMD_SEND_LOGIN = 26,
     MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY = 30,
     MESH_MESHCORE_CMD_GET_CHANNEL = 31,
     MESH_MESHCORE_CMD_SET_CHANNEL = 32,
@@ -93,6 +96,8 @@ enum mesh_meshcore_push {
     MESH_MESHCORE_PUSH_PATH_UPDATED = 0x81,
     MESH_MESHCORE_PUSH_SEND_CONFIRMED = 0x82,
     MESH_MESHCORE_PUSH_MSG_WAITING = 0x83,
+    MESH_MESHCORE_PUSH_LOGIN_SUCCESS = 0x85,
+    MESH_MESHCORE_PUSH_LOGIN_FAIL = 0x86,
     MESH_MESHCORE_PUSH_LOG_RX_DATA = 0x88,
     MESH_MESHCORE_PUSH_NEW_ADVERT = 0x8A,
     MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE = 0x8B,
@@ -357,6 +362,22 @@ struct mesh_meshcore_pending {
     char text[MESH_MESHCORE_TEXT_MAX + 1U];
 };
 
+/* How a request to another node ended, for whoever has to say so. */
+enum mesh_meshcore_answer {
+    MESH_MESHCORE_ANSWER_READINGS = 1, /* its readings arrived */
+    MESH_MESHCORE_ANSWER_GUEST,        /* logged in, without admin rights */
+    MESH_MESHCORE_ANSWER_ADMIN,        /* logged in as its admin */
+    MESH_MESHCORE_ANSWER_REFUSED,      /* the password was not one it takes */
+    MESH_MESHCORE_ANSWER_SILENT,       /* no answer by the radio's deadline */
+    MESH_MESHCORE_ANSWER_UNSENT,       /* the radio would not send it */
+};
+
+struct mesh_meshcore_notice {
+    uint32_t node_id;
+    uint8_t cmd;    /* the request: SEND_LOGIN or SEND_TELEMETRY_REQ */
+    uint8_t answer; /* enum mesh_meshcore_answer */
+};
+
 struct mesh_meshcore {
     struct mesh_session *model;
     mesh_protocol_send_fn send;
@@ -386,11 +407,15 @@ struct mesh_meshcore {
     struct mesh_meshcore_contact heard[MESH_MESHCORE_HEARD_ADVERTS];
     uint32_t heard_age[MESH_MESHCORE_HEARD_ADVERTS]; /* when each was kept; 0 for an empty slot */
     uint32_t heard_clock;
-    /* A telemetry request's answer is due until this monotonic time, 0 for none outstanding:
-       the radio keeps one, and a second would orphan the first. */
-    uint64_t telemetry_until_ms;
-    uint8_t telemetry_prefix[MESH_MESHCORE_PREFIX_LEN]; /* whose answer frees it */
-    bool telemetry_answered; /* that answer came ahead of the radio's SENT */
+    /* A request to another node - a login or its readings - is answered until this monotonic
+       time, 0 for none outstanding: the radio keeps one, and any new one orphans it. */
+    uint64_t request_until_ms;
+    uint8_t request_cmd;                              /* which of them */
+    uint32_t request_node;                            /* asked of whom */
+    uint8_t request_prefix[MESH_MESHCORE_PREFIX_LEN]; /* whose answer frees it */
+    /* How the last of them ended, and a count that moves each time one does. */
+    uint32_t notices;
+    struct mesh_meshcore_notice notice;
     bool battery_valid;
     uint16_t battery_mv;
     /*
@@ -499,6 +524,24 @@ int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id);
  */
 int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id, bool favorite);
 /*
+ * Asks a contact for its readings now: SEND_TELEMETRY_REQ, answered - if the node lets this
+ * radio ask - by a TELEMETRY_RESPONSE whose battery, environment and position land on the
+ * node's record. The radio keeps one request outstanding - this, or a login - and a new one
+ * orphans the last; how it ended is `notice`. 0 when asked; -EINVAL for 0 or this radio,
+ * -ENOTCONN until the handshake has named the radio, -ENOENT for a node that is not one of the
+ * radio's contacts, -EBUSY while the last request's answer is still due, -ENOBUFS when the
+ * queue is full.
+ */
+int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t node_id);
+/*
+ * Logs in to a repeater or room server among the radio's contacts: SEND_LOGIN with `password`,
+ * blank for a guest. The node answers LOGIN_SUCCESS, with whether it took us as its admin, or
+ * LOGIN_FAIL, and `notice` says which - or that it said nothing. The same one request as
+ * mesh_meshcore_request_telemetry(), and the same returns; -EINVAL too for a password longer
+ * than MESH_MESHCORE_PASSWORD_MAX.
+ */
+int mesh_meshcore_login(struct mesh_meshcore *meshcore, uint32_t node_id, const char *password);
+/*
  * Asks the radio to make a contact of a node known only from a link: its whole key, its name and
  * the kind of node it is (enum mesh_meshcore_adv_type), with no route and no advert stamp, so the
  * first message floods and the node's next advert is taken. The node joins the roster, a
@@ -509,15 +552,6 @@ int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id,
  * the roster's number for a node, are already this radio's or another node's, and -ENOBUFS
  * when the queue is full.
  */
-/*
- * Asks a contact for its readings now: SEND_TELEMETRY_REQ, answered - if the node lets this
- * radio ask - by a TELEMETRY_RESPONSE whose battery, environment and position land on the
- * node's record. The radio keeps one request outstanding and a new one orphans the last. 0 when
- * asked; -EINVAL for 0 or this radio, -ENOTCONN until the handshake has named the radio,
- * -ENOENT for a node that is not one of the radio's contacts, -EBUSY while the last request's
- * answer is still due, -ENOBUFS when the queue is full.
- */
-int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t node_id);
 int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
                                  const uint8_t key[MESH_MESHCORE_PUBKEY_LEN], const char *name,
                                  uint8_t adv_type);

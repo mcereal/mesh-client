@@ -887,7 +887,7 @@ static void on_request_reading(struct mesh_app *app, const struct mesh_ui_action
     } else if (result == -ENOENT) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
     } else if (result == -EBUSY) {
-        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_READINGS_BUSY));
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_REQUEST_BUSY));
     } else if (result == -EINVAL) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CANNOT_ASK));
     } else {
@@ -896,6 +896,35 @@ static void on_request_reading(struct mesh_app *app, const struct mesh_ui_action
                          position ? "Position" : "Telemetry", action->dest, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
+/* A login to a MeshCore repeater or room server. Its answer arrives later, as a notice the
+   publish turns into a toast; this one says only that it went, and as whom. */
+static void on_login(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    char name[MESH_UI_NAV_TARGET_NAME_MAX];
+    action_peer_name(app, action->dest, name, sizeof name);
+    const int result = app->meshcore_bound
+                           ? mesh_meshcore_login(&app->meshcore, action->dest, action->text)
+                           : -ENOTSUP;
+    if (result == 0) {
+        inkcell_str_format(toast, sizeof toast,
+                           action->text[0] != '\0' ? MESH_STR_TOAST_LOGGING_IN
+                                                   : MESH_STR_TOAST_LOGGING_IN_GUEST,
+                           name);
+    } else if (result == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else if (result == -ENOENT) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
+    } else if (result == -EBUSY) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_REQUEST_BUSY));
+    } else if (result == -EINVAL || result == -ENOTSUP) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CANNOT_ASK));
+    } else {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REQUEST_FAILED, result);
+        inkwell_log_warn("ui", "Login to 0x%08x failed: %d", action->dest, result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
 }
 
 static void on_toggle_ignore(struct mesh_app *app, const struct mesh_ui_action *action) {
@@ -2116,6 +2145,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_REQUEST_NODE_INFO, on_request_node_info, false},
     {MESH_UI_ACTION_REQUEST_POSITION, on_request_reading, false},
     {MESH_UI_ACTION_REQUEST_TELEMETRY, on_request_reading, false},
+    {MESH_UI_ACTION_LOGIN, on_login, false},
     {MESH_UI_ACTION_TOGGLE_IGNORE, on_toggle_ignore, false},
     {MESH_UI_ACTION_TOGGLE_MUTE, on_toggle_mute, false},
     {MESH_UI_ACTION_REMOVE_NODE, on_remove_node, false},
