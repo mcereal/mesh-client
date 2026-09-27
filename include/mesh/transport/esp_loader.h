@@ -124,6 +124,10 @@ struct mesh_esp_loader {
     uint32_t block;
     size_t bytes_total;
     size_t bytes_written;
+    /* A FLASH_BEGIN has gone out, so the ROM may have erased: set where the request is sent,
+       not where a caller's tick next looks, because one callback can carry the erase's answer
+       and the failure after it. */
+    bool erase_sent;
 
     struct inkwell_esp_rom_reader reader;
     uint8_t tx[INKWELL_ESP_ROM_REQUEST_MAX];

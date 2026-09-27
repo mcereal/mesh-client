@@ -171,6 +171,7 @@ static void loader_begin_region(struct mesh_esp_loader *loader, uint64_t now_ms)
     const struct mesh_esp_loader_region *region = &loader->regions[loader->region];
     loader->state = MESH_ESP_LOADER_ERASING;
     loader->block = 0U;
+    loader->erase_sent = true;
     inkwell_log_info("esp_loader", "Erasing %zu bytes at 0x%06x", region->len,
                      (unsigned)region->offset);
     loader_send(loader,

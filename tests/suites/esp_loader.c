@@ -325,6 +325,8 @@ MESH_TEST_CASE(esp_loader_reports_a_refusal_and_a_bad_digest, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(loader.error != MESH_ESP_LOADER_ERROR_REFUSED ||
                                   loader.rom_error != 0x05U,
                               close_pair(pair), "the ROM's own refusal, with its number");
+    MESH_TEST_FAIL_IF_CLEANUP(!loader.erase_sent, close_pair(pair),
+                              "an erase asked for is an erase that may have happened");
 
     g_rom.corrupt = true;
     (void)mesh_esp_loader_start(&loader, NULL, "/dev/ttyUSB0", MESH_ESP_LOADER_ANY_CHIP, &region,
@@ -398,8 +400,9 @@ MESH_TEST_CASE(firmware_serial_writes_the_app_and_blanks_otadata, unit) {
 
     static struct mesh_firmware_serial serial;
     uint64_t now = 1000U;
+    /* Saved on another socket: that id is gone, and the one bridge there is is the radio. */
     const int started =
-        mesh_firmware_serial_start(&serial, NULL, path, "1-1:1.0", INKWELL_ESP_CHIP_ESP32_S3, now);
+        mesh_firmware_serial_start(&serial, NULL, path, "1-2:1.0", INKWELL_ESP_CHIP_ESP32_S3, now);
     for (int turn = 0; turn < 6000 && mesh_firmware_serial_busy(&serial); ++turn) {
         now += 10U;
         mesh_firmware_serial_tick(&serial, now);
