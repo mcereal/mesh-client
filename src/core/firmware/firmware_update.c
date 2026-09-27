@@ -463,8 +463,14 @@ update_error_of_serial(const struct mesh_firmware_serial *serial) {
  */
 static void update_begin_serial(struct mesh_firmware_update *update, const char *image_path,
                                 uint64_t now_ms) {
+    /* The architecture the image's own manifest named - or, for an image fetched directly, its
+       header - which is the chip it is for. A catalog that knows only the family ("esp32" for a
+       MeshCore board) has not said which chip that is. */
+    const char *const architecture = update->image.manifest.architecture[0] != '\0'
+                                         ? update->image.manifest.architecture
+                                         : update->board.architecture;
     uint16_t chip = 0U;
-    if (!mesh_esp_chip_for_architecture(update->board.architecture, &chip)) {
+    if (!mesh_esp_chip_for_architecture(architecture, &chip)) {
         update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_UNAVAILABLE,
                       inkcell_str(MESH_STR_FW_UPDATE_ERR_UNAVAILABLE));
         return;
@@ -611,8 +617,8 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
      * image could get through.
      */
     if (!mesh_firmware_update_available(update) || release->version[0] == '\0' ||
-        release->manifest_url[0] == '\0' || board->target[0] == '\0' ||
-        !mesh_firmware_board_takes(board, bus)) {
+        (release->manifest_url[0] == '\0' && release->image_url[0] == '\0') ||
+        board->target[0] == '\0' || !mesh_firmware_board_takes(board, bus)) {
         update->error = MESH_FIRMWARE_UPDATE_ERROR_UNAVAILABLE;
         update_set(update, MESH_FIRMWARE_UPDATE_FAILED,
                    inkcell_str(MESH_STR_FW_UPDATE_ERR_UNAVAILABLE));
@@ -633,9 +639,18 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
     update->on_done = on_done;
     update->userdata = userdata;
 
-    const int started = mesh_firmware_fetch_start(
-        &update->image, &update->fetch, board->target, release->version, release->manifest_url,
-        board->architecture, bus, update->staging, update_image_done, update);
+    /* Through the release's manifest, or - for a release that names its file, as MeshCore's
+       do - straight to the file. */
+    const int started =
+        release->manifest_url[0] != '\0'
+            ? mesh_firmware_fetch_start(&update->image, &update->fetch, board->target,
+                                        release->version, release->manifest_url,
+                                        board->architecture, bus, update->staging,
+                                        update_image_done, update)
+            : mesh_firmware_fetch_start_direct(&update->image, &update->fetch, release->image_url,
+                                               release->image_name, release->image_bytes,
+                                               board->architecture, bus, update->staging,
+                                               update_image_done, update);
     if (started < 0) {
         update->error = update_error_of_fetch(update->image.error);
         update_set(update, MESH_FIRMWARE_UPDATE_FAILED, update->image.message);

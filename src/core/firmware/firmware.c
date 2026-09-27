@@ -35,6 +35,28 @@
 #define MESHCLIENT_FIRMWARE_LIST_URL "https://api.meshtastic.org/github/firmware/list"
 #endif
 
+/*
+ * MeshCore's three. The flasher's list is 138 KB for 67 devices; the tag list is a few KB; one
+ * release is **650 KB**, because GitHub describes each of its 315 files - uploader and all - and
+ * there is no asking for one file's entry. It is read once per check and freed, like the rest.
+ */
+#ifndef MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL
+#define MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL "https://flasher.meshcore.io/config.json"
+#endif
+#ifndef MESHCLIENT_FIRMWARE_MESHCORE_TAGS_URL
+#define MESHCLIENT_FIRMWARE_MESHCORE_TAGS_URL                                                      \
+    "https://api.github.com/repos/meshcore-dev/MeshCore/git/matching-refs/tags/companion-v"
+#endif
+/* The tag is appended. */
+#ifndef MESHCLIENT_FIRMWARE_MESHCORE_RELEASE_URL
+#define MESHCLIENT_FIRMWARE_MESHCORE_RELEASE_URL                                                   \
+    "https://api.github.com/repos/meshcore-dev/MeshCore/releases/tags/"
+#endif
+
+#define MESH_FIRMWARE_MESHCORE_CONFIG_MAX (512U * 1024U)
+#define MESH_FIRMWARE_MESHCORE_TAGS_MAX (128U * 1024U)
+#define MESH_FIRMWARE_MESHCORE_RELEASE_MAX (2U * 1024U * 1024U)
+
 #define MESH_FIRMWARE_HARDWARE_MAX (256U * 1024U)
 #define MESH_FIRMWARE_LIST_MAX (512U * 1024U)
 #define MESH_FIRMWARE_TIMEOUT_MS 30000U
@@ -47,6 +69,11 @@ static const char *firmware_hardware_url(void) {
 static const char *firmware_list_url(void) {
     const char *const from_env = getenv("MESHCLIENT_FIRMWARE_LIST_URL");
     return (from_env != NULL && from_env[0] != '\0') ? from_env : MESHCLIENT_FIRMWARE_LIST_URL;
+}
+
+static const char *firmware_url(const char *name, const char *fallback) {
+    const char *const from_env = getenv(name);
+    return (from_env != NULL && from_env[0] != '\0') ? from_env : fallback;
 }
 
 const char *mesh_firmware_state_name(enum mesh_firmware_state state) {
@@ -142,11 +169,12 @@ static enum mesh_firmware_blocker firmware_blocker(const struct mesh_firmware *f
     if (!mesh_firmware_board_takes(board, firmware->bus)) {
         return MESH_FIRMWARE_BLOCKER_WRONG_BUS;
     }
-    /* Over USB only through the ROM, and the ROM only through a bridge. */
+    /* Over USB only through the ROM, and the ROM only through a bridge. A board with another
+       path is sent to it; one whose only path is USB - a MeshCore ESP32 - has none from here. */
     if (firmware->bus == MESH_FIRMWARE_PATH_USB && firmware->bus_native_usb &&
-        board->path != MESH_FIRMWARE_PATH_USB &&
         mesh_firmware_architecture_uses_esp_rom(board->architecture)) {
-        return MESH_FIRMWARE_BLOCKER_WRONG_BUS;
+        return board->path == MESH_FIRMWARE_PATH_USB ? MESH_FIRMWARE_BLOCKER_NO_PATH
+                                                     : MESH_FIRMWARE_BLOCKER_WRONG_BUS;
     }
     return MESH_FIRMWARE_BLOCKER_NONE;
 }
@@ -208,6 +236,7 @@ static void firmware_fetch_failed(struct mesh_firmware *firmware,
     firmware_set(firmware, MESH_FIRMWARE_FAILED, message);
 }
 
+static void firmware_conclude(struct mesh_firmware *firmware);
 static void firmware_on_hardware(void *userdata, const struct inkwell_fetch_result *result);
 static void firmware_on_index(void *userdata, const struct inkwell_fetch_result *result);
 
@@ -282,11 +311,16 @@ static void firmware_on_index(void *userdata, const struct inkwell_fetch_result 
         return;
     }
 
-    firmware_recompute_blocker(firmware);
     inkwell_log_info("firmware", "newest %s is %s (radio has %s)",
                      firmware->channel == MESH_FIRMWARE_CHANNEL_ALPHA ? "alpha" : "stable",
                      firmware->release.version,
                      firmware->running[0] != '\0' ? firmware->running : "?");
+    firmware_conclude(firmware);
+}
+
+/* The verdict, once a release is known: whichever source's documents named it. */
+static void firmware_conclude(struct mesh_firmware *firmware) {
+    firmware_recompute_blocker(firmware);
 
     /*
      * MESHCLIENT_FIRMWARE_REINSTALL offers the release the radio is already running, which is
@@ -384,7 +418,17 @@ bool mesh_firmware_answers_for(const struct mesh_firmware *firmware, uint32_t hw
     if (firmware == NULL || firmware->state == MESH_FIRMWARE_IDLE) {
         return true;
     }
-    return firmware->hw_model == hw_model &&
+    return firmware->source == MESH_FIRMWARE_SOURCE_MESHTASTIC && firmware->hw_model == hw_model &&
+           strcmp(firmware->running, running != NULL ? running : "") == 0;
+}
+
+bool mesh_firmware_answers_for_meshcore(const struct mesh_firmware *firmware, const char *model,
+                                        const char *running, bool usb_build) {
+    if (firmware == NULL || firmware->state == MESH_FIRMWARE_IDLE) {
+        return true;
+    }
+    return firmware->source == MESH_FIRMWARE_SOURCE_MESHCORE && firmware->usb_build == usb_build &&
+           strcmp(firmware->model, model != NULL ? model : "") == 0 &&
            strcmp(firmware->running, running != NULL ? running : "") == 0;
 }
 
@@ -396,8 +440,162 @@ void mesh_firmware_forget(struct mesh_firmware *firmware) {
     memset(&firmware->release, 0, sizeof firmware->release);
     firmware->hw_model = 0U;
     firmware->running[0] = '\0';
+    firmware->model[0] = '\0';
+    firmware->tag[0] = '\0';
     firmware_recompute_blocker(firmware);
     firmware_set(firmware, MESH_FIRMWARE_IDLE, "");
+}
+
+/* ---- MeshCore's three documents ------------------------------------------------------------ */
+
+static void firmware_on_meshcore_config(void *userdata, const struct inkwell_fetch_result *result);
+static void firmware_on_meshcore_tags(void *userdata, const struct inkwell_fetch_result *result);
+static void firmware_on_meshcore_release(void *userdata, const struct inkwell_fetch_result *result);
+
+static int firmware_get(struct mesh_firmware *firmware, const char *url, const char *accept,
+                        size_t max, inkwell_fetch_done_fn on_done) {
+    const struct inkwell_fetch_request request = {
+        .url = url,
+        .headers = {accept},
+        .timeout_ms = MESH_FIRMWARE_TIMEOUT_MS,
+        .response_max = max,
+        .on_done = on_done,
+        .userdata = firmware,
+    };
+    const int result = inkwell_fetch_start(&firmware->fetch, &request, firmware->now_ms);
+    if (result != 0) {
+        firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_UPDATE_START_FAILED));
+    }
+    return result;
+}
+
+static void firmware_on_meshcore_config(void *userdata, const struct inkwell_fetch_result *result) {
+    struct mesh_firmware *firmware = (struct mesh_firmware *)userdata;
+    if (firmware == NULL || firmware->state != MESH_FIRMWARE_IDENTIFYING) {
+        return;
+    }
+    if (result->outcome != INKWELL_FETCH_OK || result->body == NULL) {
+        firmware_fetch_failed(firmware, result, MESH_STR_FW_HARDWARE_UNREADABLE);
+        return;
+    }
+    if (!mesh_firmware_meshcore_boards_parse(result->body, result->len, firmware->model,
+                                             firmware->usb_build, &firmware->boards)) {
+        firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_FW_HARDWARE_UNREADABLE));
+        return;
+    }
+    if (firmware->boards.found == 1U) {
+        inkwell_log_info("firmware", "\"%s\" is %s (%s)", firmware->model,
+                         firmware->boards.entries[0].target,
+                         firmware->boards.entries[0].architecture);
+    } else {
+        inkwell_log_info("firmware", "\"%s\" matches %u builds", firmware->model,
+                         (unsigned)firmware->boards.found);
+    }
+    if (firmware_get(firmware,
+                     firmware_url("MESHCLIENT_FIRMWARE_MESHCORE_TAGS_URL",
+                                  MESHCLIENT_FIRMWARE_MESHCORE_TAGS_URL),
+                     "Accept: application/vnd.github+json", MESH_FIRMWARE_MESHCORE_TAGS_MAX,
+                     firmware_on_meshcore_tags) == 0) {
+        firmware_set(firmware, MESH_FIRMWARE_CHECKING, inkcell_str(MESH_STR_FW_STATE_CHECKING));
+    }
+}
+
+static void firmware_on_meshcore_tags(void *userdata, const struct inkwell_fetch_result *result) {
+    struct mesh_firmware *firmware = (struct mesh_firmware *)userdata;
+    if (firmware == NULL || firmware->state != MESH_FIRMWARE_CHECKING) {
+        return;
+    }
+    if (result->outcome != INKWELL_FETCH_OK || result->body == NULL) {
+        firmware_fetch_failed(firmware, result, MESH_STR_FW_INDEX_UNREADABLE);
+        return;
+    }
+    if (!mesh_firmware_meshcore_latest_tag(result->body, result->len, firmware->tag,
+                                           sizeof firmware->tag, firmware->release.version,
+                                           sizeof firmware->release.version)) {
+        firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_FW_INDEX_UNREADABLE));
+        return;
+    }
+    inkwell_log_info("firmware", "newest MeshCore companion is %s (radio has %s)",
+                     firmware->release.version,
+                     firmware->running[0] != '\0' ? firmware->running : "?");
+    /* The file is only worth looking for when there is one board to look for it for: an
+       unknown or ambiguous radio gets its version answer without 650 KB it cannot use. */
+    if (firmware->boards.found != 1U) {
+        firmware_conclude(firmware);
+        return;
+    }
+    char url[MESH_FIRMWARE_URL_MAX];
+    snprintf(url, sizeof url, "%s%s",
+             firmware_url("MESHCLIENT_FIRMWARE_MESHCORE_RELEASE_URL",
+                          MESHCLIENT_FIRMWARE_MESHCORE_RELEASE_URL),
+             firmware->tag);
+    (void)firmware_get(firmware, url, "Accept: application/vnd.github+json",
+                       MESH_FIRMWARE_MESHCORE_RELEASE_MAX, firmware_on_meshcore_release);
+}
+
+static void firmware_on_meshcore_release(void *userdata,
+                                         const struct inkwell_fetch_result *result) {
+    struct mesh_firmware *firmware = (struct mesh_firmware *)userdata;
+    if (firmware == NULL || firmware->state != MESH_FIRMWARE_CHECKING) {
+        return;
+    }
+    if (result->outcome != INKWELL_FETCH_OK || result->body == NULL) {
+        firmware_fetch_failed(firmware, result, MESH_STR_FW_INDEX_UNREADABLE);
+        return;
+    }
+    /* A release with no file for this build still has a version to report: the row says there
+       is no download, the way a Meshtastic release with no manifest yet does. */
+    if (mesh_firmware_meshcore_asset_parse(result->body, result->len, &firmware->boards.entries[0],
+                                           &firmware->release)) {
+        inkwell_log_info("firmware", "The image is %s, %llu bytes", firmware->release.image_name,
+                         (unsigned long long)firmware->release.image_bytes);
+    } else {
+        inkwell_log_warn("firmware", "%s publishes no file for %s", firmware->tag,
+                         firmware->boards.entries[0].target);
+    }
+    firmware_conclude(firmware);
+}
+
+/* What both checks forget before they start: the last answer, and whose it was. */
+static void firmware_begin(struct mesh_firmware *firmware, enum mesh_firmware_source source,
+                           uint32_t hw_model, const char *model, const char *running,
+                           uint64_t now_ms) {
+    memset(&firmware->boards, 0, sizeof firmware->boards);
+    memset(&firmware->release, 0, sizeof firmware->release);
+    firmware->source = source;
+    firmware->hw_model = hw_model;
+    inkwell_str_copy(firmware->model, sizeof firmware->model, model != NULL ? model : "");
+    inkwell_str_copy(firmware->running, sizeof firmware->running, running != NULL ? running : "");
+    firmware->tag[0] = '\0';
+    firmware->now_ms = now_ms;
+    /* The old answer is gone, so the refusal that went with it is too - recomputed now rather
+       than when the documents land, or the rows would keep naming last check's board while
+       this one runs. */
+    firmware_recompute_blocker(firmware);
+}
+
+int mesh_firmware_check_meshcore(struct mesh_firmware *firmware, const char *model,
+                                 const char *running, bool usb_build, uint64_t now_ms) {
+    if (firmware == NULL) {
+        return -EINVAL;
+    }
+    if (!mesh_firmware_available(firmware)) {
+        return -ENOTSUP;
+    }
+    if (mesh_firmware_busy(firmware)) {
+        return -EBUSY;
+    }
+    firmware_begin(firmware, MESH_FIRMWARE_SOURCE_MESHCORE, 0U, model, running, now_ms);
+    firmware->usb_build = usb_build;
+    if (firmware_get(firmware,
+                     firmware_url("MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL",
+                                  MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL),
+                     "Accept: application/json", MESH_FIRMWARE_MESHCORE_CONFIG_MAX,
+                     firmware_on_meshcore_config) != 0) {
+        return -EIO;
+    }
+    firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING, inkcell_str(MESH_STR_FW_STATE_IDENTIFYING));
+    return 0;
 }
 
 int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const char *running,
@@ -412,15 +610,7 @@ int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const
         return -EBUSY;
     }
 
-    memset(&firmware->boards, 0, sizeof firmware->boards);
-    memset(&firmware->release, 0, sizeof firmware->release);
-    firmware->hw_model = hw_model;
-    inkwell_str_copy(firmware->running, sizeof firmware->running, running != NULL ? running : "");
-    firmware->now_ms = now_ms;
-    /* The old answer is gone, so the refusal that went with it is too - recomputed now rather
-       than when the documents land, or the rows would keep naming last check's board while
-       this one runs. */
-    firmware_recompute_blocker(firmware);
+    firmware_begin(firmware, MESH_FIRMWARE_SOURCE_MESHTASTIC, hw_model, "", running, now_ms);
 
     /*
      * A radio that has not said what it is skips the hardware list entirely. It is 39 KB whose

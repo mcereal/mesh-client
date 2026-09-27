@@ -917,15 +917,21 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
      * While a check runs it drops to a plain fact - the module refuses a switch with a document
      * in flight, and a row that refuses is worse than one that never invited the press.
      */
+    /* MeshCore publishes one line of companion releases, so there is no list to choose. */
+    const bool channels = s->protocol != (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
     if (s->fw_busy) {
-        item_text(list, MESH_STR_FW_CHANNEL, INKSTAND_FORM_INFO, s->fw_channel);
+        if (channels) {
+            item_text(list, MESH_STR_FW_CHANNEL, INKSTAND_FORM_INFO, s->fw_channel);
+        }
         item_meter(list, MESH_STR_FW_LATEST,
                    mesh_firmware_state_name((enum mesh_firmware_state)s->fw_state),
                    INKSTAND_FORM_METER_UNKNOWN);
         return;
     }
-    item_action(list, MESH_STR_FW_CHANNEL, s->fw_channel,
-                MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL);
+    if (channels) {
+        item_action(list, MESH_STR_FW_CHANNEL, s->fw_channel,
+                    MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL);
+    }
 
     const bool newer = s->fw_state == (uint8_t)MESH_FIRMWARE_AVAILABLE;
     /*

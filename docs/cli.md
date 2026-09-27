@@ -181,6 +181,7 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_UPDATE_ALLOW_DEV` | let a `-dev` build install what it finds |
 | `MESHCLIENT_DFU_PACKET_GAP_MS` | ms between nRF52 DFU image packets over BLE (default 10) |
 | `MESHCLIENT_FIRMWARE_REINSTALL` | offer the radio the release it already runs, to test an install path again |
+| `MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL`, `_TAGS_URL`, `_RELEASE_URL` | where a MeshCore radio's firmware check looks: the flasher's device list, the companion tag list, and the release a tag is appended to |
 | `MESHCLIENT_LOG_LEVEL` | the level `launch.sh` starts the client at; `info` unless set. The pak used to hardcode `debug`, which is what made the log on the card grow the way it did |
 | `MESHCLIENT_LOG_FILE` | the log the client cuts back at startup, when it is not the one derived from `HOME` |
 | `MESHCLIENT_LATENCY_TRACE` | same as `--trace-latency`; see [`performance.md`](performance.md) |

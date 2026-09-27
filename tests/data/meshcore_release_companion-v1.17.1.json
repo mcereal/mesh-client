@@ -1,0 +1,103 @@
+{
+ "tag_name": "companion-v1.17.1",
+ "name": "Companion Firmware v1.17.1",
+ "prerelease": false,
+ "assets": [
+  {
+   "name": "Heltec_t114_companion_radio_ble-v1.17.1-d929643.uf2",
+   "content_type": "application/octet-stream",
+   "size": 897024,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/Heltec_t114_companion_radio_ble-v1.17.1-d929643.uf2"
+  },
+  {
+   "name": "Heltec_t114_companion_radio_ble-v1.17.1-d929643.zip",
+   "content_type": "application/zip",
+   "size": 449250,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/Heltec_t114_companion_radio_ble-v1.17.1-d929643.zip"
+  },
+  {
+   "name": "Heltec_t114_companion_radio_usb-v1.17.1-d929643.uf2",
+   "content_type": "application/octet-stream",
+   "size": 885760,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/Heltec_t114_companion_radio_usb-v1.17.1-d929643.uf2"
+  },
+  {
+   "name": "Heltec_t114_companion_radio_usb-v1.17.1-d929643.zip",
+   "content_type": "application/zip",
+   "size": 443523,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/Heltec_t114_companion_radio_usb-v1.17.1-d929643.zip"
+  },
+  {
+   "name": "Heltec_t114_without_display_companion_radio_ble-v1.17.1-d929643.uf2",
+   "content_type": "application/octet-stream",
+   "size": 837120,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/Heltec_t114_without_display_companion_radio_ble-v1.17.1-d929643.uf2"
+  },
+  {
+   "name": "Heltec_t114_without_display_companion_radio_ble-v1.17.1-d929643.zip",
+   "content_type": "application/zip",
+   "size": 419195,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/Heltec_t114_without_display_companion_radio_ble-v1.17.1-d929643.zip"
+  },
+  {
+   "name": "Heltec_t114_without_display_companion_radio_usb-v1.17.1-d929643.uf2",
+   "content_type": "application/octet-stream",
+   "size": 825344,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/Heltec_t114_without_display_companion_radio_usb-v1.17.1-d929643.uf2"
+  },
+  {
+   "name": "Heltec_t114_without_display_companion_radio_usb-v1.17.1-d929643.zip",
+   "content_type": "application/zip",
+   "size": 413467,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/Heltec_t114_without_display_companion_radio_usb-v1.17.1-d929643.zip"
+  },
+  {
+   "name": "Heltec_v3_companion_radio_ble-v1.17.1-d929643-merged.bin",
+   "content_type": "application/octet-stream",
+   "size": 1337376,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/Heltec_v3_companion_radio_ble-v1.17.1-d929643-merged.bin"
+  },
+  {
+   "name": "Heltec_v3_companion_radio_ble-v1.17.1-d929643.bin",
+   "content_type": "application/octet-stream",
+   "size": 1271840,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/Heltec_v3_companion_radio_ble-v1.17.1-d929643.bin"
+  },
+  {
+   "name": "Heltec_v3_companion_radio_usb-v1.17.1-d929643-merged.bin",
+   "content_type": "application/octet-stream",
+   "size": 709536,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/Heltec_v3_companion_radio_usb-v1.17.1-d929643-merged.bin"
+  },
+  {
+   "name": "Heltec_v3_companion_radio_usb-v1.17.1-d929643.bin",
+   "content_type": "application/octet-stream",
+   "size": 644000,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/Heltec_v3_companion_radio_usb-v1.17.1-d929643.bin"
+  },
+  {
+   "name": "RAK_4631_companion_radio_ble-v1.17.1-d929643.uf2",
+   "content_type": "application/octet-stream",
+   "size": 988672,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/RAK_4631_companion_radio_ble-v1.17.1-d929643.uf2"
+  },
+  {
+   "name": "RAK_4631_companion_radio_ble-v1.17.1-d929643.zip",
+   "content_type": "application/zip",
+   "size": 494979,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/RAK_4631_companion_radio_ble-v1.17.1-d929643.zip"
+  },
+  {
+   "name": "RAK_4631_companion_radio_usb-v1.17.1-d929643.uf2",
+   "content_type": "application/octet-stream",
+   "size": 972800,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/RAK_4631_companion_radio_usb-v1.17.1-d929643.uf2"
+  },
+  {
+   "name": "RAK_4631_companion_radio_usb-v1.17.1-d929643.zip",
+   "content_type": "application/zip",
+   "size": 486962,
+   "browser_download_url": "https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/RAK_4631_companion_radio_usb-v1.17.1-d929643.zip"
+  }
+ ]
+}

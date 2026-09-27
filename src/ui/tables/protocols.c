@@ -20,11 +20,12 @@ static const struct {
        MeshCore's alone. Its contact and channel links are the MeshCore app's
        `meshcore://contact/add` and `meshcore://channel/add`, read and written by
        mesh/proto/meshcore_url.h - one channel to a link, so each channel shares its own.
+       Its firmware is checked against MeshCore's own releases, not Meshtastic's.
      */
     {"meshcore", MESH_UI_PROTOCOL_MESHCORE,
      MESH_UI_FEATURE_WAYPOINTS | MESH_UI_FEATURE_NODE_REQUESTS | MESH_UI_FEATURE_NODE_FLAGS |
          MESH_UI_FEATURE_REMOTE_ADMIN | MESH_UI_FEATURE_KEY_VERIFICATION | MESH_UI_FEATURE_MODULES |
-         MESH_UI_FEATURE_REACTIONS | MESH_UI_FEATURE_RADIO_FIRMWARE | MESH_UI_FEATURE_FULL_CONFIG |
+         MESH_UI_FEATURE_REACTIONS | MESH_UI_FEATURE_FULL_CONFIG |
          MESH_UI_FEATURE_RADIO_MAINTENANCE},
 };
 

@@ -32,8 +32,9 @@
 extern "C" {
 #endif
 
-/* "heltec-mesh-node-t114" is 21; the longest upstream ships is under 32. */
-#define MESH_FIRMWARE_TARGET_MAX 40U
+/* "heltec-mesh-node-t114" is 21 and the longest Meshtastic ships is under 32; a MeshCore build
+   name is longer, "Heltec_t114_without_display_companion_radio_usb" being 47. */
+#define MESH_FIRMWARE_TARGET_MAX 64U
 /* "LILYGO T-LoRa V2.1-1.6". Bounded by what a settings row can show, not by the document. */
 #define MESH_FIRMWARE_BOARD_NAME_MAX 48U
 /* "esp32-s3", "nrf52840". */
@@ -121,6 +122,14 @@ struct mesh_firmware_release {
      * manifest at all. Phase 1 only reports the version, so an empty URL is not a failure here.
      */
     char manifest_url[MESH_FIRMWARE_URL_MAX];
+    /*
+     * The image itself, for a release that names one directly rather than through a manifest -
+     * MeshCore's, whose release is a flat list of files with no manifest to read. Empty for a
+     * Meshtastic release; a release is installable through one or the other.
+     */
+    char image_name[MESH_FIRMWARE_FILE_NAME_MAX];
+    char image_url[MESH_FIRMWARE_URL_MAX];
+    uint64_t image_bytes;
 };
 
 /*

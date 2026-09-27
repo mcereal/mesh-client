@@ -123,6 +123,12 @@ struct mesh_firmware_fetch {
     /* Only filled in on the USB path, where the image is a UF2 and can be read. */
     struct inkwell_uf2_info uf2;
 
+    /* A release that names its image rather than a manifest: the file is fetched whole to
+       `direct_path`, and `manifest.architecture` is what the image's own header said. */
+    bool direct;
+    char direct_url[MESH_FIRMWARE_URL_MAX];
+    char direct_path[INKWELL_FETCH_PATH_MAX];
+
     mesh_firmware_fetch_done_fn on_done;
     void *userdata;
 };
@@ -156,6 +162,25 @@ int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct inkwell_
                               const char *expect_architecture, enum mesh_firmware_path bus,
                               const char *staging_dir, mesh_firmware_fetch_done_fn on_done,
                               void *userdata);
+
+/*
+ * Fetches an image a release names directly - MeshCore's, whose release is a list of files
+ * with no manifest - into the staging directory, `bytes` long and not a byte more.
+ *
+ * `expect_architecture` is the family the catalog knew ("esp32", "nrf52840"). For the ESP32
+ * family the image's own header then says which chip it is for, and that is what
+ * `manifest.architecture` carries afterwards - the serial handover checks the chip on the end
+ * of the cable against it before anything is erased. An nRF52's UF2 is checked for its family
+ * as a manifest's would be.
+ *
+ * Returns as mesh_firmware_fetch_start().
+ */
+int mesh_firmware_fetch_start_direct(struct mesh_firmware_fetch *fetch,
+                                     struct inkwell_fetch *fetcher, const char *image_url,
+                                     const char *image_name, uint64_t bytes,
+                                     const char *expect_architecture, enum mesh_firmware_path bus,
+                                     const char *staging_dir, mesh_firmware_fetch_done_fn on_done,
+                                     void *userdata);
 
 /* Drives the download's own tick. Call every loop turn. */
 void mesh_firmware_fetch_tick(struct mesh_firmware_fetch *fetch, uint64_t now_ms);

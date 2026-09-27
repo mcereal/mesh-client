@@ -78,6 +78,7 @@ add_library(meshclient_core
     src/core/firmware/esp_image.c
     src/core/firmware/firmware.c
     src/core/firmware/firmware_catalog.c
+    src/core/firmware/firmware_meshcore.c
     src/core/firmware/firmware_dfu.c
     src/core/firmware/firmware_fetch.c
     src/core/firmware/firmware_install.c

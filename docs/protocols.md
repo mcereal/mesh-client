@@ -65,7 +65,7 @@ Meshtastic, and each is where a second protocol has work to do:
 | `src/app/app_publish.c`, `app_actions.c`, `app_settings.c` | Translating between the session and the UI store, and between a UI action and a session call. This is where a second protocol's publish and dispatch would sit beside Meshtastic's |
 | `include/mesh/ui/store_*.h` | A node is a 32-bit `node_id`. Channel roles, device roles, the settings sections and several enums are Meshtastic's ranges, carried as bytes so the UI does not include nanopb |
 | `src/proto/channel_url.c`, `contact_url.c` | `meshtastic.org/e/#` and `/v/#` links |
-| `src/app/app_mqtt.c`, `src/core/firmware/firmware_catalog.c` | Meshtastic's MQTT client proxy and its firmware release feed |
+| `src/app/app_mqtt.c`, `src/core/firmware/firmware_catalog.c` | Meshtastic's MQTT client proxy and its firmware release feed (MeshCore's feed is `firmware_meshcore.c`) |
 
 The UI's renderers, the nav, inkcell, inkstand and inkwell do not know which protocol is on the
 other end. They read the store.
@@ -243,3 +243,10 @@ is the plain `contact/add` link. The `meshcore` row in `src/ui/tables/protocols.
 the protocol does not back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
 end.
+- **Its firmware** is checked against MeshCore's own releases (`firmware_meshcore.c`): the web
+  flasher's device list turns DEVICE_INFO's model string into a build, by name ignoring case or
+  through the alias table there, then the newest `companion-v*` tag and that release's asset
+  list name the file. The build is the one the radio runs now: `_usb` over serial, `_ble` over
+  BLE. An ESP32 companion is written over USB through its ROM, as any ESP32 is. An nRF52 has
+  no path yet, because reaching its UF2 bootloader needs a step MeshCore has no admin verb for.
+  The T114 is one flasher entry with two builds, so it is the ambiguous refusal.

@@ -75,6 +75,16 @@ static void firmware_serve(void *userdata, const struct https_fixture_request *r
     } else if (strcmp(request->target, "/list") == 0) {
         snprintf(path, sizeof path, "%s/firmware_list.json", MESH_TEST_DATA_DIR);
         https_fixture_reply_file(conn, request, path);
+    } else if (strcmp(request->target, "/meshcore/config") == 0) {
+        snprintf(path, sizeof path, "%s/meshcore_flasher_config.json", MESH_TEST_DATA_DIR);
+        https_fixture_reply_file(conn, request, path);
+    } else if (strcmp(request->target, "/meshcore/tags") == 0) {
+        snprintf(path, sizeof path, "%s/meshcore_companion_tags.json", MESH_TEST_DATA_DIR);
+        https_fixture_reply_file(conn, request, path);
+    } else if (strcmp(request->target, "/meshcore/release/companion-v1.17.1") == 0) {
+        snprintf(path, sizeof path, "%s/meshcore_release_companion-v1.17.1.json",
+                 MESH_TEST_DATA_DIR);
+        https_fixture_reply_file(conn, request, path);
     } else if (strcmp(request->target, "/broken") == 0) {
         https_fixture_reply(conn, 200, NULL, "not a document", 14U);
     } else {
@@ -99,6 +109,10 @@ static bool firmware_harness_up(struct firmware_harness *harness) {
     }
     setenv("MESHCLIENT_FIRMWARE_HARDWARE_URL", "https://example.invalid/hardware", 1);
     setenv("MESHCLIENT_FIRMWARE_LIST_URL", "https://example.invalid/list", 1);
+    setenv("MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL", "https://example.invalid/meshcore/config", 1);
+    setenv("MESHCLIENT_FIRMWARE_MESHCORE_TAGS_URL", "https://example.invalid/meshcore/tags", 1);
+    setenv("MESHCLIENT_FIRMWARE_MESHCORE_RELEASE_URL", "https://example.invalid/meshcore/release/",
+           1);
 
     if (inkwell_loop_init(&harness->loop) != 0) {
         return false;
@@ -121,6 +135,9 @@ static void firmware_harness_down(struct firmware_harness *harness) {
     }
     unsetenv("MESHCLIENT_FIRMWARE_HARDWARE_URL");
     unsetenv("MESHCLIENT_FIRMWARE_LIST_URL");
+    unsetenv("MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL");
+    unsetenv("MESHCLIENT_FIRMWARE_MESHCORE_TAGS_URL");
+    unsetenv("MESHCLIENT_FIRMWARE_MESHCORE_RELEASE_URL");
     https_fixture_stop(&harness->server);
 }
 
@@ -529,6 +546,90 @@ MESH_TEST_CASE(firmware_answer_belongs_to_the_radio_it_was_asked_about, unit) {
     }
     if (mesh_firmware_answers_for(&harness.firmware, 69U, NULL)) {
         failure = "a radio that has stopped saying what it runs is not the one that did";
+        goto cleanup;
+    }
+
+cleanup:
+    firmware_harness_down(&harness);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A MeshCore radio: three documents, keyed on DEVICE_INFO's words rather than a model number.
+ * The test Heltec V3 on 1.16.0 over USB is behind, identified as the USB companion build, and
+ * handed the one file an install writes; the same radio on 1.17.1 is up to date; and a T114,
+ * whose name is two builds, is the ambiguous refusal without the release being fetched at all.
+ */
+MESH_TEST_CASE(firmware_check_meshcore_reads_the_flasher_and_the_release, unit) {
+    struct firmware_harness harness;
+    const char *failure = NULL;
+    if (!firmware_harness_up(&harness)) {
+        firmware_harness_down(&harness);
+        MESH_TEST_FAIL_IF(true, "the harness should come up");
+    }
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB, true);
+    if (mesh_firmware_check_meshcore(&harness.firmware, "Heltec V3", "v1.16.0-0123456", true, 0U) !=
+            0 ||
+        !firmware_settle(&harness)) {
+        failure = "the check should start and finish";
+        goto cleanup;
+    }
+    const struct mesh_firmware_board *const board = mesh_firmware_board(&harness.firmware);
+    if (harness.firmware.state != MESH_FIRMWARE_AVAILABLE || board == NULL ||
+        strcmp(board->target, "Heltec_v3_companion_radio_usb") != 0 ||
+        strcmp(harness.firmware.release.version, "1.17.1") != 0) {
+        failure = "1.17.1 is newer, for the Heltec V3's USB companion build";
+        goto cleanup;
+    }
+    if (strcmp(harness.firmware.release.image_name,
+               "Heltec_v3_companion_radio_usb-v1.17.1-d929643.bin") != 0 ||
+        harness.firmware.release.image_bytes != 644000U ||
+        harness.firmware.release.manifest_url[0] != '\0') {
+        failure = "the release names its file directly, and has no manifest";
+        goto cleanup;
+    }
+    if (harness.firmware.blocker != MESH_FIRMWARE_BLOCKER_NONE) {
+        failure = "over a USB bridge nothing is in the way";
+        goto cleanup;
+    }
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_BLE, true);
+    if (harness.firmware.blocker != MESH_FIRMWARE_BLOCKER_WRONG_BUS) {
+        failure = "on BLE the row names USB, which is the only path a MeshCore ESP32 has";
+        goto cleanup;
+    }
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB, true);
+    mesh_firmware_set_bus_native_usb(&harness.firmware, true);
+    if (harness.firmware.blocker != MESH_FIRMWARE_BLOCKER_NO_PATH) {
+        failure = "and on the chip's own USB there is none from here";
+        goto cleanup;
+    }
+    mesh_firmware_set_bus_native_usb(&harness.firmware, false);
+    if (!mesh_firmware_answers_for_meshcore(&harness.firmware, "Heltec V3", "v1.16.0-0123456",
+                                            true) ||
+        mesh_firmware_answers_for_meshcore(&harness.firmware, "Heltec V3", "v1.17.1-d929643",
+                                           true) ||
+        mesh_firmware_answers_for_meshcore(&harness.firmware, "Heltec V3", "v1.16.0-0123456",
+                                           false) ||
+        mesh_firmware_answers_for(&harness.firmware, 0U, "v1.16.0-0123456")) {
+        failure = "the answer is this radio's, until it names itself differently, answers over "
+                  "the other bus - which is the other build's file - or speaks Meshtastic";
+        goto cleanup;
+    }
+
+    if (mesh_firmware_check_meshcore(&harness.firmware, "Heltec V3", "v1.17.1-d929643", true, 0U) !=
+            0 ||
+        !firmware_settle(&harness) || harness.firmware.state != MESH_FIRMWARE_UP_TO_DATE) {
+        failure = "the running build's hash does not make an equal version newer";
+        goto cleanup;
+    }
+
+    if (mesh_firmware_check_meshcore(&harness.firmware, "Heltec T114", "v1.16.0-0123456", true,
+                                     0U) != 0 ||
+        !firmware_settle(&harness) || harness.firmware.state != MESH_FIRMWARE_AVAILABLE ||
+        harness.firmware.blocker != MESH_FIRMWARE_BLOCKER_AMBIGUOUS ||
+        harness.firmware.release.image_url[0] != '\0') {
+        failure = "two builds under one name is a question for the user, not a download";
         goto cleanup;
     }
 

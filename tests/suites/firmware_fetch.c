@@ -347,4 +347,147 @@ cleanup:
     record_success(test_name);
 }
 
+/* ---- a release that names its file ------------------------------------------------------- */
+
+/* The first 48 bytes of firmware-heltec-v3-2.7.26.54e0d8d.bin: an ESP32-S3 app header. */
+static const uint8_t k_s3_header[48] = {
+    0xE9, 0x07, 0x02, 0x3F, 0xD8, 0x72, 0x37, 0x40, 0xEE, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00,
+    0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x01, 0x20, 0x00, 0x18, 0x3C, 0x30, 0x37, 0x07, 0x00,
+    0x32, 0x54, 0xCD, 0xAB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+#define DIRECT_IMAGE_LEN 4096U
+/* The chip the served header names: its twelfth byte. The fixture's child is forked after this
+   is set, so it serves what the case asked for. */
+static uint8_t g_direct_chip = 0x09U;
+
+/* A release asset the way GitHub serves one: a 302 to its storage host, then the file whole. */
+static void direct_serve(void *userdata, const struct https_fixture_request *request,
+                         struct https_fixture_conn *conn) {
+    (void)userdata;
+    if (strcmp(request->host, "objects.githubusercontent.com") != 0) {
+        char location[160];
+        snprintf(location, sizeof location, "Location: https://objects.githubusercontent.com%s\r\n",
+                 request->target);
+        https_fixture_reply(conn, 302, location, NULL, 0U);
+        return;
+    }
+    static uint8_t image[DIRECT_IMAGE_LEN];
+    memset(image, 0x5A, sizeof image);
+    memcpy(image, k_s3_header, sizeof k_s3_header);
+    image[12] = g_direct_chip;
+    https_fixture_reply(conn, 200, NULL, (const char *)image, sizeof image);
+}
+
+static const char *direct_run(struct inkwell_loop *loop, struct inkwell_fetch *fetcher,
+                              struct mesh_firmware_fetch *fetch, uint64_t bytes, const char *dir) {
+    struct fetch_probe probe;
+    memset(&probe, 0, sizeof probe);
+    memset(fetch, 0, sizeof *fetch);
+    if (mesh_firmware_fetch_start_direct(
+            fetch, fetcher,
+            "https://example.invalid/download/companion-v1.17.1/Heltec_v3_companion_radio_usb-"
+            "v1.17.1-d929643.bin",
+            "Heltec_v3_companion_radio_usb-v1.17.1-d929643.bin", bytes, "esp32",
+            MESH_FIRMWARE_PATH_USB, dir, fetch_probe_done, &probe) != 0) {
+        return "the fetch should start";
+    }
+    return fetch_wait_done(loop, fetcher, fetch, &probe) ? NULL : "it should have finished";
+}
+
+MESH_TEST_CASE(firmware_fetch_takes_a_named_file_and_reads_its_chip, unit) {
+    char dir[] = "/tmp/meshclient_fwdl_XXXXXX";
+    MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "could not create a temporary directory");
+
+    const char *failure = NULL;
+    struct https_fixture server;
+    memset(&server, 0, sizeof server);
+    struct inkwell_loop loop;
+    struct inkwell_fetch fetcher;
+    static struct mesh_firmware_fetch fetch;
+    bool loop_up = false;
+    bool fetch_up = false;
+    char path[512];
+
+    if (inkwell_loop_init(&loop) != 0) {
+        failure = "event loop init failed";
+        goto cleanup;
+    }
+    loop_up = true;
+    if (inkwell_fetch_init(&fetcher, &loop) != 0) {
+        failure = "fetch init failed";
+        goto cleanup;
+    }
+    fetch_up = true;
+    if (!https_fixture_start(&server, direct_serve, NULL)) {
+        failure = "could not stand up the fake release host";
+        goto cleanup;
+    }
+    https_fixture_attach(&server, &fetcher);
+
+    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN, dir);
+    if (failure != NULL) {
+        goto cleanup;
+    }
+    if (fetch.state != MESH_FIRMWARE_FETCH_READY) {
+        failure = fetch.message[0] != '\0' ? fetch.message : "the image should have landed";
+        goto cleanup;
+    }
+    if (strcmp(fetch.manifest.architecture, "esp32-s3") != 0) {
+        failure = "the family the catalog knew becomes the chip the header names";
+        goto cleanup;
+    }
+    if (mesh_firmware_fetch_image_path(&fetch, path, sizeof path) == NULL ||
+        strstr(path, "firmware.image") == NULL || mesh_firmware_fetch_progress(&fetch) != 100U) {
+        failure = "and it is where the handover will look for it";
+        goto cleanup;
+    }
+
+    /* The same file, described as shorter than it is: not the file that was described. */
+    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN - 1U, dir);
+    if (failure != NULL) {
+        goto cleanup;
+    }
+    if (fetch.state != MESH_FIRMWARE_FETCH_FAILED ||
+        fetch.error != MESH_FIRMWARE_FETCH_ERROR_WRONG_IMAGE) {
+        failure = "a file longer than its release says is refused as it arrives";
+        goto cleanup;
+    }
+    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN + 1U, dir);
+    if (failure == NULL && (fetch.state != MESH_FIRMWARE_FETCH_FAILED ||
+                            fetch.error != MESH_FIRMWARE_FETCH_ERROR_WRONG_IMAGE)) {
+        failure = "and one shorter is not the file described";
+    }
+    if (failure != NULL) {
+        goto cleanup;
+    }
+
+    /* The flasher says "esp32" for a C3 board too, and its ROM is reached the same way - so a
+       chip Meshtastic's path table has no cable for is still one this can write. */
+    g_direct_chip = 0x05U;
+    https_fixture_stop(&server);
+    if (!https_fixture_start(&server, direct_serve, NULL)) {
+        failure = "could not stand the release host up again";
+        goto cleanup;
+    }
+    https_fixture_attach(&server, &fetcher);
+    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN, dir);
+    if (failure == NULL && (fetch.state != MESH_FIRMWARE_FETCH_READY ||
+                            strcmp(fetch.manifest.architecture, "esp32-c3") != 0)) {
+        failure = "an ESP32-C3 app is read as one";
+    }
+
+cleanup:
+    g_direct_chip = 0x09U;
+    if (fetch_up) {
+        inkwell_fetch_shutdown(&fetcher);
+    }
+    if (loop_up) {
+        inkwell_loop_shutdown(&loop);
+    }
+    https_fixture_stop(&server);
+    download_clean_dir(dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 #endif /* INKWELL_HAVE_TLS */
