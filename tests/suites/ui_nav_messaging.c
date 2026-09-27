@@ -2795,3 +2795,59 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * The compose sheet's heading over the quick replies is a row of the model, so the index the list
+ * draws and the index a click lands on are the cursor's - and the cursor never stands on it. A
+ * press that did would be an A with nothing to do and a bar naming a verb for a label.
+ */
+MESH_TEST_CASE(ui_nav_compose_steps_over_the_quick_replies_heading, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_action action;
+
+    if (mesh_ui_nav_compose_row_count() !=
+        MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)mesh_ui_canned_count()) {
+        failure = "the sheet is the draft, the heading and one row per quick reply";
+        goto cleanup;
+    }
+
+    /* Into BRVO's thread, and A for the sheet. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.compose_open || store.nav.compose_cursor != MESH_UI_COMPOSE_ROW_DRAFT) {
+        failure = "expected the compose sheet open on the draft row";
+        goto cleanup;
+    }
+
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    if (store.nav.compose_cursor != MESH_UI_COMPOSE_FIRST_CANNED) {
+        failure = "Down from the draft should land on the first quick reply, past the heading";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    if (store.nav.compose_cursor != MESH_UI_COMPOSE_ROW_DRAFT) {
+        failure = "Up from the first quick reply should land on the draft, past the heading";
+        goto cleanup;
+    }
+
+    /* A heading left under the cursor by anything else is not a press that sends. */
+    store.nav.compose_cursor = MESH_UI_COMPOSE_ROW_HEADING;
+    memset(&action, 0, sizeof action);
+    if (mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action) ||
+        action.type != MESH_UI_ACTION_NONE || !store.nav.compose_open) {
+        failure = "A on the heading should do nothing";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

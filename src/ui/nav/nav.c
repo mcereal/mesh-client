@@ -813,7 +813,8 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
 }
 
 uint32_t mesh_ui_nav_compose_row_count(void) {
-    return MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)mesh_ui_canned_count();
+    const uint32_t canned = (uint32_t)mesh_ui_canned_count();
+    return canned > 0U ? MESH_UI_COMPOSE_FIRST_CANNED + canned : MESH_UI_COMPOSE_ROW_DRAFT + 1U;
 }
 
 /*
@@ -1562,20 +1563,32 @@ static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, enum inkcell_key ke
         nav->compose_cursor = rows - 1U;
     }
     switch (key) {
+    /* The heading names the replies and is not one: a step that would land on it goes past. */
     case INKCELL_KEY_UP:
         if (nav->compose_cursor == 0U) {
             return false;
         }
         nav->compose_cursor--;
+        if (nav->compose_cursor == MESH_UI_COMPOSE_ROW_HEADING) {
+            nav->compose_cursor = MESH_UI_COMPOSE_ROW_DRAFT;
+        }
         return true;
-    case INKCELL_KEY_DOWN:
-        if (nav->compose_cursor + 1U >= rows) {
+    case INKCELL_KEY_DOWN: {
+        uint32_t next = nav->compose_cursor + 1U;
+        if (next == MESH_UI_COMPOSE_ROW_HEADING) {
+            next++;
+        }
+        if (next >= rows) {
             return false;
         }
-        nav->compose_cursor++;
+        nav->compose_cursor = next;
         return true;
+    }
     case INKCELL_KEY_A:
     case INKCELL_KEY_START:
+        if (nav->compose_cursor == MESH_UI_COMPOSE_ROW_HEADING) {
+            return false;
+        }
         if (nav->compose_cursor == MESH_UI_COMPOSE_ROW_DRAFT) {
             /* Back into a draft on its end, where a resumed sentence carries on. The grid
                keeps its place; only the caret is put back. */

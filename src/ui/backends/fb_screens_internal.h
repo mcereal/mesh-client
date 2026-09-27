@@ -193,6 +193,7 @@ enum fb_list_id {
     FB_LIST_HELP,
     FB_LIST_PICKER,
     FB_LIST_REACTIONS,
+    FB_LIST_COMPOSE,
 };
 
 /*

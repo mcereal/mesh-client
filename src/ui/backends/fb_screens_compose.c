@@ -142,34 +142,65 @@ void fb_render_compose(struct inkcell_draw_state *state, const struct mesh_ui_sn
             .badge_family = INKCELL_FAMILY_TERTIARY,
         });
 
-    struct inkcell_fb_list list =
-        inkcell_fb_list_begin(layout, mesh_ui_nav_compose_row_count(), nav->compose_cursor);
+    /*
+     * Two groups, set the way the Settings tab sets its section list: the draft on a card of its
+     * own, then the quick replies on a second under a heading that names them. It was a bare
+     * column with the draft distinguished only by its colour, which read as a different kind of
+     * list from every other one in the client - and the draft's placeholder, which had to look
+     * unlike a reply with nothing else to help it, wore square brackets to do it.
+     *
+     * The heading is a row of the nav's model (MESH_UI_COMPOSE_ROW_HEADING), so the indices here
+     * are the cursor's and a click lands on the row it was aimed at; the nav steps over it.
+     */
+    const uint32_t count = mesh_ui_nav_compose_row_count();
+    uint8_t cards[MESH_UI_COMPOSE_FIRST_CANNED + MESH_UI_CANNED_MAX];
+    const uint32_t carded = count < (uint32_t)sizeof cards ? count : (uint32_t)sizeof cards;
+    for (uint32_t r = 0; r < carded; ++r) {
+        cards[r] = r == MESH_UI_COMPOSE_ROW_DRAFT     ? 0U
+                   : r == MESH_UI_COMPOSE_ROW_HEADING ? INKCELL_FB_LIST_NO_CARD
+                                                      : 1U;
+    }
+    const struct inkcell_fb_list_style look = fb_list_look(state, FB_LIST_ROLE_MENU);
+    struct inkcell_fb_list list = inkcell_fb_list_begin_styled(
+        state, layout, count, nav->compose_cursor, NULL, count <= carded ? cards : NULL, &look);
+    inkcell_fb_list_glide(state, &list, FB_LIST_COMPOSE);
     inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    /* The pencil on the draft is the only symbol on the sheet, and the slot is declared for every
+       row regardless, so the replies and their heading start their words where the draft does. */
+    const struct inkcell_fb_leading slot = {.kind = INKCELL_FB_LEADING_ICON};
     struct inkcell_line line;
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {
-        const bool is_draft = (i == MESH_UI_COMPOSE_ROW_DRAFT);
-        inkcell_line_reset(&line);
-        /* The draft is the row that opens the keyboard and the rest are texts to send as they
-           stand, which is a difference in kind rather than in indentation - so it is the
-           accent tone and the accent edge that say so, and the two spaces the canned rows used
-           to be pushed over by are gone. */
-        if (is_draft) {
-            if (nav->draft[0] != '\0') {
+        if (i == MESH_UI_COMPOSE_ROW_HEADING) {
+            inkcell_fb_list_subheader_icon(state, &list, i,
+                                           inkcell_str(MESH_STR_COMPOSE_QUICK_REPLIES), slot);
+            continue;
+        }
+        if (i == MESH_UI_COMPOSE_ROW_DRAFT) {
+            /* The row that opens the keyboard, which the pencil says before the words do. Empty,
+               it is a field's placeholder and drawn quiet; with a started-but-unsent message in
+               it, it is in flight, which is the tertiary - and the edge bar follows the tone, so
+               the row is marked in the colour of the reason it is marked. */
+            const bool drafted = nav->draft[0] != '\0';
+            inkcell_line_reset(&line);
+            if (drafted) {
                 inkcell_line_str(&line, MESH_STR_COMPOSE_DRAFT, nav->draft);
             } else {
                 inkcell_line_printf(&line, "%s", inkcell_str(MESH_STR_COMPOSE_DRAFT_EMPTY));
             }
-        } else {
-            inkcell_line_printf(&line, "%s", mesh_ui_canned_text(i - MESH_UI_COMPOSE_FIRST_CANNED));
+            const struct inkcell_fb_list_item row = {
+                .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_EDIT},
+                .text = inkcell_line_text(&line),
+                .tone = drafted ? INKCELL_TONE_TERTIARY : INKCELL_TONE_DIM,
+                .accent_edge = drafted,
+                .divider = true,
+            };
+            inkcell_fb_list_item(state, &list, i, &row);
+            continue;
         }
         const struct inkcell_fb_list_item row = {
-            .text = inkcell_line_text(&line),
-            /* A started-but-unsent message is in flight, which is the tertiary - and the
-               edge bar follows the tone, so the row is marked in the colour of the reason it
-               is marked. */
-            .tone = is_draft ? INKCELL_TONE_TERTIARY : INKCELL_TONE_NORMAL,
-            .accent_edge = is_draft,
+            .leading = slot,
+            .text = mesh_ui_canned_text(i - MESH_UI_COMPOSE_FIRST_CANNED),
             .divider = true,
         };
         inkcell_fb_list_item(state, &list, i, &row);
