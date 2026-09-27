@@ -2002,7 +2002,7 @@ static void on_list_firmware_boards(struct mesh_app *app, const struct mesh_ui_a
 static void on_check_firmware_bluetooth(struct mesh_app *app, const struct mesh_ui_action *action) {
     const uint64_t now = inkwell_time_monotonic_ms();
     (void)action;
-    if (!app->meshcore_bound || !app->meshcore.has_device ||
+    if (!app->meshcore_bound || !app->meshcore.has_device || !app->meshcore.has_self ||
         mesh_app_firmware_bus() != MESH_FIRMWARE_PATH_USB) {
         mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_FW_NO_RADIO));
         return;
