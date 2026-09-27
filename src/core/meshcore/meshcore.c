@@ -2182,7 +2182,7 @@ int mesh_meshcore_import_channel(struct mesh_meshcore *meshcore, const char *nam
     /* Only the slots the sync read: one never read cannot be told from a free one. */
     const uint8_t limit = mesh_meshcore_channel_limit(meshcore);
     int free_slot = -1;
-    for (uint8_t slot = 0;
+    for (size_t slot = 0;
          slot < limit && slot < MESH_RADIO_SETTINGS_MAX_CHANNELS && slot < status->channel_count;
          ++slot) {
         if (!settings->has_channel[slot]) {
@@ -2191,7 +2191,7 @@ int mesh_meshcore_import_channel(struct mesh_meshcore *meshcore, const char *nam
         const meshtastic_Channel *record = &settings->channels[slot];
         if (record->role == MESH_MESHCORE_ROLE_DISABLED) {
             if (free_slot < 0) {
-                free_slot = slot;
+                free_slot = (int)slot;
             }
             continue;
         }
@@ -2200,7 +2200,7 @@ int mesh_meshcore_import_channel(struct mesh_meshcore *meshcore, const char *nam
             memcmp(record->settings.psk.bytes, secret, MESH_MESHCORE_SECRET_LEN) == 0 &&
             strcmp(status->channels[slot].name, name) == 0) {
             if (out_slot != NULL) {
-                *out_slot = slot;
+                *out_slot = (uint8_t)slot;
             }
             return -EEXIST;
         }
