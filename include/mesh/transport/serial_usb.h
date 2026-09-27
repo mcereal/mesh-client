@@ -43,6 +43,11 @@ bool mesh_serial_device_is_bootloader(const struct inkwell_serial_port_info *dev
    which devices are candidates. */
 bool mesh_serial_device_is_radio(const struct inkwell_serial_port_info *device);
 
+/* A port an ESP32's ROM can be reached through: a USB-UART bridge, whose DTR and RTS are wired
+   to the chip's EN and strap pins. Not the chip's own USB Serial/JTAG (Espressif's VID, 0x303A),
+   which is reset another way - see mesh/transport/esp_loader.h. */
+bool mesh_serial_device_reaches_esp_rom(const struct inkwell_serial_port_info *device);
+
 #ifdef __cplusplus
 }
 #endif

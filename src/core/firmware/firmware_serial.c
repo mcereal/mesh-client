@@ -2,6 +2,8 @@
 
 #include "mesh/core/firmware_serial.h"
 
+#include "mesh/transport/serial_usb.h"
+
 #include "inkwell/base/file.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
@@ -14,8 +16,6 @@
 #include <string.h>
 #include <strings.h>
 
-/* Espressif's own USB, the vendor of every chip with a USB Serial/JTAG of its own. */
-#define ESP_NATIVE_USB_VID 0x303AU
 #define SERIAL_PORTS_MAX 16U
 
 const char *mesh_firmware_serial_error_name(enum mesh_firmware_serial_error error) {
@@ -109,7 +109,7 @@ static int serial_find_port(struct mesh_firmware_serial *serial, const char *whe
                                           : "the radio's serial port is not there",
                              -ENODEV);
     }
-    if (found->kind == INKWELL_SERIAL_NATIVE || found->vendor_id == ESP_NATIVE_USB_VID) {
+    if (!mesh_serial_device_reaches_esp_rom(found)) {
         return serial_refuse(serial, MESH_FIRMWARE_SERIAL_ERROR_NATIVE_USB, found->name, -ENOTSUP);
     }
     inkwell_str_copy(serial->path, sizeof serial->path, found->path);

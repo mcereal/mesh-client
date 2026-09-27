@@ -142,6 +142,12 @@ static enum mesh_firmware_blocker firmware_blocker(const struct mesh_firmware *f
     if (!mesh_firmware_board_takes(board, firmware->bus)) {
         return MESH_FIRMWARE_BLOCKER_WRONG_BUS;
     }
+    /* Over USB only through the ROM, and the ROM only through a bridge. */
+    if (firmware->bus == MESH_FIRMWARE_PATH_USB && firmware->bus_native_usb &&
+        board->path != MESH_FIRMWARE_PATH_USB &&
+        mesh_firmware_architecture_uses_esp_rom(board->architecture)) {
+        return MESH_FIRMWARE_BLOCKER_WRONG_BUS;
+    }
     return MESH_FIRMWARE_BLOCKER_NONE;
 }
 
@@ -338,6 +344,15 @@ void mesh_firmware_set_bus(struct mesh_firmware *firmware, enum mesh_firmware_pa
     }
     firmware->bus = bus;
     firmware->bus_connected = connected;
+    firmware->revision++;
+    firmware_recompute_blocker(firmware);
+}
+
+void mesh_firmware_set_bus_native_usb(struct mesh_firmware *firmware, bool native) {
+    if (firmware == NULL || firmware->bus_native_usb == native) {
+        return;
+    }
+    firmware->bus_native_usb = native;
     firmware->revision++;
     firmware_recompute_blocker(firmware);
 }

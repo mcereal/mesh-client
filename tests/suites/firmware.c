@@ -222,6 +222,25 @@ MESH_TEST_CASE(firmware_check_identifies_and_compares, unit) {
         failure = "a USB-only board over BLE is the wrong-bus refusal";
         goto cleanup;
     }
+    /* An ESP32-S3 whose own path is BLE takes USB too, through its ROM - but only over a
+       bridge. Its own USB is reset another way, so there the row names BLE instead. */
+    struct mesh_firmware_board *const entry = &harness.firmware.boards.entries[0];
+    const enum mesh_firmware_path own_path = entry->path;
+    snprintf(entry->architecture, sizeof entry->architecture, "%s", "esp32-s3");
+    entry->path = MESH_FIRMWARE_PATH_BLE;
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB, true);
+    const enum mesh_firmware_blocker over_bridge = harness.firmware.blocker;
+    mesh_firmware_set_bus_native_usb(&harness.firmware, true);
+    const enum mesh_firmware_blocker over_native = harness.firmware.blocker;
+    mesh_firmware_set_bus_native_usb(&harness.firmware, false);
+    entry->path = own_path;
+    snprintf(entry->architecture, sizeof entry->architecture, "%s", architecture);
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_BLE, true);
+    if (over_bridge != MESH_FIRMWARE_BLOCKER_NONE ||
+        over_native != MESH_FIRMWARE_BLOCKER_WRONG_BUS) {
+        failure = "an ESP32 takes USB through a bridge and not through its own USB";
+        goto cleanup;
+    }
     if (harness.firmware.state != MESH_FIRMWARE_AVAILABLE) {
         failure = "and the check's own answer should not have moved";
         goto cleanup;

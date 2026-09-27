@@ -104,7 +104,7 @@ static void loader_fail(struct mesh_esp_loader *loader, enum mesh_esp_loader_err
                       mesh_esp_loader_state_name(was), mesh_esp_loader_error_name(error),
                       loader->reason[0] != '\0' ? ": " : "", loader->reason, loader->bytes_written,
                       loader->bytes_total);
-    if (loader->port_open && loader->attempts > 0U && error != MESH_ESP_LOADER_ERROR_PORT &&
+    if (loader->port_open && loader->attempts > 0U &&
         inkwell_serial_set_lines(loader->fd, false, true) == 0) {
         loader->state = MESH_ESP_LOADER_RESTARTING;
         loader->resetting_out = true;

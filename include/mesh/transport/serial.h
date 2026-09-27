@@ -50,6 +50,9 @@ const char *mesh_serial_transport_connected_port(struct mesh_transport *transpor
  * resets in place. See mesh/core/firmware_install.h.
  */
 const char *mesh_serial_transport_connected_id(struct mesh_transport *transport);
+/* The connected port as the scan described it, or NULL when the link is down. */
+const struct inkwell_serial_port_info *
+mesh_serial_transport_connected_device(struct mesh_transport *transport);
 /* True between the port opening and the handshake going out. */
 bool mesh_serial_transport_is_connecting(struct mesh_transport *transport);
 
