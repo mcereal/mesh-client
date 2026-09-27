@@ -88,11 +88,14 @@ void fb_render_reactions(struct inkcell_draw_state *state, const struct mesh_ui_
     const int gap = inkcell_fb_space(state, INKCELL_SPACE_XS);
     const int inset = inkcell_fb_space(state, INKCELL_SPACE_SM);
     int key = faces > 0U ? (box.w - 2 * inset - (int)(faces - 1U) * gap) / (int)faces : 0;
+    /* Capped from above only. A floor would let the tray outgrow a narrow window and push the
+       last faces - and the focus boxes registered for them - off the sheet; eight smaller faces
+       that are all on the panel beat eight legible ones that are not. */
     if (key > layout->line * 5 / 2) {
         key = layout->line * 5 / 2;
     }
-    if (key < layout->line) {
-        key = layout->line;
+    if (key < 1) {
+        key = 1;
     }
     const int tray_w = (int)faces * key + (faces > 0U ? (int)(faces - 1U) * gap : 0) + 2 * inset;
     const int tray_h = key + 2 * inset;
@@ -173,9 +176,18 @@ void fb_render_reactions(struct inkcell_draw_state *state, const struct mesh_ui_
      * `focused` is what picks the full-strength fill.
      */
     const enum inkcell_icon icon = INKCELL_ICON_DELETE;
-    const char *const label = inkcell_str(
-        nav->message_delete_armed ? MESH_STR_MESSAGE_DELETE_CONFIRM : MESH_STR_MESSAGE_DELETE);
     const int label_scale = inkcell_fb_type_scale(state, INKCELL_TYPE_BODY);
+    /* Sized to its words, and the words cut to the row when they are wider than it: a
+       translation or a large glyph scale would otherwise run the label out of its own pill. Cut
+       on cell boundaries, so an accented letter goes whole rather than as half a sequence. */
+    char label[96];
+    snprintf(label, sizeof label, "%s",
+             inkcell_str(nav->message_delete_armed ? MESH_STR_MESSAGE_DELETE_CONFIRM
+                                                   : MESH_STR_MESSAGE_DELETE));
+    while (inkcell_fb_button_width(state, icon, label, label_scale) > box.w &&
+           inkcell_text_cells(label) > 1U) {
+        inkcell_text_cell_truncate(label, inkcell_text_cells(label) - 1U);
+    }
     int delete_w = inkcell_fb_button_width(state, icon, label, label_scale);
     if (delete_w > box.w) {
         delete_w = box.w;
