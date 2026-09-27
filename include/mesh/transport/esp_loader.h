@@ -27,7 +27,9 @@
  *
  * **An interrupted write is safe to start again**, which is the property BLE does not have.
  * The ROM is still in the mask whatever the flash holds, so every failure here leaves a chip
- * the same conversation can reach - there is no loader to be stranded in.
+ * the same conversation can reach - there is no loader to be stranded in. And a failure resets
+ * the chip out of its ROM on the way, as a finished write does, so one that failed before its
+ * erase is back on the mesh running what it ran.
  *
  * A native-USB ESP32 (its own USB Serial/JTAG, VID 0x303A) is reset by a different sequence
  * and re-enumerates on the way; this speaks only to a bridge. The caller decides which a port
@@ -128,6 +130,10 @@ struct mesh_esp_loader {
        not where a caller's tick next looks, because one callback can carry the erase's answer
        and the failure after it. */
     bool erase_sent;
+    /* Failed, and resetting the chip out of its ROM before saying so: a chip left in download
+       mode is off the mesh until someone presses its reset, flash intact or not. `error` is
+       already the failure; the state is RESTARTING until the lines are released. */
+    bool resetting_out;
 
     struct inkwell_esp_rom_reader reader;
     uint8_t tx[INKWELL_ESP_ROM_REQUEST_MAX];
@@ -168,8 +174,8 @@ void mesh_esp_loader_tick(struct mesh_esp_loader *loader, uint64_t now_ms);
    loop need not call it, since the tick does. */
 void mesh_esp_loader_pump(struct mesh_esp_loader *loader, uint64_t now_ms);
 
-/* Closes the port and stops. A chip left in download mode stays there until reset - which is
-   harmless: the next start resets it, and so does a power cycle. Safe on a zeroed struct. */
+/* Releases both lines, closes the port and stops. A chip stopped in download mode stays there
+   until reset - the next start resets it, and so does a power cycle. Safe on a zeroed struct. */
 void mesh_esp_loader_cancel(struct mesh_esp_loader *loader);
 
 bool mesh_esp_loader_busy(const struct mesh_esp_loader *loader);

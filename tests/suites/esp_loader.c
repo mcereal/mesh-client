@@ -284,11 +284,16 @@ MESH_TEST_CASE(esp_loader_refuses_another_chip_before_touching_flash, unit) {
     (void)mesh_esp_loader_start(&loader, NULL, "/dev/ttyUSB0", INKWELL_ESP_CHIP_ESP32_S3, &region,
                                 1U, 0U, now);
     run(&loader, &g_rom, &now);
+    bool dtr = true;
+    bool rts = true;
+    const size_t lines = inkwell_serial_mock_lines_calls(&dtr, &rts);
     close_pair(pair);
     MESH_TEST_FAIL_IF(loader.state != MESH_ESP_LOADER_FAILED ||
                           loader.error != MESH_ESP_LOADER_ERROR_WRONG_CHIP,
                       "an S3 image is not for an ESP32");
     MESH_TEST_FAIL_IF(g_rom.begins != 0U, "and nothing was erased to find that out");
+    MESH_TEST_FAIL_IF(lines != 5U || dtr || rts,
+                      "the chip is reset out of its ROM, not left in download mode");
     record_success(test_name);
 }
 
@@ -306,8 +311,8 @@ MESH_TEST_CASE(esp_loader_gives_up_on_a_silent_chip, unit) {
     const size_t lines = inkwell_serial_mock_lines_calls(NULL, NULL);
     close_pair(pair);
     MESH_TEST_FAIL_IF(loader.error != MESH_ESP_LOADER_ERROR_SILENT, "nothing answered SYNC");
-    MESH_TEST_FAIL_IF(loader.attempts != 3U || lines != 9U || g_rom.syncs != 30U,
-                      "three resets of three line changes, ten SYNCs after each");
+    MESH_TEST_FAIL_IF(loader.attempts != 3U || lines != 11U || g_rom.syncs != 30U,
+                      "three resets of three line changes, ten SYNCs after each, and one out");
     record_success(test_name);
 }
 

@@ -79,17 +79,40 @@ static void loader_close(struct mesh_esp_loader *loader) {
     loader->fd = -1;
 }
 
+static void loader_failed(struct mesh_esp_loader *loader, uint64_t now_ms) {
+    loader->state = MESH_ESP_LOADER_FAILED;
+    loader->resetting_out = false;
+    loader->finished_ms = now_ms;
+    loader_close(loader);
+}
+
+/*
+ * Once the lines have put the chip in its ROM, a failure resets it out again before closing -
+ * RTS alone for the hold, then neither, as a finished write does - so the radio boots whatever
+ * its flash holds rather than sitting in download mode until someone presses its button. A
+ * failure in the reset itself, or one on a port whose lines were never moved, just closes.
+ */
 static void loader_fail(struct mesh_esp_loader *loader, enum mesh_esp_loader_error error,
                         uint64_t now_ms) {
+    if (loader->resetting_out) {
+        loader_failed(loader, now_ms);
+        return;
+    }
     const enum mesh_esp_loader_state was = loader->state;
-    loader->state = MESH_ESP_LOADER_FAILED;
     loader->error = error;
-    loader->finished_ms = now_ms;
     inkwell_log_error("esp_loader", "Failed %s: %s%s%s, at %zu of %zu bytes",
                       mesh_esp_loader_state_name(was), mesh_esp_loader_error_name(error),
                       loader->reason[0] != '\0' ? ": " : "", loader->reason, loader->bytes_written,
                       loader->bytes_total);
-    loader_close(loader);
+    if (loader->port_open && loader->attempts > 0U && error != MESH_ESP_LOADER_ERROR_PORT &&
+        inkwell_serial_set_lines(loader->fd, false, true) == 0) {
+        loader->state = MESH_ESP_LOADER_RESTARTING;
+        loader->resetting_out = true;
+        loader->awaiting = 0U;
+        loader->step_at_ms = now_ms + LOADER_RESET_HOLD_MS;
+        return;
+    }
+    loader_failed(loader, now_ms);
 }
 
 static bool loader_lines(struct mesh_esp_loader *loader, bool dtr, bool rts, uint64_t now_ms) {
@@ -428,6 +451,10 @@ void mesh_esp_loader_tick(struct mesh_esp_loader *loader, uint64_t now_ms) {
         if (!loader_lines(loader, false, false, now_ms)) {
             return;
         }
+        if (loader->resetting_out) {
+            loader_failed(loader, now_ms);
+            return;
+        }
         loader->state = MESH_ESP_LOADER_DONE;
         loader->finished_ms = now_ms;
         inkwell_log_info("esp_loader", "Wrote and verified %zu bytes in %llu ms; restarted",
@@ -510,9 +537,14 @@ void mesh_esp_loader_cancel(struct mesh_esp_loader *loader) {
     if (loader == NULL) {
         return;
     }
+    /* Neither line held, so a chip stopped mid-reset is not left held in it. */
+    if (loader->port_open && loader->attempts > 0U) {
+        (void)inkwell_serial_set_lines(loader->fd, false, false);
+    }
     if (loader->port_open || loader->watched) {
         loader_close(loader);
     }
+    loader->resetting_out = false;
     if (mesh_esp_loader_busy(loader)) {
         loader->state = MESH_ESP_LOADER_IDLE;
     }
