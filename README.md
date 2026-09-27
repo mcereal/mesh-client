@@ -42,6 +42,10 @@ place.
 
 ## Install on a Mac or a Windows PC
 
+> **Experimental.** The Brick is the target; the desktop builds are newer and less tested.
+> Expect rough edges, and please [open an issue](https://github.com/mcereal/mesh-client/issues)
+> when you hit one.
+
 The same client runs in a window on a desktop and talks to a radio over Bluetooth, USB or the
 network. Each [release](https://github.com/mcereal/mesh-client/releases/latest) carries an
 installer for both:
