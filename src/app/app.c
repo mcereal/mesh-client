@@ -704,6 +704,27 @@ static void mesh_app_age_preferred_failures(struct mesh_app *app,
     }
 }
 
+/* The radios that answered to a moved radio's name with another key, oldest out. */
+static bool mesh_app_handoff_rejected(const struct mesh_app *app, const char *address) {
+    for (size_t i = 0; i < MESH_APP_HANDOFF_WRONG_MAX; ++i) {
+        if (app->firmware_ble_handoff_wrong[i][0] != '\0' &&
+            strcmp(app->firmware_ble_handoff_wrong[i], address) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void mesh_app_handoff_reject(struct mesh_app *app, const char *address) {
+    if (mesh_app_handoff_rejected(app, address)) {
+        return;
+    }
+    memmove(app->firmware_ble_handoff_wrong[1], app->firmware_ble_handoff_wrong[0],
+            (MESH_APP_HANDOFF_WRONG_MAX - 1U) * sizeof app->firmware_ble_handoff_wrong[0]);
+    snprintf(app->firmware_ble_handoff_wrong[0], sizeof app->firmware_ble_handoff_wrong[0], "%s",
+             address);
+}
+
 void mesh_app_autoconnect(struct mesh_app *app) {
     if (app == NULL || app->autoconnect_disabled || app->autoconnect_held ||
         app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
@@ -763,12 +784,12 @@ void mesh_app_autoconnect(struct mesh_app *app) {
             if (memcmp(app->meshcore.self.public_key, app->firmware_ble_handoff_key,
                        sizeof app->firmware_ble_handoff_key) == 0) {
                 app->firmware_ble_handoff[0] = '\0';
-            } else if (strcmp(over_air, app->firmware_ble_handoff_wrong) != 0) {
+            } else if (mesh_ble_transport_disconnect(ble) == 0) {
+                /* Remembered only once it is down: a disconnect BlueZ refused is tried again
+                   on the next turn rather than leaving the impostor holding the link. */
                 inkwell_log_warn("app", "%s answered to %s with another key; passing it over",
                                  over_air, app->firmware_ble_handoff);
-                snprintf(app->firmware_ble_handoff_wrong, sizeof app->firmware_ble_handoff_wrong,
-                         "%s", over_air);
-                (void)mesh_ble_transport_disconnect(ble);
+                mesh_app_handoff_reject(app, over_air);
             }
         }
     }
@@ -938,7 +959,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         const struct inkwell_ble_device *device = &devices[in_range[i]];
         if (strcasecmp(device->name, app->firmware_ble_handoff) == 0 &&
             mesh_app_ble_speaks_meshcore(ble, device->address) &&
-            strcmp(device->address, app->firmware_ble_handoff_wrong) != 0) {
+            !mesh_app_handoff_rejected(app, device->address)) {
             /*
              * A bond at that address is tried first: it may be this radio's and still good, or
              * another radio's under the same name, which the key check then passes over with its

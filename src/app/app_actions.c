@@ -2249,7 +2249,7 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
             memcpy(app->firmware_ble_handoff_key, app->meshcore.self.public_key,
                    sizeof app->firmware_ble_handoff_key);
             app->firmware_ble_handoff_tried = false;
-            app->firmware_ble_handoff_wrong[0] = '\0';
+            memset(app->firmware_ble_handoff_wrong, 0, sizeof app->firmware_ble_handoff_wrong);
             app->firmware_ble_handoff_until_ms = now + MESH_APP_BLE_HANDOFF_MS;
         }
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_INSTALLING_FIRMWARE,

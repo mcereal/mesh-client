@@ -66,6 +66,9 @@ struct mesh_app_probe_port {
 /* The question in flight: which link, which protocols it has been asked in, and when the one
    bound now has had long enough. `identifier` is what was connected, and empty when nothing is
    being asked. */
+/* How many radios answering to a moved radio's name with another key are passed over. */
+#define MESH_APP_HANDOFF_WRONG_MAX 4U
+
 struct mesh_app_probe {
     char identifier[MESH_APP_PROBE_ID_MAX];
     /* What the answer is remembered under: a USB port's sysfs id, which outlives its tty. */
@@ -173,7 +176,7 @@ struct mesh_app {
        another key is `firmware_ble_handoff_wrong`. */
     uint8_t firmware_ble_handoff_key[MESH_MESHCORE_PUBKEY_LEN];
     bool firmware_ble_handoff_tried;
-    char firmware_ble_handoff_wrong[18];
+    char firmware_ble_handoff_wrong[MESH_APP_HANDOFF_WRONG_MAX][18];
     /* Whether an install stopped the transports and owes them back. A flag rather than a
        question, because "stopped" and "stopped by us" are not the same state and only the
        second one should be restarted. */
