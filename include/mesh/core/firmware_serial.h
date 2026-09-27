@@ -91,12 +91,18 @@ struct mesh_firmware_serial {
     uint8_t otadata[MESH_FIRMWARE_SERIAL_OTADATA_LEN];
     /* The first erase went out: from here a failure leaves an app that will not boot. */
     bool flash_touched;
+    /* An earlier attempt on this struct erased the app and none has finished since. It keeps
+       a failed retry a radio in its loader, and lets a named port that is gone fall back to
+       the only bridge. */
+    bool damaged;
 };
 
 /*
  * Reads `image_path`, checks it is an app image for `chip` (an `INKWELL_ESP_CHIP_*`), finds
  * the port and starts the loader. `where` is the serial transport's own id for the port the
- * radio was on; empty means "the only bridge there is", which is the recovery case.
+ * radio was on; empty means "the only bridge there is". A named port that is gone is refused,
+ * unless an earlier attempt on `serial` left the app erased - then the only bridge is taken,
+ * since a resume on another socket is another id.
  *
  * The link must already have let go of the port. Returns 0, or a negative errno with `state`
  * FAILED and `error` saying which refusal - on a negative return nothing was sent to the radio.
@@ -112,7 +118,8 @@ void mesh_firmware_serial_cancel(struct mesh_firmware_serial *serial);
 bool mesh_firmware_serial_busy(const struct mesh_firmware_serial *serial);
 /* Busy, and so the port and the radio are the loader's. */
 bool mesh_firmware_serial_holds_the_radio(const struct mesh_firmware_serial *serial);
-/* Failed after the first erase: the radio will not boot until a write finishes. */
+/* Failed after this attempt's first erase, or an earlier one's: the radio will not boot until
+   a write finishes. */
 bool mesh_firmware_serial_radio_in_loader(const struct mesh_firmware_serial *serial);
 unsigned mesh_firmware_serial_progress(const struct mesh_firmware_serial *serial);
 

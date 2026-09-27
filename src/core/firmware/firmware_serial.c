@@ -48,7 +48,7 @@ bool mesh_firmware_serial_holds_the_radio(const struct mesh_firmware_serial *ser
 
 bool mesh_firmware_serial_radio_in_loader(const struct mesh_firmware_serial *serial) {
     return serial != NULL && serial->state == MESH_FIRMWARE_SERIAL_FAILED &&
-           (serial->flash_touched || serial->loader.erase_sent);
+           (serial->damaged || serial->flash_touched || serial->loader.erase_sent);
 }
 
 unsigned mesh_firmware_serial_progress(const struct mesh_firmware_serial *serial) {
@@ -73,9 +73,11 @@ static int serial_refuse(struct mesh_firmware_serial *serial, enum mesh_firmware
 
 /*
  * The port to write through, as a tty path. By the transport's id when there is one - the id
- * is what survives the radio resetting, where a label would not - and otherwise, or when that
- * id is gone, the one bridge on the bus. A resume is the case the fallback is for: the cable
- * back in another socket is another id, and the only bridge there is is the radio.
+ * is what survives the radio resetting, where a label would not - and otherwise the one bridge
+ * on the bus. A named id that is gone falls back to that bridge only when finishing a write an
+ * earlier attempt left undone: the cable back in another socket is another id, and the only
+ * bridge there is is the radio. A fresh install's id is the user's, and a stale one is refused
+ * rather than taken to mean some other ESP32.
  */
 static int serial_find_port(struct mesh_firmware_serial *serial, const char *where) {
     struct inkwell_serial_port_info ports[SERIAL_PORTS_MAX];
@@ -89,7 +91,8 @@ static int serial_find_port(struct mesh_firmware_serial *serial, const char *whe
         }
     }
     size_t bridges = 0U;
-    if (found == NULL) {
+    const bool named = where != NULL && where[0] != '\0';
+    if (found == NULL && (!named || serial->damaged)) {
         for (size_t i = 0; i < count; ++i) {
             if (ports[i].kind == INKWELL_SERIAL_BRIDGE) {
                 found = bridges == 0U ? &ports[i] : found;
@@ -119,8 +122,14 @@ int mesh_firmware_serial_start(struct mesh_firmware_serial *serial, struct inkwe
     if (serial == NULL || image_path == NULL) {
         return -EINVAL;
     }
+    /* An app an earlier attempt erased stays erased until a write finishes, whatever this
+       attempt does - so the banner and the resume outlive a retry that fails before its own
+       first erase. */
+    const bool damaged = serial->state != MESH_FIRMWARE_SERIAL_DONE &&
+                         (serial->damaged || serial->flash_touched || serial->loader.erase_sent);
     mesh_firmware_serial_cancel(serial);
     memset(serial, 0, sizeof *serial);
+    serial->damaged = damaged;
 
     size_t len = 0U;
     serial->image = inkwell_file_read(image_path, MESH_FIRMWARE_SERIAL_IMAGE_MAX, &len);
@@ -179,6 +188,7 @@ void mesh_firmware_serial_tick(struct mesh_firmware_serial *serial, uint64_t now
         return;
     case MESH_ESP_LOADER_DONE:
         serial_release_image(serial);
+        serial->damaged = false;
         serial->state = MESH_FIRMWARE_SERIAL_DONE;
         return;
     case MESH_ESP_LOADER_FAILED:

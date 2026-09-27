@@ -400,9 +400,8 @@ MESH_TEST_CASE(firmware_serial_writes_the_app_and_blanks_otadata, unit) {
 
     static struct mesh_firmware_serial serial;
     uint64_t now = 1000U;
-    /* Saved on another socket: that id is gone, and the one bridge there is is the radio. */
     const int started =
-        mesh_firmware_serial_start(&serial, NULL, path, "1-2:1.0", INKWELL_ESP_CHIP_ESP32_S3, now);
+        mesh_firmware_serial_start(&serial, NULL, path, "1-1:1.0", INKWELL_ESP_CHIP_ESP32_S3, now);
     for (int turn = 0; turn < 6000 && mesh_firmware_serial_busy(&serial); ++turn) {
         now += 10U;
         mesh_firmware_serial_tick(&serial, now);
@@ -472,5 +471,79 @@ MESH_TEST_CASE(firmware_serial_refuses_before_the_radio_is_touched, unit) {
                       "the chip's own USB is refused");
     MESH_TEST_FAIL_IF(lines != 0U || mesh_firmware_serial_radio_in_loader(&serial),
                       "and no refusal moved a line or left the radio anywhere");
+    record_success(test_name);
+}
+
+/* Runs a handover against the fake until it ends. */
+static void run_serial(struct mesh_firmware_serial *serial, uint64_t *now) {
+    for (int turn = 0; turn < 6000 && mesh_firmware_serial_busy(serial); ++turn) {
+        *now += 10U;
+        mesh_firmware_serial_tick(serial, *now);
+        fake_service(&g_rom);
+    }
+}
+
+MESH_TEST_CASE(firmware_serial_falls_back_to_the_only_bridge_only_to_finish_a_write, unit) {
+    fill();
+    memcpy(g_image, k_s3_header, sizeof k_s3_header);
+    char path[256];
+    MESH_TEST_FAIL_IF(!stage(g_image, sizeof g_image, path, sizeof path), "no staging file");
+    int pair[2];
+    MESH_TEST_FAIL_IF_CLEANUP(open_pair(pair, &g_rom) != 0, unlink(path), "no socketpair");
+    struct inkwell_serial_port_info port;
+    memset(&port, 0, sizeof port);
+    snprintf(port.id, sizeof port.id, "1-2:1.0");
+    snprintf(port.path, sizeof port.path, "/dev/ttyUSB0");
+    port.kind = INKWELL_SERIAL_BRIDGE;
+    port.bound = true;
+    struct inkwell_serial_mock_config mock;
+    memset(&mock, 0, sizeof mock);
+    mock.ports = &port;
+    mock.port_count = 1U;
+    mock.open_fd = pair[1];
+    inkwell_serial_mock_enable(&mock);
+    static struct mesh_firmware_serial serial;
+    memset(&serial, 0, sizeof serial);
+    uint64_t now = 1000U;
+
+    /* A fresh install naming a port that is not there is refused, not sent to another ESP32. */
+    int result =
+        mesh_firmware_serial_start(&serial, NULL, path, "1-1:1.0", INKWELL_ESP_CHIP_ESP32_S3, now);
+    const bool strict = result < 0 && serial.error == MESH_FIRMWARE_SERIAL_ERROR_NO_PORT &&
+                        !mesh_firmware_serial_radio_in_loader(&serial);
+
+    /* A write that fails after its erase leaves the radio in its loader. */
+    g_rom.refuse_op = INKWELL_ESP_ROM_FLASH_DATA;
+    result =
+        mesh_firmware_serial_start(&serial, NULL, path, "1-2:1.0", INKWELL_ESP_CHIP_ESP32_S3, now);
+    run_serial(&serial, &now);
+    const bool stranded = result == 0 && mesh_firmware_serial_radio_in_loader(&serial);
+
+    /* A retry that fails before its own erase - no port at all - still says so. */
+    mock.port_count = 0U;
+    inkwell_serial_mock_enable(&mock);
+    result =
+        mesh_firmware_serial_start(&serial, NULL, path, "1-2:1.0", INKWELL_ESP_CHIP_ESP32_S3, now);
+    const bool remembered = result < 0 && mesh_firmware_serial_radio_in_loader(&serial);
+
+    /* And the cable back in another socket is another id, which the resume takes. */
+    snprintf(port.id, sizeof port.id, "1-3:1.0");
+    mock.port_count = 1U;
+    inkwell_serial_mock_enable(&mock);
+    result =
+        mesh_firmware_serial_start(&serial, NULL, path, "1-2:1.0", INKWELL_ESP_CHIP_ESP32_S3, now);
+    run_serial(&serial, &now);
+    close_pair(pair);
+    unlink(path);
+
+    MESH_TEST_FAIL_IF(!strict, "a named port that is gone is refused on a fresh install");
+    MESH_TEST_FAIL_IF(!stranded, "a refused block after the erase strands the radio");
+    MESH_TEST_FAIL_IF(!remembered, "a retry that never reached the ROM keeps the banner");
+    MESH_TEST_FAIL_IF(result != 0 || serial.state != MESH_FIRMWARE_SERIAL_DONE, serial.reason);
+    MESH_TEST_FAIL_IF(mesh_firmware_serial_radio_in_loader(&serial) || serial.damaged,
+                      "a finished write clears the damage");
+    MESH_TEST_FAIL_IF(
+        memcmp(g_rom.flash + MESH_FIRMWARE_SERIAL_APP_OFFSET, g_image, sizeof g_image) != 0,
+        "the resume wrote the app");
     record_success(test_name);
 }
