@@ -14,6 +14,7 @@
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
 #include "mesh/core/meshcore.h"
+#include "mesh/core/protocol.h"
 #include "mesh/core/session.h"
 #include "mesh/core/updater.h"
 #include "mesh/transport/transport.h"
@@ -90,6 +91,9 @@ struct mesh_app {
        mesh_app_bind_protocol(). */
     struct mesh_meshcore meshcore;
     bool meshcore_bound;
+    /* Whichever of the two is bound, as the transports are handed it: the same protocol with a
+       count of the frames each way, which is what lights the footer's traffic arrows. */
+    struct mesh_protocol_tap link_tap;
     /* Which of the two a serial or network link's radio speaks, found out by asking - a port
        says nothing about the firmware behind it. See src/app/app_probe.c. */
     struct mesh_app_probe probe;

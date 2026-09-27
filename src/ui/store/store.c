@@ -542,6 +542,15 @@ void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char 
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_TRANSPORT);
 }
 
+void mesh_ui_store_set_link_traffic(struct mesh_ui_store *store, uint32_t sent, uint32_t received) {
+    if (store == NULL || (store->link_sent == sent && store->link_received == received)) {
+        return;
+    }
+    store->link_sent = sent;
+    store->link_received = received;
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_TRAFFIC);
+}
+
 void mesh_ui_store_set_mqtt(struct mesh_ui_store *store, const struct mesh_ui_mqtt_state *mqtt) {
     if (store == NULL) {
         return;
@@ -1495,6 +1504,8 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     snapshot->mqtt = store->mqtt;
 
     memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);
+    snapshot->link_sent = store->link_sent;
+    snapshot->link_received = store->link_received;
 
     /*
      * A right-click menu is about the row it was opened on, and holds that row only as an index -
@@ -1504,8 +1515,8 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
      * line and the broker state move no row, and would only close it for nothing.
      */
     if (store->nav.context_open &&
-        (store->pending_flags &
-         ~(uint32_t)(MESH_UI_UPDATE_NAV | MESH_UI_UPDATE_TRANSPORT | MESH_UI_UPDATE_MQTT)) != 0U) {
+        (store->pending_flags & ~(uint32_t)(MESH_UI_UPDATE_NAV | MESH_UI_UPDATE_TRANSPORT |
+                                            MESH_UI_UPDATE_MQTT | MESH_UI_UPDATE_TRAFFIC)) != 0U) {
         store->nav.context_open = false;
         store->pending_flags |= MESH_UI_UPDATE_NAV;
         snapshot->update_flags = store->pending_flags;

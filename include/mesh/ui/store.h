@@ -70,6 +70,10 @@ enum mesh_ui_update_flag {
        TRANSPORT means the radio link and the CLI backend prints a line when it changes - an
        MQTT retry every five seconds would scroll the radio's own state off the console. */
     MESH_UI_UPDATE_MQTT = 1U << 9,
+    /* A frame crossed the link, which lights an arrow and changes nothing else. Its own flag for
+       MQTT's reason, and far more often: TRANSPORT prints a line on the CLI backend, and a
+       config sync is hundreds of frames. */
+    MESH_UI_UPDATE_TRAFFIC = 1U << 10,
 };
 typedef uint32_t mesh_ui_update_flags;
 
@@ -92,6 +96,10 @@ struct mesh_ui_snapshot {
     /* Transport state ("waiting-for-bluez", "scanning", "running", ...). Rendered by the
        backends so an empty device list is diagnosable on a device with no console. */
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
+    /* How many frames the link has sent and received, from the protocol seam - see
+       struct mesh_protocol_tap. Only ever compared: a change is what lights an arrow. */
+    uint32_t link_sent;
+    uint32_t link_received;
     /*
      * The network address somebody wrote down, whether or not the link is up, and empty when
      * there is none.
@@ -160,6 +168,8 @@ struct mesh_ui_store {
     struct mesh_ui_waypoint_list waypoints;
     struct mesh_ui_read_state read_state;
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
+    uint32_t link_sent;
+    uint32_t link_received;
     char network_host[MESH_UI_NETWORK_HOST_MAX];
     struct mesh_ui_nav nav;
     struct mesh_ui_settings settings;
@@ -215,6 +225,9 @@ void mesh_ui_store_set_discovery(struct mesh_ui_store *store, const struct mesh_
 void mesh_ui_store_set_handshake(struct mesh_ui_store *store,
                                  const struct mesh_ui_handshake_state *handshake);
 void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char *status);
+/* The link's frame counts. Marks MESH_UI_UPDATE_TRAFFIC only when one moved, so it can be
+   called for every frame. */
+void mesh_ui_store_set_link_traffic(struct mesh_ui_store *store, uint32_t sent, uint32_t received);
 /*
  * The broker connection, whole.
  *

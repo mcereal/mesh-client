@@ -163,6 +163,13 @@ bool mesh_app_canned_path(const struct mesh_app *app, char *out, size_t out_len)
     return snprintf(slash + 1, room, "%s", "canned.txt") < (int)room;
 }
 
+/* A frame crossed the protocol seam: the counts go to the store, which wakes the frame only
+   when one moved. See struct mesh_protocol_tap. */
+static void mesh_app_on_link_traffic(void *ctx) {
+    struct mesh_app *app = (struct mesh_app *)ctx;
+    mesh_ui_store_set_link_traffic(&app->ui_store, app->link_tap.sent, app->link_tap.received);
+}
+
 struct mesh_protocol mesh_app_protocol(struct mesh_app *app) {
     return app->meshcore_bound ? mesh_meshcore_protocol(&app->meshcore)
                                : mesh_session_protocol(&app->session);
@@ -176,7 +183,8 @@ void mesh_app_bind_protocol(struct mesh_app *app, bool meshcore) {
     mesh_protocol_detach(&previous);
     app->meshcore_bound = meshcore;
     const struct mesh_protocol protocol = mesh_app_protocol(app);
-    mesh_transport_registry_set_protocol(&app->transport_registry, &protocol);
+    const struct mesh_protocol tapped = mesh_protocol_tap_bind(&app->link_tap, &protocol);
+    mesh_transport_registry_set_protocol(&app->transport_registry, &tapped);
     inkwell_log_info("app", "Links now speak %s", mesh_protocol_name(&protocol));
 }
 
@@ -1400,8 +1408,12 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     mesh_meshcore_init(&app->meshcore, &app->session);
     app->meshcore_bound = false;
     memset(&app->probe, 0, sizeof app->probe);
+    memset(&app->link_tap, 0, sizeof app->link_tap);
+    app->link_tap.on_traffic = mesh_app_on_link_traffic;
+    app->link_tap.ctx = app;
     const struct mesh_protocol protocol = mesh_session_protocol(&app->session);
-    mesh_transport_registry_set_protocol(&app->transport_registry, &protocol);
+    const struct mesh_protocol tapped = mesh_protocol_tap_bind(&app->link_tap, &protocol);
+    mesh_transport_registry_set_protocol(&app->transport_registry, &tapped);
 
     return 0;
 }

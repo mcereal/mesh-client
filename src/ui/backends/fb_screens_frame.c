@@ -127,6 +127,39 @@ static const struct inkcell_fb_chip *fb_tab_chips(const struct mesh_ui_snapshot 
  * not up is the case where the transport's own words are the useful part - and the bar drops
  * the status first when the row runs short, so a long one costs no verb its place.
  */
+/*
+ * The link, as the mark at the head of that line: a dot for how far along it is, the symbol of
+ * what carries it, and the arrows its frames light - see struct inkcell_fb_link_mark.
+ *
+ * Three states rather than two, because "attached" and "usable" are a sync apart and the sync
+ * is most of the wait: green is a radio that has told us everything it knows, amber one still
+ * telling us, red none at all. Ready is read off the handshake, which both protocols settle -
+ * Meshtastic on its config_complete, MeshCore when its own sync is through.
+ */
+static struct inkcell_fb_link_mark fb_link_mark(const struct mesh_ui_snapshot *snapshot) {
+    const struct mesh_ui_device *device = mesh_ui_snapshot_connected_device(snapshot);
+    if (device == NULL) {
+        return (struct inkcell_fb_link_mark){
+            .shown = true, .tone = INKCELL_TONE_ERROR, .icon = INKCELL_ICON_LINK};
+    }
+    const bool ready = snapshot->handshake_valid && snapshot->handshake.config_complete &&
+                       !snapshot->handshake.request_in_flight;
+    enum inkcell_icon icon = INKCELL_ICON_BLUETOOTH;
+    if (device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
+        icon = INKCELL_ICON_USB;
+    } else if (device->kind == (uint8_t)MESH_UI_DEVICE_TCP) {
+        icon = INKCELL_ICON_NETWORK;
+    }
+    return (struct inkcell_fb_link_mark){
+        .shown = true,
+        .tone = ready ? INKCELL_TONE_SUCCESS : INKCELL_TONE_WARNING,
+        .icon = icon,
+        .traffic = true,
+        .sent = snapshot->link_sent,
+        .received = snapshot->link_received,
+    };
+}
+
 static void fb_link_summary(const struct mesh_ui_snapshot *snapshot, struct inkcell_line *line,
                             enum inkcell_tone *tone) {
     inkcell_line_reset(line);
@@ -972,6 +1005,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .count = actions.count,
         .status = inkcell_line_text(&summary),
         .status_tone = summary_tone,
+        .link = fb_link_mark(snapshot),
         /* A leads when it is the screen's own press, and is drawn as the one that matters. Not
            when some other key leads - X on the device list is a disconnect, and a tonal pill
            round the verb that drops the link would be recommending it. */
