@@ -2939,6 +2939,10 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_settings.meshcore_advert_loc_policy = app->meshcore.self.advert_loc_policy;
         ui_settings.meshcore_multi_acks = app->meshcore.self.multi_acks;
     }
+    if (app->meshcore_bound && app->meshcore.has_device) {
+        ui_settings.has_meshcore_pin = true;
+        ui_settings.meshcore_ble_pin = app->meshcore.device.ble_pin;
+    }
     /* This radio as the MeshCore app's contact link - never the Meshtastic one the flatten may
        have made from the same name, which that app could not read. Its channels share one to a
        link, built from each slot on the share screen, so the set's Meshtastic link is dropped

@@ -1026,6 +1026,29 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
             values[MESH_UI_FIELD_ADVERT_LOCATION] != 1U || values[MESH_UI_FIELD_AUTO_ADD] != 0U ||
             values[MESH_UI_FIELD_EXTRA_ACKS] != 0U,
         "each row reads its own bits, and auto-add is manual-add turned over");
+    /* And once DEVICE_INFO has said what it is, the Bluetooth PIN under a heading of its own:
+       fixed shows its six digits, random shows none. */
+    settings.has_meshcore_pin = true;
+    settings.meshcore_ble_pin = 482913U;
+    n = section_fields(&settings, &handshake, MESH_UI_SETTINGS_USER, fields, 16U);
+    MESH_TEST_FAIL_IF(n != sizeof user / sizeof user[0] + 3U ||
+                          fields[n - 3U] != MESH_UI_FIELD_NONE ||
+                          fields[n - 2U] != MESH_UI_FIELD_MESHCORE_PAIRING ||
+                          fields[n - 1U] != MESH_UI_FIELD_MESHCORE_PIN,
+                      "User ends with the Bluetooth PIN");
+    uint32_t pin_count =
+        mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_USER,
+                               MESH_UI_SETTINGS_NO_CHANNEL, user_rows, 16U);
+    MESH_TEST_FAIL_IF(pin_count < 2U || user_rows[pin_count - 2U].number != 1U ||
+                          strcmp(user_rows[pin_count - 1U].text, "482913") != 0,
+                      "a fixed PIN is Fixed and its digits");
+    settings.meshcore_ble_pin = 0U;
+    pin_count = mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_USER,
+                                       MESH_UI_SETTINGS_NO_CHANNEL, user_rows, 16U);
+    MESH_TEST_FAIL_IF(pin_count < 2U || user_rows[pin_count - 2U].number != 0U ||
+                          user_rows[pin_count - 1U].text[0] != '\0',
+                      "and a random one is Random with no digits to show");
+    settings.has_meshcore_pin = false;
     settings.has_meshcore_other = false;
     MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_POSITION,
                                       MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION),

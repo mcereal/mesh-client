@@ -326,6 +326,10 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_ASK_SENSORS,
     MESH_UI_FIELD_AUTO_ADD,
     MESH_UI_FIELD_EXTRA_ACKS,
+    /* MeshCore's Bluetooth PIN (CMD_SET_DEVICE_PIN), under them: a random one each boot or a
+       fixed six digits, the pair one u32 on the wire. */
+    MESH_UI_FIELD_MESHCORE_PAIRING,
+    MESH_UI_FIELD_MESHCORE_PIN, /* text: six digits */
     MESH_UI_FIELD_BT_ENABLED,
     MESH_UI_FIELD_BT_MODE,
     MESH_UI_FIELD_BT_PIN, /* text: six digits */

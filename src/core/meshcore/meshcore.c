@@ -410,7 +410,7 @@ static bool mesh_meshcore_is_settings_write(uint8_t cmd) {
     return cmd == MESH_MESHCORE_CMD_SET_ADVERT_NAME || cmd == MESH_MESHCORE_CMD_SET_RADIO_PARAMS ||
            cmd == MESH_MESHCORE_CMD_SET_RADIO_TX_POWER ||
            cmd == MESH_MESHCORE_CMD_SET_ADVERT_LATLON || cmd == MESH_MESHCORE_CMD_SET_CHANNEL ||
-           cmd == MESH_MESHCORE_CMD_SET_OTHER_PARAMS;
+           cmd == MESH_MESHCORE_CMD_SET_OTHER_PARAMS || cmd == MESH_MESHCORE_CMD_SET_DEVICE_PIN;
 }
 
 /* One command of a save answered: `error` is 0 for OK. The last answer settles the save into
@@ -1116,6 +1116,11 @@ static void mesh_meshcore_apply_write(struct mesh_meshcore *meshcore, const uint
             mesh_meshcore_store_channel(meshcore, &channel);
         }
         return; /* nothing of SELF_INFO's changed */
+    case MESH_MESHCORE_CMD_SET_DEVICE_PIN:
+        if (len >= 5U) {
+            meshcore->device.ble_pin = mesh_meshcore_u32_at(frame + 1);
+        }
+        return; /* DEVICE_INFO's, not SELF_INFO's */
     default:
         return;
     }
@@ -2077,8 +2082,8 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
     }
     /* Encoded whole before anything is queued, so a value the codec refuses leaves the radio
        untouched rather than half written. */
-    uint8_t frames[6][MESH_MESHCORE_MAX_FRAME];
-    int lens[6];
+    uint8_t frames[7][MESH_MESHCORE_MAX_FRAME];
+    int lens[7];
     size_t count = 0U;
     if (write->set_name) {
         lens[count] = mesh_meshcore_encode_name(write->name, frames[count], sizeof frames[count]);
@@ -2109,6 +2114,15 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
                                   write->multi_acks};
         memcpy(frames[count], other, sizeof other);
         lens[count] = (int)sizeof other;
+        count += 1U;
+    }
+    /* The firmware's own bound, refused here rather than answered with ILLEGAL_ARG. */
+    if (write->set_pin) {
+        if (write->ble_pin != 0U && (write->ble_pin < 100000U || write->ble_pin > 999999U)) {
+            return -EINVAL;
+        }
+        lens[count] = mesh_meshcore_encode_u32(MESH_MESHCORE_CMD_SET_DEVICE_PIN, write->ble_pin,
+                                               frames[count], sizeof frames[count]);
         count += 1U;
     }
     /* A slot the radio has, and one the handshake has read: the save starts from what it

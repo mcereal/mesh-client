@@ -1586,6 +1586,27 @@ static int mesh_app_meshcore_channel_write(struct mesh_app *app,
  * so an untouched row is written back as it was. -ENOTSUP for a section MeshCore has no command
  * for, -EINVAL for a row that does not parse or a save with nothing in it.
  */
+int mesh_app_meshcore_pin(int pairing, uint32_t typed, uint32_t current, uint32_t *out) {
+    /* Random wins over a PIN typed beside it; a PIN typed alone is a fixed one; and fixed with
+       none typed keeps the one the radio has, or is refused when it has none to keep. */
+    if (pairing == 0) {
+        *out = 0U;
+        return 1;
+    }
+    if (typed != 0U) {
+        *out = typed;
+        return 1;
+    }
+    if (pairing == 1) {
+        if (current == 0U) {
+            return -EINVAL;
+        }
+        *out = current;
+        return 1;
+    }
+    return 0;
+}
+
 static int mesh_app_meshcore_settings_write(struct mesh_app *app,
                                             const struct mesh_ui_action *action) {
     const struct mesh_meshcore_self_info *self = &app->meshcore.self;
@@ -1611,6 +1632,10 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
     if (section != MESH_UI_SETTINGS_USER && section != MESH_UI_SETTINGS_LORA) {
         return -ENOTSUP;
     }
+    /* Pairing and the PIN are one u32 on the wire, so they are settled after the walk rather
+       than by whichever of the two edits came first. */
+    int pairing = -1;
+    uint32_t typed_pin = 0U;
     for (uint8_t i = 0; i < action->edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
         const struct mesh_ui_setting_edit *edit = &action->edits[i];
         switch ((enum mesh_ui_setting_field)edit->field) {
@@ -1652,6 +1677,25 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
             write.multi_acks = edit->number != 0U ? 1U : 0U;
             write.set_other = true;
             break;
+        case MESH_UI_FIELD_MESHCORE_PAIRING:
+            pairing = edit->number != 0U ? 1 : 0;
+            break;
+        case MESH_UI_FIELD_MESHCORE_PIN: {
+            if (strlen(edit->text) != 6U) {
+                return -EINVAL;
+            }
+            for (const char *c = edit->text; *c != '\0'; ++c) {
+                if (*c < '0' || *c > '9') {
+                    return -EINVAL;
+                }
+                typed_pin = typed_pin * 10U + (uint32_t)(*c - '0');
+            }
+            /* The firmware's range: a leading zero is a PIN it refuses. */
+            if (typed_pin < 100000U) {
+                return -EINVAL;
+            }
+            break;
+        }
         case MESH_UI_FIELD_LORA_FREQUENCY: {
             int64_t scaled = 0;
             if (!mesh_ui_settings_decimal_parse(edit->text, MESH_UI_FREQUENCY_DIGITS,
@@ -1694,6 +1738,13 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
             break;
         }
     }
+    const int pin = mesh_app_meshcore_pin(
+        pairing, typed_pin, app->meshcore.has_device ? app->meshcore.device.ble_pin : 0U,
+        &write.ble_pin);
+    if (pin < 0) {
+        return pin;
+    }
+    write.set_pin = pin > 0;
     /* The firmware's own bounds, checked here so a refusal is a toast about the value rather
        than an error code back from the radio. */
     if (write.set_radio &&

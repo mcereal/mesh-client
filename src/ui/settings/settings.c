@@ -1929,6 +1929,16 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                           MESH_STR_SETTINGS_NOTE_AUTO_ADD),
     MESHCORE_OTHER_TOGGLE(MESH_UI_FIELD_EXTRA_ACKS, MESH_STR_SETTINGS_FIELD_EXTRA_ACKS,
                           MESH_STR_SETTINGS_NOTE_EXTRA_ACKS),
+    [MESH_UI_FIELD_MESHCORE_PAIRING] = {{MESH_STR_SETTINGS_FIELD_BT_MODE, INKSTAND_FORM_ENUM,
+                                         MESH_UI_SETTINGS_USER, 2U, pairing_enum_name, NO_PRESETS,
+                                         0U, MESH_STR_SETTINGS_NOTE_MESHCORE_PAIRING},
+                                        INKCELL_STR_NONE,
+                                        NULL},
+    [MESH_UI_FIELD_MESHCORE_PIN] = {{MESH_STR_SETTINGS_FIELD_BT_PIN, INKSTAND_FORM_TEXT,
+                                     MESH_UI_SETTINGS_USER, MESH_UI_TEXT_LIMIT_BT_PIN, NULL,
+                                     NO_PRESETS, 0U, MESH_STR_SETTINGS_NOTE_MESHCORE_PIN},
+                                    INKCELL_STR_NONE,
+                                    NULL},
 #undef MESHCORE_OTHER_TOGGLE
 #undef MESHCORE_OTHER_ASK
     [MESH_UI_FIELD_CHANNEL_ROLE] = {{MESH_STR_SETTINGS_FIELD_CHANNEL_ROLE, INKSTAND_FORM_ENUM,
