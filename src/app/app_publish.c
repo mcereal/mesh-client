@@ -1382,6 +1382,7 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
        erases (see firmware_conclude()). */
     inkwell_str_copy(dst->fw_silent_port, sizeof dst->fw_silent_port,
                      silent != NULL ? silent->path : "");
+    dst->fw_silent_asked = firmware->blank;
     dst->fw_blank = firmware->blank && firmware->twin[0] != '\0';
     inkwell_str_copy(dst->fw_chosen_board, sizeof dst->fw_chosen_board,
                      dst->fw_blank ? firmware->twin : "");

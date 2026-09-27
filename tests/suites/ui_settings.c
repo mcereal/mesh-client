@@ -5080,9 +5080,12 @@ MESH_TEST_CASE(ui_settings_radio_details_offers_a_silent_port_beside_a_linked_ra
     MESH_TEST_FAIL_IF(check < 0, "the linked radio's own check stays");
     MESH_TEST_FAIL_IF(choose < check, "the silent port's press follows it");
 
-    /* Once pressed, the answer is the port's, and the page is about it. */
-    settings.fw_blank = true;
+    /* Once pressed, the answer is the port's and the page is about it - the list included,
+       before any board is chosen. */
+    settings.fw_silent_asked = true;
     settings.fw_state = (uint8_t)MESH_FIRMWARE_CHOOSING;
+    settings.fw_choice_count = 1U;
+    snprintf(settings.fw_choices[0], sizeof settings.fw_choices[0], "Heltec v3");
     check = -1;
     const uint32_t chosen = mesh_ui_settings_item_count(
         &settings, NULL, MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL);
@@ -5094,6 +5097,14 @@ MESH_TEST_CASE(ui_settings_radio_details_offers_a_silent_port_beside_a_linked_ra
         }
     }
     MESH_TEST_FAIL_IF(check >= 0, "a board being chosen replaces the linked radio's check");
+    bool listed = false;
+    for (uint32_t i = 0; i < chosen; ++i) {
+        listed = listed ||
+                 (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                        MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+                  item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD);
+    }
+    MESH_TEST_FAIL_IF(!listed, "and the boards to choose from are listed beside a cached radio");
     record_success(test_name);
 }
 

@@ -903,6 +903,9 @@ struct mesh_ui_settings {
      * (`fw_blank`, with `fw_chosen_board` naming it), which installs as a switch does.
      */
     char fw_silent_port[MESH_UI_FW_PORT_MAX];
+    /* The firmware rows are about that port from the press that lists its boards on - before
+       one is chosen, which is when `fw_blank` starts. */
+    bool fw_silent_asked;
     bool fw_blank;
     char fw_chosen_board[MESH_UI_FW_BOARD_MAX];
     uint8_t fw_choice_count;

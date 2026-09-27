@@ -1095,7 +1095,7 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
     /* A radio half-written is the recovery below, whatever it answers; one that says nothing
        and was never touched is offered its board. */
     const bool silent = s->fw_silent_port[0] != '\0' && !s->fw_radio_in_loader;
-    if (silent && (s->fw_blank || !s->has_metadata)) {
+    if (silent && (s->fw_silent_asked || !s->has_metadata)) {
         build_radio_firmware_silent(s, list);
         return;
     }
