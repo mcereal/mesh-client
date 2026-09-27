@@ -927,6 +927,31 @@ static void on_login(struct mesh_app *app, const struct mesh_ui_action *action) 
     mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
 }
 
+/* A MeshCore repeater's or room server's status. The counters land on its node screen when
+   they come; silence is a notice the publish says, with the likely reason. */
+static void on_request_status(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    char name[MESH_UI_NAV_TARGET_NAME_MAX];
+    action_peer_name(app, action->dest, name, sizeof name);
+    const int result =
+        app->meshcore_bound ? mesh_meshcore_request_status(&app->meshcore, action->dest) : -ENOTSUP;
+    if (result == 0) {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_ASKED_STATUS, name);
+    } else if (result == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else if (result == -ENOENT) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
+    } else if (result == -EBUSY) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_REQUEST_BUSY));
+    } else if (result == -EINVAL || result == -ENOTSUP) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CANNOT_ASK));
+    } else {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REQUEST_FAILED, result);
+        inkwell_log_warn("ui", "Status request to 0x%08x failed: %d", action->dest, result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+}
+
 static void on_toggle_ignore(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
@@ -2146,6 +2171,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_REQUEST_POSITION, on_request_reading, false},
     {MESH_UI_ACTION_REQUEST_TELEMETRY, on_request_reading, false},
     {MESH_UI_ACTION_LOGIN, on_login, false},
+    {MESH_UI_ACTION_REQUEST_STATUS, on_request_status, false},
     {MESH_UI_ACTION_TOGGLE_IGNORE, on_toggle_ignore, false},
     {MESH_UI_ACTION_TOGGLE_MUTE, on_toggle_mute, false},
     {MESH_UI_ACTION_REMOVE_NODE, on_remove_node, false},

@@ -134,6 +134,34 @@ struct mesh_ui_node_host {
     uint32_t load15;
 };
 
+/* A MeshCore repeater's or room server's status, mirroring the session's mesh_node_relay. */
+struct mesh_ui_node_relay {
+    bool valid;
+    uint32_t time;
+    uint32_t uptime_seconds;
+    uint16_t tx_queue_len;
+    int16_t noise_floor; /* dBm */
+    int16_t last_rssi;   /* dBm, of the last packet it received */
+    float last_snr;      /* dB, of the same */
+    uint32_t packets_recv;
+    uint32_t packets_sent;
+    uint32_t recv_flood;
+    uint32_t recv_direct;
+    uint32_t sent_flood;
+    uint32_t sent_direct;
+    uint16_t flood_dups;
+    uint16_t direct_dups;
+    uint32_t air_time_secs; /* transmitting, since boot */
+    uint16_t err_events;
+    bool has_rx_air_time;
+    uint32_t rx_air_time_secs;
+    bool has_recv_errors;
+    uint32_t recv_errors;
+    bool has_posts; /* a room server's */
+    uint16_t posted;
+    uint16_t post_pushes;
+};
+
 /*
  * Who a node reported it can hear (NEIGHBORINFO_APP), mirroring the session's declaration. Ten
  * is upstream's own cap on the list, not a screen budget. The names are not resolved here: the
@@ -224,6 +252,7 @@ struct mesh_ui_node_summary {
     struct mesh_ui_node_air_quality air_quality;
     struct mesh_ui_node_health health;
     struct mesh_ui_node_host host;
+    struct mesh_ui_node_relay relay;
     struct mesh_ui_node_neighbors neighbors;
 };
 

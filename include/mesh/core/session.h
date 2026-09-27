@@ -268,6 +268,39 @@ struct mesh_node_host {
 };
 
 /*
+ * A MeshCore repeater's or room server's own counters, as its answer to a status request
+ * carries them: what it has relayed and heard, and how busy its air is. Its battery lands on
+ * `metrics`, where every other node's does. The counters run from its last boot, so they are
+ * read beside `uptime_seconds` rather than as rates.
+ */
+struct mesh_node_relay {
+    bool valid;
+    uint32_t time; /* our clock when the answer arrived */
+    uint32_t uptime_seconds;
+    uint16_t tx_queue_len;
+    int16_t noise_floor; /* dBm */
+    int16_t last_rssi;   /* dBm, of the last packet it received */
+    float last_snr;      /* dB, of the same */
+    uint32_t packets_recv;
+    uint32_t packets_sent;
+    uint32_t recv_flood;
+    uint32_t recv_direct;
+    uint32_t sent_flood;
+    uint32_t sent_direct;
+    uint16_t flood_dups;
+    uint16_t direct_dups;
+    uint32_t air_time_secs; /* transmitting, since boot */
+    uint16_t err_events;
+    bool has_rx_air_time;
+    uint32_t rx_air_time_secs;
+    bool has_recv_errors;
+    uint32_t recv_errors;
+    bool has_posts; /* a room server's */
+    uint16_t posted;
+    uint16_t post_pushes;
+};
+
+/*
  * Who a node can hear, as it reported it (NEIGHBORINFO_APP).
  *
  * This is the only thing on the wire that describes the mesh as a *graph*. Everything else
@@ -454,6 +487,7 @@ struct mesh_node_summary {
     struct mesh_node_air_quality air_quality;
     struct mesh_node_health health;
     struct mesh_node_host host;
+    struct mesh_node_relay relay;
     struct mesh_node_neighbors neighbors;
 };
 

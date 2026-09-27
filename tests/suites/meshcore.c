@@ -1642,6 +1642,104 @@ MESH_TEST_CASE(meshcore_login_is_answered_and_shares_the_lock, unit) {
     record_success(test_name);
 }
 
+/* A status push: 0x87, a reserved byte, the node's key prefix, then its stats. */
+static size_t status_push(uint8_t *out, size_t tail) {
+    memset(out, 0, 8U + MESH_MESHCORE_STATUS_LEN + 8U);
+    out[0] = MESH_MESHCORE_PUSH_STATUS_RESPONSE;
+    static const uint8_t k_alice[6] = {0x40, 0x41, 0x42, 0x43, 0x44, 0x45};
+    memcpy(out + 2, k_alice, sizeof k_alice);
+    uint8_t *stats = out + 8;
+    stats[0] = 0x10; /* 4112 mV */
+    stats[1] = 0x10;
+    stats[2] = 2;    /* queue */
+    stats[4] = 0x8A; /* noise floor -118 */
+    stats[5] = 0xFF;
+    stats[6] = 0xA6; /* last RSSI -90 */
+    stats[7] = 0xFF;
+    stats[8] = 0x70; /* 70000 received */
+    stats[9] = 0x11;
+    stats[10] = 0x01;
+    stats[20] = 0x80; /* up 3200 s... */
+    stats[21] = 0x0C;
+    stats[42] = 0xE7; /* last SNR -25/4 */
+    stats[43] = 0xFF;
+    stats[46] = 5; /* flood dups */
+    for (size_t i = 0; i < tail; ++i) {
+        stats[MESH_MESHCORE_STATUS_LEN + i] = (uint8_t)(i + 1U);
+    }
+    return 8U + MESH_MESHCORE_STATUS_LEN + tail;
+}
+
+/* A repeater's or room server's status is SEND_STATUS_REQ by key, answered by a push whose
+   counters land on the node - its kind choosing which tail to read - under the one lock every
+   request to another node shares. A repeater answers only a client logged in to it, so a
+   status request that meets silence is the one said to need a login first. */
+MESH_TEST_CASE(meshcore_status_lands_on_the_node, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const uint32_t alice = 0x40414243U;
+    struct mesh_node_summary *node = mesh_session_model_node(g_meshcore.model, alice, false);
+    MESH_TEST_FAIL_IF(node == NULL, "Alice is on the roster");
+    node->role = 4U; /* a repeater's advert */
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_status(&g_meshcore, 0x12345678U) != -ENOENT,
+                      "a node the radio does not carry is not asked");
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_status(&g_meshcore, alice) != 0, "Alice is asked");
+    MESH_TEST_FAIL_IF(wire.lens[0] != 33U ||
+                          wire.frames[0][0] != MESH_MESHCORE_CMD_SEND_STATUS_REQ ||
+                          wire.frames[0][1] != 0x40 || wire.frames[0][32] != 0x40 + 31,
+                      "by her whole key");
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "") != -EBUSY,
+                      "a login waits behind a status request");
+    static const uint8_t k_sent[10] = {MESH_MESHCORE_RESP_SENT, 0, 1, 2, 3, 4, 0x88, 0x13, 0, 0};
+    feed(&protocol, k_sent, sizeof k_sent);
+
+    static uint8_t push[8U + MESH_MESHCORE_STATUS_LEN + 8U];
+    const uint32_t notices = g_meshcore.notices;
+    feed(&protocol, push, status_push(push, 0U) - 1U);
+    MESH_TEST_FAIL_IF(node->relay.valid || g_meshcore.notices != notices + 1U,
+                      "a short one is not read, but is still her answer");
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_status(&g_meshcore, alice) != 0, "asked again");
+    feed(&protocol, k_sent, sizeof k_sent);
+    feed(&protocol, push, status_push(push, 8U));
+    MESH_TEST_FAIL_IF(g_meshcore.notice.cmd != MESH_MESHCORE_CMD_SEND_STATUS_REQ ||
+                          g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_STATUS ||
+                          g_meshcore.request_cmd != 0U,
+                      "her answer ends the request");
+    const struct mesh_node_relay *relay = &node->relay;
+    MESH_TEST_FAIL_IF(!relay->valid || relay->noise_floor != -118 || relay->last_rssi != -90 ||
+                          relay->last_snr != -6.25f || relay->packets_recv != 70000U ||
+                          relay->uptime_seconds != 3200U || relay->tx_queue_len != 2U ||
+                          relay->flood_dups != 5U,
+                      "and her counters land on her record");
+    MESH_TEST_FAIL_IF(!relay->has_rx_air_time || relay->rx_air_time_secs != 0x04030201U ||
+                          !relay->has_recv_errors || relay->recv_errors != 0x08070605U ||
+                          relay->has_posts,
+                      "a repeater's tail is its receive airtime and errors");
+    MESH_TEST_FAIL_IF(!node->metrics.has_voltage || node->metrics.voltage < 4.111f ||
+                          node->metrics.voltage > 4.113f,
+                      "and her battery lands where every node's does");
+
+    /* The same bytes from a room server are its posts. */
+    node->role = 12U; /* a room server's */
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_status(&g_meshcore, alice) != 0, "a room server");
+    feed(&protocol, k_sent, sizeof k_sent);
+    feed(&protocol, push, status_push(push, 4U));
+    MESH_TEST_FAIL_IF(!relay->has_posts || relay->posted != 0x0201U ||
+                          relay->post_pushes != 0x0403U || relay->has_rx_air_time,
+                      "a room server's tail is its posts, and the last answer's tail is gone");
+
+    /* Silence, which is what a repeater that has not logged us in says. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_status(&g_meshcore, alice) != 0, "asked unheard");
+    feed(&protocol, k_sent, sizeof k_sent);
+    mesh_protocol_tick(&protocol, g_meshcore.request_until_ms);
+    MESH_TEST_FAIL_IF(g_meshcore.notice.cmd != MESH_MESHCORE_CMD_SEND_STATUS_REQ ||
+                          g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_SILENT,
+                      "nothing by the deadline is said so");
+    record_success(test_name);
+}
+
 /* A login queued behind a reboot is still the open request once the handshake starts over:
    it is written first, and its SENT arms the deadline its answer is held to. */
 MESH_TEST_CASE(meshcore_request_outlives_a_reboot_restart, unit) {

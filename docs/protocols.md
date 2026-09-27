@@ -87,7 +87,8 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `TRACEROUTE` | the traceroute verb |
 | `NODE_REQUESTS` | asking a node for its name or position |
 | `NODE_TELEMETRY` | asking a node for its readings (on MeshCore, a contact) |
-| `NODE_LOGIN` | logging in to a MeshCore repeater or room server - the one bit Meshtastic lacks |
+| `NODE_LOGIN` | logging in to a MeshCore repeater or room server - MeshCore's alone |
+| `NODE_STATUS` | asking a MeshCore repeater or room server for its counters - MeshCore's alone |
 | `NODE_FLAGS` | mute, ignore - and pin on a node that is not a whole-key contact |
 | `NODE_PIN` | pin, on the sheet and as X on the list and the detail |
 | `NODE_REMOVE` | remove, on a node's sheet |
@@ -196,6 +197,12 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
 - **A login** to a repeater or room server contact is `SEND_LOGIN`: the whole key, then the
   password (at most 15 characters, blank for a guest), answered by `LOGIN_SUCCESS` - with
   whether it took us as its admin - or `LOGIN_FAIL`. It is typed each time; nothing keeps it.
+- **A status** is `SEND_STATUS_REQ` by the whole key, answered by `STATUS_RESPONSE`: the node's
+  stats struct as it lies in memory (`mesh_meshcore_decode_status()`). The first 48 bytes are
+  shared; a repeater follows them with its receive airtime and errors, a room server with its
+  post counts - the same length, so the contact's kind picks the reading. They land on the
+  node's `relay` group, the battery on `metrics`. A node answers only a client on its access
+  list, so silence is said as "log in to it first".
 - **One request to another node at a time.** The firmware keeps one pending and clears it for
   any new login, status or telemetry request (`clearPendingReqs()`), so a second is refused
   while the first is queued and until its answer or the deadline its `SENT` names. How each one
@@ -215,7 +222,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `RESP_CODE_SENT` named. It is tried three times with the same timestamp - the last after
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
-Not yet spoken: status requests, trace paths, channel links and the signed contact card. The
+Not yet spoken: trace paths, channel links and the signed contact card. The
 `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
 end.
