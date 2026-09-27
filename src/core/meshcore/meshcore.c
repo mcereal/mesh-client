@@ -804,7 +804,11 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
                pending one (pending_telemetry), which each new request replaces. */
             if (memcmp(frame + 2, meshcore->telemetry_prefix, MESH_MESHCORE_PREFIX_LEN) == 0) {
                 meshcore->telemetry_until_ms = 0U;
-                meshcore->telemetry_answered = true;
+                /* Ahead of its SENT only once the request is written: while it still waits in
+                   the queue, an answer is the last request's, and this one is yet to be asked. */
+                meshcore->telemetry_answered =
+                    meshcore->awaiting &&
+                    mesh_meshcore_head_cmd(meshcore) == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ;
             }
         }
         break;

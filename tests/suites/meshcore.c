@@ -1513,6 +1513,16 @@ MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
     feed(&protocol, k_sent, sizeof k_sent);
     MESH_TEST_FAIL_IF(g_meshcore.telemetry_until_ms != 0U,
                       "a SENT after its own answer does not lock the radio again");
+
+    /* A retry still queued behind another command: an answer then is the last request's, and
+       the retry's own SENT still arms its deadline. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_advert(&g_meshcore, false) != 0, "something ahead");
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0, "the retry");
+    feed(&protocol, k_push, sizeof k_push);
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK); /* the advert's; the retry goes out now */
+    feed(&protocol, k_sent, sizeof k_sent);
+    MESH_TEST_FAIL_IF(g_meshcore.telemetry_until_ms == 0U,
+                      "an earlier answer does not stand in for a request not yet written");
     record_success(test_name);
 }
 
