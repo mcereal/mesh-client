@@ -169,11 +169,21 @@ MESH_TEST_CASE(app_autoconnect_policy, unit) {
         goto cleanup;
     }
 
-    /* Not in foreground mode it must never connect. */
+    /* A silent USB radio's board being chosen: a node coming back would drop that answer. */
     if (mesh_ble_transport_disconnect(ble) != 0) {
         failure = "second disconnect failed";
         goto cleanup;
     }
+    app.firmware.blank = true;
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    app.firmware.blank = false;
+    if (mesh_ble_transport_connected_address(ble) != NULL) {
+        failure = "auto-connect must wait while a silent radio's board is being chosen";
+        goto cleanup;
+    }
+
+    /* Not in foreground mode it must never connect. */
     app.config.run_mode = MESH_APP_RUN_SINGLE_POLL;
     app.autoconnect_retry_at_ms = 0U;
     mesh_app_autoconnect(&app);

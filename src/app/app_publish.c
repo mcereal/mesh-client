@@ -1177,11 +1177,12 @@ const struct inkwell_serial_port_info *mesh_app_firmware_silent_port(struct mesh
     if (app == NULL) {
         return NULL;
     }
-    /* The port that is up is being asked again rather than answering: auto-connect reopens a
-       silent one once its mute runs out, and the rows about it should not blink out for that. */
-    const char *const connected = mesh_app_connected_identifier();
-    const bool answering = connected != NULL && !mesh_app_probe_reasking_silent(app);
-    if (answering) {
+    /* A port that is up and answering is not silent. One being asked again is: auto-connect
+       reopens a silent one once its mute runs out, and the rows about it should not blink out
+       for that. A radio up over Bluetooth or TCP says nothing about the USB port, which is
+       still offered beside it. */
+    const char *const usb = mesh_serial_transport_connected_port(mesh_serial_transport());
+    if (usb != NULL && usb[0] != '\0' && !mesh_app_probe_reasking_silent(app)) {
         return NULL;
     }
     /* An answer, or a list, already about one port stays about that one. */

@@ -5049,6 +5049,54 @@ MESH_TEST_CASE(ui_settings_radio_details_chooses_a_silent_radios_board, unit) {
     record_success(test_name);
 }
 
+/* A radio up over Bluetooth keeps its own firmware rows, and the silent port on USB beside it is
+   offered under them - a Brick that remembers a node would otherwise never show the port. */
+MESH_TEST_CASE(ui_settings_radio_details_offers_a_silent_port_beside_a_linked_radio, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.fw_supported = true;
+    snprintf(settings.fw_channel, sizeof settings.fw_channel, "stable");
+    snprintf(settings.fw_silent_port, sizeof settings.fw_silent_port, "/dev/ttyUSB0");
+
+    const uint32_t count = mesh_ui_settings_item_count(
+        &settings, NULL, MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL);
+    struct mesh_ui_settings_item item;
+    int check = -1;
+    int choose = -1;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
+            continue;
+        }
+        if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE) {
+            check = (int)i;
+        }
+        if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS) {
+            choose = (int)i;
+        }
+    }
+    MESH_TEST_FAIL_IF(check < 0, "the linked radio's own check stays");
+    MESH_TEST_FAIL_IF(choose < check, "the silent port's press follows it");
+
+    /* Once pressed, the answer is the port's, and the page is about it. */
+    settings.fw_blank = true;
+    settings.fw_state = (uint8_t)MESH_FIRMWARE_CHOOSING;
+    check = -1;
+    const uint32_t chosen = mesh_ui_settings_item_count(
+        &settings, NULL, MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL);
+    for (uint32_t i = 0; i < chosen; ++i) {
+        if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE) {
+            check = (int)i;
+        }
+    }
+    MESH_TEST_FAIL_IF(check >= 0, "a board being chosen replaces the linked radio's check");
+    record_success(test_name);
+}
+
 /*
  * A field id past the table is no field, however far past it is.
  *

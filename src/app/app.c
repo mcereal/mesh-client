@@ -729,6 +729,12 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         mesh_firmware_update_holds_the_radio(&app->firmware_update)) {
         return;
     }
+    /* A silent USB radio's board being chosen: that answer lasts only while no link is up, so a
+       remembered Bluetooth node coming back would drop it under the install. Derived for the
+       reason above - the answer is forgotten once its port goes, and this lifts with it. */
+    if (app->firmware.blank) {
+        return;
+    }
 
     struct mesh_transport *ble = mesh_ble_transport();
     const bool link_up = (mesh_app_connected_identifier() != NULL);
