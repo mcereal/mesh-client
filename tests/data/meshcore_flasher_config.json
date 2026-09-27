@@ -1,452 +1,5283 @@
 {
- "staticPath": "/firmware",
- "role": {
-  "meshos": {
-   "icon": "dashboard",
-   "title": "MeshOS"
-  },
-  "gui": {
-   "icon": "gradient",
-   "title": "Ripple GUI",
-   "tooltip": "all your device settings are saved on internal flash"
-  },
-  "guiSD": {
-   "icon": "gradient",
-   "title": "Ripple GUI: data on SD card",
-   "tooltip": "all your device settings are saved on SD card"
-  },
-  "companionBle": {
-   "icon": "smartphone",
-   "title": "Companion",
-   "subTitle": "Bluetooth",
-   "tooltip": "Chat via mobile phone App or Web Client: Radio can only connect via Bluetooth"
-  },
-  "companionUsb": {
-   "icon": "usb",
-   "title": "Companion",
-   "subTitle": "USB",
-   "tooltip": "Chat via Web client or command line client: Radio can only connect via USB"
-  },
-  "repeater": {
-   "icon": "cell_tower",
-   "title": "Repeater",
-   "tooltip": "Special role just for routing packets. Configured via Config/Console on flasher main page"
-  },
-  "roomServer": {
-   "icon": "forum",
-   "title": "Room Server",
-   "tooltip": "Special role for local room server. Configured via Config/Console on flasher main page"
-  },
-  "kissRadio": {
-   "icon": "radio",
-   "title": "KISS Radio Modem",
-   "tooltip": "Serial KISS TNC modem: Connect to packet radio software via USB"
-  }
- },
- "notice": {},
- "maker": {
-  "elecrow": {
-   "name": "Elecrow"
-  },
-  "heltec": {
-   "name": "Heltec"
-  },
-  "seeed": {
-   "name": "Seeed Studio"
-  },
-  "rak": {
-   "name": "RAK Wireless"
-  },
-  "promicro": {
-   "name": "ProMicro"
-  },
-  "lilygo": {
-   "name": "LilyGo"
-  },
-  "raspberry": {
-   "name": "Raspberry Pi"
-  }
- },
- "device": [
-  {
-   "maker": "heltec",
-   "name": "Heltec v4 + Expansion Kit (Touch)",
-   "icon": "/img/lora.svg",
-   "type": "esp32",
-   "firmware": [
-    {
-     "class": "ripple",
-     "role": "gui",
-     "notice": "rippleUserGuide",
-     "version": {
-      "v11.0": {
-       "files": [
-        {
-         "type": "flash-wipe",
-         "name": "Ultra-HeltecV4-v11.0-merged.bin",
-         "title": "Combined app+partition+bootloader firmware bin"
-        },
-        {
-         "type": "flash-update",
-         "name": "Ultra-HeltecV4-v11.0.bin",
-         "title": "App firmware bin (use with m5 bootloader)"
-        }
-       ]
-      }
-     }
-    },
-    {
-     "class": "ripple",
-     "role": "gui",
-     "title": "Ripple GUI: LittleFS",
-     "notice": "rippleUserGuide",
-     "version": {
-      "v11.0": {
-       "files": [
-        {
-         "type": "flash-wipe",
-         "name": "Ultra-HeltecV4-LFS-v11.0-merged.bin",
-         "title": "Combined app+partition+bootloader firmware bin"
-        },
-        {
-         "type": "flash-update",
-         "name": "Ultra-HeltecV4-LFS-v11.0.bin",
-         "title": "App firmware bin (use with m5 bootloader)"
-        }
-       ]
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "companionBle",
-     "github": {
-      "type": "companion",
-      "files": {
-       "flash-wipe": "heltec_v4_tft_companion_radio_ble.*?-merged\\.bin",
-       "flash-update": "heltec_v4_tft_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "companionUsb",
-     "github": {
-      "type": "companion",
-      "files": {
-       "flash-wipe": "heltec_v4_tft_companion_radio_usb.*?-merged\\.bin",
-       "flash-update": "heltec_v4_tft_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "repeater",
-     "github": {
-      "type": "repeater",
-      "files": {
-       "flash-wipe": "heltec_v4_tft_[rR]epeater.*?-merged\\.bin",
-       "flash-update": "heltec_v4_tft_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "roomServer",
-     "github": {
-      "type": "room-server",
-      "files": {
-       "flash-wipe": "heltec_v4_tft_room_server.*?-merged\\.bin",
-       "flash-update": "heltec_v4_tft_room_server.*?-[a-f0-9]{7}\\.bin"
-      }
-     }
-    }
-   ]
-  },
-  {
-   "maker": "heltec",
-   "name": "Heltec v3",
-   "icon": "/img/lora.svg",
-   "type": "esp32",
-   "firmware": [
-    {
-     "class": "community",
-     "role": "companionBle",
-     "github": {
-      "type": "companion",
-      "files": {
-       "flash-wipe": "Heltec_v3_companion_radio_ble.*?-merged\\.bin",
-       "flash-update": "Heltec_v3_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "companionUsb",
-     "github": {
-      "type": "companion",
-      "files": {
-       "flash-wipe": "Heltec_v3_companion_radio_usb.*?-merged\\.bin",
-       "flash-update": "Heltec_v3_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "repeater",
-     "github": {
-      "type": "repeater",
-      "files": {
-       "flash-wipe": "Heltec_v3_[rR]epeater.*?-merged\\.bin",
-       "flash-update": "Heltec_v3_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "roomServer",
-     "github": {
-      "type": "room-server",
-      "files": {
-       "flash-wipe": "Heltec_v3_room_server.*?-merged\\.bin",
-       "flash-update": "Heltec_v3_room_server.*?-[a-f0-9]{7}\\.bin"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "kissRadio",
-     "notice": "kissRadioNotice",
-     "version": {
-      "1.17.1": {
-       "files": [
-        {
-         "type": "flash-wipe",
-         "name": "Heltec_v3_kiss_modem-1.17.1-45c0c323-merged.bin",
-         "title": "Combined app+partition+bootloader firmware bin"
-        },
-        {
-         "type": "flash-update",
-         "name": "Heltec_v3_kiss_modem-1.17.1-45c0c323.bin",
-         "title": "App firmware bin"
-        }
-       ]
-      }
-     }
-    }
-   ]
-  },
-  {
-   "maker": "heltec",
-   "name": "Heltec T114",
-   "icon": "/img/lora.svg",
-   "type": "nrf52",
-   "erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
-   "bootloader": [
-    "heltec_t114_bootloader-0.9.2-OTAFIX2.2.uf2",
-    "heltec_t114_bootloader-0.9.2-OTAFIX2.2.zip"
-   ],
-   "firmware": [
-    {
-     "class": "community",
-     "role": "companionBle",
-     "github": {
-      "type": "companion",
-      "files": {
-       "flash": "Heltec_t114_companion_radio_ble.*?\\.zip",
-       "download": "Heltec_t114_companion_radio_ble.*?\\.uf2"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "companionUsb",
-     "github": {
-      "type": "companion",
-      "files": {
-       "flash": "Heltec_t114_companion_radio_usb.*?\\.zip",
-       "download": "Heltec_t114_companion_radio_usb.*?\\.uf2"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "repeater",
-     "notice": "otafixRecommended",
-     "github": {
-      "type": "repeater",
-      "files": {
-       "flash": "Heltec_t114_[rR]epeater.*?\\.zip",
-       "download": "Heltec_t114_[rR]epeater.*?\\.uf2"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "roomServer",
-     "notice": "otafixRecommended",
-     "github": {
-      "type": "room-server",
-      "files": {
-       "flash": "Heltec_t114_room_server.*?\\.zip",
-       "download": "Heltec_t114_room_server.*?\\.uf2"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "companionBle",
-     "title": "Companion",
-     "subTitle": "Bluetooth [no display]",
-     "github": {
-      "type": "companion",
-      "files": {
-       "flash": "Heltec_t114_without_display_companion_radio_ble.*?\\.zip",
-       "download": "Heltec_t114_without_display_companion_radio_ble.*?\\.uf2"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "companionUsb",
-     "title": "Companion",
-     "subTitle": "USB [no display]",
-     "github": {
-      "type": "companion",
-      "files": {
-       "flash": "Heltec_t114_without_display_companion_radio_usb.*?\\.zip",
-       "download": "Heltec_t114_without_display_companion_radio_usb.*?\\.uf2"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "repeater",
-     "notice": "otafixRecommended",
-     "subTitle": "[no display]",
-     "github": {
-      "type": "repeater",
-      "files": {
-       "flash": "Heltec_t114_without_display_[rR]epeater.*?\\.zip",
-       "download": "Heltec_t114_without_display_[rR]epeater.*?\\.uf2"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "roomServer",
-     "notice": "otafixRecommended",
-     "subTitle": "[no display]",
-     "github": {
-      "type": "room-server",
-      "files": {
-       "flash": "Heltec_t114_without_display_room_server.*?\\.zip",
-       "download": "Heltec_t114_without_display_room_server.*?\\.uf2"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "kissRadio",
-     "notice": "kissRadioNotice",
-     "version": {
-      "1.17.1": {
-       "files": [
-        {
-         "type": "flash",
-         "name": "Heltec_t114_kiss_modem-1.17.1-45c0c323.zip",
-         "title": "Firmware OTA zip"
-        },
-        {
-         "type": "download",
-         "name": "Heltec_t114_kiss_modem-1.17.1-45c0c323.uf2",
-         "title": "Firmware uf2"
-        }
-       ]
-      }
-     }
-    }
-   ]
-  },
-  {
-   "maker": "rak",
-   "name": "RAK WisBlock / WisMesh (RAK 4631)",
-   "icon": "/img/lora.svg",
-   "type": "nrf52",
-   "erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
-   "bootloader": [
-    "wiscore_rak4631_board_bootloader-0.9.2-OTAFIX2.2.uf2",
-    "wiscore_rak4631_board_bootloader-0.9.2-OTAFIX2.2.zip"
-   ],
-   "firmware": [
-    {
-     "class": "community",
-     "role": "companionBle",
-     "github": {
-      "type": "companion",
-      "files": {
-       "flash": "RAK_4631_companion_radio_ble.*?\\.zip",
-       "download": "RAK_4631_companion_radio_ble.*?\\.uf2"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "companionUsb",
-     "github": {
-      "type": "companion",
-      "files": {
-       "flash": "RAK_4631_companion_radio_usb.*?\\.zip",
-       "download": "RAK_4631_companion_radio_usb.*?\\.uf2"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "repeater",
-     "notice": "otafixRecommended",
-     "github": {
-      "type": "repeater",
-      "files": {
-       "flash": "RAK_4631_[rR]epeater.*?\\.zip",
-       "download": "RAK_4631_[rR]epeater.*?\\.uf2"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "roomServer",
-     "notice": "otafixRecommended",
-     "github": {
-      "type": "room-server",
-      "files": {
-       "flash": "RAK_4631_room_server.*?\\.zip",
-       "download": "RAK_4631_room_server.*?\\.uf2"
-      }
-     }
-    },
-    {
-     "class": "community",
-     "role": "kissRadio",
-     "notice": "kissRadioNotice",
-     "version": {
-      "1.17.1": {
-       "files": [
-        {
-         "type": "flash",
-         "name": "RAK_4631_kiss_modem-1.17.1-45c0c323.zip",
-         "title": "Firmware OTA zip"
-        },
-        {
-         "type": "download",
-         "name": "RAK_4631_kiss_modem-1.17.1-45c0c323.uf2",
-         "title": "Firmware uf2"
-        }
-       ]
-      }
-     }
-    }
-   ]
-  }
- ]
+	"staticPath": "/firmware",
+	"role": {
+		"meshos": {
+			"icon": "dashboard",
+			"title": "MeshOS"
+		},
+		"gui": {
+			"icon": "gradient",
+			"title": "Ripple GUI",
+			"tooltip": "all your device settings are saved on internal flash"
+		},
+		"guiSD": {
+			"icon": "gradient",
+			"title": "Ripple GUI: data on SD card",
+			"tooltip": "all your device settings are saved on SD card"
+		},
+		"companionBle": {
+			"icon": "smartphone",
+			"title": "Companion",
+			"subTitle": "Bluetooth",
+			"tooltip": "Chat via mobile phone App or Web Client: Radio can only connect via Bluetooth"
+		},
+		"companionUsb": {
+			"icon": "usb",
+			"title": "Companion",
+			"subTitle": "USB",
+			"tooltip": "Chat via Web client or command line client: Radio can only connect via USB"
+		},
+		"repeater": {
+			"icon": "cell_tower",
+			"title": "Repeater",
+			"tooltip": "Special role just for routing packets. Configured via Config/Console on flasher main page"
+		},
+		"roomServer": {
+			"icon": "forum",
+			"title": "Room Server",
+			"tooltip": "Special role for local room server. Configured via Config/Console on flasher main page"
+		},
+		"kissRadio": {
+			"icon": "radio",
+			"title": "KISS Radio Modem",
+			"tooltip": "Serial KISS TNC modem: Connect to packet radio software via USB"
+		}
+	},
+	"notice": {
+		"otafixRecommended": "<article class='tertiary-container'>We strongly recommend installing <a target='_blank' href='/firmware/${bootloader}'>OTAFIX bootloader</a> by <a target='_blank' href='https://github.com/oltaco'>@oltaco</a> for more reliable Bluetooth OTA DFU. <a target='_blank' href='https://blog.meshcore.io/2026/04/06/otafix-bootloader'>Read more</a></article>",
+		"otafixNeeded": "<article class='tertiary-container'>WARNING: We strongly recommend installing <a target='_blank' href='/firmware/${bootloader}'>OTAFIX bootloader</a> by <a target='_blank' href='https://github.com/oltaco'>@oltaco</a> if you plan to update firmware via OTA bluetooth, as factory bootloader does not support it! <a target='_blank' href='https://blog.meshcore.io/2026/04/06/otafix-bootloader'>Read more</a></article>",
+		"rippleUserGuide": "<article class='primary-container'>For first time users, we recommend reading <a target='_blank' href='https://files.liamcottle.net/MeshCore/Documentation/Ripple_User_Guide.pdf'>Ripple User Guide</a></article>",
+		"kissRadioNotice": "<article class='primary-container'>You can use this firmware with <a target='_blank' href='https://github.com/openhop-dev/openhop_repeater'>openHop Repeater</a></article>"
+	},
+	"maker": {
+		"elecrow": {
+			"name": "Elecrow"
+		},
+		"heltec": {
+			"name": "Heltec"
+		},
+		"seeed": {
+			"name": "Seeed Studio"
+		},
+		"rak": {
+			"name": "RAK Wireless"
+		},
+		"promicro": {
+			"name": "ProMicro"
+		},
+		"lilygo": {
+			"name": "LilyGo"
+		},
+		"raspberry": {
+			"name": "Raspberry Pi"
+		}
+	},
+	"device": [
+		{
+			"maker": "heltec",
+			"name": "Heltec v4 + Expansion Kit (Touch)",
+			"tooltip": "<img class='device' src='/img/heltec_v4_exp.svg'>",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "ripple",
+					"role": "gui",
+					"notice": "rippleUserGuide",
+					"version": {
+						"v11.0": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Ultra-HeltecV4-v11.0-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-HeltecV4-v11.0.bin",
+									"title": "App firmware bin (use with m5 bootloader)"
+								}
+							],
+							"notes": "Channel names now up to 31 chars\nPath dialog, custom path ‘bad format’ bug fix\noff-grid EU freq now 869.495\nMap, Scan Local map visualisation\nnew radio presets\nChannel enable/disable preserves key\nTimestamps menu fix\nmisc UI cleanups\nMessage details screen: new “Add Contact” menu\nGrid icon shortcut for Backlight on/off"
+						},
+						"v9.7": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Ultra-HeltecV4-v9.7-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-HeltecV4-v9.7.bin",
+									"title": "App firmware bin (use with m5 bootloader)"
+								}
+							],
+							"notes": "NEW UI: tap directly on items, no cursor scrolling\nUI theme: Light, Dark or Auto.\nCustom accent color support\nDefault Scope region support\nnew advert sounds suppressed in kid mode.\nLong-press on Login button for 'Reset Path' then Login\n\n<b><a target='_blank' href='https://buymeacoffee.com/ripplebiz/e/491480'>Full changelog</a></b>"
+						},
+						"v9.4": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Ultra-HeltecV4-v9.4-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-HeltecV4-v9.4.bin",
+									"title": "App firmware bin (use with m5 bootloader)"
+								}
+							],
+							"notes": "* Map tiles support ('LFS' variant only)\n* Display: map theme: Light, Dark, Auto\n* Discover, node details \"Delete\" menu"
+						},
+						"v9.2": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Ultra-HeltecV4-v9.2-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-HeltecV4-v9.2.bin",
+									"title": "App firmware bin (use with m5 booloader)"
+								}
+							],
+							"notes": "v9.2 changes:\n* multibyte path hash support\n\nv9.1 changes:\n* Off-grid (client repeat) mode\n* faster map rendering\n* Bandwidth 500 support\n\n<b><a target='_blank' href='https://buymeacoffee.com/ripplebiz/e/491480'>Full changelog</a></b>"
+						},
+						"v8.2": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Ultra-HeltecV4-ExpKit-v8.2-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-HeltecV4-ExpKit-v8.2.bin",
+									"title": "App firmware bin (use with m5 booloader)"
+								}
+							],
+							"notes": "* Updated UI colour scheme\n* New Regions screen, with 'Scan Local' menu\n* New 'Owner Info' menu, from Discover > Scan Local\n\n<b><a target='_blank' href='https://buymeacoffee.com/ripplebiz/e/491480'>Full changelog</a></b>"
+						}
+					}
+				},
+				{
+					"class": "ripple",
+					"role": "gui",
+					"title": "Ripple GUI: LittleFS",
+					"notice": "rippleUserGuide",
+					"version": {
+						"v11.0": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Ultra-HeltecV4-LFS-v11.0-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-HeltecV4-LFS-v11.0.bin",
+									"title": "App firmware bin (use with m5 bootloader)"
+								}
+							],
+							"notes": "Channel names now up to 31 chars\nPath dialog, custom path ‘bad format’ bug fix\noff-grid EU freq now 869.495\nMap, Scan Local map visualisation\nnew radio presets\nChannel enable/disable preserves key\nTimestamps menu fix\nmisc UI cleanups\nMessage details screen: new “Add Contact” menu\nGrid icon shortcut for Backlight on/off"
+						},
+						"v9.7": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Ultra-HeltecV4-LFS-v9.7-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-HeltecV4-LFS-v9.7.bin",
+									"title": "App firmware bin (use with m5 bootloader)"
+								}
+							],
+							"notes": "NEW UI: tap directly on items, no cursor scrolling\nUI theme: Light, Dark or Auto.\nCustom accent color support\nDefault Scope region support\nnew advert sounds suppressed in kid mode.\nLong-press on Login button for 'Reset Path' then Login\n\n<b><a target='_blank' href='https://buymeacoffee.com/ripplebiz/e/491480'>Full changelog</a></b>"
+						},
+						"v9.4": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Ultra-HeltecV4-LFS-v9.4-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-HeltecV4-LFS-v9.4.bin",
+									"title": "App firmware bin (use with m5 bootloader)"
+								}
+							],
+							"notes": "* Map tiles support ('LFS' variant only)\n* Display: map theme: Light, Dark, Auto\n* Discover, node details \"Delete\" menu"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "heltec_v4_tft_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "heltec_v4_tft_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "heltec_v4_tft_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "heltec_v4_tft_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "heltec_v4_tft_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "heltec_v4_tft_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "heltec_v4_tft_room_server.*?-merged\\.bin",
+							"flash-update": "heltec_v4_tft_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Deck",
+			"tooltip": "<img class='device' src='/img/lilygo_tdeck.svg'>",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "ripple",
+					"role": "gui",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-deck-plus",
+						"files": {
+							"flash-wipe": "Ultra-TDeck-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TDeck-[^-]+\\.bin"
+						}
+					}
+				},
+				{
+					"class": "ripple",
+					"role": "guiSD",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-deck-plus",
+						"files": {
+							"flash-wipe": "Ultra-TDeck-SD-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TDeck-SD-[^-]+\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "LilyGo_TDeck_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "LilyGo_TDeck_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "LilyGo_TDeck_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "LilyGo_TDeck_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "LilyGo_TDeck_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "LilyGo_TDeck_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "LilyGo_TDeck_room_server.*?-merged\\.bin",
+							"flash-update": "LilyGo_TDeck_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Deck Max",
+			"tooltip": "<img class='device' src='/img/lilygo_tdeck_max.svg'>",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "ripple",
+					"role": "gui",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-deck-max",
+						"files": {
+							"flash-wipe": "Ultra-TDeckMax-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TDeckMax-[^-]+\\.bin"
+						}
+					}
+				},
+				{
+					"class": "ripple",
+					"role": "guiSD",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-deck-max",
+						"files": {
+							"flash-wipe": "Ultra-TDeckMax-SD-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TDeckMax-SD-[^-]+\\.bin"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Deck Pro",
+			"tooltip": "<img class='device' src='/img/lilygo_tdeck_pro.svg'>",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "ripple",
+					"role": "gui",
+					"notice": "rippleUserGuide",
+					"version": {
+						"v10.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Ultra-TDeckPro-v10.1-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-TDeckPro-v10.1.bin",
+									"title": "App firmware bin (use with m5 booloader)"
+								}
+							],
+							"notes": "long tap copy/paste bug fix\nfix for Path dialog \"bad format\" bug\nMessage details screen now formats multi-line messages\n'Heard By' names bug fix\nmulti-byte path DM send timeout bug fix\nSD variant now supports network profile rename\nnew 'Get Telemetry...' menu in conversation screens\nbetter battery gauge on home screen\nChannel scope, select \"*\" for un-scoped"
+						}
+					}
+				},
+				{
+					"class": "ripple",
+					"role": "guiSD",
+					"notice": "rippleUserGuide",
+					"version": {
+						"v10.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Ultra-TDeckPro-SD-v10.1-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-TDeckPro-SD-v10.1.bin",
+									"title": "App firmware bin (use with m5 booloader)"
+								}
+							],
+							"notes": "long tap copy/paste bug fix\nfix for Path dialog \"bad format\" bug\nMessage details screen now formats multi-line messages\n'Heard By' names bug fix\nmulti-byte path DM send timeout bug fix\nSD variant now supports network profile rename\nnew 'Get Telemetry...' menu in conversation screens\nbetter battery gauge on home screen\nChannel scope, select \"*\" for un-scoped"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Deck Pro v1.1",
+			"tooltip": "<img class='device' src='/img/lilygo_tdeck_pro.svg'>",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "ripple",
+					"role": "gui",
+					"title": "[1st Edition] Ripple GUI",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-deck-prov11",
+						"files": {
+							"flash-wipe": "Ultra-TDeckProV1.1-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TDeckProV1.1-[^-]+\\.bin"
+						}
+					}
+				},
+				{
+					"class": "ripple",
+					"role": "guiSD",
+					"title":"[1st Edition] Ripple GUI: data on SD card",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-deck-prov11",
+						"files": {
+							"flash-wipe": "Ultra-TDeckProV1.1-SD-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TDeckProV1.1-SD-[^-]+\\.bin"
+						}
+					}
+				},
+				{
+					"class": "ripple",
+					"role": "gui",
+					"title": "[2nd Edition] Ripple GUI",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-deck-prov11",
+						"files": {
+							"flash-wipe": "Ultra-TDeckProV1.1-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TDeckProV1.1-[^-]+\\.bin"
+						}
+					}
+				},
+				{
+					"class": "ripple",
+					"role": "guiSD",
+					"title":"[2nd Edition] Ripple GUI: data on SD card",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-deck-prov11",
+						"files": {
+							"flash-wipe": "Ultra-TDeckProV1.1-2nd-SD-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TDeckProV1.1-2nd-SD-[^-]+\\.bin"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T5 E-Paper S3 Pro (H752-XX)",
+			"tooltip": "<img class='device' src='/img/lilygo_t5_pro.svg'>",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "ripple",
+					"role": "gui",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t5-pro",
+						"files": {
+							"flash-wipe": "Ultra-T5Pro-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-T5Pro-[^-]+\\.bin"
+						}
+					}
+				},
+				{
+					"class": "ripple",
+					"role": "guiSD",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t5-pro",
+						"files": {
+							"flash-wipe": "Ultra-T5Pro-SD-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-T5Pro-SD-[^-]+\\.bin"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Lora Pager",
+			"tooltip": "<img class='device' src='/img/lilygo_pager.svg'>",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "ripple",
+					"role": "gui",
+					"title": "[SX1262] Ripple GUI",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-pager",
+						"files": {
+							"flash-wipe": "Ultra-TPager-SX1262-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TPager-SX1262-[^-]+\\.bin"
+						}
+					}
+				},
+				{
+					"class": "ripple",
+					"role": "guiSD",
+					"title": "[SX1262] Ripple GUI: data on SD card",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-pager",
+						"files": {
+							"flash-wipe": "Ultra-TPager-SX1262-SD-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TPager-SX1262-SD-[^-]+\\.bin"
+						}
+					}
+				},
+				{
+					"class": "ripple",
+					"role": "gui",
+					"title": "[LR1121] Ripple GUI",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-pager",
+						"files": {
+							"flash-wipe": "Ultra-TPager-LR1121-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TPager-LR1121-[^-]+\\.bin"
+						}
+					}
+				},
+				{
+					"class": "ripple",
+					"role": "guiSD",
+					"title": "[LR1121] Ripple GUI: data on SD card",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-pager",
+						"files": {
+							"flash-wipe": "Ultra-TPager-LR1121-SD-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TPager-LR1121-SD-[^-]+\\.bin"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Display Pro",
+			"icon": "/img/esp_now.svg",
+			"tooltip": "<img class='device' src='/img/lilygo_tdisplay.svg'>",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "ripple",
+					"role": "gui",
+					"notice": "rippleUserGuide",
+					"version": {
+						"v7.5": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Ultra-ESPNOW-TDisplayPro-v7.5-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-ESPNOW-TDisplayPro-v7.5.bin",
+									"title": "App firmware bin (use with m5 booloader)"
+								}
+							],
+							"notes": "* Sensor node support\n* LoRa spreading factor now 16\n* Home Screen: node ID prefixes displayed\n* Discover, Node details now shows advert path\n* new GPS telemetry permissions: ALLOW:Home, ALLOW:All\n* group channel outbound messages now with confirmation counters\n* map labels now non-overlapping\n* network profiles now with customisable BW and CR\n* GPS tracks!\n* Optimise menu: Interference threshold, AGC reset interval\n* Channel details hex or base64 input"
+						},
+						"v6.8": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Ultra-TDisplayPro-ESPNOW-UKStore-v6.8-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-TDisplayPro-ESPNOW-UKStore-v6.8.bin",
+									"title": "App firmware bin (use with m5 booloader)"
+								}
+							],
+							"notes": "* Repeater & Room UI redesign\n* Room, admin CLI now from menu"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Watch S3 Plus",
+			"tooltip": "<img class='device' src='/img/lilygo_twatch_plus.svg'>",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "ripple",
+					"role": "gui",
+					"title": "Ripple GUI: LittleFS",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-watch-plus",
+						"files": {
+							"flash-wipe": "Ultra-TWatchS3Plus-LFS-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TWatchS3Plus-LFS-[^-]+\\.bin"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Watch Ultra",
+			"tooltip": "<img class='device' src='/img/lilygo_twatch_ultra.svg'>",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "ripple",
+					"role": "guiSD",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-watch-ultra",
+						"files": {
+							"flash-wipe": "Ultra-TWatch-SD-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TWatch-SD-[^-]+\\.bin"
+						}
+					}
+				},
+				{
+					"class": "ripple",
+					"role": "guiSD",
+					"title": "Ripple GUI: data on SD card (quadrant tapping)",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "t-watch-ultra",
+						"files": {
+							"flash-wipe": "Ultra-TWatch-SD-quad-[^-]+-merged\\.bin",
+							"flash-update": "Ultra-TWatch-SD-quad-[^-]+\\.bin"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "seeed",
+			"name": "Seeed Studio Wio Tracker L1 Pro",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/wio_tracker_l1.svg'>",
+			"type": "nrf52",
+			"erase": "WioTrackerL1_QSPIFlash_Format-v1.2.zip",
+			"bootloader": [
+				"wio_tracker_l1_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"wio_tracker_l1_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "ripple",
+					"role": "gui",
+					"notice": "rippleUserGuide",
+					"version": {
+						"v10.1": {
+							"files": [
+								{
+									"type": "download",
+									"name": "Ultra-WioTrackerL1-v10.1.uf2",
+									"title": "UF2 file for manual USB DFU mass storage update"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-WioTrackerL1-v10.1.zip",
+									"title": "App firmware"
+								}
+							],
+							"notes": "ix for Path dialog \"bad format\" bug\nMessage details screen now formats multi-line messages\n'Heard By' names bug fix\nmulti-byte path DM send timeout bug fix\nnew 'Get Telemetry...' menu in conversation screens\nChannel scope, select \"*\" for un-scoped"
+						},
+						"v9.6": {
+							"files": [
+								{
+									"type": "download",
+									"name": "Ultra-WioTrackerL1-v9.6.uf2",
+									"title": "UF2 file for manual USB DFU mass storage update"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-WioTrackerL1-v9.6.zip",
+									"title": "App firmware"
+								}
+							],
+							"notes": "Default Scope region support\nmultibyte path hash support\nOff-grid (client repeat) mode\nBandwidth 500 support\nDiscover list now overwrites oldest entry if full\nregion names now without '#'\nchannel names now up to 11 chars\n\n<b><a target='_blank' href='https://buymeacoffee.com/ripplebiz/e/469784'>Full changelog</a></b>"
+						},
+						"v8.2": {
+							"files": [
+								{
+									"type": "download",
+									"name": "Ultra-WioTrackerL1-v8.2.uf2",
+									"title": "UF2 file for manual USB DFU mass storage update"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-WioTrackerL1-v8.2.zip",
+									"title": "App firmware"
+								}
+							],
+							"notes": "* Updated UI colour scheme\n* New Regions screen, with 'Scan Local' menu\n* New 'Owner Info' menu, from Discover > Scan Local\n\n<b><a target='_blank' href='https://buymeacoffee.com/ripplebiz/e/469784'>Full changelog</a></b>"
+						},
+						"v7.14": {
+							"files": [
+								{
+									"type": "download",
+									"name": "Ultra-WioTrackerL1-v7.14.uf2",
+									"title": "UF2 file for manual USB DFU mass storage update"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-WioTrackerL1-v7.14.zip",
+									"title": "App firmware"
+								}
+							],
+							"notes": "* NEW: 'Scan Local' menu in Discover\n* Message text: now converts accented chars to ASCII equivalent\n* Popular emojis now converted, eg ':thumbsup'\n* Contacts can be tagged and custom notes added\n* Repeater CLI, 'neighbors' command now using binary req/resp\n* Max group channels now upped to 6\n* Bug fix: some CLI responses were lost from dup timestamp.\n* #channel key calc now forces lowercase\n* Better canned messages for CLI screens\n* Group channel message, 'Reply To' menu\n* Kid Mode: now supports up to 1 group channel chat"
+						},
+						"v7.12.1": {
+							"files": [
+								{
+									"type": "download",
+									"name": "Ultra-WioTrackerL1-v7.12.1.uf2",
+									"title": "UF2 file for manual USB DFU mass storage update"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-WioTrackerL1-v7.12.1.zip",
+									"title": "App firmware"
+								}
+							],
+							"notes": "* Battery scale fix\n* UI style updates\n* Remote admin prefixes, extra spaces allowed\n* Presets updated\n* Msg details: ‘heard by’\n* Repeater and room CLI: “get” command (get full telemetry)\n* Channel details: Alerts ON/OFF menu"
+						},
+						"v7.12": {
+							"files": [
+								{
+									"type": "download",
+									"name": "Ultra-WioTrackerL1-v7.12.uf2",
+									"title": "UF2 file for manual USB DFU mass storage update"
+								},
+								{
+									"type": "flash-update",
+									"name": "Ultra-WioTrackerL1-v7.12.zip",
+									"title": "App firmware"
+								}
+							],
+							"notes": "* Fixed PIN unlock screen\n* Added kid mode support\n* Repeater and Room CLI: new \"get\" command for full telemetry fetch"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "WioTrackerL1_companion_radio_ble.*?\\.zip",
+							"download": "WioTrackerL1_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "WioTrackerL1_companion_radio_usb.*?\\.zip",
+							"download": "WioTrackerL1_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixNeeded",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "WioTrackerL1_[rR]epeater.*?\\.zip",
+							"download": "WioTrackerL1_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixNeeded",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "WioTrackerL1_room_server.*?\\.zip",
+							"download": "WioTrackerL1_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "WioTrackerL1_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "WioTrackerL1_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T3 S3 (SX126x)",
+			"group": "LilyGo T3 S3",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/lilygo_t3s3.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "LilyGo_T3S3_sx1262_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "LilyGo_T3S3_sx1262_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "LilyGo_T3S3_sx1262_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "LilyGo_T3S3_sx1262_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "LilyGo_T3S3_sx1262_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "LilyGo_T3S3_sx1262_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "LilyGo_T3S3_sx1262_room_server.*?-merged\\.bin",
+							"flash-update": "LilyGo_T3S3_sx1262_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "LilyGo_T3S3_sx1262_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "LilyGo_T3S3_sx1262_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T3 S3 (SX127x)",
+			"group": "LilyGo T3 S3",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/lilygo_t3s3.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "LilyGo_T3S3_sx1276_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "LilyGo_T3S3_sx1276_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "LilyGo_T3S3_sx1276_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "LilyGo_T3S3_sx1276_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "LilyGo_T3S3_sx1276_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "LilyGo_T3S3_sx1276_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "LilyGo_T3S3_sx1276_room_server.*?-merged\\.bin",
+							"flash-update": "LilyGo_T3S3_sx1276_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "LilyGo_T3S3_sx1276_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "LilyGo_T3S3_sx1276_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Beam (SX1262)",
+			"group": "LilyGo T-Beam",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/lilygo_tbeam.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Tbeam_SX1262_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Tbeam_SX1262_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Tbeam_SX1262_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Tbeam_SX1262_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Tbeam_SX1262_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Tbeam_SX1262_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "Tbeam_SX1262_room_server.*?-merged\\.bin",
+							"flash-update": "Tbeam_SX1262_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Tbeam_SX1262_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Tbeam_SX1262_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Beam 1.2 (SX1276)",
+			"group": "LilyGo T-Beam",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/lilygo_tbeam.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Tbeam(_SX1276)?_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Tbeam(_SX1276)?_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Tbeam(_SX1276)?_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Tbeam(_SX1276)?_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Tbeam(_SX1276)?_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Tbeam(_SX1276)?_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "Tbeam(_SX1276)?_room_server.*?-merged\\.bin",
+							"flash-update": "Tbeam(_SX1276)?_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Tbeam_SX1276_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Tbeam_SX1276_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Beam 1W",
+			"group": "LilyGo T-Beam",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/lilygo_tbeam_1w.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "LilyGo_TBeam_1W_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "LilyGo_TBeam_1W_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "LilyGo_TBeam_1W_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "LilyGo_TBeam_1W_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "LilyGo_TBeam_1W_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "LilyGo_TBeam_1W_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "LilyGo_TBeam_1W_room_server.*?-merged\\.bin",
+							"flash-update": "LilyGo_TBeam_1W_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "LilyGo_TBeam_1W_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "LilyGo_TBeam_1W_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Beam Supreme (SX1262)",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/lilygo_tbeam_supreme.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "T_Beam_S3_Supreme_SX1262_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "T_Beam_S3_Supreme_SX1262_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "T_Beam_S3_Supreme_SX1262_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "T_Beam_S3_Supreme_SX1262_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "T_Beam_S3_Supreme_SX1262_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "T_Beam_S3_Supreme_SX1262_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "T_Beam_S3_Supreme_SX1262_room_server.*?-merged\\.bin",
+							"flash-update": "T_Beam_S3_Supreme_SX1262_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "T_Beam_S3_Supreme_SX1262_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "T_Beam_S3_Supreme_SX1262_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Echo",
+			"icon": "/img/lora.svg",
+			"type": "nrf52",
+			"bootloader": [
+				"lilygo_techo_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"lilygo_techo_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"erase": "LilyGo_T-Echo_QSPIFlash_Format-v1.2.zip",
+			"tooltip": "<img class='device' src='/img/lilygo_techo.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "LilyGo_T-Echo_companion_radio_ble.*?\\.zip",
+							"download": "LilyGo_T-Echo_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "LilyGo_T-Echo_companion_radio_usb.*?\\.zip",
+							"download": "LilyGo_T-Echo_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"notice": "otafixRecommended",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "LilyGo_T-Echo_[rR]epeater.*?\\.zip",
+							"download": "LilyGo_T-Echo_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"notice": "otafixRecommended",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "LilyGo_T-Echo_room_server.*?\\.zip",
+							"download": "LilyGo_T-Echo_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "LilyGo_T-Echo_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "LilyGo_T-Echo_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Echo Lite",
+			"icon": "/img/lora.svg",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"tooltip": "<img class='device' src='/img/lilygo_techo_lite.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "LilyGo_T-Echo-Lite_companion_radio_ble.*?\\.zip",
+							"download": "LilyGo_T-Echo-Lite_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "LilyGo_T-Echo-Lite_companion_radio_usb.*?\\.zip",
+							"download": "LilyGo_T-Echo-Lite_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "LilyGo_T-Echo-Lite_[rR]epeater.*?\\.zip",
+							"download": "LilyGo_T-Echo-Lite_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "LilyGo_T-Echo-Lite_room_server.*?\\.zip",
+							"download": "LilyGo_T-Echo-Lite_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "LilyGo_T-Echo-Lite_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "LilyGo_T-Echo-Lite_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo T-Echo Card",
+			"icon": "/img/lora.svg",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"tooltip": "<img class='device' src='/img/lilygo_techo_card.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "LilyGo_T-Echo_Card_companion_radio_ble.*?\\.zip",
+							"download": "LilyGo_T-Echo_Card_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "LilyGo_T-Echo_Card_companion_radio_usb.*?\\.zip",
+							"download": "LilyGo_T-Echo_Card_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "LilyGo_T-Echo_Card_[rR]epeater.*?\\.zip",
+							"download": "LilyGo_T-Echo_Card_[rR]epeater.*?\\.uf2"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"class": "meshos",
+			"name": "LilyGo T-Lora Pager",
+			"tooltip": "<img class='device' src='/img/lilygo_pager.svg'>",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "LilyGo_T-Echo_Card_room_server.*?\\.zip",
+							"download": "LilyGo_T-Echo_Card_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "LilyGo_T-Echo_Card_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "LilyGo_T-Echo_Card_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "lilygo",
+			"name": "LilyGo LoRa32 V2.1_1.6",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/lilygo_tlora_1.6.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "LilyGo_TLora_V2_1_1_6_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "LilyGo_TLora_V2_1_1_6_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "LilyGo_TLora_V2_1_1_6_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "LilyGo_TLora_V2_1_1_6_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "LilyGo_TLora_V2_1_1_6_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "LilyGo_TLora_V2_1_1_6_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "LilyGo_TLora_V2_1_1_6_room_server.*?-merged\\.bin",
+							"flash-update": "LilyGo_TLora_V2_1_1_6_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "LilyGo_TLora_V2_1_1_6_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "LilyGo_TLora_V2_1_1_6_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "gat-iot",
+			"name": "GAT-IoT GAT562 Tracker",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/gatiot_gat562.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"bootloader": [
+				"wiscore_rak4631_board_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"wiscore_rak4631_board_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "GAT562_Mesh_Tracker_Pro_companion_radio_ble.*?\\.zip",
+							"download": "GAT562_Mesh_Tracker_Pro_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "GAT562_Mesh_Tracker_Pro_companion_radio_usb.*?\\.zip",
+							"download": "GAT562_Mesh_Tracker_Pro_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "GAT562_Mesh_Tracker_Pro_[rR]epeater.*?\\.zip",
+							"download": "GAT562_Mesh_Tracker_Pro_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "GAT562_Mesh_Tracker_Pro_room_server.*?\\.zip",
+							"download": "GAT562_Mesh_Tracker_Pro_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "GAT562_Mesh_Tracker_Pro_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "GAT562_Mesh_Tracker_Pro_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "gat-iot",
+			"name": "GAT-IoT GAT562 30s",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/gatiot_gat562_30s.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"bootloader": [
+				"wiscore_rak4631_board_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"wiscore_rak4631_board_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "GAT562_30S_Mesh_Kit_companion_radio_ble.*?\\.zip",
+							"download": "GAT562_30S_Mesh_Kit_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "GAT562_30S_Mesh_Kit_companion_radio_usb.*?\\.zip",
+							"download": "GAT562_30S_Mesh_Kit_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "GAT562_30S_Mesh_Kit_[rR]epeater.*?\\.zip",
+							"download": "GAT562_30S_Mesh_Kit_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "GAT562_Mesh_Tracker_Pro_room_server.*?\\.zip",
+							"download": "GAT562_Mesh_Tracker_Pro_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "GAT562_30S_Mesh_Kit_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "GAT562_30S_Mesh_Kit_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec Vision Master E213",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/heltec_e213.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_E213_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Heltec_E213_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_E213_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Heltec_E213_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Heltec_E213_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Heltec_E213_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "Heltec_E213_room_server.*?-merged\\.bin",
+							"flash-update": "Heltec_E213_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Heltec_E213_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Heltec_E213_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec Vision Master E290",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/heltec_e290.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_E290_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Heltec_E290_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_E290_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Heltec_E290_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Heltec_E290_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Heltec_E290_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "Heltec_E290_room_server.*?-merged\\.bin",
+							"flash-update": "Heltec_E290_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Heltec_E290_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Heltec_E290_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec v2",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/heltec_v2.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_v2_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Heltec_v2_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_v2_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Heltec_v2_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Heltec_v2_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Heltec_v2_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "Heltec_v2_room_server.*?-merged\\.bin",
+							"flash-update": "Heltec_v2_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Heltec_v2_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Heltec_v2_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec v3",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/heltec_v3.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_v3_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Heltec_v3_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_v3_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Heltec_v3_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Heltec_v3_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Heltec_v3_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "Heltec_v3_room_server.*?-merged\\.bin",
+							"flash-update": "Heltec_v3_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Heltec_v3_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Heltec_v3_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec v4",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/heltec_v4.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "heltec_v4_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "heltec_v4_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "heltec_v4_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "heltec_v4_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "heltec_v4_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "heltec_v4_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "heltec_v4_room_server.*?-merged\\.bin",
+							"flash-update": "heltec_v4_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "heltec_v4_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "heltec_v4_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec v4 R8",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/heltec_v4.svg'>",
+			"firmware": [
+				{
+					"title": "Companion radio",
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "heltec_v4_r8_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "heltec_v4_r8_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"title": "Companion radio",
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "heltec_v4_r8_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "heltec_v4_r8_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"title": "Repeater",
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "heltec_v4_r8_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "heltec_v4_r8_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"title": "Room Server",
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "heltec_v4_r8_room_server.*?-merged\\.bin",
+							"flash-update": "heltec_v4_r8_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec Mesh Node T096",
+			"icon": "/img/lora.svg",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"bootloader": [
+				"heltec_t096_bootloader-0.9.2-OTAFIX2.3.uf2",
+				"heltec_t096_bootloader-0.9.2-OTAFIX2.3.zip"
+			],
+			"tooltip": "<img class='device' src='/img/heltec_t096.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Heltec_t096_companion_radio_ble.*?\\.zip",
+							"download": "Heltec_t096_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Heltec_t096_companion_radio_usb.*?\\.zip",
+							"download": "Heltec_t096_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "Heltec_t096_[rR]epeater.*?\\.zip",
+							"download": "Heltec_t096_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "Heltec_t096_room_server.*?\\.zip",
+							"download": "Heltec_t096_room_server.*?\\.uf2"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec Mesh Node T1",
+			"icon": "/img/lora.svg",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"bootloader": [
+				"heltec_t1_bootloader-0.9.2-OTAFIX2.3.uf2",
+				"heltec_t1_bootloader-0.9.2-OTAFIX2.3.zip"
+			],
+			"tooltip": "<img class='device' src='/img/heltec_t1.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Heltec_t1_companion_radio_ble.*?\\.zip",
+							"download": "Heltec_t1_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Heltec_t1_companion_radio_usb.*?\\.zip",
+							"download": "Heltec_t1_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "Heltec_t1_[rR]epeater.*?\\.zip",
+							"download": "Heltec_t1_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "Heltec_t1_room_server.*?\\.zip",
+							"download": "Heltec_t1_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "Heltec_t1_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "Heltec_t1_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec T114",
+			"icon": "/img/lora.svg",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"bootloader": [
+				"heltec_t114_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"heltec_t114_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"tooltip": "<img class='device' src='/img/heltec_t114.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Heltec_t114_companion_radio_ble.*?\\.zip",
+							"download": "Heltec_t114_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Heltec_t114_companion_radio_usb.*?\\.zip",
+							"download": "Heltec_t114_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "Heltec_t114_[rR]epeater.*?\\.zip",
+							"download": "Heltec_t114_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "Heltec_t114_room_server.*?\\.zip",
+							"download": "Heltec_t114_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionBle",
+					"title": "Companion",
+					"subTitle": "Bluetooth [no display]",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Heltec_t114_without_display_companion_radio_ble.*?\\.zip",
+							"download": "Heltec_t114_without_display_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"title": "Companion",
+					"subTitle": "USB [no display]",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Heltec_t114_without_display_companion_radio_usb.*?\\.zip",
+							"download": "Heltec_t114_without_display_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixRecommended",
+					"subTitle": "[no display]",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "Heltec_t114_without_display_[rR]epeater.*?\\.zip",
+							"download": "Heltec_t114_without_display_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixRecommended",
+					"subTitle": "[no display]",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "Heltec_t114_without_display_room_server.*?\\.zip",
+							"download": "Heltec_t114_without_display_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "Heltec_t114_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "Heltec_t114_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec Wireless Tracker v2",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/heltec_wt2.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "heltec_tracker_v2_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "heltec_tracker_v2_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "heltec_tracker_v2_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "heltec_tracker_v2_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "heltec_tracker_v2_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "heltec_tracker_v2_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "heltec_tracker_v2_room_server.*?-merged\\.bin",
+							"flash-update": "heltec_tracker_v2_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "heltec_tracker_v2_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "heltec_tracker_v2_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec MeshPocket",
+			"icon": "/img/lora.svg",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"tooltip": "<img class='device' src='/img/heltec_meshpocket.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Mesh_pocket_companion_radio_ble.*?\\.zip",
+							"download": "Mesh_pocket_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Mesh_pocket_companion_radio_usb.*?\\.zip",
+							"download": "Mesh_pocket_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "Mesh_pocket_[rR]epeater.*?\\.zip",
+							"download": "Mesh_pocket_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "Mesh_pocket_room_server.*?\\.zip",
+							"download": "Mesh_pocket_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "Mesh_pocket_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "Mesh_pocket_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec MeshSolar / MeshTower",
+			"icon": "/img/lora.svg",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"tooltip": "<img class='device' src='/img/heltec_mesh_solar.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Heltec_mesh_solar_companion_radio_ble.*?\\.zip",
+							"download": "Heltec_mesh_solar_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Heltec_mesh_solar_companion_radio_usb.*?\\.zip",
+							"download": "Heltec_mesh_solar_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice":"otafixRecommended",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "Heltec_mesh_solar_[rR]epeater.*?\\.zip",
+							"download": "Heltec_mesh_solar_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice":"otafixRecommended",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "Heltec_mesh_solar_room_server.*?\\.zip",
+							"download": "Heltec_mesh_solar_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "Heltec_mesh_solar_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "Heltec_mesh_solar_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec MeshTower V2",
+			"icon": "/img/lora.svg",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"tooltip": "<img class='device' src='/img/heltec_tower_v2.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Heltec_tower_v2_companion_radio_ble.*?\\.zip",
+							"download": "Heltec_tower_v2_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Heltec_tower_v2_companion_radio_usb.*?\\.zip",
+							"download": "Heltec_tower_v2_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "Heltec_tower_v2_[rR]epeater.*?\\.zip",
+							"download": "Heltec_tower_v2_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "Heltec_tower_v2_room_server.*?\\.zip",
+							"download": "Heltec_tower_v2_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "Heltec_mesh_solar_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "Heltec_mesh_solar_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec Wireless Tracker",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/heltec_wt3.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_Wireless_Tracker_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Heltec_Wireless_Tracker_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_Wireless_Tracker_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Heltec_Wireless_Tracker_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Heltec_Wireless_Tracker_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Heltec_Wireless_Tracker_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "Heltec_Wireless_Tracker_room_server.*?-merged\\.bin",
+							"flash-update": "Heltec_Wireless_Tracker_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Heltec_Wireless_Tracker_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Heltec_Wireless_Tracker_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec Heltec Wireless Paper",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/heltec_paper.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_Wireless_Paper_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Heltec_Wireless_Paper_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_Wireless_Paper_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Heltec_Wireless_Paper_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Heltec_Wireless_Paper_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Heltec_Wireless_Paper_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "Heltec_Wireless_Paper_room_server.*?-merged\\.bin",
+							"flash-update": "Heltec_Wireless_Paper_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Heltec_Wireless_Paper_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Heltec_Wireless_Paper_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "heltec",
+			"name": "Heltec WSL3",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"tooltip": "<img class='device' src='/img/heltec_wsl3.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_WSL3_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Heltec_WSL3_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Heltec_WSL3_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Heltec_WSL3_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Heltec_WSL3_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Heltec_WSL3_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "Heltec_WSL3_room_server.*?-merged\\.bin",
+							"flash-update": "Heltec_WSL3_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "Ikoka",
+			"name": "Ikoka Stick",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/ikoka_stick.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v7.zip",
+			"bootloader": [
+				"xiao_nrf52840_ble_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"xiao_nrf52840_ble_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"title": "Companion radio - 22dBm",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ikoka_stick_nrf_22dbm_companion_radio_ble.*?\\.zip",
+							"download": "ikoka_stick_nrf_22dbm_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"title": "Companion radio - 22dBm",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ikoka_stick_nrf_22dbm_companion_radio_usb.*?\\.zip",
+							"download": "ikoka_stick_nrf_22dbm_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixNeeded",
+					"title": "Repeater - 22dBm",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "ikoka_stick_nrf_22dbm_[Rr]epeater.*?\\.zip",
+							"download": "ikoka_stick_nrf_22dbm_[Rr]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixNeeded",
+					"title": "Room Server - 22dBm",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "ikoka_stick_nrf_22dbm_room_server.*?\\.zip",
+							"download": "ikoka_stick_nrf_22dbm_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionBle",
+					"title": "Companion radio - 30dBm",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ikoka_stick_nrf_30dbm_companion_radio_ble.*?\\.zip",
+							"download": "ikoka_stick_nrf_30dbm_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"title": "Companion radio - 30dBm",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ikoka_stick_nrf_30dbm_companion_radio_usb.*?\\.zip",
+							"download": "ikoka_stick_nrf_30dbm_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixNeeded",
+					"title": "Repeater - 30dBm",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "ikoka_stick_nrf_30dbm_[Rr]epeater.*?\\.zip",
+							"download": "ikoka_stick_nrf_30dbm_[Rr]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixNeeded",
+					"title": "Room Server - 30dBm",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "ikoka_stick_nrf_30dbm_room_server.*?\\.zip",
+							"download": "ikoka_stick_nrf_30dbm_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionBle",
+					"title": "Companion radio - 33dBm",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ikoka_stick_nrf_33dbm_companion_radio_ble.*?\\.zip",
+							"download": "ikoka_stick_nrf_33dbm_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"title": "Companion radio - 33dBm",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ikoka_stick_nrf_33dbm_companion_radio_usb.*?\\.zip",
+							"download": "ikoka_stick_nrf_33dbm_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixNeeded",
+					"title": "Repeater - 33dBm",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "ikoka_stick_nrf_33dbm_[Rr]epeater.*?\\.zip",
+							"download": "ikoka_stick_nrf_33dbm_[Rr]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixNeeded",
+					"title": "Room Server - 33dBm",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "ikoka_stick_nrf_33dbm_room_server.*?\\.zip",
+							"download": "ikoka_stick_nrf_33dbm_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"title": "KISS Radio - 22dBm",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "ikoka_stick_nrf_22dbm_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "ikoka_stick_nrf_22dbm_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"title": "KISS Radio - 30dBm",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "ikoka_stick_nrf_30dbm_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "ikoka_stick_nrf_30dbm_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"title": "KISS Radio - 33dBm",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "ikoka_stick_nrf_33dbm_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "ikoka_stick_nrf_33dbm_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "Ikoka",
+			"name": "Ikoka Nano",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/ikoka_nano.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v7.zip",
+			"bootloader": [
+				"xiao_nrf52840_ble_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"xiao_nrf52840_ble_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"title": "Companion radio - 22dBm",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ikoka_nano_nrf_22dbm_companion_radio_ble.*?\\.zip",
+							"download": "ikoka_nano_nrf_22dbm_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"title": "Companion radio - 22dBm",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ikoka_nano_nrf_22dbm_companion_radio_usb.*?\\.zip",
+							"download": "ikoka_nano_nrf_22dbm_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixNeeded",
+					"title": "Repeater - 22dBm",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "ikoka_nano_nrf_22dbm_[Rr]epeater.*?\\.zip",
+							"download": "ikoka_nano_nrf_22dbm_[Rr]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixNeeded",
+					"title": "Room Server - 22dBm",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "ikoka_nano_nrf_22dbm_room_server.*?\\.zip",
+							"download": "ikoka_nano_nrf_22dbm_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionBle",
+					"title": "Companion radio - 30dBm",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ikoka_nano_nrf_30dbm_companion_radio_ble.*?\\.zip",
+							"download": "ikoka_nano_nrf_30dbm_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"title": "Companion radio - 30dBm",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ikoka_nano_nrf_30dbm_companion_radio_usb.*?\\.zip",
+							"download": "ikoka_nano_nrf_30dbm_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixNeeded",
+					"title": "Repeater - 30dBm",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "ikoka_nano_nrf_30dbm_[Rr]epeater.*?\\.zip",
+							"download": "ikoka_nano_nrf_30dbm_[Rr]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixNeeded",
+					"title": "Room Server - 30dBm",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "ikoka_nano_nrf_30dbm_room_server.*?\\.zip",
+							"download": "ikoka_nano_nrf_30dbm_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionBle",
+					"title": "Companion radio - 33dBm",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ikoka_nano_nrf_33dbm_companion_radio_ble.*?\\.zip",
+							"download": "ikoka_nano_nrf_33dbm_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"title": "Companion radio - 33dBm",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ikoka_nano_nrf_33dbm_companion_radio_usb.*?\\.zip",
+							"download": "ikoka_nano_nrf_33dbm_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixNeeded",
+					"title": "Repeater - 33dBm",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "ikoka_nano_nrf_33dbm_[Rr]epeater.*?\\.zip",
+							"download": "ikoka_nano_nrf_33dbm_[Rr]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixNeeded",
+					"title": "Room Server - 33dBm",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "ikoka_nano_nrf_33dbm_room_server.*?\\.zip",
+							"download": "ikoka_nano_nrf_33dbm_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"title": "KISS Radio - 22dBm",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "ikoka_nano_nrf_22dbm_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "ikoka_nano_nrf_22dbm_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"title": "KISS Radio - 30dBm",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "ikoka_nano_nrf_30dbm_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "ikoka_nano_nrf_30dbm_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"title": "KISS Radio - 33dBm",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "ikoka_nano_nrf_33dbm_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "ikoka_nano_nrf_33dbm_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "keepteen",
+			"name": "Keepteen LT1",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/keepteen_lt1.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"bootloader": [
+				"wiscore_rak4631_board_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"wiscore_rak4631_board_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "KeepteenLT1_companion_radio_ble.*?\\.zip",
+							"download": "KeepteenLT1_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "KeepteenLT1_companion_radio_usb.*?\\.zip",
+							"download": "KeepteenLT1_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "KeepteenLT1_[rR]epeater.*?\\.zip",
+							"download": "KeepteenLT1_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "KeepteenLT1_room_server.*?\\.zip",
+							"download": "KeepteenLT1_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "KeepteenLT1_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "KeepteenLT1_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "rak",
+			"name": "RAK WisBlock 3112",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/rak_3112.svg'>",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "RAK_3112_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "RAK_3112_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "RAK_3112_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "RAK_3112_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "RAK_3112_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "RAK_3112_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "RAK3112_room_server.*?-merged\\.bin",
+							"flash-update": "RAK3112_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "RAK_3112_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "RAK_3112_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "rak",
+			"name": "RAK WisBlock / WisMesh (RAK 4631)",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/rak_4631.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"bootloader": [
+				"wiscore_rak4631_board_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"wiscore_rak4631_board_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "RAK_4631_companion_radio_ble.*?\\.zip",
+							"download": "RAK_4631_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "RAK_4631_companion_radio_usb.*?\\.zip",
+							"download": "RAK_4631_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "RAK_4631_[rR]epeater.*?\\.zip",
+							"download": "RAK_4631_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "RAK_4631_room_server.*?\\.zip",
+							"download": "RAK_4631_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "RAK_4631_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "RAK_4631_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "rak",
+			"name": "RAK WisMesh 1W Booster (3401 + 13302)",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/rak_1w.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"bootloader": [
+				"wiscore_rak3401_board_bootloader-0.9.2-OTAFIX2.3.uf2",
+				"wiscore_rak3401_board_bootloader-0.9.2-OTAFIX2.3.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "RAK_3401_companion_radio_ble.*?\\.zip",
+							"download": "RAK_3401_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "RAK_3401_companion_radio_usb.*?\\.zip",
+							"download": "RAK_3401_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "RAK_3401_[rR]epeater.*?\\.zip",
+							"download": "RAK_3401_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "RAK_3401_room_server.*?\\.zip",
+							"download": "RAK_3401_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "RAK_3401_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "RAK_3401_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "rak",
+			"name": "RAK WisMesh Tag",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/rak_wismesh_tag.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"bootloader": [
+				"wismesh_tag_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"wismesh_tag_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "RAK_WisMesh_Tag_companion_radio_ble.*?\\.zip",
+							"download": "RAK_WisMesh_Tag_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "RAK_WisMesh_Tag_companion_radio_usb.*?\\.zip",
+							"download": "RAK_WisMesh_Tag_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "RAK_WisMesh_Tag_[rR]epeater.*?\\.zip",
+							"download": "RAK_WisMesh_Tag_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "RAK_WisMesh_Tag_room_server.*?\\.zip",
+							"download": "RAK_WisMesh_Tag_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "RAK_WisMesh_Tag_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "RAK_WisMesh_Tag_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "seeed",
+			"name": "Seeed Studio SenseCAP Solar Node P1",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/sensecap_solar.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v7.zip",
+			"bootloader": [
+				"sensecap_solar_p1_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"sensecap_solar_p1_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "SenseCap_Solar_companion_radio_ble.*?\\.zip",
+							"download": "SenseCap_Solar_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "SenseCap_Solar_companion_radio_usb.*?\\.zip",
+							"download": "SenseCap_Solar_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixNeeded",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "SenseCap_Solar_[rR]epeater.*?\\.zip",
+							"download": "SenseCap_Solar_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixNeeded",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "SenseCap_Solar_room_server.*?\\.zip",
+							"download": "SenseCap_Solar_room_server.*?\\.uf2"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "seeed",
+			"name": "Seeed Studio SenseCAP T1000-E",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/sensecap_t1000e.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v7.zip",
+			"bootloader": [
+				"t1000_e_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"t1000_e_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"notice": "<article class='tertiary-container'>Please do not flash MeshCore firmware to LoRaWAN version of the t1000e, it can permantently brick the device</article>",
+						"files": {
+							"flash": "t1000e_companion_radio_ble.*?\\.zip",
+							"download": "t1000e_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "t1000e_companion_radio_usb.*?\\.zip",
+							"download": "t1000e_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "t1000e_[rR]epeater.*?\\.zip",
+							"download": "t1000e_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "t1000e_room_server.*?\\.zip",
+							"download": "t1000e_room_server.*?\\.uf2"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "seeed",
+			"name": "Seeed Studio SenseCAP MeshTracker X1",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/meshtracker_x1.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v7.zip",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "MeshTracker_X1_companion_radio_ble.*?\\.zip",
+							"download": "MeshTracker_X1_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "MeshTracker_X1_companion_radio_usb.*?\\.zip",
+							"download": "MeshTracker_X1_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixNeeded",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "MeshTracker_X1_[rR]epeater.*?\\.zip",
+							"download": "MeshTracker_X1_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixNeeded",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "MeshTracker_X1_room_server.*?\\.zip",
+							"download": "MeshTracker_X1_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "MeshTracker_X1_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "MeshTracker_X1_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "seeed",
+			"name": "Seeed Studio Wio Tracker L1 EINK",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/wio_tracker_l1_eink.svg'>",
+			"bootloader": [
+				"wio_tracker_l1_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"wio_tracker_l1_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"type": "nrf52",
+			"erase": "WioTrackerL1_QSPIFlash_Format-v1.2.zip",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "WioTrackerL1Eink_companion_radio_ble.*?\\.zip",
+							"download": "WioTrackerL1Eink_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "WioTrackerL1Eink_companion_radio_usb.*?\\.zip",
+							"download": "WioTrackerL1Eink_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixNeeded",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "WioTrackerL1Eink_[rR]epeater.*?\\.zip",
+							"download": "WioTrackerL1Eink_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixNeeded",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "WioTrackerL1Eink_room_server.*?\\.zip",
+							"download": "WioTrackerL1Eink_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "WioTrackerL1Eink_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "WioTrackerL1Eink_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "seeed",
+			"name": "Seeed Studio Xiao C3",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/xiao_esp32c3.svg'>",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Xiao_C3_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Xiao_C3_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Xiao_C3_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Xiao_C3_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Xiao_C3_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Xiao_C3_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"subTitle": "(SX1268 version)",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Xiao_C3_sx1268_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Xiao_C3_sx1268_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Xiao_C3_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Xiao_C3_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "seeed",
+			"name": "Seeed Studio Xiao S3 WIO",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/xiao_esp32s3.svg'>",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Xiao_S3_WIO_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Xiao_S3_WIO_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Xiao_S3_WIO_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Xiao_S3_WIO_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Xiao_S3_WIO_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Xiao_S3_WIO_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "Xiao_S3_WIO_room_server.*?-merged\\.bin",
+							"flash-update": "Xiao_S3_WIO_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Xiao_S3_WIO_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Xiao_S3_WIO_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "seeed",
+			"name": "Seeed Studio Xiao nRF52 WIO",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/xiao_nrf52.svg'>",
+			"type": "nrf52",
+			"erase": "Xiao_nrf52_QSPIFlash_Format-v1.2.zip",
+			"bootloader": [
+				"xiao_nrf52840_ble_bootloader-0.9.2-OTAFIX2.2.zip",
+				"xiao_nrf52840_ble_sense_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Xiao_nrf52_companion_radio_ble.*?\\.zip",
+							"download": "Xiao_nrf52_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Xiao_nrf52_companion_radio_usb.*?\\.zip",
+							"download": "Xiao_nrf52_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixNeeded",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "Xiao_nrf52_[rR]epeater.*?\\.zip",
+							"download": "Xiao_nrf52_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixNeeded",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "Xiao_nrf52_room_server.*?\\.zip",
+							"download": "Xiao_nrf52_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "Xiao_nrf52_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "Xiao_nrf52_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "elecrow",
+			"name": "Elecrow ThinkNode M1",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/thinknode_m1.svg'>",
+			"type": "nrf52",
+			"erase": "ThinkNode_M1_QSPIFlash_Format-v1.2.zip",
+			"bootloader": [
+				"thinknode_m1_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"thinknode_m1_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ThinkNode_M1_companion_radio_ble.*?\\.zip",
+							"download": "ThinkNode_M1_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ThinkNode_M1_companion_radio_usb.*?\\.zip",
+							"download": "ThinkNode_M1_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "ThinkNode_M1_[rR]epeater.*?\\.zip",
+							"download": "ThinkNode_M1_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "ThinkNode_M1_room_server.*?\\.zip",
+							"download": "ThinkNode_M1_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "ThinkNode_M1_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "ThinkNode_M1_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "elecrow",
+			"name": "Elecrow ThinkNode M2",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/thinknode_m2.svg'>",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "ThinkNode_M2_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "ThinkNode_M2_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "ThinkNode_M2_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "ThinkNode_M2_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "ThinkNode_M2_repeater.*?-merged\\.bin",
+							"flash-update": "ThinkNode_M2_repeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "ThinkNode_M2_room_server.*?-merged\\.bin",
+							"flash-update": "ThinkNode_M2_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "ThinkNode_M2_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "ThinkNode_M2_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "elecrow",
+			"name": "Elecrow ThinkNode M3",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/thinknode_m3.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"bootloader": [
+				"thinknode_m3_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"thinknode_m3_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ThinkNode_M3_companion_radio_ble.*?\\.zip",
+							"download": "ThinkNode_M3_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ThinkNode_M3_companion_radio_usb.*?\\.zip",
+							"download": "ThinkNode_M3_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "ThinkNode_M3_[rR]epeater.*?\\.zip",
+							"download": "ThinkNode_M3_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "ThinkNode_M3_room_server.*?\\.zip",
+							"download": "ThinkNode_M3_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "ThinkNode_M3_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "ThinkNode_M3_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "elecrow",
+			"name": "Elecrow ThinkNode M5",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/thinknode_m5.svg'>",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "ThinkNode_M5_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "ThinkNode_M5_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "ThinkNode_M5_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "ThinkNode_M5_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "ThinkNode_M5_repeater.*?-merged\\.bin",
+							"flash-update": "ThinkNode_M5_repeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "ThinkNode_M5_room_server.*?-merged\\.bin",
+							"flash-update": "ThinkNode_M5_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "ThinkNode_M5_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "ThinkNode_M5_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "elecrow",
+			"name": "Elecrow ThinkNode M6",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/thinknode_m6.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"bootloader": [
+				"thinknode_m6_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"thinknode_m6_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ThinkNode_M6_companion_radio_ble.*?\\.zip",
+							"download": "ThinkNode_M6_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "ThinkNode_M6_companion_radio_usb.*?\\.zip",
+							"download": "ThinkNode_M6_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "ThinkNode_M6_[rR]epeater.*?\\.zip",
+							"download": "ThinkNode_M6_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "ThinkNode_M6_room_server.*?\\.zip",
+							"download": "ThinkNode_M6_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "ThinkNode_M6_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "ThinkNode_M6_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "elecrow",
+			"name": "Elecrow ThinkNode M7",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/thinknode_m7.svg'>",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "ThinkNode_M7_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "ThinkNode_M7_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "ThinkNode_M7_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "ThinkNode_M7_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "ThinkNode_M7_repeater.*?-merged\\.bin",
+							"flash-update": "ThinkNode_M7_repeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "ThinkNode_M7_room_server.*?-merged\\.bin",
+							"flash-update": "ThinkNode_M7_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "ThinkNode_M7_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "ThinkNode_M7_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "elecrow",
+			"name": "Elecrow ThinkNode M9",
+			"tooltip": "<img class='device' src='/img/thinknode_m9.svg'>",
+			"icon": "/img/lora.svg",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "ripple",
+					"role": "gui",
+					"title": "Ripple GUI",
+					"notice": "rippleUserGuide",
+					"github-ripple": {
+						"type": "thinknode-m9",
+						"files": {
+							"flash-wipe": "Ultra-Thinknode-M9-.*?-merged\\.bin",
+							"flash-update": "Ultra-Thinknode-M9-[^-]+\\.bin"
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "uniteng",
+			"name": "UnitEng/BQ Voyage Station G3",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/station_g3.svg'>",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Station_G3_ESP32_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Station_G3_ESP32_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Station_G3_ESP32_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Station_G3_ESP32_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Station_G3_ESP32_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Station_G3_ESP32_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "Station_G3_ESP32_room_server.*?-merged\\.bin",
+							"flash-update": "Station_G3_ESP32_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Station_G3_ESP32_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Station_G3_ESP32_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "uniteng",
+			"name": "UnitEng Station G2",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/station_g2.svg'>",
+			"type": "esp32",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Station_G2_companion_radio_ble.*?-merged\\.bin",
+							"flash-update": "Station_G2_companion_radio_ble.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash-wipe": "Station_G2_companion_radio_usb.*?-merged\\.bin",
+							"flash-update": "Station_G2_companion_radio_usb.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash-wipe": "Station_G2_[rR]epeater.*?-merged\\.bin",
+							"flash-update": "Station_G2_[rR]epeater.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash-wipe": "Station_G2_room_server.*?-merged\\.bin",
+							"flash-update": "Station_G2_room_server.*?-[a-f0-9]{7}\\.bin"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash-wipe",
+									"name": "Station_G2_kiss_modem-1.17.1-45c0c323-merged.bin",
+									"title": "Combined app+partition+bootloader firmware bin"
+								},
+								{
+									"type": "flash-update",
+									"name": "Station_G2_kiss_modem-1.17.1-45c0c323.bin",
+									"title": "App firmware bin"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "uniteng",
+			"name": "UnitEng Nano G2 Ultra",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/nano_g2.svg'>",
+			"type": "nrf52",
+			"erase": "Nano_G2_Ultra_QSPIFlash_Format-v1.2.zip",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Nano_G2_Ultra_companion_radio_ble.*?\\.zip",
+							"download": "Nano_G2_Ultra_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Nano_G2_Ultra_companion_radio_usb.*?\\.zip",
+							"download": "Nano_G2_Ultra_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Nano_G2_Ultra_[Rr]epeater.*?\\.zip",
+							"download": "Nano_G2_Ultra_[Rr]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "Nano_G2_Ultra_room_server.*?\\.zip",
+							"download": "Nano_G2_Ultra_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "Nano_G2_Ultra_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "Nano_G2_Ultra_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "muziworks",
+			"name": "Muzi Works R1 Neo",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/muziworks_r1neo.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "R1Neo_companion_radio_ble.*?\\.zip",
+							"download": "R1Neo_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "R1Neo_companion_radio_usb.*?\\.zip",
+							"download": "R1Neo_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "R1Neo_[rR]epeater.*?\\.zip",
+							"download": "R1Neo_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "R1Neo_room_server.*?\\.zip",
+							"download": "R1Neo_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "R1Neo_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "R1Neo_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "promicro",
+			"name": "ProMicro nrf52 (faketec)",
+			"icon": "/img/lora.svg",
+			"tooltip": "<img class='device' src='/img/faketec.svg'>",
+			"type": "nrf52",
+			"erase": "FLASH_ERASE_nrf52_softdevice_v6.zip",
+			"bootloader": [
+				"promicro_nrf52840_bootloader-0.9.2-OTAFIX2.2.uf2",
+				"promicro_nrf52840_bootloader-0.9.2-OTAFIX2.2.zip"
+			],
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "(?:ProMicro|Faketec)_companion_radio_ble.*?\\.zip",
+							"download": "(?:ProMicro|Faketec)_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"flash": "(?:ProMicro|Faketec)_companion_radio_usb.*?\\.zip",
+							"download": "(?:ProMicro|Faketec)_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"flash": "(?:ProMicro|Faketec)_[rR]epeater.*?\\.zip",
+							"download": "(?:ProMicro|Faketec)_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"notice": "otafixRecommended",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"flash": "(?:ProMicro|Faketec)_room_server.*?\\.zip",
+							"download": "(?:ProMicro|Faketec)_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "flash",
+									"name": "ProMicro_kiss_modem-1.17.1-45c0c323.zip",
+									"title": "Firmware OTA zip"
+								},
+								{
+									"type": "download",
+									"name": "ProMicro_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"maker": "raspberry",
+			"name": "RPI Pico 2040 + WaveShare SX1262",
+			"icon": "/img/lora.svg",
+			"type": "noflash",
+			"tooltip": "<img class='device' src='/img/rpi_picow.svg'>",
+			"firmware": [
+				{
+					"class": "community",
+					"role": "companionBle",
+					"github": {
+						"type": "companion",
+						"files": {
+							"download": "PicoW_companion_radio_ble.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "companionUsb",
+					"github": {
+						"type": "companion",
+						"files": {
+							"download": "PicoW_companion_radio_usb.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "repeater",
+					"github": {
+						"type": "repeater",
+						"files": {
+							"download": "PicoW_[rR]epeater.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "roomServer",
+					"github": {
+						"type": "room-server",
+						"files": {
+							"download": "PicoW_room_server.*?\\.uf2"
+						}
+					}
+				},
+				{
+					"class": "community",
+					"role": "kissRadio",
+					"notice": "kissRadioNotice",
+					"version": {
+						"1.17.1": {
+							"files": [
+								{
+									"type": "download",
+									"name": "PicoW_kiss_modem-1.17.1-45c0c323.uf2",
+									"title": "Firmware uf2"
+								}
+							]
+						}
+					}
+				}
+			]
+		}
+	]
 }

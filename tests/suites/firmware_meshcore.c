@@ -168,13 +168,40 @@ MESH_TEST_CASE(firmware_meshcore_names_a_board_across_firmwares, unit) {
                           mesh_firmware_meshcore_device_for_target(NULL) != NULL,
                       "a board with no twin, or one only spelled alike, has none");
 
-    /* The flasher's own names for every twin, against the list it serves - so a renamed device
-       fails here rather than on somebody's radio. The fixture carries four of them. */
+    /* Every twin's device name against the whole list the flasher serves - so a renamed or
+       mistyped device fails here rather than on somebody's radio. The T114 is two builds. */
+    static const char *const k_targets[] = {"thinknode_m1",
+                                            "thinknode_m2",
+                                            "thinknode_m3",
+                                            "thinknode_m5",
+                                            "thinknode_m6",
+                                            "thinknode_m7",
+                                            "heltec-mesh-node-t096",
+                                            "heltec-mesh-node-t1",
+                                            "heltec-mesh-node-t114",
+                                            "heltec-vision-master-e213",
+                                            "heltec-vision-master-e290",
+                                            "heltec-wsl-v3",
+                                            "heltec-wireless-tracker-v2",
+                                            "heltec-v3",
+                                            "heltec-v4",
+                                            "t-beam-1w",
+                                            "tbeam-s3-core",
+                                            "t-deck",
+                                            "t-echo",
+                                            "rak4631",
+                                            "rak_wismeshtag",
+                                            "tracker-t1000-e",
+                                            "seeed-xiao-s3",
+                                            "station-g2"};
     struct mesh_firmware_boards boards;
-    MESH_TEST_FAIL_IF(
-        !boards_for(mesh_firmware_meshcore_device_for_target("rak4631"), true, &boards) ||
-            boards.found != 1U,
-        "the twin's name is one the flasher lists");
+    for (size_t i = 0; i < sizeof k_targets / sizeof k_targets[0]; ++i) {
+        const char *const device = mesh_firmware_meshcore_device_for_target(k_targets[i]);
+        const uint8_t builds = strcmp(k_targets[i], "heltec-mesh-node-t114") == 0 ? 2U : 1U;
+        const bool listed =
+            device != NULL && boards_for(device, true, &boards) && boards.found == builds;
+        MESH_TEST_FAIL_IF(!listed, k_targets[i]);
+    }
     record_success(test_name);
 }
 
