@@ -64,8 +64,7 @@ MESH_TEST_CASE(ui_firmware_progress_folds_the_ladder_onto_four_stages, unit) {
 /* Only the two rungs with a fraction fill the ring, and only once there is one: forty seconds of
    a bootloader enumerating drawn as an empty ring reads as a job that stalled. */
 MESH_TEST_CASE(ui_firmware_progress_fills_the_dial_only_with_a_fraction, unit) {
-    const struct mesh_ui_firmware_progress writing =
-        progress_at(MESH_FIRMWARE_UPDATE_WRITING, 43U);
+    const struct mesh_ui_firmware_progress writing = progress_at(MESH_FIRMWARE_UPDATE_WRITING, 43U);
     MESH_TEST_FAIL_IF(!writing.determinate || writing.permille != 430U,
                       "a write with a fraction should fill the dial to it");
     MESH_TEST_FAIL_IF(progress_at(MESH_FIRMWARE_UPDATE_WRITING, 0U).determinate,
@@ -105,6 +104,21 @@ MESH_TEST_CASE(ui_firmware_progress_draws_a_failure_where_it_happened, unit) {
     mesh_ui_firmware_progress_of(&settings, &p);
     MESH_TEST_FAIL_IF(p.hint != MESH_STR_FW_SCREEN_HINT_LOADER,
                       "a radio left in its loader should be told how to get it out");
+    record_success(test_name);
+}
+
+/* A finished install drops the check's answer - `fw_switching` included - so the screen showing
+   the result has to read whether it was a switch from the install's own record. */
+MESH_TEST_CASE(ui_firmware_progress_keeps_a_finished_switch_a_switch, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.fw_update_state = (uint8_t)MESH_FIRMWARE_UPDATE_DONE;
+    settings.fw_switching = false;
+    settings.fw_update_switch = true;
+    struct mesh_ui_firmware_progress p;
+    mesh_ui_firmware_progress_of(&settings, &p);
+    MESH_TEST_FAIL_IF(p.title != MESH_STR_FW_SCREEN_TITLE_SWITCH,
+                      "a finished switch should still be titled a switch");
     record_success(test_name);
 }
 

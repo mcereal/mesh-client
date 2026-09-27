@@ -16,7 +16,7 @@ static const inkcell_str_id k_stage_names[MESH_UI_FIRMWARE_STAGE_COUNT] = {
 
 inkcell_str_id mesh_ui_firmware_stage_name(enum mesh_ui_firmware_stage stage) {
     return (unsigned)stage < (unsigned)MESH_UI_FIRMWARE_STAGE_COUNT ? k_stage_names[stage]
-                                                                     : MESH_STR_FW_STAGE_DOWNLOAD;
+                                                                    : MESH_STR_FW_STAGE_DOWNLOAD;
 }
 
 /*
@@ -81,7 +81,11 @@ void mesh_ui_firmware_progress_of(const struct mesh_ui_settings *settings,
     }
     out->stage = k_rungs[state].stage;
     out->status = k_rungs[state].status;
-    out->title = settings->fw_switching ? MESH_STR_FW_SCREEN_TITLE_SWITCH : MESH_STR_FW_SCREEN_TITLE;
+    /* The install's own record of whether it is a switch: the check's `fw_switching` is dropped
+       the moment an install finishes, which is the moment this screen shows the result. */
+    out->title = settings->fw_update_switch || settings->fw_switching
+                     ? MESH_STR_FW_SCREEN_TITLE_SWITCH
+                     : MESH_STR_FW_SCREEN_TITLE;
     const bool ble = settings->fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE;
     out->hint = ble ? MESH_STR_FW_SCREEN_HINT_BLE : MESH_STR_FW_SCREEN_HINT_USB;
 
@@ -90,10 +94,9 @@ void mesh_ui_firmware_progress_of(const struct mesh_ui_settings *settings,
     if ((state == MESH_FIRMWARE_UPDATE_DOWNLOADING || state == MESH_FIRMWARE_UPDATE_WRITING) &&
         settings->fw_update_progress > 0U) {
         out->determinate = true;
-        out->permille = (uint16_t)((settings->fw_update_progress > 100U
-                                        ? 100U
-                                        : settings->fw_update_progress) *
-                                   10U);
+        out->permille =
+            (uint16_t)((settings->fw_update_progress > 100U ? 100U : settings->fw_update_progress) *
+                       10U);
     }
 
     if (state == MESH_FIRMWARE_UPDATE_DONE) {
@@ -103,8 +106,8 @@ void mesh_ui_firmware_progress_of(const struct mesh_ui_settings *settings,
         out->hint = MESH_STR_FW_SCREEN_HINT_DONE;
     } else if (state == MESH_FIRMWARE_UPDATE_FAILED) {
         out->failed = true;
-        out->stage = firmware_failed_stage(
-            (enum mesh_firmware_update_error)settings->fw_update_error);
+        out->stage =
+            firmware_failed_stage((enum mesh_firmware_update_error)settings->fw_update_error);
         /* The one failure that leaves the radio somewhere it cannot leave on its own gets the
            banner's own way out; every other one left the radio as it was. */
         out->hint = settings->fw_radio_in_loader ? MESH_STR_FW_SCREEN_HINT_LOADER

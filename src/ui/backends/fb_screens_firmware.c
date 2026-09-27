@@ -37,8 +37,7 @@ static int fb_firmware_line(struct inkcell_draw_state *state, int y, const char 
     return inkcell_scale_px((int)inkcell_fb_font(state)->height, style.scale);
 }
 
-static int fb_firmware_line_height(const struct inkcell_draw_state *state,
-                                   enum inkcell_type role) {
+static int fb_firmware_line_height(const struct inkcell_draw_state *state, enum inkcell_type role) {
     return inkcell_scale_px((int)inkcell_fb_font(state)->height,
                             inkcell_fb_type_style(state, role).scale);
 }
@@ -57,13 +56,19 @@ void fb_render_firmware(struct inkcell_draw_state *state, const struct mesh_ui_s
     /* The versions under the title: the radio's and the one going on, or just the one going on
        when the radio has not said - or when this is a switch, where the two numbers belong to
        two different projects and an arrow between them would compare them. */
+    /* The install's own copy of the release first: the check's answer is dropped once the job
+       finishes, which is when this screen is showing what it installed. */
+    const char *release = s->fw_update_version[0] != '\0' ? s->fw_update_version : s->fw_latest;
+    const bool switching = s->fw_update_switch || s->fw_switching;
     char versions[64] = "";
-    if (s->fw_latest[0] != '\0') {
-        if (s->has_metadata && s->firmware_version[0] != '\0' && !s->fw_switching) {
+    if (release[0] != '\0') {
+        /* Once it is done the radio's own version *is* this one, and an arrow from a number to
+           itself says nothing. */
+        if (s->has_metadata && s->firmware_version[0] != '\0' && !switching && !progress.done) {
             inkcell_str_format(versions, sizeof versions, MESH_STR_FW_SCREEN_VERSIONS,
-                               s->firmware_version, s->fw_latest);
+                               s->firmware_version, release);
         } else {
-            (void)snprintf(versions, sizeof versions, "%s", s->fw_latest);
+            (void)snprintf(versions, sizeof versions, "%s", release);
         }
     }
 
@@ -79,8 +84,8 @@ void fb_render_firmware(struct inkcell_draw_state *state, const struct mesh_ui_s
         }
     }
     const char *hint = inkcell_str(progress.hint);
-    const int hint_lines = (int)inkcell_fb_wrapped_lines(state, hint, (size_t)layout->body_w,
-                                                         state->scale);
+    const int hint_lines =
+        (int)inkcell_fb_wrapped_lines(state, hint, (size_t)layout->body_w, state->scale);
     const int hint_rows = hint_lines > 2 ? 2 : hint_lines;
 
     /* Everything but the dial, measured, so the dial can have the rest. */
