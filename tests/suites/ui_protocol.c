@@ -348,6 +348,34 @@ cleanup:
     record_success(test_name);
 }
 
+/* A password shows one mark per character, and the caret stays where the next one goes -
+   the start of the field included, and past a character wider than a byte. */
+MESH_TEST_CASE(ui_protocol_password_mask_keeps_the_caret, unit) {
+    static struct mesh_ui_nav nav;
+    memset(&nav, 0, sizeof nav);
+    nav.keyboard_open = true;
+    nav.keyboard_login = true;
+    snprintf(nav.draft, sizeof nav.draft, "%s",
+             "\xC3\xA9"
+             "a"); /* e-acute, then a */
+    char shown[MESH_UI_DRAFT_MAX];
+    static const struct {
+        size_t draft_back;
+        size_t shown_back;
+    } k_cases[] = {{0U, 0U}, {1U, 1U}, {3U, 2U}};
+    for (size_t i = 0; i < sizeof k_cases / sizeof k_cases[0]; ++i) {
+        size_t back = k_cases[i].draft_back;
+        MESH_TEST_FAIL_IF(strcmp(mesh_ui_nav_kb_shown(&nav, shown, sizeof shown, &back), "**") != 0,
+                          "two characters show as two marks");
+        MESH_TEST_FAIL_IF(back != k_cases[i].shown_back,
+                          "the caret is counted in marks: at the end, between, and at the start");
+    }
+    nav.keyboard_login = false;
+    MESH_TEST_FAIL_IF(mesh_ui_nav_kb_shown(&nav, shown, sizeof shown, NULL) != nav.draft,
+                      "any other keyboard shows its draft as typed");
+    record_success(test_name);
+}
+
 /*
  * The settings a protocol cannot answer: the Modules list, the channel link and QR, the contact
  * link, and the radio's own firmware. Each is shown for Meshtastic from the same settings, then

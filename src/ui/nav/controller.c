@@ -4,6 +4,7 @@
 
 #include "inkcell/ui/focus.h"
 #include "inkcell/ui/latency.h"
+#include "inkwell/base/wipe.h"
 #include "inkwell/runtime/loop.h"
 
 #include "mesh/ui/actions.h"
@@ -84,6 +85,16 @@ static void mesh_ui_controller_read_frame(struct mesh_ui_controller *controller)
     }
 }
 
+/* Hands an action to the app, then wipes it: a login's carries a password in `text`, and this
+   is a stack frame the next press reuses rather than clears. */
+static void mesh_ui_controller_run_action(struct mesh_ui_controller *controller,
+                                          struct mesh_ui_action *action) {
+    if (action->type != MESH_UI_ACTION_NONE && controller->on_action != NULL) {
+        controller->on_action(controller->action_userdata, action);
+    }
+    inkwell_wipe(action, sizeof *action);
+}
+
 static void mesh_ui_controller_dispatch_key(struct mesh_ui_controller *controller,
                                             enum inkcell_key key, bool dismiss_context) {
     if (controller == NULL || controller->store == NULL || key == INKCELL_KEY_NONE) {
@@ -102,9 +113,7 @@ static void mesh_ui_controller_dispatch_key(struct mesh_ui_controller *controlle
      * latency nobody ever waited.
      */
     inkcell_latency_press_handled(repaints || dismissed);
-    if (action.type != MESH_UI_ACTION_NONE && controller->on_action != NULL) {
-        controller->on_action(controller->action_userdata, &action);
-    }
+    mesh_ui_controller_run_action(controller, &action);
 }
 
 void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum inkcell_key key) {
@@ -273,9 +282,7 @@ void mesh_ui_controller_handle_click(struct mesh_ui_controller *controller, uint
     struct mesh_ui_action action;
     /* Confirmed here for the key's reason: only the store knows whether the click did anything. */
     inkcell_latency_press_handled(mesh_ui_store_handle_click(controller->store, target, &action));
-    if (action.type != MESH_UI_ACTION_NONE && controller->on_action != NULL) {
-        controller->on_action(controller->action_userdata, &action);
-    }
+    mesh_ui_controller_run_action(controller, &action);
 }
 
 void mesh_ui_controller_handle_context(struct mesh_ui_controller *controller, uint32_t target,

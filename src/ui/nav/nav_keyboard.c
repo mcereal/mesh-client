@@ -126,7 +126,7 @@ const char *mesh_ui_nav_kb_shown(const struct mesh_ui_nav *nav, char *out, size_
     size_t after = 0U;
     const size_t draft_len = strlen(nav->draft);
     const size_t caret_at =
-        caret_back != NULL && *caret_back < draft_len ? draft_len - *caret_back : draft_len;
+        caret_back != NULL && *caret_back <= draft_len ? draft_len - *caret_back : draft_len;
     for (size_t i = 0; i < draft_len && used + 1U < out_len; ++i) {
         if (((unsigned char)nav->draft[i] & 0xC0U) == 0x80U) {
             continue; /* a continuation byte of the character already marked */
