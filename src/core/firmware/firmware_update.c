@@ -845,7 +845,8 @@ bool mesh_firmware_update_radio_in_loader(const struct mesh_firmware_update *upd
 
 bool mesh_firmware_update_can_resume(const struct mesh_firmware_update *update) {
     return mesh_firmware_update_radio_in_loader(update) && !mesh_firmware_update_busy(update) &&
-           update->board.target[0] != '\0' && update->release.manifest_url[0] != '\0';
+           update->board.target[0] != '\0' &&
+           (update->release.manifest_url[0] != '\0' || update->release.image_url[0] != '\0');
 }
 
 unsigned mesh_firmware_update_progress(const struct mesh_firmware_update *update) {

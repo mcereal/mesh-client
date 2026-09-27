@@ -141,6 +141,12 @@ static bool serial_whole_regions(struct mesh_firmware_serial *serial, uint16_t c
             (uint64_t)partition->offset + partition->size <= serial->image_len) {
             continue;
         }
+        /* Begun inside the image and running past it: erasing it would take out some of what
+           was just written, which a well-formed table never asks for. */
+        if (partition->offset < serial->image_len) {
+            snprintf(reason, reason_len, "partition %s overlaps the image's end", partition->label);
+            return false;
+        }
         if (*count >= MESH_ESP_LOADER_REGIONS) {
             snprintf(reason, reason_len, "more data partitions than the loader takes");
             return false;
