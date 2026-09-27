@@ -1,0 +1,240 @@
+[
+ {
+  "ref": "refs/tags/companion-v1.0.0a",
+  "object": {
+   "type": "tag",
+   "sha": "876eb4957a9956e205b03857c142a6c93b7a2c76"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.0.0b",
+  "object": {
+   "type": "tag",
+   "sha": "ca852434a307fd587b26069474f9d39ea0c1b933"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.0.0c",
+  "object": {
+   "type": "tag",
+   "sha": "0fc76839700ac9614ae495dc07fe3da74b654f63"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.10.0",
+  "object": {
+   "type": "tag",
+   "sha": "e0c96f6c648ca7acd477982ca1bc70ca81cc6b6a"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.11.0",
+  "object": {
+   "type": "tag",
+   "sha": "8e3038e03b480d14cabaa7c4937dbb8777cc2829"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.12.0",
+  "object": {
+   "type": "tag",
+   "sha": "44543fd4f651b423232b2042bf1cbec1e3b0a601"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.13.0",
+  "object": {
+   "type": "tag",
+   "sha": "f72df9958c3ecf8ad8fc8515ae8f4818d832b573"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.14.0",
+  "object": {
+   "type": "tag",
+   "sha": "665ab6f03f94b5f8dbb049fd2a6a7e377b7fa5f8"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.14.1",
+  "object": {
+   "type": "tag",
+   "sha": "91f79d4080258e036198d048357d29a3975c9231"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.15.0",
+  "object": {
+   "type": "tag",
+   "sha": "3d999fe6962915379ef64be6c77d9dc100c34298"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.16.0",
+  "object": {
+   "type": "tag",
+   "sha": "24fe7d4b2d17a4d6b23eb13931346aebd681014c"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.17.0",
+  "object": {
+   "type": "tag",
+   "sha": "2af6126cfba734d9502368d8a9b3fba049385886"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.17.1",
+  "object": {
+   "type": "tag",
+   "sha": "8fe15c89ed5ac7d0096931b6d609f7b48f51272a"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.2.0",
+  "object": {
+   "type": "tag",
+   "sha": "e4095f0d25e4b7d1b56530b9a5fc2e1d9db687b6"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.2.1",
+  "object": {
+   "type": "tag",
+   "sha": "5396648cad1de7b50d7ba8ca1ace9f571f0ac001"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.2.2",
+  "object": {
+   "type": "tag",
+   "sha": "518256dc4b5b237f91d86ad8941246ab843863ee"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.3.0",
+  "object": {
+   "type": "tag",
+   "sha": "5865bdaafc623696f4f9e758daebd3f4d2e0c2bd"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.4.0",
+  "object": {
+   "type": "tag",
+   "sha": "529837029d09e68c12736e646f494115c38441a9"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.4.1",
+  "object": {
+   "type": "tag",
+   "sha": "6429057c8ccad56b72b1ae0fe03976e7b7b35988"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.4.2",
+  "object": {
+   "type": "tag",
+   "sha": "b54c29bd0b3eb7f7f7074005bb4d07fca48943bb"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.4.3",
+  "object": {
+   "type": "tag",
+   "sha": "7cabd502265ab89f99cc19d5bd555aeec6b6ce0d"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.5.0",
+  "object": {
+   "type": "tag",
+   "sha": "c8aed27136dbda585b91d3e45df2a92697f05364"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.5.1",
+  "object": {
+   "type": "tag",
+   "sha": "4fb9e520df8bddbe7af051bc30d86b7c9408f0bb"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.6.0",
+  "object": {
+   "type": "tag",
+   "sha": "f6f3128711c30251f0865c97308c2d64941b1dcb"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.6.1",
+  "object": {
+   "type": "tag",
+   "sha": "f461aa9cf20fc1b361835f7c2f9b0799b48f7dfa"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.6.2",
+  "object": {
+   "type": "tag",
+   "sha": "bfabc20ff80bb9b00351adc61abcc81533a8780e"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.7.0",
+  "object": {
+   "type": "tag",
+   "sha": "9f54421bed9c1b0d4da0d72269416a7d154cfb00"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.7.1",
+  "object": {
+   "type": "tag",
+   "sha": "1dfef9c32cd4d4a75b74e28295a1c588e09d4f37"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.7.2",
+  "object": {
+   "type": "tag",
+   "sha": "4f1451daf85140faf68be3ee2e024613b48f74f9"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.7.3",
+  "object": {
+   "type": "tag",
+   "sha": "4310ff8850dd9db39c1bc9f549e8c8a6fab1b045"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.7.4",
+  "object": {
+   "type": "tag",
+   "sha": "7aad137b423ce5e493fba5d38a5541df44079842"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.8.0",
+  "object": {
+   "type": "tag",
+   "sha": "88929d75a2df26e2be0ea7c84aae4888b55ca16d"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.8.1",
+  "object": {
+   "type": "tag",
+   "sha": "6efe6a9e8b72dc4c83d36ef2ba0e60ca616b8b99"
+  }
+ },
+ {
+  "ref": "refs/tags/companion-v1.9.0",
+  "object": {
+   "type": "tag",
+   "sha": "972690ac6754da1517add0be0b824416bd484923"
+  }
+ }
+]

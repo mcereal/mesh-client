@@ -111,13 +111,16 @@ static bool mesh_app_firmware_radio_ready(void *userdata) {
        over the mesh that has nothing to do with this cable. */
     const meshtastic_DeviceMetadata *const metadata =
         mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
-    if (identifier == NULL || metadata == NULL) {
+    /* A MeshCore radio has no DeviceMetadata; its DEVICE_INFO is the same proof it has
+       answered, and it names no model number to hold it to. */
+    const bool meshcore = app->meshcore_bound && app->meshcore.has_device;
+    if (identifier == NULL || (metadata == NULL && !meshcore)) {
         return false;
     }
     if (mesh_app_firmware_bus() != update->path) {
         return false;
     }
-    if (update->hw_model != 0U && (uint32_t)metadata->hw_model != update->hw_model) {
+    if (!meshcore && update->hw_model != 0U && (uint32_t)metadata->hw_model != update->hw_model) {
         return false;
     }
     /* The USB path names the port by the transport's own id rather than by the row's label, for
@@ -1835,9 +1838,17 @@ static void on_check_radio_firmware(struct mesh_app *app, const struct mesh_ui_a
        holding. */
     const meshtastic_DeviceMetadata *const metadata =
         mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
+    /* A MeshCore radio says the same two things in DEVICE_INFO, in words: its board's name
+       and its version. The build it runs is the one for the bus it answers on. */
     const int result =
-        mesh_firmware_check(&app->firmware, metadata != NULL ? (uint32_t)metadata->hw_model : 0U,
-                            metadata != NULL ? metadata->firmware_version : "", now);
+        app->meshcore_bound
+            ? mesh_firmware_check_meshcore(
+                  &app->firmware, app->meshcore.has_device ? app->meshcore.device.model : "",
+                  app->meshcore.has_device ? app->meshcore.device.version : "",
+                  mesh_app_firmware_bus() == MESH_FIRMWARE_PATH_USB, now)
+            : mesh_firmware_check(&app->firmware,
+                                  metadata != NULL ? (uint32_t)metadata->hw_model : 0U,
+                                  metadata != NULL ? metadata->firmware_version : "", now);
     if (result == 0) {
         inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_CHECKING_FIRMWARE));
     } else if (result == -ENOTSUP) {

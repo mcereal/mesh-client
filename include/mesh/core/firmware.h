@@ -27,6 +27,7 @@
 
 #include "inkwell/net/fetch.h"
 #include "mesh/core/firmware_catalog.h"
+#include "mesh/core/firmware_meshcore.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -86,8 +87,22 @@ enum mesh_firmware_blocker {
     MESH_FIRMWARE_BLOCKER_COUNT,
 };
 
+/*
+ * Whose firmware the radio runs, which is whose documents a check reads. Decided by the
+ * protocol the link speaks, not by the board: a Heltec V3 is either, and switching it from one
+ * to the other is a question for another day.
+ */
+enum mesh_firmware_source {
+    /* api.meshtastic.org's two documents, keyed on DeviceMetadata's hw_model. */
+    MESH_FIRMWARE_SOURCE_MESHTASTIC = 0,
+    /* MeshCore's flasher list and its GitHub releases, keyed on DEVICE_INFO's model string. */
+    MESH_FIRMWARE_SOURCE_MESHCORE,
+    MESH_FIRMWARE_SOURCE_COUNT,
+};
+
 struct mesh_firmware {
     struct inkwell_fetch fetch;
+    enum mesh_firmware_source source;
     enum mesh_firmware_state state;
     enum mesh_firmware_channel channel;
     /*
@@ -115,6 +130,12 @@ struct mesh_firmware {
        under the rows while a radio reconnects mid-check. */
     uint32_t hw_model;
     char running[MESH_FIRMWARE_VERSION_MAX];
+    /* A MeshCore radio's name for itself, and whether it is the USB companion build - which
+       is the build a write keeps it on. */
+    char model[MESH_FIRMWARE_BOARD_NAME_MAX];
+    bool usb_build;
+    /* The release the tag list named, which the third MeshCore document is fetched by. */
+    char tag[MESH_FIRMWARE_MESHCORE_TAG_MAX];
 
     /*
      * The caller's clock, stamped at every check and every tick.
@@ -172,6 +193,18 @@ void mesh_firmware_set_bus_native_usb(struct mesh_firmware *firmware, bool nativ
 int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const char *running,
                         uint64_t now_ms);
 
+/*
+ * The same check for a MeshCore radio, described by DEVICE_INFO: its `model` string, the
+ * `running` version ("v1.17.1-d929643"), and whether it is the USB companion build - which a
+ * companion answering over USB is, and one on BLE is not.
+ *
+ * Three documents rather than two: the flasher's device list for the build's name, the tag
+ * list for the newest companion release, and that release for the file. The channel is not
+ * read; MeshCore publishes one line of companion releases. Returns as mesh_firmware_check().
+ */
+int mesh_firmware_check_meshcore(struct mesh_firmware *firmware, const char *model,
+                                 const char *running, bool usb_build, uint64_t now_ms);
+
 /* Enforces the per-document timeout and keeps the fetch moving. Call every loop turn. */
 void mesh_firmware_tick(struct mesh_firmware *firmware, uint64_t now_ms);
 
@@ -191,6 +224,10 @@ void mesh_firmware_tick(struct mesh_firmware *firmware, uint64_t now_ms);
  */
 bool mesh_firmware_answers_for(const struct mesh_firmware *firmware, uint32_t hw_model,
                                const char *running);
+/* The same question about a MeshCore radio, which names itself by `model` rather than by a
+   number. An answer from the other source is never this radio's. */
+bool mesh_firmware_answers_for_meshcore(const struct mesh_firmware *firmware, const char *model,
+                                        const char *running);
 
 /*
  * Which of upstream's two release lists to read.

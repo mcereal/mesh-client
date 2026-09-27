@@ -21,6 +21,9 @@ Refresh one by fetching it again, not by editing it.
 | `zip_member_t114_mt_json_2.7.26.bin` | that member's local header and deflated bytes, as served | 2026-09-10 | nothing — 597 bytes covering both |
 | `firmware_release_2.7.26.json` | `…/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json` | 2026-09-10 | nothing — all 129 targets |
 | `tile_palette.png` | `devtools/tile_bench/gen_tiles.py`, the palette set's median tile at zoom 16 | 2026-09-11 | nothing — all 9,391 bytes |
+| `meshcore_flasher_config.json` | `https://flasher.meshcore.io/config.json` | 2026-09-27 | four of 67 devices (Heltec v4 + Expansion Kit, Heltec v3, Heltec T114, RAK 4631), `tooltip` and `notice` dropped, a Ripple build's versions cut to one |
+| `meshcore_companion_tags.json` | `https://api.github.com/repos/meshcore-dev/MeshCore/git/matching-refs/tags/companion-v` | 2026-09-27 | `url`s dropped; every tag kept |
+| `meshcore_release_companion-v1.17.1.json` | `…/repos/meshcore-dev/MeshCore/releases/tags/companion-v1.17.1` | 2026-09-27 | the 16 Heltec V3, T114 and RAK 4631 assets of 315, each cut to `name`, `content_type`, `size` and `browser_download_url` |
 
 `firmware_list.json` is the one that is not whole, because the served document is 155 KB and
 almost all of it is release notes. Kept: the first four entries of each channel, every key each

@@ -1193,7 +1193,16 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     const meshtastic_DeviceMetadata *const radio =
         mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
     const uint32_t model = radio != NULL ? (uint32_t)radio->hw_model : 0U;
-    if (model != 0U && !mesh_firmware_answers_for(firmware, model, radio->firmware_version)) {
+    if (app->meshcore_bound) {
+        /* A MeshCore radio names itself in DEVICE_INFO, and until it has there is nothing to
+           hold an answer against. */
+        if (app->meshcore.has_device &&
+            !mesh_firmware_answers_for_meshcore(firmware, app->meshcore.device.model,
+                                                app->meshcore.device.version)) {
+            mesh_firmware_forget(firmware);
+        }
+    } else if (model != 0U &&
+               !mesh_firmware_answers_for(firmware, model, radio->firmware_version)) {
         mesh_firmware_forget(firmware);
     }
 
@@ -1245,7 +1254,8 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     dst->fw_can_install =
         firmware->state == MESH_FIRMWARE_AVAILABLE &&
         firmware->blocker == MESH_FIRMWARE_BLOCKER_NONE && board != NULL &&
-        board->path != MESH_FIRMWARE_PATH_NONE && firmware->release.manifest_url[0] != '\0' &&
+        board->path != MESH_FIRMWARE_PATH_NONE &&
+        (firmware->release.manifest_url[0] != '\0' || firmware->release.image_url[0] != '\0') &&
         mesh_firmware_update_available(update) && !mesh_firmware_update_busy(update);
     /*
      * The one of those five the blocker cannot phrase, said here so that an empty reason always
@@ -1260,7 +1270,7 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
      */
     if (!dst->fw_can_install && firmware->state == MESH_FIRMWARE_AVAILABLE &&
         firmware->blocker == MESH_FIRMWARE_BLOCKER_NONE && dst->fw_blocker_reason[0] == '\0' &&
-        firmware->release.manifest_url[0] == '\0') {
+        firmware->release.manifest_url[0] == '\0' && firmware->release.image_url[0] == '\0') {
         inkwell_str_copy(dst->fw_blocker_reason, sizeof dst->fw_blocker_reason,
                          inkcell_str(MESH_STR_FW_BLOCK_NO_ASSETS));
     }

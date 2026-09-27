@@ -1,5 +1,8 @@
 #include "mesh/core/firmware_fetch.h"
 
+#include "mesh/core/esp_image.h"
+
+#include "inkwell/base/file.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
@@ -8,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 /* The release manifest is 9.8 KB at 2.7.26 - 129 targets of two keys each - and is read into
    memory rather than staged, because nothing downstream wants it as a file. */
@@ -35,6 +39,20 @@
 #define FETCH_STAGING_STEM "firmware"
 
 static void fetch_on_manifest(void *userdata, const struct inkwell_fetch_result *result);
+static void fetch_on_direct(void *userdata, const struct inkwell_fetch_result *result);
+
+/* Where the image landed, whichever way it came. */
+static const char *fetch_output_path(const struct mesh_firmware_fetch *fetch, char *out,
+                                     size_t out_len) {
+    if (fetch->direct) {
+        if (fetch->direct_path[0] == '\0' || strlen(fetch->direct_path) >= out_len) {
+            return NULL;
+        }
+        inkwell_str_copy(out, out_len, fetch->direct_path);
+        return out;
+    }
+    return inkwell_zip_fetch_output_path(&fetch->download, out, out_len);
+}
 static void fetch_on_download(void *userdata, const struct inkwell_zip_fetch *download);
 
 static void fetch_finish(struct mesh_firmware_fetch *fetch, enum mesh_firmware_fetch_state state,
@@ -236,7 +254,8 @@ static void fetch_read_manifest(struct mesh_firmware_fetch *fetch) {
 /* ---- step four: is this the image for this board ------------------------------------------*/
 
 static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
-    if (inkwell_zip_fetch_size(&fetch->download) != fetch->image.bytes) {
+    /* A direct download was measured as it landed, against the size its release gave. */
+    if (!fetch->direct && inkwell_zip_fetch_size(&fetch->download) != fetch->image.bytes) {
         /* The zip's central directory and the board's manifest disagree about how long the
            image is. Neither is more authoritative than the other, so this stops. */
         fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_WRONG_IMAGE,
@@ -259,7 +278,7 @@ static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
     }
 
     char path[INKWELL_FETCH_PATH_MAX];
-    if (inkwell_zip_fetch_output_path(&fetch->download, path, sizeof path) == NULL) {
+    if (fetch_output_path(fetch, path, sizeof path) == NULL) {
         fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOWNLOAD, "the image went missing");
         return;
     }
@@ -342,6 +361,140 @@ static void fetch_on_download(void *userdata, const struct inkwell_zip_fetch *do
     } else {
         fetch_check_image(fetch);
     }
+}
+
+/* ---- or the image, directly ---------------------------------------------------------------*/
+
+/*
+ * An image a release named directly has landed. It is the length its release said, or it is
+ * not the file that was described; and an ESP32 family image names its chip in its header,
+ * which is what the handover will hold the chip on the cable to.
+ */
+static void fetch_check_direct(struct mesh_firmware_fetch *fetch) {
+    size_t len = 0U;
+    uint8_t *const bytes = inkwell_file_read(fetch->direct_path, FETCH_IMAGE_MAX, &len);
+    if (bytes == NULL) {
+        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOWNLOAD, "the image is unreadable");
+        return;
+    }
+    if ((uint64_t)len != fetch->image.bytes) {
+        free(bytes);
+        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_WRONG_IMAGE,
+                   "the image is not the length its release describes");
+        return;
+    }
+    if (!mesh_firmware_architecture_uses_esp_rom(fetch->expect_architecture)) {
+        free(bytes);
+        fetch_check_image(fetch);
+        return;
+    }
+    /* Read against the chip the header claims, so what is being asked is whether this is an
+       application at all; which chip is the handover's question, put to the chip itself. */
+    struct inkwell_esp_image_info info;
+    memset(&info, 0, sizeof info);
+    (void)inkwell_esp_image_validate(bytes, len, 0U, &info);
+    const enum inkwell_esp_image_verdict verdict =
+        inkwell_esp_image_validate(bytes, len, info.chip_id, &info);
+    free(bytes);
+    const char *const architecture = mesh_esp_architecture_for_chip(info.chip_id);
+    if (verdict != INKWELL_ESP_IMAGE_OK || architecture == NULL ||
+        !mesh_firmware_architecture_takes(architecture, fetch->path)) {
+        char message[MESH_FIRMWARE_FETCH_MESSAGE_MAX];
+        snprintf(message, sizeof message,
+                 "the image is not an app this client can write (%s, "
+                 "chip 0x%04x)",
+                 inkwell_esp_image_verdict_name(verdict), (unsigned)info.chip_id);
+        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_WRONG_IMAGE, message);
+        return;
+    }
+    inkwell_str_copy(fetch->manifest.architecture, sizeof fetch->manifest.architecture,
+                     architecture);
+    inkwell_log_info("firmware", "The image is an %s app, %zu bytes", architecture, len);
+    fetch_finish(fetch, MESH_FIRMWARE_FETCH_READY, MESH_FIRMWARE_FETCH_ERROR_NONE, "");
+}
+
+static void fetch_on_direct(void *userdata, const struct inkwell_fetch_result *result) {
+    struct mesh_firmware_fetch *const fetch = (struct mesh_firmware_fetch *)userdata;
+    if (fetch == NULL || fetch->state != MESH_FIRMWARE_FETCH_DOWNLOADING) {
+        return;
+    }
+    if (result->outcome == INKWELL_FETCH_TOO_LARGE) {
+        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_WRONG_IMAGE,
+                   "the image is longer than its release describes");
+        return;
+    }
+    if (result->outcome != INKWELL_FETCH_OK) {
+        inkwell_log_warn("firmware", "The image download failed: %s (%s)",
+                         inkwell_fetch_outcome_name(result->outcome), result->detail);
+        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOWNLOAD,
+                   fetch_download_detail(INKWELL_ZIP_FETCH_ERROR_NETWORK));
+        return;
+    }
+    fetch_check_direct(fetch);
+}
+
+int mesh_firmware_fetch_start_direct(struct mesh_firmware_fetch *fetch,
+                                     struct inkwell_fetch *fetcher, const char *image_url,
+                                     const char *image_name, uint64_t bytes,
+                                     const char *expect_architecture, enum mesh_firmware_path bus,
+                                     const char *staging_dir, mesh_firmware_fetch_done_fn on_done,
+                                     void *userdata) {
+    if (fetch == NULL || fetcher == NULL || image_url == NULL || image_name == NULL ||
+        expect_architecture == NULL || staging_dir == NULL || image_url[0] == '\0' ||
+        staging_dir[0] == '\0' || bytes == 0U || bytes > FETCH_IMAGE_MAX ||
+        bus == MESH_FIRMWARE_PATH_NONE) {
+        return -EINVAL;
+    }
+    if (mesh_firmware_fetch_busy(fetch)) {
+        return -EBUSY;
+    }
+    if (!inkwell_fetch_available(fetcher)) {
+        return -ENOTSUP;
+    }
+    if (!mesh_firmware_architecture_takes(expect_architecture, bus)) {
+        return -ENOTSUP;
+    }
+
+    memset(fetch, 0, sizeof *fetch);
+    fetch->fetcher = fetcher;
+    fetch->direct = true;
+    inkwell_str_copy(fetch->direct_url, sizeof fetch->direct_url, image_url);
+    const int written = snprintf(fetch->direct_path, sizeof fetch->direct_path, "%s/%s.image",
+                                 staging_dir, FETCH_STAGING_STEM);
+    if (written < 0 || (size_t)written >= sizeof fetch->direct_path) {
+        return -ENAMETOOLONG;
+    }
+    inkwell_str_copy(fetch->expect_architecture, sizeof fetch->expect_architecture,
+                     expect_architecture);
+    inkwell_str_copy(fetch->manifest.architecture, sizeof fetch->manifest.architecture,
+                     expect_architecture);
+    inkwell_str_copy(fetch->staging, sizeof fetch->staging, staging_dir);
+    inkwell_str_copy(fetch->image.name, sizeof fetch->image.name, image_name);
+    fetch->image.bytes = bytes;
+    fetch->bus = bus;
+    fetch->path = bus;
+    fetch->on_done = on_done;
+    fetch->userdata = userdata;
+    fetch->state = MESH_FIRMWARE_FETCH_DOWNLOADING;
+    (void)remove(fetch->direct_path);
+
+    struct inkwell_fetch_request request;
+    memset(&request, 0, sizeof request);
+    request.url = fetch->direct_url;
+    request.output_path = fetch->direct_path;
+    request.output_max = bytes;
+    request.timeout_ms = FETCH_IMAGE_TIMEOUT_MS;
+    request.idle_timeout_ms = FETCH_IDLE_TIMEOUT_MS;
+    request.on_done = fetch_on_direct;
+    request.userdata = fetch;
+    const int started = inkwell_fetch_start(fetcher, &request, inkwell_time_monotonic_ms());
+    if (started != 0) {
+        fetch->state = MESH_FIRMWARE_FETCH_IDLE;
+        fetch->on_done = NULL;
+        return started;
+    }
+    inkwell_log_info("firmware", "Fetching %s, %llu bytes", image_name, (unsigned long long)bytes);
+    return 0;
 }
 
 /* ---- the public half ----------------------------------------------------------------------*/
@@ -428,9 +581,18 @@ unsigned mesh_firmware_fetch_progress(const struct mesh_firmware_fetch *fetch) {
     /* Only the image itself: the two documents are a few kilobytes each and a bar that jumped
        to 100 and back to 0 twice before the download started would be describing our work
        rather than theirs. */
-    return fetch->state == MESH_FIRMWARE_FETCH_DOWNLOADING
-               ? inkwell_zip_fetch_progress(&fetch->download)
-               : 0U;
+    if (fetch->state != MESH_FIRMWARE_FETCH_DOWNLOADING) {
+        return 0U;
+    }
+    if (fetch->direct) {
+        struct stat landed;
+        if (fetch->image.bytes == 0U || stat(fetch->direct_path, &landed) != 0) {
+            return 0U;
+        }
+        const uint64_t have = (uint64_t)landed.st_size;
+        return have >= fetch->image.bytes ? 100U : (unsigned)((have * 100U) / fetch->image.bytes);
+    }
+    return inkwell_zip_fetch_progress(&fetch->download);
 }
 
 const char *mesh_firmware_fetch_image_path(const struct mesh_firmware_fetch *fetch, char *out,
@@ -438,7 +600,7 @@ const char *mesh_firmware_fetch_image_path(const struct mesh_firmware_fetch *fet
     if (fetch == NULL || fetch->state != MESH_FIRMWARE_FETCH_READY) {
         return NULL;
     }
-    return inkwell_zip_fetch_output_path(&fetch->download, out, out_len);
+    return fetch_output_path(fetch, out, out_len);
 }
 
 const char *mesh_firmware_fetch_state_name(enum mesh_firmware_fetch_state state) {
