@@ -1121,10 +1121,12 @@ static void node_rows_relay(struct node_rows *rows, const struct mesh_ui_node_su
     char span[32];
     mesh_ui_format_duration(relay->uptime_seconds, span, sizeof span);
     rows_text(rows, MESH_STR_NODE_UPTIME, span);
-    rows_info(rows, MESH_STR_NODE_PACKETS_RECV, MESH_STR_NODE_VAL_PACKETS_SPLIT,
-              relay->packets_recv, relay->recv_flood, relay->recv_direct);
-    rows_info(rows, MESH_STR_NODE_PACKETS_SENT, MESH_STR_NODE_VAL_PACKETS_SPLIT,
-              relay->packets_sent, relay->sent_flood, relay->sent_direct);
+    /* By route rather than with the total too: three ten-digit counts do not fit a row, and
+       the total is all but their sum. */
+    rows_info(rows, MESH_STR_NODE_PACKETS_RECV, MESH_STR_NODE_VAL_FLOOD_DIRECT, relay->recv_flood,
+              relay->recv_direct);
+    rows_info(rows, MESH_STR_NODE_PACKETS_SENT, MESH_STR_NODE_VAL_FLOOD_DIRECT, relay->sent_flood,
+              relay->sent_direct);
     rows_info(rows, MESH_STR_NODE_DUPLICATES, MESH_STR_NODE_VAL_FLOOD_DIRECT,
               (unsigned)relay->flood_dups, (unsigned)relay->direct_dups);
     rows_info(rows, MESH_STR_NODE_NOISE_FLOOR, MESH_STR_NODE_VAL_RSSI, (int)relay->noise_floor);

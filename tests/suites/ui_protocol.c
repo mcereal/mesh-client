@@ -220,6 +220,55 @@ MESH_TEST_CASE(ui_protocol_node_sheet_offers_what_the_protocol_has, unit) {
     record_success(test_name);
 }
 
+/* Every row of a repeater's status fits the row it is written into, in every language the
+   build ships, with every counter at its widest: a cut label or value says nothing on the frame
+   and splits a UTF-8 character where it lands. */
+MESH_TEST_CASE(ui_protocol_repeater_status_fits_its_rows, unit) {
+    static const inkcell_str_id kLabels[] = {
+        MESH_STR_NODE_HEAD_RELAY, MESH_STR_NODE_ACT_REQUEST_STATUS, MESH_STR_NODE_ACT_LOGIN,
+        MESH_STR_NODE_UPTIME,     MESH_STR_NODE_PACKETS_RECV,       MESH_STR_NODE_PACKETS_SENT,
+        MESH_STR_NODE_DUPLICATES, MESH_STR_NODE_NOISE_FLOOR,        MESH_STR_NODE_LAST_RX,
+        MESH_STR_NODE_AIRTIME_TX, MESH_STR_NODE_AIRTIME_RX,         MESH_STR_NODE_TX_QUEUE,
+        MESH_STR_NODE_ERRORS,     MESH_STR_NODE_RECV_ERRORS,        MESH_STR_NODE_POSTS,
+        MESH_STR_NODE_REPORTED,
+    };
+    for (size_t locale = 0; locale < inkcell_i18n_locale_count(); ++locale) {
+        const struct inkcell_i18n_locale *const which = inkcell_i18n_locale_at(locale);
+        char reason[160];
+        for (size_t i = 0; i < sizeof kLabels / sizeof kLabels[0]; ++i) {
+            const char *const text = inkcell_str_in(which, kLabels[i]);
+            if (strlen(text) >= MESH_UI_NODE_LABEL_MAX) {
+                snprintf(reason, sizeof reason, "%s: %s is %u bytes, over the %u-byte row label",
+                         which->id, inkcell_str_id_name(kLabels[i]), (unsigned)strlen(text),
+                         (unsigned)MESH_UI_NODE_LABEL_MAX - 1U);
+                MESH_TEST_FAIL_IF(true, reason);
+            }
+        }
+        /* Formatted in that language, the way the row is: through the catalog's own call. */
+        MESH_TEST_FAIL_IF(!inkcell_i18n_set_locale(which->id), "the locale can be chosen");
+        char value[256];
+        const int widths[] = {
+            inkcell_str_format(value, sizeof value, MESH_STR_NODE_VAL_FLOOD_DIRECT, UINT32_MAX,
+                               UINT32_MAX),
+            inkcell_str_format(value, sizeof value, MESH_STR_NODE_VAL_RSSI_SNR, INT16_MIN,
+                               (double)INT16_MIN / 4.0),
+            inkcell_str_format(value, sizeof value, MESH_STR_NODE_VAL_RSSI, INT16_MIN),
+            inkcell_str_format(value, sizeof value, MESH_STR_NODE_VAL_POSTS, (unsigned)UINT16_MAX,
+                               (unsigned)UINT16_MAX),
+            inkcell_str_format(value, sizeof value, MESH_STR_NODE_VAL_NUMBER, UINT32_MAX),
+        };
+        (void)inkcell_i18n_set_locale(inkcell_i18n_locale_english()->id);
+        for (size_t i = 0; i < sizeof widths / sizeof widths[0]; ++i) {
+            if (widths[i] < 0 || (size_t)widths[i] >= MESH_UI_NODE_VALUE_MAX) {
+                snprintf(reason, sizeof reason, "%s: value %u is %d bytes at its widest, over %u",
+                         which->id, (unsigned)i, widths[i], (unsigned)MESH_UI_NODE_VALUE_MAX - 1U);
+                MESH_TEST_FAIL_IF(true, reason);
+            }
+        }
+    }
+    record_success(test_name);
+}
+
 /* A repeater's or room server's status is asked from the sheet where its login is, and what
    it answers is a group of its own on the detail - found by its label, not its position. */
 MESH_TEST_CASE(ui_protocol_meshcore_asks_a_repeater_for_status, unit) {
@@ -279,7 +328,7 @@ MESH_TEST_CASE(ui_protocol_meshcore_asks_a_repeater_for_status, unit) {
         grouped = grouped || strcmp(items[i].label, heading) == 0;
         received =
             received || (strcmp(items[i].label, inkcell_str(MESH_STR_NODE_PACKETS_RECV)) == 0 &&
-                         strcmp(items[i].value, "700 (600 flood, 100 direct)") == 0);
+                         strcmp(items[i].value, "600 flood, 100 direct") == 0);
         floor = floor || (strcmp(items[i].label, inkcell_str(MESH_STR_NODE_NOISE_FLOOR)) == 0 &&
                           strcmp(items[i].value, "-118 dBm") == 0);
     }

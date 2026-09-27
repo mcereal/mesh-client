@@ -948,7 +948,7 @@ MESH_STR_ENTRY(NODE_SPO2,                 "SpO2")
 MESH_STR_ENTRY(NODE_FREE_MEMORY,          "Free memory")
 MESH_STR_ENTRY(NODE_FREE_DISK,            "Free disk")
 MESH_STR_ENTRY(NODE_LOAD,                 "Load")
-/* A repeater's status: its packet counts since boot, split by how each was routed. */
+/* A repeater's status: its packet counts since boot, by how each was routed. */
 MESH_STR_ENTRY(NODE_PACKETS_RECV,         "Received")
 MESH_STR_ENTRY(NODE_PACKETS_SENT,         "Sent")
 MESH_STR_ENTRY(NODE_DUPLICATES,           "Duplicates")
@@ -1133,7 +1133,6 @@ MESH_STR_ENTRY(NODE_VAL_MEGABYTES,        "%u MB")
 MESH_STR_ENTRY(NODE_VAL_GIGABYTES,        "%.1f GB")
 /* A Linux load average: one, five and fifteen minutes. */
 MESH_STR_ENTRY(NODE_VAL_LOAD,             "%.2f %.2f %.2f")
-MESH_STR_ENTRY(NODE_VAL_PACKETS_SPLIT,    "%u (%u flood, %u direct)")
 MESH_STR_ENTRY(NODE_VAL_FLOOD_DIRECT,     "%u flood, %u direct")
 MESH_STR_ENTRY(NODE_VAL_RSSI_SNR,         "%d dBm, %.1f dB")
 MESH_STR_ENTRY(NODE_VAL_POSTS,            "%u (%u pushed)")
