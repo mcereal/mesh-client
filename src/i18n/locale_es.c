@@ -799,9 +799,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Una radio con pantalla muestra un código nuevo cada vez que arranca; un PIN fijo son "
         "los mismos seis dígitos siempre. Cualquiera de los dos se aplica al reiniciar la radio.",
     [MESH_STR_SETTINGS_NOTE_MESHCORE_PIN] =
-        "Los seis dígitos para vincular cuando la vinculación usa un PIN fijo; escribir uno lo "
-        "fija. La radio lo conserva tras una actualización de firmware que mantiene sus ajustes, y "
-        "Pasar a Bluetooth vincula con él por ti. Como todo PIN fijo, es comodidad y no seguridad.",
+        "Seis dígitos para vincular; escribir uno lo fija. Sobrevive a Pasar a Bluetooth, que "
+        "vincula con él por ti. Un PIN fijo es comodidad y no seguridad.",
     [MESH_STR_SETTINGS_NOTE_EXTRA_ACKS] =
         "Envía cada confirmación de entrega más de una vez, para perder menos en un camino malo, "
         "a costa de tiempo de aire.",
