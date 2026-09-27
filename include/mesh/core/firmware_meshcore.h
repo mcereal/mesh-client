@@ -59,6 +59,10 @@ extern "C" {
 bool mesh_firmware_meshcore_boards_parse(const char *json, size_t len, const char *model, bool usb,
                                          struct mesh_firmware_boards *out);
 
+/* Whether a radio calling itself `model` is the flasher's device `device`: the same words
+   ignoring case, or a row of the alias table. */
+bool mesh_firmware_meshcore_names(const char *model, const char *device);
+
 /*
  * The newest companion release in a list of tag refs, as "companion-v1.17.1" into `tag` and
  * "1.17.1" into `version`. Newest by version, since the list is ordered by name and

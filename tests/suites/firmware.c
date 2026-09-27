@@ -605,11 +605,15 @@ MESH_TEST_CASE(firmware_check_meshcore_reads_the_flasher_and_the_release, unit) 
         goto cleanup;
     }
     mesh_firmware_set_bus_native_usb(&harness.firmware, false);
-    if (!mesh_firmware_answers_for_meshcore(&harness.firmware, "Heltec V3", "v1.16.0-0123456") ||
-        mesh_firmware_answers_for_meshcore(&harness.firmware, "Heltec V3", "v1.17.1-d929643") ||
+    if (!mesh_firmware_answers_for_meshcore(&harness.firmware, "Heltec V3", "v1.16.0-0123456",
+                                            true) ||
+        mesh_firmware_answers_for_meshcore(&harness.firmware, "Heltec V3", "v1.17.1-d929643",
+                                           true) ||
+        mesh_firmware_answers_for_meshcore(&harness.firmware, "Heltec V3", "v1.16.0-0123456",
+                                           false) ||
         mesh_firmware_answers_for(&harness.firmware, 0U, "v1.16.0-0123456")) {
-        failure = "the answer is this radio's, until it names itself differently or speaks "
-                  "Meshtastic";
+        failure = "the answer is this radio's, until it names itself differently, answers over "
+                  "the other bus - which is the other build's file - or speaks Meshtastic";
         goto cleanup;
     }
 

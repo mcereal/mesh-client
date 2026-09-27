@@ -1197,8 +1197,9 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
         /* A MeshCore radio names itself in DEVICE_INFO, and until it has there is nothing to
            hold an answer against. */
         if (app->meshcore.has_device &&
-            !mesh_firmware_answers_for_meshcore(firmware, app->meshcore.device.model,
-                                                app->meshcore.device.version)) {
+            !mesh_firmware_answers_for_meshcore(
+                firmware, app->meshcore.device.model, app->meshcore.device.version,
+                mesh_app_firmware_bus() == MESH_FIRMWARE_PATH_USB)) {
             mesh_firmware_forget(firmware);
         }
     } else if (model != 0U &&

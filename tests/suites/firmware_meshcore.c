@@ -62,6 +62,12 @@ MESH_TEST_CASE(firmware_meshcore_matches_through_the_alias_and_never_guesses, un
                       "a name nobody publishes for is no board");
     MESH_TEST_FAIL_IF(!boards_for("Heltec", true, &boards) || boards.found != 0U,
                       "and a name is matched whole, not as the start of another");
+    MESH_TEST_FAIL_IF(
+        !mesh_firmware_meshcore_names("Heltec V3", "Heltec v3") ||
+            !mesh_firmware_meshcore_names("RAK 4631", "RAK WisBlock / WisMesh (RAK 4631)") ||
+            mesh_firmware_meshcore_names("Heltec V4", "Heltec v3") ||
+            mesh_firmware_meshcore_names("", ""),
+        "the handover holds a radio to the device its image was chosen for");
     record_success(test_name);
 }
 

@@ -397,8 +397,9 @@ static void fetch_check_direct(struct mesh_firmware_fetch *fetch) {
         inkwell_esp_image_validate(bytes, len, info.chip_id, &info);
     free(bytes);
     const char *const architecture = mesh_esp_architecture_for_chip(info.chip_id);
-    if (verdict != INKWELL_ESP_IMAGE_OK || architecture == NULL ||
-        !mesh_firmware_architecture_takes(architecture, fetch->path)) {
+    /* Any chip this client can name, since the ROM loader speaks to each of them: the
+       catalog's path table is Meshtastic's BLE story and says nothing about a cable. */
+    if (verdict != INKWELL_ESP_IMAGE_OK || architecture == NULL) {
         char message[MESH_FIRMWARE_FETCH_MESSAGE_MAX];
         snprintf(message, sizeof message,
                  "the image is not an app this client can write (%s, "

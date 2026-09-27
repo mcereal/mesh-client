@@ -225,9 +225,10 @@ void mesh_firmware_tick(struct mesh_firmware *firmware, uint64_t now_ms);
 bool mesh_firmware_answers_for(const struct mesh_firmware *firmware, uint32_t hw_model,
                                const char *running);
 /* The same question about a MeshCore radio, which names itself by `model` rather than by a
-   number. An answer from the other source is never this radio's. */
+   number - and by which build it runs, `usb_build`, since the build decided which file was
+   found. An answer from the other source is never this radio's. */
 bool mesh_firmware_answers_for_meshcore(const struct mesh_firmware *firmware, const char *model,
-                                        const char *running);
+                                        const char *running, bool usb_build);
 
 /*
  * Which of upstream's two release lists to read.

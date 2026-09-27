@@ -356,6 +356,9 @@ static const uint8_t k_s3_header[48] = {
     0x32, 0x54, 0xCD, 0xAB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 #define DIRECT_IMAGE_LEN 4096U
+/* The chip the served header names: its twelfth byte. The fixture's child is forked after this
+   is set, so it serves what the case asked for. */
+static uint8_t g_direct_chip = 0x09U;
 
 /* A release asset the way GitHub serves one: a 302 to its storage host, then the file whole. */
 static void direct_serve(void *userdata, const struct https_fixture_request *request,
@@ -371,6 +374,7 @@ static void direct_serve(void *userdata, const struct https_fixture_request *req
     static uint8_t image[DIRECT_IMAGE_LEN];
     memset(image, 0x5A, sizeof image);
     memcpy(image, k_s3_header, sizeof k_s3_header);
+    image[12] = g_direct_chip;
     https_fixture_reply(conn, 200, NULL, (const char *)image, sizeof image);
 }
 
@@ -453,8 +457,27 @@ MESH_TEST_CASE(firmware_fetch_takes_a_named_file_and_reads_its_chip, unit) {
                             fetch.error != MESH_FIRMWARE_FETCH_ERROR_WRONG_IMAGE)) {
         failure = "and one shorter is not the file described";
     }
+    if (failure != NULL) {
+        goto cleanup;
+    }
+
+    /* The flasher says "esp32" for a C3 board too, and its ROM is reached the same way - so a
+       chip Meshtastic's path table has no cable for is still one this can write. */
+    g_direct_chip = 0x05U;
+    https_fixture_stop(&server);
+    if (!https_fixture_start(&server, direct_serve, NULL)) {
+        failure = "could not stand the release host up again";
+        goto cleanup;
+    }
+    https_fixture_attach(&server, &fetcher);
+    failure = direct_run(&loop, &fetcher, &fetch, DIRECT_IMAGE_LEN, dir);
+    if (failure == NULL && (fetch.state != MESH_FIRMWARE_FETCH_READY ||
+                            strcmp(fetch.manifest.architecture, "esp32-c3") != 0)) {
+        failure = "an ESP32-C3 app is read as one";
+    }
 
 cleanup:
+    g_direct_chip = 0x09U;
     if (fetch_up) {
         inkwell_fetch_shutdown(&fetcher);
     }

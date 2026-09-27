@@ -51,7 +51,10 @@ static const struct {
     {"Xiao S3 WIO", "Seeed Studio Xiao S3 WIO"},
 };
 
-static bool meshcore_names(const char *model, const char *device) {
+bool mesh_firmware_meshcore_names(const char *model, const char *device) {
+    if (model == NULL || device == NULL || model[0] == '\0') {
+        return false;
+    }
     if (strcasecmp(model, device) == 0) {
         return true;
     }
@@ -139,7 +142,7 @@ static bool meshcore_read_device(struct inkwell_json *json, const char *model, c
         } else if (strcmp(key, "type") == 0) {
             read = inkwell_json_read_string(json, type, sizeof type);
         } else if (strcmp(key, "firmware") == 0 && name[0] != '\0' && type[0] != '\0' &&
-                   meshcore_names(model, name)) {
+                   mesh_firmware_meshcore_names(model, name)) {
             /* `name` and `type` come before `firmware` in every entry the flasher publishes;
                one that did not would be skipped as though it named another device. */
             if (!inkwell_json_enter_array(json)) {

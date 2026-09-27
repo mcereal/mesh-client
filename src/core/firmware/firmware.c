@@ -423,11 +423,11 @@ bool mesh_firmware_answers_for(const struct mesh_firmware *firmware, uint32_t hw
 }
 
 bool mesh_firmware_answers_for_meshcore(const struct mesh_firmware *firmware, const char *model,
-                                        const char *running) {
+                                        const char *running, bool usb_build) {
     if (firmware == NULL || firmware->state == MESH_FIRMWARE_IDLE) {
         return true;
     }
-    return firmware->source == MESH_FIRMWARE_SOURCE_MESHCORE &&
+    return firmware->source == MESH_FIRMWARE_SOURCE_MESHCORE && firmware->usb_build == usb_build &&
            strcmp(firmware->model, model != NULL ? model : "") == 0 &&
            strcmp(firmware->running, running != NULL ? running : "") == 0;
 }

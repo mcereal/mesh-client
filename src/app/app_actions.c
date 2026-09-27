@@ -112,8 +112,12 @@ static bool mesh_app_firmware_radio_ready(void *userdata) {
     const meshtastic_DeviceMetadata *const metadata =
         mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
     /* A MeshCore radio has no DeviceMetadata; its DEVICE_INFO is the same proof it has
-       answered, and it names no model number to hold it to. */
-    const bool meshcore = app->meshcore_bound && app->meshcore.has_device;
+       answered, and its name is what it is held to - the image was chosen for the flasher's
+       device that name matched, and a MeshCore board carries no model number (a Meshtastic
+       one always does, so an install chosen for one never takes the other). */
+    const bool meshcore =
+        app->meshcore_bound && app->meshcore.has_device && update->hw_model == 0U &&
+        mesh_firmware_meshcore_names(app->meshcore.device.model, update->board.name);
     if (identifier == NULL || (metadata == NULL && !meshcore)) {
         return false;
     }
