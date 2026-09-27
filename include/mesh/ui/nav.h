@@ -1292,10 +1292,18 @@ bool mesh_ui_nav_picker_row(const struct mesh_ui_store *store, uint32_t index, u
 void mesh_ui_nav_target_avatar(const struct mesh_ui_store *store, uint32_t node, uint8_t channel,
                                char *out_initials, size_t out_len, uint32_t *out_tint);
 
-/* Compose overlay rows: 0 = the draft, then the canned replies. There is no To: row; the
-   overlay only ever opens over a thread, and that thread is the destination. */
+/*
+ * Compose overlay rows: 0 = the draft, 1 = the heading over the canned replies, then the replies.
+ * There is no To: row; the overlay only ever opens over a thread, and that thread is the
+ * destination.
+ *
+ * The heading is a row of the model, as a settings section's are, so the index a list draws and
+ * the index a click lands on are the one the cursor holds - and the cursor steps over it. With no
+ * canned replies there is nothing for it to name and the draft is the only row.
+ */
 #define MESH_UI_COMPOSE_ROW_DRAFT 0U
-#define MESH_UI_COMPOSE_FIRST_CANNED 1U
+#define MESH_UI_COMPOSE_ROW_HEADING 1U
+#define MESH_UI_COMPOSE_FIRST_CANNED 2U
 uint32_t mesh_ui_nav_compose_row_count(void);
 
 /*

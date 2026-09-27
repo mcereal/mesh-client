@@ -538,7 +538,11 @@ MESH_STR_ENTRY(COMPOSE_TO_KIND,           "To: %s%s")
 MESH_STR_ENTRY(COMPOSE_SUFFIX_CHANNEL,    "  (channel)")
 MESH_STR_ENTRY(COMPOSE_SUFFIX_DIRECT,     "  (direct)")
 MESH_STR_ENTRY(COMPOSE_DRAFT,             "Draft: %s")
-MESH_STR_ENTRY(COMPOSE_DRAFT_EMPTY,       "[ Type a message ]")
+/* The draft row with nothing written yet: a field's placeholder, drawn quiet, so it reads as
+   the invitation it is rather than as a message already there. */
+MESH_STR_ENTRY(COMPOSE_DRAFT_EMPTY,       "Write a message")
+/* The heading over the canned replies on the compose sheet. */
+MESH_STR_ENTRY(COMPOSE_QUICK_REPLIES,     "Quick replies")
 /* The badge on the compose sheet and the keyboard when what is being written answers one
    message rather than the conversation. One word - it is a capsule, not a sentence. */
 MESH_STR_ENTRY(COMPOSE_BADGE_REPLY,       "reply")
