@@ -198,6 +198,8 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB] = INKCELL_ICON_USB,
     [MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH] = INKCELL_ICON_SWAP,
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH] = INKCELL_ICON_USB,
+    [MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_BLUETOOTH] = INKCELL_ICON_BLUETOOTH,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH] = INKCELL_ICON_BLUETOOTH,
     /* A silent radio's boards: looked up, then one of them taken. */
     [MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS] = INKCELL_ICON_SEARCH,
     [MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD] = INKCELL_ICON_DEVICE,
@@ -293,6 +295,8 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB] = INKCELL_TONE_WARNING,
     [MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_SWITCH] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH] = INKCELL_TONE_ERROR,
+    [MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_BLUETOOTH] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH] = INKCELL_TONE_ERROR,
     [MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE] = INKCELL_TONE_ERROR,
@@ -2939,7 +2943,8 @@ bool mesh_ui_settings_action_is_cycle(enum mesh_ui_settings_action action) {
 bool mesh_ui_settings_action_is_install_firmware(enum mesh_ui_settings_action action) {
     return action == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB ||
            action == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE ||
-           action == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH;
+           action == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH ||
+           action == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH;
 }
 
 /* Spelled out rather than "everything that needs confirming, plus the position pair": the
@@ -3012,6 +3017,9 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FW_SWITCH));
         return;
+    case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FW_BLUETOOTH));
+        return;
     case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_HAM_MODE));
         return;
@@ -3060,6 +3068,8 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FW_BLE);
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH:
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FW_SWITCH);
+    case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH:
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FW_BLUETOOTH);
     case MESH_UI_SETTINGS_ACTION_SET_HAM_MODE:
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_HAM_MODE);
     /* "Clear the slot", not "Save": what stands behind this sheet is a write like any other,
@@ -3181,6 +3191,9 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
         return;
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_FW_SWITCH));
+        return;
+    case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_FW_BLUETOOTH));
         return;
     case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_RM_BACKUP));

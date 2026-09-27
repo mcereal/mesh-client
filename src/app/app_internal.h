@@ -282,6 +282,9 @@ void mesh_app_bind_protocol(struct mesh_app *app, bool meshcore);
 #define MESH_APP_PROBE_WINDOW_MS 6000U
 /* How long a link that answered neither is passed over by auto-connect. */
 #define MESH_APP_PROBE_MUTE_MS 60000U
+/* How long a radio moved to its Bluetooth build is reached for by name ahead of every other:
+   the write, its restart, a first boot and a scan or two, with room to spare. */
+#define MESH_APP_BLE_HANDOFF_MS 300000U
 /* The window after a switch, and how long after it the port is still owed one. A wiped
    MeshCore ESP32 formats its filesystem and makes its keys before its first frame. */
 #define MESH_APP_PROBE_FIRST_BOOT_WINDOW_MS 45000U

@@ -893,6 +893,11 @@ struct mesh_ui_settings {
      */
     bool fw_switch_offer;
     bool fw_switching;
+    /* A MeshCore radio on a USB cable can be asked for its Bluetooth companion build
+       (`fw_bluetooth_offer`), and the answer above is that build (`fw_other_build`): the same
+       firmware, whose install keeps the radio's settings and leaves it answering over the air. */
+    bool fw_bluetooth_offer;
+    bool fw_other_build;
     /* Where a switch goes: MeshCore, or Meshtastic. The radio's protocol says it for a fresh
        answer, but a switch that stopped half way may be answering in either - the job knows. */
     bool fw_switch_to_meshcore;

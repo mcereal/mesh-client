@@ -162,6 +162,11 @@ struct mesh_app {
     /* The port a silent radio's board is being chosen for, by its key: what the list, the
        answer and the install that follows are all about. */
     char firmware_blank_port[MESH_APP_PROBE_ID_MAX];
+    /* A MeshCore radio just moved to its Bluetooth build: the name it will advertise under,
+       which auto-connect reaches for ahead of any other until `firmware_ble_handoff_until_ms`.
+       Empty when there is none. */
+    char firmware_ble_handoff[MESH_MESHCORE_NAME_LEN + 16U];
+    uint64_t firmware_ble_handoff_until_ms;
     /* Whether an install stopped the transports and owes them back. A flag rather than a
        question, because "stopped" and "stopped by us" are not the same state and only the
        second one should be restarted. */

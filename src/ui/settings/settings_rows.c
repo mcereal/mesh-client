@@ -998,15 +998,22 @@ static void build_radio_firmware_linked(const struct mesh_ui_settings *s, struct
      * state's own word stands in - which is also why the press below is offered whatever state
      * this is in: a check is worth repeating, and a failed one is worth retrying.
      */
-    const inkcell_str_id answer = s->fw_switching ? (to_meshcore ? MESH_STR_FW_SWITCH_MESHCORE
-                                                                 : MESH_STR_FW_SWITCH_MESHTASTIC)
-                                  : newer         ? MESH_STR_FW_NEWER
-                                                  : MESH_STR_FW_LATEST;
+    const inkcell_str_id answer = s->fw_switching     ? (to_meshcore ? MESH_STR_FW_SWITCH_MESHCORE
+                                                                     : MESH_STR_FW_SWITCH_MESHTASTIC)
+                                  : s->fw_other_build ? MESH_STR_FW_BLUETOOTH_BUILD
+                                  : newer             ? MESH_STR_FW_NEWER
+                                                      : MESH_STR_FW_LATEST;
     item_text(list, answer, INKSTAND_FORM_INFO,
               s->fw_message[0] != '\0'
                   ? s->fw_message
                   : mesh_firmware_state_name((enum mesh_firmware_state)s->fw_state));
     item_verb(list, MESH_STR_FW_CHECK, MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE);
+    /* The same firmware's other build, for a MeshCore radio on a cable: the question the
+       Bluetooth companion answers is how the radio is reached, not what it runs. */
+    if (s->fw_bluetooth_offer) {
+        item_verb(list, MESH_STR_FW_BLUETOOTH_CHECK,
+                  MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_BLUETOOTH);
+    }
     /* The other firmware, once the check has named the board and the board has a twin there.
        Under the check, since it is the same question asked of the other project. */
     if (s->fw_switch_offer && !s->fw_switching) {
@@ -1075,6 +1082,12 @@ static void build_radio_firmware_linked(const struct mesh_ui_settings *s, struct
         /* The whole flash, over USB and nowhere else - the blocker has seen to the bus. */
         item_verb(list, MESH_STR_FW_SWITCH_INSTALL,
                   MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH);
+        return;
+    }
+    /* Over the cable it is on, under a sheet that says the cable stops answering. */
+    if (s->fw_other_build) {
+        item_verb(list, MESH_STR_FW_BLUETOOTH_INSTALL,
+                  MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH);
         return;
     }
     item_verb(list, MESH_STR_FW_INSTALL,

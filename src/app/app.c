@@ -900,8 +900,25 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     }
 
     const struct inkwell_ble_device *target = NULL;
+    bool handoff = false;
+    /* A radio this client just moved to its Bluetooth build, by the name it now advertises:
+       the one in the user's hand, ahead of whatever was used last. */
+    if (app->firmware_ble_handoff[0] != '\0' && now >= app->firmware_ble_handoff_until_ms) {
+        app->firmware_ble_handoff[0] = '\0';
+    }
+    for (size_t i = 0; app->firmware_ble_handoff[0] != '\0' && i < in_range_count; ++i) {
+        const struct inkwell_ble_device *device = &devices[in_range[i]];
+        if (strcasecmp(device->name, app->firmware_ble_handoff) == 0) {
+            inkwell_log_info("app", "Reaching for %s, just moved to Bluetooth (%s, %d dBm)",
+                             device->name, device->address, (int)device->rssi);
+            target = device;
+            handoff = true;
+            app->firmware_ble_handoff[0] = '\0';
+            break;
+        }
+    }
     const char *preferred = app->config.preferred_ble_device;
-    if (preferred[0] != '\0') {
+    if (target == NULL && preferred[0] != '\0') {
         for (size_t i = 0; i < in_range_count; ++i) {
             const struct inkwell_ble_device *device = &devices[in_range[i]];
             if (strcasecmp(device->address, preferred) == 0 ||
@@ -922,7 +939,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
      * stranger - and the preferred one gets the turn after, so it is still reached the moment
      * it answers. See mesh_app_backoff_autoconnect() for the alternation.
      */
-    if (target != NULL &&
+    if (target != NULL && !handoff &&
         app->autoconnect_preferred_failures >= MESH_APP_AUTOCONNECT_PREFERRED_TRIES) {
         const struct inkwell_ble_device *other = NULL;
         int best_rank = -1;
@@ -1005,7 +1022,10 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     }
 
     mesh_app_bind_protocol(app, mesh_app_ble_speaks_meshcore(ble, target->address));
-    int result = mesh_ble_transport_connect(ble, target->address);
+    /* The radio just moved to Bluetooth is one the user is holding, having agreed to the move:
+       its PIN - on its screen, for a MeshCore build with one - is theirs to type. */
+    int result = handoff ? mesh_ble_transport_connect_and_pair(ble, target->address)
+                         : mesh_ble_transport_connect(ble, target->address);
     if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {
         if (result == 0) {
             inkwell_log_info("app", "Auto-connecting to %s (%s)", target->name, target->address);

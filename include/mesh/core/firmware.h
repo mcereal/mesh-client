@@ -136,6 +136,10 @@ struct mesh_firmware {
        is the build a write keeps it on. */
     char model[MESH_FIRMWARE_BOARD_NAME_MAX];
     bool usb_build;
+    /* The answer is the radio's other companion build - Bluetooth, for a radio on a USB cable -
+       so `usb_build` is not the build the bus says it runs. Same firmware, same settings: the
+       application is written and nothing else. */
+    bool other_build;
     /* The release the tag list named, which the third MeshCore document is fetched by. */
     char tag[MESH_FIRMWARE_MESHCORE_TAG_MAX];
     /*
@@ -222,6 +226,16 @@ int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const
  */
 int mesh_firmware_check_meshcore(struct mesh_firmware *firmware, const char *model,
                                  const char *running, bool usb_build, uint64_t now_ms);
+
+/*
+ * The same radio's Bluetooth companion build, asked over the USB cable it answers on: the newest
+ * release whatever the radio runs, since what is news is the build and not the version. The
+ * install writes the application only, so the radio keeps its identity, contacts and channels,
+ * and comes back answering over Bluetooth and no longer over the cable. Returns as
+ * mesh_firmware_check_meshcore().
+ */
+int mesh_firmware_check_meshcore_bluetooth(struct mesh_firmware *firmware, const char *model,
+                                           const char *running, uint64_t now_ms);
 
 /*
  * A switch: the newest release of the *other* firmware for the board this radio is, as a whole
