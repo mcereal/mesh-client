@@ -728,6 +728,12 @@ static bool mesh_app_handoff_rejected(const struct mesh_app *app, const char *ad
     return false;
 }
 
+/* A bond already gone is the state a removal is for, not a removal still to make. */
+static bool mesh_app_handoff_unbond(struct mesh_transport *ble, const char *address) {
+    const int result = mesh_ble_transport_forget(ble, address);
+    return result == 0 || result == -ENOENT;
+}
+
 static void mesh_app_handoff_reject(struct mesh_app *app, const char *address) {
     if (mesh_app_handoff_rejected(app, address)) {
         return;
@@ -808,7 +814,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
                    the stranger up later; one it already had is the user's and stays. */
                 mesh_app_handoff_reject(app, over_air);
                 if (strcmp(over_air, app->firmware_ble_handoff_bonded) == 0 &&
-                    mesh_ble_transport_forget(ble, over_air) == 0) {
+                    mesh_app_handoff_unbond(ble, over_air)) {
                     app->firmware_ble_handoff_bonded[0] = '\0';
                 }
             }
@@ -817,16 +823,21 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     if (ble == NULL || link_up || mesh_app_link_connecting()) {
         return;
     }
-    /* A removal BlueZ refused stays pending and is asked again each turn until it is done. */
-    if (app->firmware_ble_handoff_bonded[0] != '\0' &&
-        mesh_app_handoff_rejected(app, app->firmware_ble_handoff_bonded) &&
-        mesh_ble_transport_forget(ble, app->firmware_ble_handoff_bonded) == 0) {
-        app->firmware_ble_handoff_bonded[0] = '\0';
-    }
 
     uint64_t now = inkwell_time_monotonic_ms();
     if (now < app->autoconnect_retry_at_ms) {
         return;
+    }
+    /* A removal BlueZ refused stays pending and is asked again each turn until it is done -
+       and nothing else is connected meanwhile, so the next candidate cannot take the one
+       marker it is kept in. */
+    if (app->firmware_ble_handoff_bonded[0] != '\0' &&
+        mesh_app_handoff_rejected(app, app->firmware_ble_handoff_bonded)) {
+        if (!mesh_app_handoff_unbond(ble, app->firmware_ble_handoff_bonded)) {
+            app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
+            return;
+        }
+        app->firmware_ble_handoff_bonded[0] = '\0';
     }
 
     /* Never while the write is still to be finished: the clock restarts when it is, and a
