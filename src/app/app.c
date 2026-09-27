@@ -806,16 +806,22 @@ void mesh_app_autoconnect(struct mesh_app *app) {
                                  over_air, app->firmware_ble_handoff);
                 /* A bond the handoff made for it goes too, or ordinary auto-connect would take
                    the stranger up later; one it already had is the user's and stays. */
-                if (strcmp(over_air, app->firmware_ble_handoff_bonded) == 0) {
-                    (void)mesh_ble_transport_forget(ble, over_air);
+                mesh_app_handoff_reject(app, over_air);
+                if (strcmp(over_air, app->firmware_ble_handoff_bonded) == 0 &&
+                    mesh_ble_transport_forget(ble, over_air) == 0) {
                     app->firmware_ble_handoff_bonded[0] = '\0';
                 }
-                mesh_app_handoff_reject(app, over_air);
             }
         }
     }
     if (ble == NULL || link_up || mesh_app_link_connecting()) {
         return;
+    }
+    /* A removal BlueZ refused stays pending and is asked again each turn until it is done. */
+    if (app->firmware_ble_handoff_bonded[0] != '\0' &&
+        mesh_app_handoff_rejected(app, app->firmware_ble_handoff_bonded) &&
+        mesh_ble_transport_forget(ble, app->firmware_ble_handoff_bonded) == 0) {
+        app->firmware_ble_handoff_bonded[0] = '\0';
     }
 
     uint64_t now = inkwell_time_monotonic_ms();
