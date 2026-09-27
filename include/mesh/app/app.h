@@ -257,6 +257,8 @@ struct mesh_app {
      */
     uint32_t ui_notice_seq_seen;
     uint32_t ui_reboot_notices_seen;
+    /* How the last MeshCore request to another node ended (mesh_meshcore.notices). */
+    uint32_t ui_meshcore_notices_seen;
     /*
      * The key-verification ceremony as the UI last saw it: the `seq` that was published, and
      * the stage the sheet was opened for.

@@ -92,6 +92,9 @@ enum mesh_ui_screen {
 #define MESH_UI_NODES_LEAD_ROWS 5U
 
 #define MESH_UI_NAV_TARGET_NAME_MAX 40U
+/* A MeshCore repeater's password is 15 characters in its prefs; a sixteenth could never match
+   (MESH_MESHCORE_PASSWORD_MAX). */
+#define MESH_UI_LOGIN_PASSWORD_MAX 15U
 /* nav.settings_section when the Settings tab shows the section list rather than a section. */
 #define MESH_UI_SETTINGS_NO_SECTION 0xFFU
 
@@ -674,6 +677,16 @@ struct mesh_ui_nav {
     /* When the keyboard is typing the Nodes list's Find text: a seventh flavour, and the one
        whose text never leaves the client - Done narrows the list, and that is all. */
     bool keyboard_node_query;
+    /*
+     * When the keyboard is typing a password for a MeshCore repeater or room server, from its
+     * node's "Log in" row: `login_node` is whom, and `login_name` is what the heading calls it.
+     * Done with nothing typed is a guest's login, so this is the one flavour whose empty text
+     * is an answer - and B throws the text away with the rest of the draft, as every flavour
+     * does, which for a password is the point.
+     */
+    bool keyboard_login;
+    uint32_t login_node;
+    char login_name[MESH_UI_NAV_TARGET_NAME_MAX];
     /* When the keyboard edits a setting rather than the Compose draft: the field it is for
        (NONE for Compose) and the Compose draft parked while it is open. */
     uint16_t keyboard_field;
@@ -816,6 +829,7 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_REQUEST_NODE_INFO, /* dest = node to ask for a NodeInfo */
     MESH_UI_ACTION_REQUEST_POSITION,  /* dest = node to ask for a fix now */
     MESH_UI_ACTION_REQUEST_TELEMETRY, /* dest = node to ask for a reading now */
+    MESH_UI_ACTION_LOGIN,             /* dest = node to log in to; `text` its password */
     MESH_UI_ACTION_TOGGLE_IGNORE,     /* dest = node; `number` is 1 to start ignoring it */
     /* dest = node. Mute is a bare toggle rather than a wanted state, because the admin verb
        behind it (toggle_muted_node) offers nothing else. */

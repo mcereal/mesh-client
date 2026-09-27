@@ -106,7 +106,7 @@ bool mesh_ui_nav_kb_submit_finishes(const struct mesh_ui_nav *nav) {
     }
     return nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
            nav->keyboard_network || nav->keyboard_verify || nav->keyboard_channel_url ||
-           nav->keyboard_contact_url || nav->keyboard_node_query;
+           nav->keyboard_contact_url || nav->keyboard_node_query || nav->keyboard_login;
 }
 
 bool mesh_ui_nav_kb_node_search(const struct mesh_ui_nav *nav) {
@@ -155,6 +155,9 @@ size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
     }
     if (nav->keyboard_node_query) {
         return MESH_UI_NODE_QUERY_MAX - 1U;
+    }
+    if (nav->keyboard_login) {
+        return MESH_UI_LOGIN_PASSWORD_MAX;
     }
     if (nav->keyboard_network) {
         /* The transport's own limit on a target, which is a full bracketed v6 literal with a
@@ -205,7 +208,7 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
                drop the user somewhere they were not. */
             if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
                 nav->screen = MESH_UI_SCREEN_SETTINGS;
-            } else if (nav->keyboard_waypoint || nav->keyboard_node_query) {
+            } else if (nav->keyboard_waypoint || nav->keyboard_node_query || nav->keyboard_login) {
                 /* The places list and the node detail that raise it are both the Nodes tab,
                    and so is the Find row. */
                 nav->screen = MESH_UI_SCREEN_NODES;
@@ -257,6 +260,16 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
         nav->draft_saved[0] = '\0';
         /* Back on the Find row it was raised from, which a query cannot renumber. */
+        nav->screen = MESH_UI_SCREEN_NODES;
+        return;
+    }
+    if (nav->keyboard_login) {
+        nav->keyboard_login = false;
+        nav->login_node = 0U;
+        nav->login_name[0] = '\0';
+        snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
+        nav->draft_saved[0] = '\0';
+        /* Back on the node's sheet it was raised from, a level of the Nodes tab. */
         nav->screen = MESH_UI_SCREEN_NODES;
         return;
     }
@@ -442,6 +455,41 @@ void mesh_ui_nav_open_node_query_keyboard(struct mesh_ui_nav *nav) {
     nav->screen = MESH_UI_SCREEN_NODES;
 }
 
+void mesh_ui_nav_open_login_keyboard(struct mesh_ui_nav *nav, uint32_t node_id, const char *name) {
+    if (nav == NULL) {
+        return;
+    }
+    /* Blank, and never preloaded: nothing keeps a password to preload it from. */
+    snprintf(nav->draft_saved, sizeof nav->draft_saved, "%s", nav->draft);
+    nav->draft[0] = '\0';
+    nav->keyboard_login = true;
+    nav->login_node = node_id;
+    inkwell_str_copy(nav->login_name, sizeof nav->login_name, name != NULL ? name : "");
+    nav->keyboard_node_query = false;
+    nav->keyboard_contact_url = false;
+    nav->keyboard_channel_url = false;
+    nav->keyboard_network = false;
+    nav->keyboard_waypoint = false;
+    nav->keyboard_field = MESH_UI_FIELD_NONE;
+    nav->keyboard_open = true;
+    nav->compose_open = false;
+    inkcell_keyboard_reset(&nav->kb);
+    nav->screen = MESH_UI_SCREEN_NODES;
+}
+
+/* Done on the password keyboard: the login goes, blank or not - blank is a guest's. The text
+   leaves the nav in the action and nowhere else. */
+static bool mesh_ui_nav_commit_login(struct mesh_ui_nav *nav, struct mesh_ui_action *action) {
+    if (action != NULL) {
+        action->type = MESH_UI_ACTION_LOGIN;
+        action->dest = nav->login_node;
+        inkwell_str_copy(action->text, sizeof action->text, nav->draft);
+    }
+    memset(nav->draft, 0, sizeof nav->draft);
+    mesh_ui_nav_keyboard_close(nav);
+    return true;
+}
+
 /* Done on the Find keyboard: the text becomes the query, and the list's cursor goes to the
    Find row - a row above everything the new query renumbers, so it cannot land on a node the
    reader never saw. */
@@ -571,6 +619,9 @@ static bool mesh_ui_nav_keyboard_submit(struct mesh_ui_nav *nav, const struct me
     }
     if (nav->keyboard_node_query) {
         return mesh_ui_nav_commit_node_query(nav);
+    }
+    if (nav->keyboard_login) {
+        return mesh_ui_nav_commit_login(nav, action);
     }
     return nav->keyboard_waypoint ? mesh_ui_nav_commit_waypoint(nav, action)
                                   : mesh_ui_nav_send_draft(nav, action);

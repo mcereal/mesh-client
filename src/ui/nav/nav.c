@@ -1645,6 +1645,11 @@ static bool mesh_ui_nav_node_action_run(struct mesh_ui_nav *nav, const struct me
            something - which is a frame this press cannot predict. */
         return false;
     }
+    if (item->action == MESH_UI_NODE_ACTION_LOGIN) {
+        mesh_ui_nav_open_login_keyboard(
+            nav, node->node_id, node->long_name[0] != '\0' ? node->long_name : node->short_name);
+        return true;
+    }
     if (item->action == MESH_UI_NODE_ACTION_REMOVE) {
         if (!nav->node_remove_armed) {
             nav->node_remove_armed = true; /* the row now says "A again to remove" */

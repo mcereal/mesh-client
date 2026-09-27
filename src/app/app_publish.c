@@ -1812,6 +1812,51 @@ static void mesh_app_report_radio_notices(struct mesh_app *app) {
 }
 
 /*
+ * How a request to a MeshCore node ended: a login's answer, or silence. Readings that arrived
+ * say so on the node's screen and need no toast; readings that did not are worth one, since
+ * nothing else would ever say the press came to nothing.
+ */
+static void mesh_app_report_meshcore_answers(struct mesh_app *app) {
+    const uint32_t notices = app->meshcore.notices;
+    if (notices == app->ui_meshcore_notices_seen) {
+        return;
+    }
+    app->ui_meshcore_notices_seen = notices;
+    const struct mesh_meshcore_notice *notice = &app->meshcore.notice;
+    inkcell_str_id what;
+    switch (notice->answer) {
+    case MESH_MESHCORE_ANSWER_GUEST:
+        what = MESH_STR_TOAST_LOGGED_IN;
+        break;
+    case MESH_MESHCORE_ANSWER_ADMIN:
+        what = MESH_STR_TOAST_LOGGED_IN_ADMIN;
+        break;
+    case MESH_MESHCORE_ANSWER_REFUSED:
+        what = MESH_STR_TOAST_LOGIN_REFUSED;
+        break;
+    case MESH_MESHCORE_ANSWER_SILENT:
+        what = MESH_STR_TOAST_NO_ANSWER;
+        break;
+    case MESH_MESHCORE_ANSWER_UNSENT:
+        what = MESH_STR_TOAST_NOT_SENT;
+        break;
+    default:
+        return;
+    }
+    inkwell_log_info("meshcore", "Request %u to 0x%08x ended: %u", (unsigned)notice->cmd,
+                     notice->node_id, (unsigned)notice->answer);
+    if (app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
+        return;
+    }
+    char name[MESH_UI_NAV_TARGET_NAME_MAX];
+    mesh_app_format_peer_name(mesh_session_handshake(&app->session), notice->node_id, name,
+                              sizeof name);
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    inkcell_str_format(toast, sizeof toast, what, name);
+    mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+}
+
+/*
  * The key-verification ceremony: expired, published, and put in front of the user.
  *
  * Three jobs, and they are one function because they are one question asked at three levels.
@@ -2141,6 +2186,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_ui_store_tick(&app->ui_store, inkwell_time_monotonic_ms());
     mesh_app_report_delivery(app);
     mesh_app_report_radio_notices(app);
+    mesh_app_report_meshcore_answers(app);
     mesh_app_report_alerts(app);
     mesh_app_report_direct_messages(app);
     mesh_app_report_off_radio_nodes(app);

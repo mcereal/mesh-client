@@ -132,6 +132,8 @@ static const enum inkcell_icon k_action_icons[] = {
        which radio that tab is about. The radio rune next door means "this node's entry in our
        radio's database", which is a different sentence. */
     [MESH_UI_NODE_ACTION_ADMIN] = INKCELL_ICON_SETTINGS,
+    /* The padlock: a password is what the row asks for. */
+    [MESH_UI_NODE_ACTION_LOGIN] = INKCELL_ICON_ENCRYPTED,
 };
 
 /*
@@ -183,6 +185,7 @@ static const enum inkcell_tone k_action_tones[] = {
      * says so from then on (mesh/ui/chrome.h); the colour is what says it first.
      */
     [MESH_UI_NODE_ACTION_ADMIN] = INKCELL_TONE_WARNING,
+    [MESH_UI_NODE_ACTION_LOGIN] = INKCELL_TONE_NORMAL,
 };
 
 static enum inkcell_icon action_icon(enum mesh_ui_node_action action) {
@@ -1335,6 +1338,15 @@ bool mesh_ui_node_pinnable(const struct mesh_ui_node_summary *node, uint32_t lac
             (node->in_nodedb && node->public_key_len == sizeof node->public_key));
 }
 
+bool mesh_ui_node_loginable(const struct mesh_ui_node_summary *node, uint32_t lacks) {
+    /* A MeshCore repeater's advert reads as Meshtastic's REPEATER role and a room server's as
+       CLIENT_BASE (4 and 12, meshtastic_Config_DeviceConfig_Role); the radio logs in only to a
+       contact, by its whole key. */
+    return node != NULL && node_actions_offer(lacks, MESH_UI_FEATURE_NODE_LOGIN) &&
+           (node->role == 4U || node->role == 12U) && node->in_nodedb &&
+           node->public_key_len == sizeof node->public_key;
+}
+
 uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, bool is_self,
                                     const struct mesh_ui_traceroute *trace, bool remove_armed,
                                     uint32_t lacks, struct mesh_ui_node_item *out,
@@ -1394,6 +1406,10 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
             rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_TELEM,
                         inkcell_str(MESH_STR_COMMON_PRESS_A),
                         MESH_UI_NODE_ACTION_REQUEST_TELEMETRY);
+        }
+        if (mesh_ui_node_loginable(node, lacks)) {
+            rows_action(&rows, MESH_STR_NODE_ACT_LOGIN, inkcell_str(MESH_STR_COMMON_PRESS_A),
+                        MESH_UI_NODE_ACTION_LOGIN);
         }
         /* Muting is the gentle one of the three below: the node's traffic still arrives and
            still shows in its conversation, the radio just stops announcing it. The wire verb

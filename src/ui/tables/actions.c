@@ -957,7 +957,7 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
            "send" over a link that goes to a radio setting rather than to anybody. */
         if (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
             nav->keyboard_network || nav->keyboard_verify || nav->keyboard_channel_url ||
-            nav->keyboard_contact_url || nav->keyboard_node_query) {
+            nav->keyboard_contact_url || nav->keyboard_node_query || nav->keyboard_login) {
             command_add(out, MESH_UI_COMMAND_DONE, MESH_STR_ACTION_DONE, INKCELL_BUTTON_START);
         } else {
             command_add(out, MESH_UI_COMMAND_SEND, MESH_STR_ACTION_SEND, INKCELL_BUTTON_START);

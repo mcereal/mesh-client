@@ -1032,6 +1032,10 @@ MESH_STR_ENTRY(NODE_ACT_ADD_HEARD,        "Add as contact")
  * MESH_UI_NODE_LABEL_MAX, which is 20 bytes and cuts silently.
  */
 MESH_STR_ENTRY(NODE_ACT_ADMIN,            "Configure by radio")
+/* Logging in to a MeshCore repeater or room server, which is what lets it answer anything
+   else. The keyboard's heading names the node; a blank password is a guest's. */
+MESH_STR_ENTRY(NODE_ACT_LOGIN,            "Log in")
+MESH_STR_ENTRY(LOGIN_PROMPT,              "Password for %.20s")
 
 /* ---- the key verification sheet ------------------------------------------------------------
  *
@@ -2804,7 +2808,7 @@ MESH_STR_ENTRY(TOAST_BACKED_UP,           "Backup sent to the radio's flash")
 MESH_STR_ENTRY(TOAST_RESTORED,            "Restore sent; re-reading the settings")
 MESH_STR_ENTRY(TOAST_BACKUP_REMOVED,      "Backup deleted from the radio's flash")
 MESH_STR_ENTRY(TOAST_ALREADY_REQUESTED,   "Already requested")
-MESH_STR_ENTRY(TOAST_READINGS_BUSY,       "Still waiting on the last readings asked for")
+MESH_STR_ENTRY(TOAST_REQUEST_BUSY,        "Still waiting on the last node asked")
 MESH_STR_ENTRY(TOAST_REQUEST_FAILED,      "Request failed (%d)")
 /* Asking a Store & Forward router for the traffic missed while this client was off. Two
    toasts because the press does two different things: with a router already known it asks
@@ -2864,6 +2868,14 @@ MESH_STR_ENTRY(TOAST_PIN_FAILED,          "Pin failed (%d)")
 MESH_STR_ENTRY(TOAST_ASKED_NAME,          "Asked %.20s to introduce itself")
 MESH_STR_ENTRY(TOAST_ASKED_POSITION,      "Asked %.20s for its position")
 MESH_STR_ENTRY(TOAST_ASKED_TELEMETRY,     "Asked %.20s for its telemetry")
+MESH_STR_ENTRY(TOAST_LOGGING_IN,          "Logging in to %.20s")
+MESH_STR_ENTRY(TOAST_LOGGING_IN_GUEST,    "Logging in to %.20s as a guest")
+/* How a request to a MeshCore node ended, when its answer - or the lack of one - arrives. */
+MESH_STR_ENTRY(TOAST_LOGGED_IN,           "Logged in to %.20s")
+MESH_STR_ENTRY(TOAST_LOGGED_IN_ADMIN,     "Logged in to %.20s as admin")
+MESH_STR_ENTRY(TOAST_LOGIN_REFUSED,       "%.20s refused the password")
+MESH_STR_ENTRY(TOAST_NO_ANSWER,           "%.20s did not answer")
+MESH_STR_ENTRY(TOAST_NOT_SENT,            "The radio could not send that to %.20s")
 MESH_STR_ENTRY(TOAST_STILL_SYNCING,       "Still syncing; try again in a moment")
 MESH_STR_ENTRY(TOAST_CANNOT_ASK,          "Cannot ask this node")
 /*

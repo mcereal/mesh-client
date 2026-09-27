@@ -87,6 +87,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `TRACEROUTE` | the traceroute verb |
 | `NODE_REQUESTS` | asking a node for its name or position |
 | `NODE_TELEMETRY` | asking a node for its readings (on MeshCore, a contact) |
+| `NODE_LOGIN` | logging in to a MeshCore repeater or room server - the one bit Meshtastic lacks |
 | `NODE_FLAGS` | mute, ignore - and pin on a node that is not a whole-key contact |
 | `NODE_PIN` | pin, on the sheet and as X on the list and the detail |
 | `NODE_REMOVE` | remove, on a node's sheet |
@@ -192,6 +193,13 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `TELEMETRY_RESPONSE`'s Cayenne LPP (`mesh_meshcore_decode_lpp()`): channel 1's voltage is the
   battery, and a sensor's temperature, humidity, pressure, light, current and GPS fill the node's
   environment and position. A node answers only if its telemetry settings let this radio ask.
+- **A login** to a repeater or room server contact is `SEND_LOGIN`: the whole key, then the
+  password (at most 15 characters, blank for a guest), answered by `LOGIN_SUCCESS` - with
+  whether it took us as its admin - or `LOGIN_FAIL`. It is typed each time; nothing keeps it.
+- **One request to another node at a time.** The firmware keeps one pending and clears it for
+  any new login, status or telemetry request (`clearPendingReqs()`), so a second is refused
+  while the first is queued and until its answer or the deadline its `SENT` names. How each one
+  ended is `mesh_meshcore.notice`, which the publish turns into a toast.
 - **A contact link** is the MeshCore app's QR text, `meshcore://contact/add?name=…&public_key=<64
   hex>&type=N` (`src/proto/meshcore_url.c`). User in Settings shows this radio's, made from
   `SELF_INFO`, and adds a stranger's with `ADD_UPDATE_CONTACT` by key, kind and name - no route and
@@ -207,8 +215,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `RESP_CODE_SENT` named. It is tried three times with the same timestamp - the last after
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
-Not yet spoken: repeater and room-server login, status requests, trace paths,
-channel links and the signed contact card. The
+Not yet spoken: status requests, trace paths, channel links and the signed contact card. The
 `meshcore` row in `src/ui/tables/protocols.c` hides the verbs those would back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to
 end.

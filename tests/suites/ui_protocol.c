@@ -70,7 +70,8 @@ static bool root_lists(const struct mesh_ui_settings *settings,
 }
 
 /*
- * The table the publish reads. The Meshtastic session lacks nothing; a protocol the table has
+ * The table the publish reads. The Meshtastic session lacks only the login a MeshCore repeater
+ * asks for; a protocol the table has
  * never heard of lacks everything, because offering it a Meshtastic verb is offering a press
  * that fails; and nothing on the link reads as the Meshtastic this client has always assumed.
  */
@@ -81,8 +82,9 @@ MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
     uint8_t id = 0xFFU;
     uint32_t lacks = 0xFFFFFFFFU;
     mesh_ui_protocol_features(&meshtastic, &id, &lacks);
-    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC || lacks != 0U,
-                      "the Meshtastic session has every feature");
+    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC ||
+                          lacks != (uint32_t)MESH_UI_FEATURE_NODE_LOGIN,
+                      "the Meshtastic session has every feature but MeshCore's login");
 
     static const struct mesh_protocol_ops k_stranger = {.name = "stranger"};
     const struct mesh_protocol stranger = {&k_stranger, &session};
@@ -101,12 +103,14 @@ MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
                           (lacks & MESH_UI_FEATURE_REMOTE_ADMIN) == 0U ||
                           (lacks & MESH_UI_FEATURE_CHANNEL_LINKS) == 0U,
                       "MeshCore lacks waypoints, Meshtastic's admin and its channel links");
-    MESH_TEST_FAIL_IF((lacks & MESH_UI_FEATURE_CONTACT_LINKS) != 0U,
-                      "and shares contacts in its own app's link");
+    MESH_TEST_FAIL_IF((lacks & MESH_UI_FEATURE_CONTACT_LINKS) != 0U ||
+                          (lacks & MESH_UI_FEATURE_NODE_LOGIN) != 0U,
+                      "and shares contacts in its own app's link, and logs in to a repeater");
 
     const struct mesh_protocol none = {NULL, NULL};
     mesh_ui_protocol_features(&none, &id, &lacks);
-    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC || lacks != 0U,
+    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC ||
+                          lacks != (uint32_t)MESH_UI_FEATURE_NODE_LOGIN,
                       "nothing on the link is the Meshtastic the cache was written by");
 
     struct mesh_ui_settings zeroed;
@@ -209,6 +213,116 @@ MESH_TEST_CASE(ui_protocol_node_sheet_offers_what_the_protocol_has, unit) {
     MESH_TEST_FAIL_IF(has_verb(items, count, MESH_UI_NODE_ACTION_TRACEROUTE) ||
                           !has_verb(items, count, MESH_UI_NODE_ACTION_ADMIN),
                       "lacking traceroute hides traceroute and nothing else");
+    record_success(test_name);
+}
+
+/*
+ * A login is offered on a MeshCore repeater or room server the radio carries by its whole key,
+ * and nowhere else: not on a chat node, not on one only heard, and not on Meshtastic, whose
+ * repeaters answer no such thing. Its row raises a keyboard whose Done sends what was typed -
+ * blank included, which is a guest's login - and whose B sends nothing.
+ */
+MESH_TEST_CASE(ui_protocol_meshcore_logs_in_to_a_repeater, unit) {
+    static const struct mesh_protocol_ops k_meshcore = {.name = "meshcore"};
+    static int meshcore_self;
+    const struct mesh_protocol meshcore_protocol = {&k_meshcore, &meshcore_self};
+    uint32_t meshcore_lacks = 0U;
+    mesh_ui_protocol_features(&meshcore_protocol, NULL, &meshcore_lacks);
+
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x1234U;
+    node.public_key_len = 32U;
+    memset(node.public_key, 0x42, 32U);
+    node.in_nodedb = true;
+    node.role = 4U; /* a repeater's advert */
+    MESH_TEST_FAIL_IF(!mesh_ui_node_loginable(&node, meshcore_lacks), "a repeater contact");
+    node.role = 12U; /* a room server's */
+    MESH_TEST_FAIL_IF(!mesh_ui_node_loginable(&node, meshcore_lacks), "a room server contact");
+    MESH_TEST_FAIL_IF(mesh_ui_node_loginable(&node, MESH_UI_FEATURE_NODE_LOGIN),
+                      "not on Meshtastic");
+    node.role = 0U;
+    MESH_TEST_FAIL_IF(mesh_ui_node_loginable(&node, meshcore_lacks), "not a chat node");
+    node.role = 4U;
+    node.in_nodedb = false;
+    MESH_TEST_FAIL_IF(mesh_ui_node_loginable(&node, meshcore_lacks), "not a heard repeater");
+
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    store.settings.protocol_lacks = meshcore_lacks;
+
+    struct mesh_ui_action action;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* Nodes */
+    for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    struct mesh_ui_node_summary *repeater = (struct mesh_ui_node_summary *)mesh_ui_node_detail_find(
+        &store.handshake, store.nav.node_detail_node);
+    if (!store.nav.node_detail_open || repeater == NULL) {
+        failure = "A opens a node's detail";
+        goto cleanup;
+    }
+    repeater->role = 4U;
+    repeater->in_nodedb = true;
+    repeater->public_key_len = 32U;
+    memset(repeater->public_key, 0x42, 32U);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    struct mesh_ui_node_item items[MESH_UI_NODE_ACTIONS_MAX];
+    const uint32_t count = mesh_ui_node_actions_build(repeater, false, NULL, false, meshcore_lacks,
+                                                      items, MESH_UI_NODE_ACTIONS_MAX);
+    uint32_t login_row = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].action == MESH_UI_NODE_ACTION_LOGIN) {
+            login_row = i;
+        }
+    }
+    if (!store.nav.node_actions_open || login_row >= count) {
+        failure = "the repeater's sheet carries a login";
+        goto cleanup;
+    }
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "half a message");
+    for (int round = 0; round < 3; ++round) {
+        while (store.nav.node_actions_cursor < login_row &&
+               mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action)) {
+        }
+        memset(&action, 0, sizeof action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+        if (!store.nav.keyboard_open || !store.nav.keyboard_login ||
+            store.nav.login_node != repeater->node_id || store.nav.draft[0] != '\0') {
+            failure = "the row raises a blank keyboard for that node's password";
+            goto cleanup;
+        }
+        if (round == 0) {
+            mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* one character */
+        }
+        if (round == 2) {
+            mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+            mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+            if (action.type != MESH_UI_ACTION_NONE || store.nav.keyboard_open) {
+                failure = "B leaves without logging in";
+                goto cleanup;
+            }
+        } else {
+            mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
+            if (action.type != MESH_UI_ACTION_LOGIN || action.dest != repeater->node_id ||
+                (round == 0) != (action.text[0] != '\0') || store.nav.keyboard_open) {
+                failure = round == 0 ? "Done logs in with what was typed"
+                                     : "and with nothing typed, as a guest";
+                goto cleanup;
+            }
+        }
+        if (strcmp(store.nav.draft, "half a message") != 0 || store.nav.login_node != 0U) {
+            failure = "the password goes, and the draft it parked comes back";
+            goto cleanup;
+        }
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
 

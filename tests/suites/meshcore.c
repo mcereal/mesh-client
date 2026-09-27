@@ -1432,7 +1432,7 @@ MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
     MESH_TEST_FAIL_IF(!node->environment.valid || !node->environment.has_temperature ||
                           node->environment.temperature != 20.0f || node->environment.has_humidity,
                       "the temperature in its environment, and nothing it did not send");
-    MESH_TEST_FAIL_IF(g_meshcore.telemetry_until_ms != 0U,
+    MESH_TEST_FAIL_IF(g_meshcore.request_until_ms != 0U,
                       "the answer frees the radio for the next request");
     static const uint8_t k_amps[] = {
         MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE,
@@ -1505,13 +1505,13 @@ MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
     feed(&protocol, k_stranger, sizeof k_stranger);
     MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != -EBUSY,
                       "only the asked node's answer frees the radio");
-    g_meshcore.telemetry_until_ms = 1U; /* the deadline long past */
+    g_meshcore.request_until_ms = 1U; /* the deadline long past */
     MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0,
                       "an answer that never came frees it at its deadline");
     /* An answer ahead of the radio's SENT leaves nothing to wait for once the SENT comes. */
     feed(&protocol, k_push, sizeof k_push);
     feed(&protocol, k_sent, sizeof k_sent);
-    MESH_TEST_FAIL_IF(g_meshcore.telemetry_until_ms != 0U,
+    MESH_TEST_FAIL_IF(g_meshcore.request_until_ms != 0U,
                       "a SENT after its own answer does not lock the radio again");
 
     /* A retry still queued behind another command: an answer then is the last request's, and
@@ -1521,8 +1521,83 @@ MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
     feed(&protocol, k_push, sizeof k_push);
     feed_code(&protocol, MESH_MESHCORE_RESP_OK); /* the advert's; the retry goes out now */
     feed(&protocol, k_sent, sizeof k_sent);
-    MESH_TEST_FAIL_IF(g_meshcore.telemetry_until_ms == 0U,
+    MESH_TEST_FAIL_IF(g_meshcore.request_until_ms == 0U,
                       "an earlier answer does not stand in for a request not yet written");
+    record_success(test_name);
+}
+
+/* A login is the key and the password, answered by the node asked - and it is the same one
+   request as a telemetry request, since the radio keeps one pending and a new one orphans it. */
+MESH_TEST_CASE(meshcore_login_is_answered_and_shares_the_lock, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const uint32_t alice = 0x40414243U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "0123456789abcdef") != -EINVAL,
+                      "a password longer than the node's prefs hold is refused");
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, 0x12345678U, "") != -ENOENT,
+                      "a node the radio does not carry is not logged in to");
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "hunter2") != 0, "Alice is asked");
+    MESH_TEST_FAIL_IF(wire.lens[0] != 1U + 32U + 7U ||
+                          wire.frames[0][0] != MESH_MESHCORE_CMD_SEND_LOGIN ||
+                          wire.frames[0][1] != 0x40 || wire.frames[0][32] != 0x40 + 31 ||
+                          memcmp(wire.frames[0] + 33, "hunter2", 7U) != 0,
+                      "by her whole key and the password, unterminated");
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != -EBUSY,
+                      "a telemetry request waits behind a login");
+    static const uint8_t k_sent[10] = {MESH_MESHCORE_RESP_SENT, 0, 1, 2, 3, 4, 0x88, 0x13, 0, 0};
+    feed(&protocol, k_sent, sizeof k_sent);
+    MESH_TEST_FAIL_IF(g_meshcore.request_until_ms == 0U, "its answer is due by the deadline");
+
+    const uint32_t notices = g_meshcore.notices;
+    static const uint8_t k_stranger[] = {
+        MESH_MESHCORE_PUSH_LOGIN_SUCCESS, 1, 0x99, 0x98, 0x97, 0x96, 0x95, 0x94};
+    feed(&protocol, k_stranger, sizeof k_stranger);
+    MESH_TEST_FAIL_IF(g_meshcore.notices != notices || g_meshcore.request_until_ms == 0U,
+                      "someone else's answer is not hers");
+    static const uint8_t k_admin[] = {
+        MESH_MESHCORE_PUSH_LOGIN_SUCCESS, 1, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0, 0, 0, 0, 3, 1};
+    feed(&protocol, k_admin, sizeof k_admin);
+    MESH_TEST_FAIL_IF(g_meshcore.notices != notices + 1U || g_meshcore.notice.node_id != alice ||
+                          g_meshcore.notice.cmd != MESH_MESHCORE_CMD_SEND_LOGIN ||
+                          g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_ADMIN,
+                      "hers says she took us as her admin");
+    MESH_TEST_FAIL_IF(g_meshcore.request_until_ms != 0U, "and frees the radio");
+    feed(&protocol, k_admin, sizeof k_admin);
+    MESH_TEST_FAIL_IF(g_meshcore.notices != notices + 1U, "a request ends once");
+
+    /* A guest, then a refusal, then silence. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "") != 0, "a guest login");
+    MESH_TEST_FAIL_IF(wire.lens[wire.count - 1U] != 33U, "is the key alone");
+    feed(&protocol, k_sent, sizeof k_sent);
+    static const uint8_t k_guest[] = {
+        MESH_MESHCORE_PUSH_LOGIN_SUCCESS, 0, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45};
+    feed(&protocol, k_guest, sizeof k_guest);
+    MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_GUEST, "is a guest");
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "wrong") != 0, "a wrong password");
+    feed(&protocol, k_sent, sizeof k_sent);
+    static const uint8_t k_fail[] = {
+        MESH_MESHCORE_PUSH_LOGIN_FAIL, 0, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45};
+    feed(&protocol, k_fail, sizeof k_fail);
+    MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_REFUSED, "is refused");
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0, "readings");
+    feed(&protocol, k_sent, sizeof k_sent);
+    const uint32_t before_silence = g_meshcore.notices;
+    mesh_protocol_tick(&protocol, g_meshcore.request_until_ms);
+    MESH_TEST_FAIL_IF(g_meshcore.notices != before_silence + 1U ||
+                          g_meshcore.notice.cmd != MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ ||
+                          g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_SILENT ||
+                          g_meshcore.request_until_ms != 0U,
+                      "nothing by the deadline is said so, and frees the radio");
+
+    /* The radio refusing to send it ends it too. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "") != 0, "asked once more");
+    static const uint8_t k_err[] = {MESH_MESHCORE_RESP_ERR, 3};
+    feed(&protocol, k_err, sizeof k_err);
+    MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_UNSENT ||
+                          mesh_meshcore_login(&g_meshcore, alice, "") != 0,
+                      "a refusal to send is said so, and frees the radio");
     record_success(test_name);
 }
 

@@ -4,16 +4,19 @@
 
 #include <string.h>
 
+/* Everything but a login, which is a MeshCore repeater's and room server's. */
+#define MESHTASTIC_LACKS ((uint32_t)MESH_UI_FEATURE_NODE_LOGIN)
+
 static const struct {
     const char *name; /* mesh_protocol_ops.name */
     enum mesh_ui_protocol protocol;
     uint32_t lacks;
 } k_protocols[] = {
-    {"meshtastic", MESH_UI_PROTOCOL_MESHTASTIC, 0U},
+    {"meshtastic", MESH_UI_PROTOCOL_MESHTASTIC, MESHTASTIC_LACKS},
     /* Text, direct and on channels, over a roster of contacts. Everything below is a verb
        MeshCore's companion protocol either has no counterpart for or that this client does
-       not speak yet: its traceroute, telemetry and remote admin go through a login to a
-       repeater, and its channel links are not Meshtastic's URLs. Its contact links are the
+       not speak yet: its trace path and remote admin are not Meshtastic's, and its channel links
+       are not Meshtastic's URLs. A login to a repeater is MeshCore's alone. Its contact links are the
        MeshCore app's `meshcore://contact/add`, read and written by mesh/proto/meshcore_url.h. */
     {"meshcore", MESH_UI_PROTOCOL_MESHCORE,
      MESH_UI_FEATURE_WAYPOINTS | MESH_UI_FEATURE_TRACEROUTE | MESH_UI_FEATURE_NODE_REQUESTS |
@@ -26,7 +29,7 @@ static const struct {
 void mesh_ui_protocol_features(const struct mesh_protocol *protocol, uint8_t *out_protocol,
                                uint32_t *out_lacks) {
     uint8_t id = (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC;
-    uint32_t lacks = 0U;
+    uint32_t lacks = MESHTASTIC_LACKS;
     if (mesh_protocol_bound(protocol)) {
         id = (uint8_t)MESH_UI_PROTOCOL_OTHER;
         lacks = MESH_UI_FEATURES_ALL;

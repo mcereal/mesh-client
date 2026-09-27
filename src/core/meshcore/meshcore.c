@@ -148,6 +148,54 @@ static bool mesh_meshcore_queued(const struct mesh_meshcore *meshcore, uint8_t c
     return false;
 }
 
+/* ---------------------------------------------------------- requests to another node */
+
+/* The commands the radio answers for with a push from the node asked: one outstanding at a
+   time, since each clears whatever the last left pending (clearPendingReqs()). */
+static bool mesh_meshcore_is_remote(uint8_t cmd) {
+    return cmd == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ || cmd == MESH_MESHCORE_CMD_SEND_LOGIN;
+}
+
+/* The request is over: the lock is free, and `notice` says how it went. */
+static void mesh_meshcore_request_ended(struct mesh_meshcore *meshcore, uint8_t answer) {
+    if (meshcore->request_cmd == 0U) {
+        return;
+    }
+    meshcore->notice.node_id = meshcore->request_node;
+    meshcore->notice.cmd = meshcore->request_cmd;
+    meshcore->notice.answer = answer;
+    meshcore->notices += 1U;
+    meshcore->request_cmd = 0U;
+    meshcore->request_until_ms = 0U;
+}
+
+/* Its deadline passed with nothing heard. */
+static void mesh_meshcore_request_expire(struct mesh_meshcore *meshcore, uint64_t now_ms) {
+    if (meshcore->request_until_ms != 0U && now_ms >= meshcore->request_until_ms) {
+        mesh_meshcore_request_ended(meshcore, MESH_MESHCORE_ANSWER_SILENT);
+    }
+}
+
+/*
+ * A node answered `cmd`. Only the node asked ends it: the firmware pushes an answer only while
+ * that request is its pending one, but a late answer from another node's earlier request can be
+ * in flight when this one is written. And only once the request is written: while it still
+ * waits in the queue, the radio's pending request - and so the answer - is the last one's.
+ */
+static void mesh_meshcore_request_answered(struct mesh_meshcore *meshcore, const uint8_t *prefix,
+                                           uint8_t cmd, uint8_t answer) {
+    if (meshcore->request_cmd != cmd ||
+        memcmp(prefix, meshcore->request_prefix, MESH_MESHCORE_PREFIX_LEN) != 0) {
+        return;
+    }
+    const bool written = meshcore->awaiting && mesh_meshcore_head_cmd(meshcore) == cmd;
+    if (!written && mesh_meshcore_queued(meshcore, cmd)) {
+        return;
+    }
+    /* Ended, so a SENT still to come for it - an answer can beat one - sets no deadline. */
+    mesh_meshcore_request_ended(meshcore, answer);
+}
+
 static void mesh_meshcore_request_byte(struct mesh_meshcore *meshcore, uint8_t cmd, uint8_t value) {
     uint8_t frame[2];
     (void)mesh_meshcore_enqueue(meshcore, frame,
@@ -798,18 +846,28 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
                 mesh_meshcore_store_telemetry(meshcore, node, &telemetry);
                 inkwell_log_info("meshcore", "Readings from 0x%08x", id);
             }
-            /* Only that node's answer frees the radio: a late one from another node is stored,
-               and leaves the current request its deadline. The same node's answer to an earlier
-               request cannot arrive here - the firmware pushes one only while its tag is the
-               pending one (pending_telemetry), which each new request replaces. */
-            if (memcmp(frame + 2, meshcore->telemetry_prefix, MESH_MESHCORE_PREFIX_LEN) == 0) {
-                meshcore->telemetry_until_ms = 0U;
-                /* Ahead of its SENT only once the request is written: while it still waits in
-                   the queue, an answer is the last request's, and this one is yet to be asked. */
-                meshcore->telemetry_answered =
-                    meshcore->awaiting &&
-                    mesh_meshcore_head_cmd(meshcore) == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ;
-            }
+            /* A late one from another node is stored, and leaves the current request its
+               deadline. The same node's answer to an earlier request cannot arrive once this
+               one is written - the firmware pushes one only while its tag is the pending one
+               (pending_telemetry), which each new request replaces. */
+            mesh_meshcore_request_answered(meshcore, frame + 2,
+                                           MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ,
+                                           MESH_MESHCORE_ANSWER_READINGS);
+        }
+        break;
+    case MESH_MESHCORE_PUSH_LOGIN_SUCCESS:
+        /* Whether it took us as its admin, then the node's key prefix; a newer firmware
+           follows with its clock, our ACL permissions and its firmware level. */
+        if (len >= 2U + MESH_MESHCORE_PREFIX_LEN) {
+            mesh_meshcore_request_answered(meshcore, frame + 2, MESH_MESHCORE_CMD_SEND_LOGIN,
+                                           frame[1] != 0U ? MESH_MESHCORE_ANSWER_ADMIN
+                                                          : MESH_MESHCORE_ANSWER_GUEST);
+        }
+        break;
+    case MESH_MESHCORE_PUSH_LOGIN_FAIL:
+        if (len >= 2U + MESH_MESHCORE_PREFIX_LEN) {
+            mesh_meshcore_request_answered(meshcore, frame + 2, MESH_MESHCORE_CMD_SEND_LOGIN,
+                                           MESH_MESHCORE_ANSWER_REFUSED);
         }
         break;
     case MESH_MESHCORE_PUSH_CONTACT_DELETED:
@@ -1037,12 +1095,12 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         break;
     case MESH_MESHCORE_RESP_SENT: {
         struct mesh_meshcore_sent sent;
-        /* A telemetry request is on its way: its answer is due within the firmware's estimate,
-           and until then a second one would orphan it. */
-        if (cmd == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ && !meshcore->telemetry_answered &&
+        /* A request to another node is on its way: its answer is due within the firmware's
+           estimate, and until then a second one would orphan it. */
+        if (mesh_meshcore_is_remote(cmd) && cmd == meshcore->request_cmd &&
             mesh_meshcore_decode_sent(frame, len, &sent) == 0) {
             const uint32_t wait = sent.timeout_ms > 0U ? sent.timeout_ms : 10000U;
-            meshcore->telemetry_until_ms = inkwell_time_monotonic_ms() + (uint64_t)wait + 2000U;
+            meshcore->request_until_ms = inkwell_time_monotonic_ms() + (uint64_t)wait + 2000U;
         }
         struct mesh_meshcore_pending *pending = mesh_meshcore_pending_for(meshcore, packet_id);
         if (pending != NULL && mesh_meshcore_decode_sent(frame, len, &sent) == 0) {
@@ -1143,6 +1201,9 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             /* A refusal with no code still has to count as one. */
             mesh_meshcore_settle_write(meshcore, error != 0U ? (int32_t)error : -1);
         }
+        if (mesh_meshcore_is_remote(cmd) && cmd == meshcore->request_cmd) {
+            mesh_meshcore_request_ended(meshcore, MESH_MESHCORE_ANSWER_UNSENT);
+        }
         struct mesh_meshcore_pending *pending = mesh_meshcore_pending_for(meshcore, packet_id);
         if (pending != NULL) {
             mesh_meshcore_pending_done(meshcore, pending, MESH_MESSAGE_ACK_FAILED);
@@ -1238,7 +1299,8 @@ static int mesh_meshcore_begin(void *self) {
     /* A fresh connection asks for every contact: the model may hold nodes from another radio's
        list, and "since" is only meaningful against the list it came from. */
     meshcore->contacts_since = 0U;
-    meshcore->telemetry_until_ms = 0U;
+    meshcore->request_until_ms = 0U;
+    meshcore->request_cmd = 0U;
     /* And the adverts kept for adding are this connection's: one from before may be older than
        what the sender now stamps, and would hold its next advert back as a replay. */
     memset(meshcore->heard_age, 0, sizeof meshcore->heard_age);
@@ -1317,6 +1379,9 @@ static void mesh_meshcore_tick(void *self, uint64_t now_ms) {
         if (mesh_meshcore_is_settings_write(cmd)) {
             mesh_meshcore_settle_write(meshcore, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
         }
+        if (mesh_meshcore_is_remote(cmd) && cmd == meshcore->request_cmd) {
+            mesh_meshcore_request_ended(meshcore, MESH_MESHCORE_ANSWER_UNSENT);
+        }
         struct mesh_meshcore_pending *pending = mesh_meshcore_pending_for(meshcore, packet_id);
         if (pending != NULL) {
             mesh_meshcore_pending_done(meshcore, pending, MESH_MESSAGE_ACK_FAILED);
@@ -1332,6 +1397,7 @@ static void mesh_meshcore_tick(void *self, uint64_t now_ms) {
             mesh_meshcore_retry(meshcore, pending);
         }
     }
+    mesh_meshcore_request_expire(meshcore, now_ms);
 }
 
 static bool mesh_meshcore_silent(const void *self) {
@@ -1595,36 +1661,84 @@ int mesh_meshcore_add_contact(struct mesh_meshcore *meshcore, uint32_t node_id) 
     return result < 0 ? result : 1;
 }
 
-int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t node_id) {
+/*
+ * Queues a request to another node: `frame` names it by `key`, and the node's answer - or the
+ * radio's deadline for one - ends it. One at a time, since a new one orphans the last: while it
+ * is still queued, and then until its answer or deadline.
+ */
+static int mesh_meshcore_ask(struct mesh_meshcore *meshcore, const uint8_t *frame, size_t len,
+                             uint32_t node_id, const uint8_t *key) {
+    if (mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ) ||
+        mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_LOGIN)) {
+        return -EBUSY;
+    }
+    const uint64_t now_ms = inkwell_time_monotonic_ms();
+    mesh_meshcore_request_expire(meshcore, now_ms);
+    if (meshcore->request_until_ms != 0U) {
+        return -EBUSY;
+    }
+    const int result = mesh_meshcore_enqueue(meshcore, frame, (int)len, 0U);
+    if (result < 0) {
+        return result;
+    }
+    meshcore->request_cmd = frame[0];
+    meshcore->request_node = node_id;
+    memcpy(meshcore->request_prefix, key, MESH_MESHCORE_PREFIX_LEN);
+    return 0;
+}
+
+/* The contact a request names: the radio looks the key up among its own, and a heard node is
+   not one. */
+static int mesh_meshcore_ask_whom(struct mesh_meshcore *meshcore, uint32_t node_id,
+                                  const struct mesh_node_summary **out) {
     if (meshcore == NULL || node_id == 0U || node_id == meshcore->self_node) {
         return -EINVAL;
     }
     if (!mesh_meshcore_ready(meshcore)) {
         return -ENOTCONN;
     }
-    /* The radio looks the key up among its contacts, and a heard node is not one. */
     const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, node_id);
     if (node == NULL || !node->in_nodedb || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN) {
         return -ENOENT;
     }
-    /* The radio keeps one request outstanding and a new one orphans the last, so a second
-       waits for the first: while it is still queued, and then for its answer or deadline. */
-    if (mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ) ||
-        (meshcore->telemetry_until_ms != 0U &&
-         inkwell_time_monotonic_ms() < meshcore->telemetry_until_ms)) {
-        return -EBUSY;
+    *out = node;
+    return 0;
+}
+
+int mesh_meshcore_request_telemetry(struct mesh_meshcore *meshcore, uint32_t node_id) {
+    const struct mesh_node_summary *node = NULL;
+    const int whom = mesh_meshcore_ask_whom(meshcore, node_id, &node);
+    if (whom < 0) {
+        return whom;
     }
     uint8_t frame[4U + MESH_MESHCORE_PUBKEY_LEN];
     memset(frame, 0, sizeof frame);
     frame[0] = MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ; /* then three reserved bytes */
     memcpy(frame + 4, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
-    const int result = mesh_meshcore_enqueue(meshcore, frame, (int)sizeof frame, 0U);
-    if (result < 0) {
-        return result;
+    return mesh_meshcore_ask(meshcore, frame, sizeof frame, node_id, node->public_key);
+}
+
+int mesh_meshcore_login(struct mesh_meshcore *meshcore, uint32_t node_id, const char *password) {
+    const size_t password_len = password != NULL ? strlen(password) : 0U;
+    if (password_len > MESH_MESHCORE_PASSWORD_MAX) {
+        return -EINVAL;
     }
-    memcpy(meshcore->telemetry_prefix, node->public_key, MESH_MESHCORE_PREFIX_LEN);
-    meshcore->telemetry_answered = false;
-    return 0;
+    const struct mesh_node_summary *node = NULL;
+    const int whom = mesh_meshcore_ask_whom(meshcore, node_id, &node);
+    if (whom < 0) {
+        return whom;
+    }
+    /* The key, then the password unterminated: the radio ends it at the frame's length. */
+    uint8_t frame[1U + MESH_MESHCORE_PUBKEY_LEN + MESH_MESHCORE_PASSWORD_MAX];
+    frame[0] = MESH_MESHCORE_CMD_SEND_LOGIN;
+    memcpy(frame + 1, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
+    if (password_len > 0U) {
+        memcpy(frame + 1U + MESH_MESHCORE_PUBKEY_LEN, password, password_len);
+    }
+    const int result = mesh_meshcore_ask(
+        meshcore, frame, 1U + MESH_MESHCORE_PUBKEY_LEN + password_len, node_id, node->public_key);
+    memset(frame, 0, sizeof frame);
+    return result;
 }
 
 int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
