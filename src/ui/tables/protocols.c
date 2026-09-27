@@ -16,8 +16,9 @@ static const struct {
     /* Text, direct and on channels, over a roster of contacts. Everything below is a verb
        MeshCore's companion protocol either has no counterpart for or that this client does
        not speak yet: its trace path and remote admin are not Meshtastic's, and its channel links
-       are not Meshtastic's URLs. A login to a repeater is MeshCore's alone. Its contact links are the
-       MeshCore app's `meshcore://contact/add`, read and written by mesh/proto/meshcore_url.h. */
+       are not Meshtastic's URLs. A login to a repeater is MeshCore's alone. Its contact links are
+       the MeshCore app's `meshcore://contact/add`, read and written by mesh/proto/meshcore_url.h.
+     */
     {"meshcore", MESH_UI_PROTOCOL_MESHCORE,
      MESH_UI_FEATURE_WAYPOINTS | MESH_UI_FEATURE_TRACEROUTE | MESH_UI_FEATURE_NODE_REQUESTS |
          MESH_UI_FEATURE_NODE_FLAGS | MESH_UI_FEATURE_REMOTE_ADMIN |
