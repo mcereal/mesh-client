@@ -1309,7 +1309,11 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
      * there - the twin table, never a name that looks alike - and not while anything is running
      * or once the answer already is a switch.
      */
-    dst->fw_switching = firmware->switching;
+    /* A switch the recovery press would finish is one too, whatever the check holds now: the
+       retry writes the whole flash again, and its sheet has to say so. */
+    const bool resuming =
+        mesh_firmware_update_can_resume(update) && mesh_firmware_update_available(update);
+    dst->fw_switching = resuming ? update->release.wipe : firmware->switching;
     const bool settled =
         firmware->state == MESH_FIRMWARE_AVAILABLE || firmware->state == MESH_FIRMWARE_UP_TO_DATE;
     const char *const twin = board == NULL || firmware->switching ? NULL

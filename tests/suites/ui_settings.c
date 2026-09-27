@@ -3788,6 +3788,42 @@ MESH_TEST_CASE(ui_settings_connection_status, unit) {
  * section over**, because there is no second install to start and the check would take the
  * download's own child.
  */
+/* A switch that stopped half way: the check's answer is gone and the recovery press writes the
+   whole flash again, so the row is the switch's and its sheet says what is lost. */
+MESH_TEST_CASE(ui_settings_radio_firmware_resumes_a_switch_as_one, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.fw_supported = true;
+    settings.fw_state = (uint8_t)MESH_FIRMWARE_IDLE;
+    settings.fw_update_state = (uint8_t)MESH_FIRMWARE_UPDATE_FAILED;
+    settings.fw_radio_in_loader = true;
+    settings.fw_can_install = true;
+    settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_USB;
+    settings.fw_switching = true;
+    snprintf(settings.fw_channel, sizeof settings.fw_channel, "%s", "stable");
+    const uint32_t count = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO,
+                                                       MESH_UI_SETTINGS_NO_CHANNEL);
+    bool switch_row = false;
+    bool update_row = false;
+    struct mesh_ui_settings_item item;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item) ||
+            item.kind != INKSTAND_FORM_ACTION) {
+            continue;
+        }
+        switch_row =
+            switch_row || item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH;
+        update_row =
+            update_row || item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB;
+    }
+    MESH_TEST_FAIL_IF(!switch_row || update_row,
+                      "the recovery press for a switch is the switch's, with no answer behind it");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_settings_radio_firmware_install_row, unit) {
     struct mesh_ui_settings settings;
     memset(&settings, 0, sizeof settings);

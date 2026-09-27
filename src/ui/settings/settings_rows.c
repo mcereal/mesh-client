@@ -964,7 +964,10 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
      * or after a failed one: the reason would be about a board nothing has looked up yet, and a
      * refusal is only useful next to the thing being refused.
      */
-    if (!newer && s->fw_state != (uint8_t)MESH_FIRMWARE_UP_TO_DATE) {
+    /* Except the recovery: a radio left in its loader answers nothing, so the check's answer is
+       gone, and the press that finishes the write is the one row the banner points at. */
+    if (!newer && s->fw_state != (uint8_t)MESH_FIRMWARE_UP_TO_DATE &&
+        !(s->fw_radio_in_loader && s->fw_can_install)) {
         return;
     }
     if (!s->fw_can_install) {

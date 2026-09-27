@@ -1969,9 +1969,17 @@ static void on_install_update(struct mesh_app *app, const struct mesh_ui_action 
  * is armed (firmware_ota.c takes a NULL arm as "already in there") and nothing is waited for (a
  * NULL radio_ready is "go now").
  */
-static bool firmware_resume_install(struct mesh_app *app, uint64_t now) {
+static bool firmware_resume_install(struct mesh_app *app, uint64_t now, bool switch_agreed) {
     if (!mesh_firmware_update_can_resume(&app->firmware_update)) {
         return false;
+    }
+    /* The sheet agreed to has to be the one for what the retry writes: a whole flash only
+       under the switch sheet, and an update only under an update's. */
+    if (app->firmware_update.release.wipe != switch_agreed) {
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
+        inkwell_log_warn("ui", "Refusing a firmware resume: the sheet and the job disagree "
+                               "about whether this is a switch");
+        return true;
     }
     char toast[MESH_UI_NAV_TOAST_MAX];
     const struct mesh_firmware_board board = app->firmware_update.board;
@@ -2004,7 +2012,7 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
 
-    if (firmware_resume_install(app, now)) {
+    if (firmware_resume_install(app, now, action->number == 2U)) {
         return;
     }
     /*
