@@ -1642,6 +1642,24 @@ MESH_TEST_CASE(meshcore_login_is_answered_and_shares_the_lock, unit) {
     record_success(test_name);
 }
 
+/* A login queued behind a reboot is still the open request once the handshake starts over:
+   it is written first, and its SENT arms the deadline its answer is held to. */
+MESH_TEST_CASE(meshcore_request_outlives_a_reboot_restart, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != 1, "the reboot is queued");
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, 0x40414243U, "") != 0, "a login behind it");
+    mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_SEND_LOGIN ||
+                          g_meshcore.request_cmd != MESH_MESHCORE_CMD_SEND_LOGIN,
+                      "the login goes out first, still the open request");
+    static const uint8_t k_sent[10] = {MESH_MESHCORE_RESP_SENT, 0, 1, 2, 3, 4, 0x88, 0x13, 0, 0};
+    feed(&protocol, k_sent, sizeof k_sent);
+    MESH_TEST_FAIL_IF(g_meshcore.request_until_ms == 0U, "and its SENT arms its deadline");
+    record_success(test_name);
+}
+
 /* An advert is SEND_SELF_ADVERT with 1 to flood it and 0 for the nodes in earshot. */
 MESH_TEST_CASE(meshcore_advert_is_flooded_or_not, unit) {
     struct mesh_protocol protocol;
