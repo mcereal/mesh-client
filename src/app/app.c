@@ -267,6 +267,12 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
 
 /* Button presses arrive here from the evdev reader and go straight into the UI store's
    navigation model; the repaint happens on the store's eventfd in the same loop turn. */
+/* Asked by the input layer as a key goes down: see mesh_ui_nav_key_repeats(). */
+static bool mesh_app_ui_key_repeats(void *userdata, enum inkcell_key key) {
+    const struct mesh_app *app = (const struct mesh_app *)userdata;
+    return app != NULL && mesh_ui_nav_key_repeats(&app->ui_store.nav, key);
+}
+
 void mesh_app_on_ui_key(void *userdata, enum inkcell_key key) {
     struct mesh_app *app = (struct mesh_app *)userdata;
     if (app == NULL) {
@@ -1508,6 +1514,7 @@ int mesh_app_run(struct mesh_app *app) {
     if (!app->ui_backend_reads_input) {
         inkcell_input_init(&app->ui_input, &ui_input_host);
         inkcell_input_set_handler(&app->ui_input, mesh_app_on_ui_key, app);
+        inkcell_input_set_repeat_policy(&app->ui_input, mesh_app_ui_key_repeats, app);
     }
     if (app->config.ui_control_path[0] != '\0') {
         const struct inkstand_control_host host = {

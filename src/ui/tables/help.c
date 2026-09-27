@@ -524,7 +524,7 @@ bool mesh_ui_help_topic(const struct mesh_ui_settings *settings,
  */
 static bool help_question_armed(const struct mesh_ui_nav *nav) {
     return nav->settings_discard_armed || nav->devices_forget_armed || nav->node_remove_armed ||
-           nav->waypoint_delete_armed || nav->messages_delete_armed;
+           nav->waypoint_delete_armed || nav->messages_delete_armed || nav->disconnect_armed;
 }
 
 bool mesh_ui_help_offered(const struct mesh_ui_settings *settings,

@@ -221,12 +221,15 @@ void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_sn
             inkwell_str_copy(attach, sizeof attach, inkcell_str(MESH_STR_DEVICES_TRAILING_AWAY));
         }
 
-        const bool armed = nav->devices_forget_armed && nav->devices_forget_row == i;
+        /* Armed to be forgotten, or - the link that is up - armed to be dropped. Either is a
+           second press away from losing something, and the row says so the same way. */
+        const bool armed = (nav->devices_forget_armed && nav->devices_forget_row == i) ||
+                           (device->connected && mesh_ui_nav_disconnect_pending(nav, device, 1U));
         enum inkcell_tone tone = INKCELL_TONE_NORMAL;
-        if (device->connected) {
-            tone = INKCELL_TONE_SUCCESS;
-        } else if (armed) {
+        if (armed) {
             tone = INKCELL_TONE_ERROR;
+        } else if (device->connected) {
+            tone = INKCELL_TONE_SUCCESS;
         }
         /* A row armed to be forgotten says so in every part of itself, the resting state
            included: the capsule reports the link, which is a different fact, but a red row
@@ -250,9 +253,9 @@ void fb_render_devices(struct inkcell_draw_state *state, const struct mesh_ui_sn
                 {
                     .kind = INKCELL_FB_LEADING_AVATAR,
                     .icon = fb_device_icon(device),
-                    .role = device->connected ? INKCELL_COLOR_SUCCESS
-                            : armed           ? INKCELL_COLOR_ERROR
-                                              : INKCELL_COLOR_TEXT_DIM,
+                    .role = armed               ? INKCELL_COLOR_ERROR
+                            : device->connected ? INKCELL_COLOR_SUCCESS
+                                                : INKCELL_COLOR_TEXT_DIM,
                 },
             .text = name,
             .tone = tone,

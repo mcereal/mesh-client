@@ -645,6 +645,13 @@ MESH_TEST_CASE(ui_click_a_card_button_runs_its_verb, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(
         !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, &action),
         click_close(&store, capture), "the Link card drew no box for its second button");
+    /* The first click arms it, as the first A does; the second carries it out. */
+    MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_NONE || !store.nav.disconnect_armed,
+                              click_close(&store, capture),
+                              "a first click on disconnect should only arm it");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, &action),
+        click_close(&store, capture), "the Link card drew no box for its second button");
     MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_DISCONNECT ||
                                   store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT,
                               click_close(&store, capture),

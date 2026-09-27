@@ -104,6 +104,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_ACTION_CONFIRM_REMOVE] = "confirmar retirada",
     [MESH_STR_ACTION_CONFIRM_FORGET] = "confirmar olvido",
     [MESH_STR_ACTION_CONFIRM_DISCARD] = "confirmar descarte",
+    [MESH_STR_ACTION_CONFIRM_DISCONNECT] = "confirmar desconexión",
     [INKCELL_STR_HINT_QUIT_MENU] = "Pulsa MENU para salir",
     [INKCELL_STR_HINT_QUIT_KEY_CODE] = "Salir: código de tecla %u",
     [MESH_STR_HEADER_TRANSPORT_STARTING] = "iniciando",

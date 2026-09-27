@@ -220,11 +220,18 @@ void mesh_ui_nav_open_all_traffic(struct mesh_ui_nav *nav) {
     nav->reply_to = 0U;
 }
 
-/* The compose overlay always writes to the open thread, so it needs no target of its own. */
+/*
+ * The compose overlay always writes to the open thread, so it needs no target of its own.
+ *
+ * It opens on the draft row, never on a canned one. A on a canned row sends at once, and A is
+ * also the press that raised the sheet - so a sheet opening on the first canned reply made A, A
+ * on a channel bubble put "OK" on the air to everyone, the one outbound press in the client with
+ * no second step. On the draft row the same A, A opens the keyboard, which costs nothing; the
+ * canned replies are one Down away.
+ */
 void mesh_ui_nav_open_compose(struct mesh_ui_nav *nav) {
     nav->compose_open = true;
-    nav->compose_cursor =
-        nav->draft[0] != '\0' ? MESH_UI_COMPOSE_ROW_DRAFT : MESH_UI_COMPOSE_FIRST_CANNED;
+    nav->compose_cursor = MESH_UI_COMPOSE_ROW_DRAFT;
 }
 
 /* Y's half of the split: typing, with nothing in between. Leaving `compose_open` clear is the
@@ -643,6 +650,35 @@ static void mesh_ui_nav_fill_resend(struct mesh_ui_action *action,
 }
 
 /* ---- rows and cursors --------------------------------------------------------------------- */
+
+/* The radio that is connected - not merely coming up, which a disconnect only stops - or NULL. */
+static const struct mesh_ui_device *mesh_ui_nav_link_up(const struct mesh_ui_store *store) {
+    for (size_t i = 0; i < store->device_count; ++i) {
+        if (store->devices[i].connected) {
+            return &store->devices[i];
+        }
+    }
+    return NULL;
+}
+
+bool mesh_ui_nav_disconnect_pending(const struct mesh_ui_nav *nav,
+                                    const struct mesh_ui_device *devices, size_t count) {
+    if (nav == NULL || !nav->disconnect_armed || devices == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (devices[i].connected && strcmp(devices[i].identifier, nav->disconnect_link) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The first of a disconnect's two presses, against the radio that is up now. */
+static void mesh_ui_nav_arm_disconnect(struct mesh_ui_nav *nav, const struct mesh_ui_device *link) {
+    nav->disconnect_armed = true;
+    snprintf(nav->disconnect_link, sizeof nav->disconnect_link, "%s", link->identifier);
+}
 
 /*
  * The verbs the Status cards offer, from the store.
@@ -1223,6 +1259,65 @@ static uint32_t mesh_ui_nav_map_first_row(const bool *heading, uint32_t rows, ui
     return at;
 }
 
+/* How many runs of rows the titles split a heading map into. */
+static uint32_t mesh_ui_nav_map_groups(const bool *heading, uint32_t rows) {
+    uint32_t groups = 0U;
+    bool in_group = false;
+    for (uint32_t r = 0; r < rows; ++r) {
+        if (heading[r]) {
+            in_group = false;
+            continue;
+        }
+        if (!in_group) {
+            groups++;
+            in_group = true;
+        }
+    }
+    return groups;
+}
+
+/* Whether the screen draws its rows as cards, which is what mesh_ui_nav_cursor_group() crosses:
+   the same map and the same threshold of two. A screen answering true keeps L2/R2 for its
+   groups even where there is no group left to cross, so a trigger never means two things on one
+   screen depending on where the cursor happens to be. */
+static bool mesh_ui_nav_has_groups(const struct mesh_ui_nav *nav,
+                                   const struct mesh_ui_store *store) {
+    bool heading[MESH_UI_NODE_ITEMS_MAX];
+    memset(heading, 0, sizeof heading);
+    const uint32_t rows = mesh_ui_nav_heading_map(nav, store, heading, MESH_UI_NODE_ITEMS_MAX);
+    return rows > 0U && mesh_ui_nav_map_groups(heading, rows) >= 2U;
+}
+
+/*
+ * L2 and R2 on a list with no groups to cross: a page of rows at a time.
+ *
+ * The triggers used to mean nothing on the Nodes roster, the conversation list and the device
+ * list - the three longest lists a reader walks - because mesh_ui_nav_cursor_group() finds no
+ * cards there and refuses. That left a forty-node roster to the d-pad's repeat alone, with no
+ * jump of any size. A page is a fixed count of steps rather than what the panel shows, because
+ * a row here is however many lines the list model says and the nav is never told the fit; five
+ * is a screenful less one at the Brick's own size, so a page keeps a row of context. It stops at
+ * either end rather than wrapping, as the d-pad does, and walks through the same one-step move
+ * so it can never land on a heading.
+ */
+#define MESH_UI_NAV_PAGE_STEPS 5U
+
+static bool mesh_ui_nav_cursor_page(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                    int delta) {
+    /* The Status cards walk verbs, not rows; the map's cursor is the world. */
+    if (mesh_ui_nav_status_showing(nav) || (nav->map_open && nav->screen == MESH_UI_SCREEN_NODES)) {
+        return false;
+    }
+    bool moved = false;
+    for (unsigned step = 0U; step < MESH_UI_NAV_PAGE_STEPS; ++step) {
+        if (!mesh_ui_nav_move_cursor(nav, store, delta)) {
+            break;
+        }
+        moved = true;
+    }
+    return moved;
+}
+
 /*
  * Moves the cursor a whole *group* instead of a row: L2 and R2, on the two screens that draw
  * their groups as cards.
@@ -1265,19 +1360,7 @@ bool mesh_ui_nav_cursor_group(struct mesh_ui_nav *nav, const struct mesh_ui_stor
      * reader cannot see. Counted rather than assumed from the heading, which is the correction:
      * a lone heading over the only group is a section with a title, not a section with parts.
      */
-    uint32_t groups = 0U;
-    bool in_group = false;
-    for (uint32_t r = 0; r < rows; ++r) {
-        if (heading[r]) {
-            in_group = false;
-            continue;
-        }
-        if (!in_group) {
-            groups++;
-            in_group = true;
-        }
-    }
-    if (groups < 2U) {
+    if (mesh_ui_nav_map_groups(heading, rows) < 2U) {
         return false;
     }
     uint32_t *cursor = &nav->cursor[nav->screen];
@@ -2095,6 +2178,17 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             nav->devices_forget_armed = false;
             return true;
         case MESH_UI_STATUS_VERB_DISCONNECT:
+            /* The first press only arms it - see `disconnect_armed`. The verb is offered only
+               with a link up, so there is one to arm against. */
+            if (!mesh_ui_nav_disconnect_pending(nav, store->devices, store->device_count)) {
+                const struct mesh_ui_device *link = mesh_ui_nav_link_up(store);
+                if (link == NULL) {
+                    return false;
+                }
+                mesh_ui_nav_arm_disconnect(nav, link);
+                return true;
+            }
+            nav->disconnect_armed = false;
             /* The same press X makes on the device list, and it names the radio for the same
                reason: only one link is ever up, so the transport is told which one to drop
                rather than being left to work it out. */
@@ -2108,7 +2202,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                 action->kind = store->devices[i].kind;
                 break;
             }
-            return false;
+            return true;
         case MESH_UI_STATUS_VERB_TREND:
             /* The one verb here that raises no action: what it opens is a screen drawn from what
                this client already watched, so there is nothing to ask the radio for and nothing
@@ -2279,8 +2373,18 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         return true;
     }
 
-    /* Any press dismisses a notice; whether the frame changes is decided below. */
-    bool changed = mesh_ui_nav_dismiss_toast(nav);
+    /*
+     * A press dismisses a notice - except a direction. Moving is not an answer to the notice:
+     * the pad repeats on its own timer while it is held, so a thumb scrolling a list took down a
+     * message that had arrived before its first line could be read, and news nobody asked for
+     * left no trace but a badge. A direction leaves it standing its four seconds. Whether the
+     * frame changes is decided below.
+     */
+    bool changed = false;
+    if (key != INKCELL_KEY_UP && key != INKCELL_KEY_DOWN && key != INKCELL_KEY_LEFT &&
+        key != INKCELL_KEY_RIGHT) {
+        changed = mesh_ui_nav_dismiss_toast(nav);
+    }
 
     struct mesh_ui_route active;
     mesh_ui_route_of(nav, &active);
@@ -2336,6 +2440,22 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         break;
     }
 
+    /* A disconnect is armed from two places, and only the press that armed it, on the same
+       place, carries it out. B stands it down and does nothing else: the bar said "cancel". */
+    if (nav->disconnect_armed) {
+        const bool on_card = nav->screen == MESH_UI_SCREEN_RADIO && !nav->devices_open &&
+                             !nav->trend_open && nav->radio_page == MESH_UI_RADIO_PAGE_NONE &&
+                             nav->status_verb == (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT;
+        const bool again = (key == INKCELL_KEY_X && mesh_ui_nav_devices_showing(nav)) ||
+                           (key == INKCELL_KEY_A && on_card);
+        if (!again) {
+            nav->disconnect_armed = false;
+            if (key == INKCELL_KEY_B) {
+                return true;
+            }
+            changed = true;
+        }
+    }
     /* One press arms Y on the Devices tab; anything else stands it back down. */
     if (nav->devices_forget_armed && (key != INKCELL_KEY_Y || !mesh_ui_nav_devices_showing(nav))) {
         nav->devices_forget_armed = false;
@@ -2608,19 +2728,20 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     case INKCELL_KEY_DOWN:
         return mesh_ui_nav_move_cursor(nav, store, +1) || changed;
     /* A whole group at a time, for the screens that draw their groups as cards - the node detail
-       here, and a settings section through mesh_ui_nav_settings_section_key() above. Safe to ask
-       unconditionally: a screen with no headings has no boundaries and answers false, exactly as
-       it draws no cards. See mesh_ui_nav_cursor_group(). */
+       here, and a settings section through mesh_ui_nav_settings_section_key() above - and a page
+       at a time on a list that draws none. See mesh_ui_nav_cursor_group() and
+       mesh_ui_nav_cursor_page(). */
     case INKCELL_KEY_L2:
+    case INKCELL_KEY_R2: {
+        const int delta = key == INKCELL_KEY_R2 ? +1 : -1;
         if (nav->screen == MESH_UI_SCREEN_MESSAGES && nav->thread_open) {
-            return mesh_ui_nav_thread_jump(nav, store, -1) || changed;
+            return mesh_ui_nav_thread_jump(nav, store, delta) || changed;
         }
-        return mesh_ui_nav_cursor_group(nav, store, -1) || changed;
-    case INKCELL_KEY_R2:
-        if (nav->screen == MESH_UI_SCREEN_MESSAGES && nav->thread_open) {
-            return mesh_ui_nav_thread_jump(nav, store, +1) || changed;
+        if (mesh_ui_nav_has_groups(nav, store)) {
+            return mesh_ui_nav_cursor_group(nav, store, delta) || changed;
         }
-        return mesh_ui_nav_cursor_group(nav, store, +1) || changed;
+        return mesh_ui_nav_cursor_page(nav, store, delta) || changed;
+    }
     case INKCELL_KEY_START:
         /*
          * The conversation list is the second screen to spend START on something of its own,
@@ -2728,7 +2849,16 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         if (mesh_ui_nav_devices_showing(nav)) {
             /* Only one radio is ever connected, so this does not depend on the row: it drops
                the link that is up (or the one coming up), which is what stops auto-connect
-               taking the radio straight back. */
+               taking the radio straight back. A link that is up costs a second press - see
+               `disconnect_armed` - and one still coming up does not: stopping an attempt
+               loses nothing. */
+            const struct mesh_ui_device *link = mesh_ui_nav_link_up(store);
+            if (link != NULL &&
+                !mesh_ui_nav_disconnect_pending(nav, store->devices, store->device_count)) {
+                mesh_ui_nav_arm_disconnect(nav, link);
+                return true;
+            }
+            nav->disconnect_armed = false;
             const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_RADIO];
             if (out_action != NULL) {
                 out_action->type = MESH_UI_ACTION_DISCONNECT;
@@ -2739,7 +2869,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
                     out_action->kind = store->devices[cursor].kind;
                 }
             }
-            return changed;
+            return true;
         }
         if (nav->screen == MESH_UI_SCREEN_NODES && !mesh_ui_nav_waypoints_showing(nav) &&
             !nav->node_detail_open && !nav->map_open &&

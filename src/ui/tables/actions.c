@@ -484,6 +484,12 @@ static void actions_devices(const struct mesh_ui_nav *nav, const struct mesh_ui_
         command_add(bar, MESH_UI_COMMAND_CANCEL, MESH_STR_ACTION_CANCEL, INKCELL_BUTTON_B);
         return;
     }
+    if (mesh_ui_nav_disconnect_pending(nav, snapshot->devices, snapshot->device_count)) {
+        command_add(bar, MESH_UI_COMMAND_CONFIRM_DISCONNECT, MESH_STR_ACTION_CONFIRM_DISCONNECT,
+                    INKCELL_BUTTON_X);
+        command_add(bar, MESH_UI_COMMAND_CANCEL, MESH_STR_ACTION_CANCEL, INKCELL_BUTTON_B);
+        return;
+    }
     /*
      * A and Y are properties of the row under the cursor, and the nav has always known it:
      * both handlers declined on rows the bar went on naming anyway. A bootloader is what made
@@ -813,6 +819,14 @@ static void actions_trend(const struct mesh_ui_snapshot *snapshot,
 static void actions_status(const struct mesh_ui_snapshot *snapshot,
                            struct mesh_ui_command_set *bar) {
     const bool connected = mesh_ui_snapshot_connected_device(snapshot) != NULL;
+
+    /* A disconnect armed on the Link card asks one question, as every armed press does. */
+    if (mesh_ui_nav_disconnect_pending(&snapshot->nav, snapshot->devices, snapshot->device_count)) {
+        command_add(bar, MESH_UI_COMMAND_CONFIRM_DISCONNECT, MESH_STR_ACTION_CONFIRM_DISCONNECT,
+                    INKCELL_BUTTON_A);
+        command_add(bar, MESH_UI_COMMAND_CANCEL, MESH_STR_ACTION_CANCEL, INKCELL_BUTTON_B);
+        return;
+    }
 
     /*
      * The verb the cursor is on, named rather than described.
@@ -1174,6 +1188,7 @@ enum inkcell_icon mesh_ui_command_icon(enum mesh_ui_command_id id) {
         return INKCELL_ICON_MUTED;
     case MESH_UI_COMMAND_CONNECT:
     case MESH_UI_COMMAND_DISCONNECT:
+    case MESH_UI_COMMAND_CONFIRM_DISCONNECT:
         return INKCELL_ICON_LINK;
     case MESH_UI_COMMAND_PAIR:
         return INKCELL_ICON_BLUETOOTH;
@@ -1196,7 +1211,7 @@ enum inkcell_icon mesh_ui_command_icon(enum mesh_ui_command_id id) {
 static bool command_destroys(enum mesh_ui_command_id id) {
     return id == MESH_UI_COMMAND_DELETE || id == MESH_UI_COMMAND_CONFIRM_DELETE ||
            id == MESH_UI_COMMAND_FORGET || id == MESH_UI_COMMAND_CONFIRM_FORGET ||
-           id == MESH_UI_COMMAND_CONFIRM_REMOVE;
+           id == MESH_UI_COMMAND_CONFIRM_REMOVE || id == MESH_UI_COMMAND_CONFIRM_DISCONNECT;
 }
 
 static bool command_is_primary(enum mesh_ui_command_id id) {

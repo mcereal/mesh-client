@@ -1232,7 +1232,7 @@ MESH_TEST_CASE(ui_nav_devices_disconnect_forget, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
-    const struct mesh_ui_device devices[] = {
+    struct mesh_ui_device devices[] = {
         {.identifier = "AA:BB:CC:DD:EE:01",
          .name = "NodeOne",
          .rssi = -45,
@@ -1251,6 +1251,12 @@ MESH_TEST_CASE(ui_nav_devices_disconnect_forget, unit) {
     store.nav.devices_open = true;
 
     struct mesh_ui_action action;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_NONE || !store.nav.disconnect_armed) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the first X on a link that is up should only arm it");
+        return;
+    }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (action.type != MESH_UI_ACTION_DISCONNECT ||
         strcmp(action.identifier, devices[0].identifier) != 0) {
@@ -1287,6 +1293,52 @@ MESH_TEST_CASE(ui_nav_devices_disconnect_forget, unit) {
     if (action.type != MESH_UI_ACTION_NONE) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "a USB port has nothing to forget");
+        return;
+    }
+
+    /* An armed disconnect stands down on any other press, like the forget. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_NONE || !store.nav.disconnect_armed) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "moving the cursor should stand an armed disconnect down");
+        return;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    if (store.nav.disconnect_armed || !store.nav.devices_open) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "B should cancel an armed disconnect and stay on the list");
+        return;
+    }
+
+    /* Armed against one radio, and another comes up in its place: the next X is a first press
+       again, not the second one that would drop a link nobody asked about. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    devices[0].connected = false;
+    devices[1].connected = true;
+    mesh_ui_store_set_discovery(&store, devices, sizeof devices / sizeof devices[0]);
+    mesh_ui_store_consume_updates(&store, NULL);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_NONE ||
+        !mesh_ui_nav_disconnect_pending(&store.nav, store.devices, store.device_count)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "a disconnect armed for one radio must not drop another");
+        return;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    devices[1].connected = false;
+    devices[0].connected = true;
+
+    /* A link still coming up is stopped at once: there is nothing yet to lose. */
+    devices[0].connected = false;
+    devices[0].busy = true;
+    mesh_ui_store_set_discovery(&store, devices, sizeof devices / sizeof devices[0]);
+    mesh_ui_store_consume_updates(&store, NULL);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_DISCONNECT || store.nav.disconnect_armed) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "X on a link still coming up should stop it in one press");
         return;
     }
 
@@ -2570,5 +2622,63 @@ MESH_TEST_CASE(ui_nav_nodes_empty_a_goes_to_the_devices, unit) {
                               mesh_ui_store_shutdown(&store),
                               "waiting for the roster, A should leave the reader where they are");
     mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * L2 and R2 on a list that draws no cards page the cursor, five rows a press, and stop at either
+ * end. They used to be refused there - the roster, the longest list in the client, had no jump
+ * of any size.
+ */
+MESH_TEST_CASE(ui_nav_triggers_page_a_list_with_no_groups, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
+
+    const char *failure = NULL;
+    struct mesh_ui_action action;
+    const uint32_t rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES);
+    uint32_t *cursor = &store.nav.cursor[MESH_UI_SCREEN_NODES];
+    if (rows < 7U || *cursor != 0U) {
+        failure = "the test needs a roster longer than a page, from its first row";
+        goto cleanup;
+    }
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action) || *cursor != 5U) {
+        failure = "R2 should move the cursor a page down";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
+    if (*cursor != rows - 1U) {
+        failure = "R2 near the end should stop on the last row";
+        goto cleanup;
+    }
+    if (mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action) || *cursor != rows - 1U) {
+        failure = "R2 on the last row should do nothing rather than wrap";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    if (*cursor != rows - 1U - 5U) {
+        failure = "L2 should move the cursor a page up";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    if (*cursor != 0U || store.nav.node_detail_open || store.nav.map_open) {
+        failure = "L2 near the top should stop on the first row and open nothing";
+        goto cleanup;
+    }
+
+    /* The map stays open behind a change of tab, and must not take paging with it. */
+    store.nav.map_open = true;
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES);
+    if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action) ||
+        store.nav.cursor[MESH_UI_SCREEN_MESSAGES] == 0U) {
+        failure = "a map left open on Nodes should not stop R2 paging the conversation list";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
