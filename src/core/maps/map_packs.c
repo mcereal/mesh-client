@@ -431,7 +431,18 @@ bool mesh_map_packs_progress(const struct mesh_map_packs *packs, uint16_t *permi
         return false;
     }
     if (permille != NULL) {
-        *permille = (uint16_t)((packs->download.have * 1000U) / packs->download.entry.bytes);
+        /* What is verified, plus what of the piece in flight has reached the card - otherwise
+           the bar moves once every four megabytes, which on a slow link is a bar that looks
+           stuck. */
+        uint64_t piece = packs_file_size(packs->download.chunk_path, NULL);
+        if (piece > packs->download.chunk_len) {
+            piece = packs->download.chunk_len;
+        }
+        uint64_t have = packs->download.have + piece;
+        if (have > packs->download.entry.bytes) {
+            have = packs->download.entry.bytes;
+        }
+        *permille = (uint16_t)((have * 1000U) / packs->download.entry.bytes);
     }
     return true;
 }

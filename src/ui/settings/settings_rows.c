@@ -769,6 +769,112 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
     }
 }
 
+/* "22.5 MB" - a pack's size, to a tenth of a megabyte, which is what a card's free space is
+   read in. */
+static void format_pack_size(char *out, size_t out_len, uint64_t bytes) {
+    const uint64_t tenths = (bytes + 50000U) / 100000U;
+    inkcell_str_format(out, out_len, MESH_STR_MAPS_SIZE, (unsigned)(tenths / 10U),
+                       (unsigned)(tenths % 10U));
+}
+
+/*
+ * Maps: the packs on the card, and the ones the map server offers under its own headings.
+ *
+ * Every pack is a row whose label is its name and whose `text` is its id, which is what the nav
+ * hands back with the press - the list is the app's, as the firmware board picker's is. A pack on
+ * the card is deleted from its row, behind a sheet; one on the server is downloaded from its row,
+ * and an installed pack the server has a newer cut of is listed there too, as an update.
+ *
+ * While a download runs its bar is the section's first row and the only thing offered is to
+ * stop it: one download at a time is the module's rule, and a list of presses that would each
+ * be refused is a list the reader has to learn not to trust.
+ */
+static void build_maps(const struct mesh_ui_settings *s, struct item_list *list) {
+    /*
+     * The one press the section is about goes first and stays first - list the maps, check
+     * again, stop the download - so the row under the cursor is still a press after the rows
+     * below it change shape, which they do whenever an answer lands.
+     */
+    if (s->maps_downloading) {
+        item_verb(list, MESH_STR_MAPS_STOP, MESH_UI_SETTINGS_ACTION_MAPS_CANCEL);
+        char working[MESH_UI_SETTINGS_VALUE_MAX];
+        inkcell_str_format(working, sizeof working, MESH_STR_MAPS_DOWNLOADING_VALUE,
+                           s->maps_download_name, (unsigned)(s->maps_progress / 10U));
+        item_meter(list, MESH_STR_MAPS_DOWNLOADING, working, s->maps_progress);
+    } else if (s->maps_loading) {
+        item_meter(list, MESH_STR_MAPS_LOADING, inkcell_str(MESH_STR_MAPS_LOADING_VALUE),
+                   INKSTAND_FORM_METER_UNKNOWN);
+    } else if (s->maps_supported) {
+        item_verb(list, s->maps_catalog ? MESH_STR_MAPS_REFRESH : MESH_STR_MAPS_GET_LIST,
+                  MESH_UI_SETTINGS_ACTION_MAPS_REFRESH);
+    }
+    if (s->maps_message[0] != '\0') {
+        item_text(list, MESH_STR_MAPS_STATUS, INKSTAND_FORM_INFO, s->maps_message);
+    }
+
+    /* A heading only over something: with nothing installed the list starts at the server's. */
+    bool headed = false;
+    for (uint8_t i = 0U; i < s->maps_row_count && i < MESH_UI_MAPS_ROWS_MAX; ++i) {
+        const struct mesh_ui_maps_row *const row = &s->maps_rows[i];
+        if (row->kind != (uint8_t)MESH_UI_MAPS_ROW_INSTALLED) {
+            continue;
+        }
+        if (!headed) {
+            item_heading(list, MESH_STR_MAPS_HEAD_INSTALLED);
+            headed = true;
+        }
+        char size[32];
+        char value[MESH_UI_SETTINGS_VALUE_MAX];
+        format_pack_size(size, sizeof size, row->bytes);
+        if (row->cut[0] != '\0') {
+            inkcell_str_format(value, sizeof value, MESH_STR_MAPS_INSTALLED_VALUE, size, row->cut,
+                               row->cut + 4, row->cut + 6);
+        } else {
+            inkwell_str_copy(value, sizeof value, size);
+        }
+        const size_t before = list->count;
+        item_action_named(list, row->name, value, MESH_UI_SETTINGS_ACTION_MAPS_DELETE);
+        if (list->count > before) {
+            inkwell_str_copy(list->items[before].text, sizeof list->items[before].text, row->id);
+        }
+    }
+
+    if (!s->maps_supported || !s->maps_catalog || s->maps_downloading || s->maps_loading) {
+        return;
+    }
+
+    /* The server's packs in the order the app wrote them, a heading wherever the group
+       changes. The top of the tree - the world base - is under a heading of its own. */
+    const char *group = NULL;
+    for (uint8_t i = 0U; i < s->maps_row_count && i < MESH_UI_MAPS_ROWS_MAX; ++i) {
+        const struct mesh_ui_maps_row *const row = &s->maps_rows[i];
+        if (row->kind != (uint8_t)MESH_UI_MAPS_ROW_AVAILABLE) {
+            continue;
+        }
+        if (group == NULL || strcmp(group, row->group) != 0) {
+            group = row->group;
+            if (row->group[0] != '\0') {
+                item_add_named(list, row->group, INKSTAND_FORM_HEADING);
+            } else {
+                item_heading(list, MESH_STR_MAPS_HEAD_WORLD);
+            }
+        }
+        char size[32];
+        char value[MESH_UI_SETTINGS_VALUE_MAX];
+        format_pack_size(size, sizeof size, row->bytes);
+        if (row->update) {
+            inkcell_str_format(value, sizeof value, MESH_STR_MAPS_UPDATE_VALUE, size);
+        } else {
+            inkwell_str_copy(value, sizeof value, size);
+        }
+        const size_t before = list->count;
+        item_action_named(list, row->name, value, MESH_UI_SETTINGS_ACTION_MAPS_DOWNLOAD);
+        if (list->count > before) {
+            inkwell_str_copy(list->items[before].text, sizeof list->items[before].text, row->id);
+        }
+    }
+}
+
 /*
  * About radio: what the radio *is*, as About MeshClient is what this client is. Every row is
  * read-only, and that is the whole distinction the two names carry - a row that can be changed
@@ -2632,6 +2738,9 @@ static void build_section(const struct mesh_ui_settings *settings,
     switch (section) {
     case MESH_UI_SETTINGS_ABOUT:
         build_about(settings, list);
+        break;
+    case MESH_UI_SETTINGS_MAPS:
+        build_maps(settings, list);
         break;
     case MESH_UI_SETTINGS_RADIO:
         build_radio(settings, handshake, list);

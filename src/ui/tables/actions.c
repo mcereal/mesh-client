@@ -672,15 +672,20 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
      * over the Version row named a press that did nothing there. A cycle row says "edit", as a
      * field row does; a verb says "run"; a fact says nothing about A at all.
      */
-    if (nav->settings_section == MESH_UI_SETTINGS_ABOUT) {
+    /* Maps is the same shape: nothing from the radio, and A is the row's own verb - a delete on
+       a pack that is installed, which the bar names so, and "run" on the rest. */
+    if (nav->settings_section == MESH_UI_SETTINGS_ABOUT ||
+        nav->settings_section == MESH_UI_SETTINGS_MAPS) {
         struct mesh_ui_settings_item item;
         if (snapshot != NULL &&
             mesh_ui_settings_item(&snapshot->settings,
                                   snapshot->handshake_valid ? &snapshot->handshake : NULL, NULL, 0U,
-                                  MESH_UI_SETTINGS_ABOUT, MESH_UI_SETTINGS_NO_CHANNEL,
-                                  nav->cursor[nav->screen], &item) &&
+                                  (enum mesh_ui_settings_section)nav->settings_section,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, nav->cursor[nav->screen], &item) &&
             item.kind == INKSTAND_FORM_ACTION) {
-            if (item.cycle) {
+            if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
+                command_add(bar, MESH_UI_COMMAND_DELETE, MESH_STR_ACTION_DELETE, INKCELL_BUTTON_A);
+            } else if (item.cycle) {
                 command_add(bar, MESH_UI_COMMAND_EDIT, MESH_STR_ACTION_EDIT, INKCELL_BUTTON_A);
             } else {
                 command_add(bar, MESH_UI_COMMAND_RUN, MESH_STR_ACTION_RUN, INKCELL_BUTTON_A);

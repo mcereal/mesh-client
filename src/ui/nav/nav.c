@@ -1976,6 +1976,9 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
            row opens the question, and the answer to that is what goes out. The rest go
            straight through. */
         const enum mesh_ui_settings_action which = (enum mesh_ui_settings_action)item.number;
+        if (which == MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
+            snprintf(nav->maps_pending, sizeof nav->maps_pending, "%s", item.text);
+        }
         if (mesh_ui_settings_action_needs_confirm(which)) {
             /* Cancel under the cursor, so a repeated press changes nothing. */
             inkstand_dialog_open(&nav->confirm, (uint16_t)which);
@@ -2067,6 +2070,17 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
                 action->type = MESH_UI_ACTION_CHECK_FIRMWARE_BLUETOOTH;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_LIST_FIRMWARE_BOARDS) {
                 action->type = MESH_UI_ACTION_LIST_FIRMWARE_BOARDS;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_MAPS_REFRESH) {
+                action->type = MESH_UI_ACTION_MAPS_REFRESH;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_MAPS_CANCEL) {
+                action->type = MESH_UI_ACTION_MAPS_CANCEL;
+            } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_MAPS_DOWNLOAD) {
+                /* Which pack is the row's own text, as a firmware board's is. The rows above
+                   it change shape as the download starts, so the cursor goes to the top, where
+                   its bar will be. */
+                action->type = MESH_UI_ACTION_MAPS_DOWNLOAD;
+                snprintf(action->identifier, sizeof action->identifier, "%s", item.text);
+                nav->cursor[nav->screen] = 0U;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD) {
                 /* Which board is the row's own text: the list is the app's, and the nav only
                    hands back the name that was under the cursor. */

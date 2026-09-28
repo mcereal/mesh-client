@@ -14,6 +14,7 @@
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
 #include "mesh/core/lifetime.h"
+#include "mesh/core/map_packs.h"
 #include "mesh/core/meshcore.h"
 #include "mesh/core/protocol.h"
 #include "mesh/core/session.h"
@@ -132,6 +133,8 @@ struct mesh_app {
        client info on every publish, so the About section renders it without the UI ever seeing
        a connection. */
     struct mesh_updater updater;
+    /* The map packs on the card and the ones the map server offers (Settings > Maps). */
+    struct mesh_map_packs map_packs;
     /*
      * The *radio's* firmware, which is a different binary on a different computer: what board this
      * is, what it is running, and what upstream has published since. Reads two documents through

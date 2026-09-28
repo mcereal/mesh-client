@@ -832,6 +832,9 @@ struct mesh_ui_nav {
      * a link longer than that is one nobody was going to type anyway.
      */
     char channel_url[MESH_UI_DRAFT_MAX];
+    /* The map pack a delete sheet is standing in front of: the row's id, kept from the press
+       that opened the sheet to the one that answers it, since the sheet carries only the verb. */
+    char maps_pending[64];
     /* A contact link that has been typed and parsed, waiting on the sheet in front of it.
        Its own buffer beside the channel one, for that buffer's reason: the keyboard closes
        before the sheet opens, and closing it is what puts the parked Compose draft back. */
@@ -1070,6 +1073,15 @@ enum mesh_ui_action_type {
      * radio, sends no write, and what it moves is this client's idea of who it is talking to.
      */
     MESH_UI_ACTION_SET_ADMIN_TARGET,
+    /*
+     * Maps: ask the map server for its list, download the pack `identifier` names, stop the
+     * download running, and delete the installed pack `identifier` names. This client's alone,
+     * like the update verbs - none of them reaches the radio.
+     */
+    MESH_UI_ACTION_MAPS_REFRESH,
+    MESH_UI_ACTION_MAPS_DOWNLOAD,
+    MESH_UI_ACTION_MAPS_CANCEL,
+    MESH_UI_ACTION_MAPS_DELETE,
     /* Not a verb: how many there are. It is what pins the dispatch table in
        src/app/app_actions.c to this list - a verb added above and not given a row there is a
        press that reaches the app and does nothing, with nothing to see at the seam. */

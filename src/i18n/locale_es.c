@@ -635,6 +635,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_SETTINGS_SECTION_BEACON] = "Baliza de malla",
     [MESH_STR_SETTINGS_SECTION_RADIO_DETAILS] = "Detalles de la radio",
     [MESH_STR_SETTINGS_SECTION_NODE_LISTS] = "Listas de nodos",
+    [MESH_STR_SETTINGS_SECTION_MAPS] = "Mapas",
     [MESH_STR_HELP_TITLE] = "Ayuda",
     [MESH_STR_HELP_OVERVIEW] = "Sobre esta pantalla",
     /* The help screen's subjects and paragraph headings. The paragraphs themselves are notes and
@@ -1301,6 +1302,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TITLE_BACKUP] = "¿Copiar la configuración?",
     [MESH_STR_CONFIRM_TITLE_RESTORE] = "¿Restaurar la configuración?",
     [MESH_STR_CONFIRM_TITLE_RM_BACKUP] = "¿Borrar la copia?",
+    [MESH_STR_CONFIRM_TITLE_MAPS_DELETE] = "¿Eliminar este mapa?",
     [MESH_STR_CONFIRM_TITLE_HAM_MODE] = "¿Pasar a modo ham?",
     [MESH_STR_CONFIRM_TITLE_FW_USB] = "¿Actualizar la radio por USB?",
     [MESH_STR_CONFIRM_TITLE_FW_BLE] = "¿Actualizar la radio por Bluetooth?",
@@ -1320,6 +1322,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_ACCEPT_BACKUP] = "Copiar",
     [MESH_STR_CONFIRM_ACCEPT_RESTORE] = "Restaurar",
     [MESH_STR_CONFIRM_ACCEPT_RM_BACKUP] = "Borrar copia",
+    [MESH_STR_CONFIRM_ACCEPT_MAPS_DELETE] = "Eliminar mapa",
     [MESH_STR_CONFIRM_ACCEPT_HAM_MODE] = "Pasar a modo ham",
     [MESH_STR_CONFIRM_ACCEPT_FW_USB] = "Actualizar por USB",
     [MESH_STR_CONFIRM_ACCEPT_FW_BLE] = "Actualizar por Bluetooth",
@@ -1364,6 +1367,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TEXT_RM_BACKUP] =
         "La copia guardada se borra de la flash de la radio. Los ajustes en uso no cambian, y ya "
         "no habrá nada que restaurar.",
+    [MESH_STR_CONFIRM_TEXT_MAPS_DELETE] =
+        "El mapa se borra de la tarjeta y deja de dibujarse. Puede descargarse de nuevo desde esta pantalla.",
     [MESH_STR_CONFIRM_TEXT_FW_SWITCH] =
         "La radio se reescribe por el cable y empieza de nuevo como un nodo nuevo: sus ajustes, "
         "claves, contactos y canales no se conservan. Mantenla conectada hasta que vuelva.",
@@ -1770,7 +1775,22 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_MAP_PACKS_DAMAGED] = "%s llegó dañado. Inténtalo de nuevo.",
     [MESH_STR_MAP_PACKS_DONE] = "%s ya está en el mapa",
     [MESH_STR_MAP_PACKS_DELETED] = "%s eliminado",
-    [MESH_STR_MAP_PACKS_STOPPED] = "Detenido. Al descargar de nuevo continuará donde se quedó.",
+    [MESH_STR_MAP_PACKS_STOPPED] = "Detenido; al descargar se reanuda",
+    [MESH_STR_MAPS_STATUS] = "Estado",
+    [MESH_STR_MAPS_DOWNLOADING] = "Descargando",
+    [MESH_STR_MAPS_DOWNLOADING_VALUE] = "%s, %u%%",
+    [MESH_STR_MAPS_STOP] = "Detener la descarga",
+    [MESH_STR_MAPS_LOADING] = "Lista de mapas",
+    [MESH_STR_MAPS_LOADING_VALUE] = "Consultando el servidor de mapas",
+    [MESH_STR_MAPS_HEAD_INSTALLED] = "En este dispositivo",
+    [MESH_STR_MAPS_GET_LIST] = "Ver los mapas para descargar",
+    [MESH_STR_MAPS_REFRESH] = "Buscar mapas nuevos",
+    [MESH_STR_MAPS_HEAD_WORLD] = "Todo el mundo",
+    [MESH_STR_MAPS_SIZE] = "%u,%u MB",
+    [MESH_STR_MAPS_INSTALLED_VALUE] = "%s, %.4s-%.2s-%.2s",
+    [MESH_STR_MAPS_UPDATE_VALUE] = "Actualizar, %s",
+    [MESH_STR_TOAST_MAPS_BUSY] = "Una descarga a la vez",
+    [MESH_STR_TOAST_MAPS_FAILED] = "Mapas: %s",
     [MESH_STR_UPDATE_DOWNLOAD_HTTP] = "Falló la descarga (HTTP %d)",
 
     /* El firmware de la radio, no el del cliente. Todo esto va en la columna de valores, que
