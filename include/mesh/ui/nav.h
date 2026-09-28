@@ -1350,6 +1350,14 @@ uint32_t mesh_ui_nav_open_conversation_row(const struct mesh_ui_nav *nav,
                                            const struct mesh_ui_store *store);
 
 /*
+ * Whether row `row` of the conversation list is the open thread, asked of the row rather than
+ * answered with an index - so a thread with no row yet, which the call above answers with the
+ * parked cursor, is never mistaken for whatever that cursor happens to be on.
+ */
+bool mesh_ui_nav_conversation_row_is_open(const struct mesh_ui_nav *nav,
+                                          const struct mesh_ui_store *store, uint32_t row);
+
+/*
  * Whether the Nodes *list* is what the reader is on: the Nodes screen with no node open. A detail
  * replaces the roster on a one-pane panel, and one opened from the map never had a roster
  * behind it, so a node discovered while either is up is one the reader has not seen. It is the

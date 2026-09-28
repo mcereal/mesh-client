@@ -717,6 +717,52 @@ MESH_TEST_CASE(ui_click_a_wide_window_opens_another_row_from_the_list_beside_a_d
 }
 
 /*
+ * The selected row is found by what it is. A thread opened on a peer with nothing said yet has no
+ * row, and the row the list's cursor was parked on is then some other conversation, which a
+ * click must still open. And a click on the list goes nowhere while a layer is over the detail.
+ */
+MESH_TEST_CASE(ui_click_the_list_beside_an_unlisted_thread_or_a_layer, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    struct mesh_ui_action action;
+
+    /* Parked on row 1, then a thread with no row of its own - as the picker or a node opens. */
+    store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+    store.nav.conversation_list_cursor = 1U;
+    store.nav.thread_open = true;
+    store.nav.inbox = false;
+    store.nav.target_node = 0x7E57AB1EU;
+    store.nav.cursor[MESH_UI_SCREEN_MESSAGES] = 0U;
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_nav_conversation_row_is_open(&store.nav, &store, 1U),
+                              click_close(&store, capture),
+                              "an unlisted thread should not be row 1");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + 1U, &action) ||
+            !store.nav.thread_open || store.nav.target_node == 0x7E57AB1EU,
+        click_close(&store, capture),
+        "the row the list was parked on should still open its own conversation");
+
+    /* A layer over the thread: the list beneath it answers nothing. */
+    const uint32_t node = store.nav.target_node;
+    const uint8_t channel = store.nav.target_channel;
+    store.nav.reaction_open = true;
+    (void)click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + 2U, &action) ||
+            !store.nav.reaction_open || store.nav.target_node != node ||
+            store.nav.target_channel != channel,
+        click_close(&store, capture), "a click beneath a layer should go nowhere");
+    click_close(&store, capture);
+    record_success(test_name);
+}
+
+/*
  * A window writes a message in a field at the foot of the thread rather than on a screen of its
  * own: the field is pressed as Y, the thread stays on the panel with the list beside it and
  * nothing slides, and a click anywhere else puts the field down with the draft kept.
