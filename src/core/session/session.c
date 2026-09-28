@@ -118,6 +118,7 @@ static void mesh_session_clear_nodes(struct mesh_session *session) {
     /* Always mid-sync - it is the radio's own my_info that tells us it changed - so the rest of
        this replay is the new radio's database arriving whole, not news. */
     session->roster_first_sync = true;
+    session->roster_baseline = false;
 }
 
 /* Takes the replay's heard floor as a sync begins, unless an earlier sync that never completed
@@ -282,7 +283,8 @@ int mesh_session_begin_handshake(struct mesh_session *session) {
     /* Kept rather than re-derived when the last sync never completed: a first sync the link
        dropped halfway through leaves half the database behind, and the retry would otherwise
        read that half as a roster to be new against and announce the other half. */
-    session->roster_first_sync = session->roster_first_sync || mesh_session_roster_bare(session);
+    session->roster_first_sync = session->roster_first_sync ||
+                                 (!session->roster_baseline && mesh_session_roster_bare(session));
     mesh_session_hold_heard_floor(session);
     session->handshake.request_in_flight = true;
     session->handshake.request_id = request_id;
@@ -872,7 +874,8 @@ void mesh_session_model_sync_begin(struct mesh_session *session) {
     /* Kept rather than re-derived when the last sync never completed: a first sync the link
        dropped halfway through leaves half the database behind, and the retry would otherwise
        read that half as a roster to be new against and announce the other half. */
-    session->roster_first_sync = session->roster_first_sync || mesh_session_roster_bare(session);
+    session->roster_first_sync = session->roster_first_sync ||
+                                 (!session->roster_baseline && mesh_session_roster_bare(session));
     mesh_session_hold_heard_floor(session);
     session->handshake.request_in_flight = true;
     session->handshake.request_id = session->sync_epoch;
@@ -1002,6 +1005,7 @@ void mesh_session_model_sync_complete(struct mesh_session *session) {
     handshake->config_complete = true;
     handshake->config_complete_id = handshake->request_id;
     session->roster_first_sync = false;
+    session->roster_baseline = true;
     session->sync_floor_held = false;
     mesh_session_resolve_nodedb_membership(session);
 }
@@ -1763,6 +1767,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
             handshake->request_in_flight = false;
             handshake->config_complete = true;
             session->roster_first_sync = false;
+            session->roster_baseline = true;
             session->sync_floor_held = false;
             mesh_session_resolve_nodedb_membership(session);
             inkwell_log_info("session", "Config sync complete for request %u",
@@ -3057,6 +3062,11 @@ int mesh_session_forget_nodes(struct mesh_session *session, bool only_off_nodedb
     handshake->node_count = kept;
     /* The roster has room again, so the next node that does not fit is worth saying so about. */
     session->node_cache_warned = false;
+    /* Forgetting all of it is starting over: the next replay is the radio's database arriving
+       whole, as on a fresh install, rather than news (mesh_session_nodes_discovered()). */
+    if (!only_off_nodedb) {
+        session->roster_baseline = false;
+    }
     inkwell_log_info(
         "session", "Forgot %zu cached node%s (%s); %zu kept", dropped, dropped == 1U ? "" : "s",
         only_off_nodedb ? "not in the radio's NodeDB" : "all but ourselves and pins", kept);

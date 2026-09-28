@@ -733,6 +733,11 @@ struct mesh_session {
        swap drops the roster mid-sync, and lowered only when a sync completes - so a first sync
        interrupted and retried is still a first sync. */
     bool roster_first_sync;
+    /* A sync has completed against this roster during this run, so a bare roster at the next
+       sync is a mesh that really is empty rather than one we have not looked at yet - and a first
+       neighbour arriving in that sync is news. Cleared by what makes the roster a stranger's again:
+       a radio swap, or forgetting the whole of it. */
+    bool roster_baseline;
     /*
      * The newest `last_heard` the roster held when the running sync began, and whether that sync
      * has taken it yet. A node a replay brings is a discovery only when the radio heard it after

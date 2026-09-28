@@ -415,3 +415,35 @@ MESH_TEST_CASE(session_nodes_a_cache_of_only_ourselves_is_a_bare_roster, unit) {
                       "a roster of only ourselves has nothing for the sync to be new against");
     record_success(test_name);
 }
+
+/* A sync that completed with nobody but ourselves is a baseline: the mesh really was empty, so
+   the first neighbour the next sync brings is news, not a fresh install arriving. */
+MESH_TEST_CASE(session_nodes_a_first_neighbour_after_an_empty_sync_is_news, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    struct mesh_test_event_record record;
+    ev_open(&session, &capture, &record);
+
+    MESH_TEST_FAIL_IF(mesh_session_begin_handshake(&session) != 0, "the handshake did not start");
+    MESH_TEST_FAIL_IF(!ev_feed_node_info_heard(&session, EV_US, 0U) || !ev_complete_sync(&session),
+                      "encode failed");
+    /* The link drops; the radio hears its first neighbour; the link comes back. */
+    mesh_session_detach(&session);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+    MESH_TEST_FAIL_IF(mesh_session_begin_handshake(&session) != 0, "the resync did not start");
+    MESH_TEST_FAIL_IF(!ev_feed_node_info_heard(&session, EV_US, 0U) ||
+                          !ev_feed_node_info(&session, EV_PEER) || !ev_complete_sync(&session),
+                      "encode failed");
+    MESH_TEST_FAIL_IF(mesh_session_nodes_discovered(&session) != 1U ||
+                          ev_node(&session, EV_PEER)->discovered != 1U,
+                      "the first neighbour of a mesh we have already synced is a discovery");
+
+    /* Forgetting the whole roster is starting over, and the replay after it is not news. */
+    MESH_TEST_FAIL_IF(mesh_session_forget_nodes(&session, false) != 1, "the peer is forgotten");
+    MESH_TEST_FAIL_IF(mesh_session_begin_handshake(&session) != 0, "the next sync did not start");
+    MESH_TEST_FAIL_IF(!ev_feed_node_info(&session, EV_OTHER) || !ev_complete_sync(&session),
+                      "encode failed");
+    MESH_TEST_FAIL_IF(mesh_session_nodes_discovered(&session) != 1U,
+                      "the replay after forgetting everything is the database, not news");
+    record_success(test_name);
+}
