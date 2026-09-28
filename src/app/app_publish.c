@@ -1115,6 +1115,7 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     dst->theme_from_env = app->ui_theme_from_env;
     dst->text_size = app->ui_preferences.text_size;
     dst->text_size_from_env = inkwell_env_get("FB_SCALE") != NULL;
+    dst->rail = app->ui_preferences.rail;
 
     const struct mesh_updater *updater = &app->updater;
     dst->update_state = (uint8_t)updater->state;

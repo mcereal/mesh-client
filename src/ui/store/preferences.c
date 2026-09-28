@@ -335,6 +335,11 @@ int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path
             prefs->text_size = (int8_t)(strcmp(value, "small") == 0   ? MESH_UI_TEXT_SIZE_SMALL
                                         : strcmp(value, "large") == 0 ? MESH_UI_TEXT_SIZE_LARGE
                                                                       : MESH_UI_TEXT_SIZE_STANDARD);
+        } else if (key_len == 4U && strncmp(line, "rail", key_len) == 0) {
+            /* Anything unrecognised is automatic, which is what the window would do anyway. */
+            prefs->rail = strcmp(value, "collapsed") == 0  ? MESH_UI_RAIL_COLLAPSED
+                          : strcmp(value, "expanded") == 0 ? MESH_UI_RAIL_EXPANDED
+                                                           : MESH_UI_RAIL_AUTO;
         } else if (strncmp(line, "update_allow_dev", key_len) == 0) {
             prefs->update_allow_dev = strcmp(value, "1") == 0;
         } else if (strncmp(line, "known_devices", key_len) == 0) {
@@ -443,6 +448,10 @@ int mesh_ui_preferences_save(const struct mesh_ui_preferences *prefs, const char
             prefs->text_size == MESH_UI_TEXT_SIZE_SMALL   ? "small"
             : prefs->text_size == MESH_UI_TEXT_SIZE_LARGE ? "large"
                                                           : "standard");
+    fprintf(file, "rail=%s\n",
+            prefs->rail == MESH_UI_RAIL_COLLAPSED  ? "collapsed"
+            : prefs->rail == MESH_UI_RAIL_EXPANDED ? "expanded"
+                                                   : "auto");
     fprintf(file, "language=%s\n", prefs->language);
     struct inkstand_recent devices;
     devices_list(prefs, &devices);

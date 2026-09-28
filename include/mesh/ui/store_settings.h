@@ -97,6 +97,8 @@ struct mesh_ui_client_info {
        pinning the glyph scale outright, which a backend then keeps. */
     int8_t text_size;
     bool text_size_from_env;
+    /* The rail's width (MESH_UI_RAIL_*, ui/preferences.h), for the text size's reason. */
+    uint8_t rail;
     /* enum mesh_update_state (mesh/updater.h), carried as a byte so this header does not
        have to pull the updater in. */
     uint8_t update_state;

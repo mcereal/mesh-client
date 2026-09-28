@@ -988,6 +988,10 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_CYCLE_LANGUAGE,
     /* Steps the text size and remembers it, on the theme's terms. */
     MESH_UI_ACTION_CYCLE_TEXT_SIZE,
+    /* The rail's toggle was pressed: `number` is 1 to unfold it into labelled rows and 0 to fold
+       it to its icons - what the reader saw the press offer, since on automatic the nav never
+       knew which width the window drew. Remembered on the theme's terms. */
+    MESH_UI_ACTION_SET_RAIL,
     /* The compose sheet's draft, kept as a quick reply: `text`. The draft itself stays. */
     MESH_UI_ACTION_SAVE_QUICK_REPLY,
     /* Throw away the crash report a previous run left on the card. Purely local, like the theme

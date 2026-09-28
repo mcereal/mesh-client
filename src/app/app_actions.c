@@ -1797,6 +1797,22 @@ static void on_cycle_text_size(struct mesh_app *app, const struct mesh_ui_action
     mesh_app_publish_ui_state(app);
 }
 
+/*
+ * The rail's toggle: folded to icons or unfolded into rows, and remembered, so a reader who
+ * likes one keeps it across launches. Set outright rather than flipped, because on automatic the
+ * app never knew which width the window drew - the press says what the reader saw.
+ */
+static void on_set_rail(struct mesh_app *app, const struct mesh_ui_action *action) {
+    const uint8_t rail = action->number != 0U ? MESH_UI_RAIL_EXPANDED : MESH_UI_RAIL_COLLAPSED;
+    if (app->ui_preferences.rail == rail) {
+        return;
+    }
+    app->ui_preferences.rail = rail;
+    app->ui_preferences_dirty = true;
+    /* The press's own frame is the answer, for the reason on_cycle_theme() publishes. */
+    mesh_app_publish_ui_state(app);
+}
+
 static void on_save_quick_reply(struct mesh_app *app, const struct mesh_ui_action *action) {
     const uint64_t now = inkwell_time_monotonic_ms();
     char path[sizeof app->ui_preferences_path + 16U];
@@ -2630,6 +2646,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_CYCLE_LANGUAGE, on_cycle_language, false},
     {MESH_UI_ACTION_CYCLE_THEME, on_cycle_theme, false},
     {MESH_UI_ACTION_CYCLE_TEXT_SIZE, on_cycle_text_size, false},
+    {MESH_UI_ACTION_SET_RAIL, on_set_rail, false},
     {MESH_UI_ACTION_SAVE_QUICK_REPLY, on_save_quick_reply, false},
     {MESH_UI_ACTION_TOGGLE_DEV_UPDATES, on_toggle_dev_updates, false},
     {MESH_UI_ACTION_DISCARD_CRASH_REPORT, on_discard_crash_report, false},
