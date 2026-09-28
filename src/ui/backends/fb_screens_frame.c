@@ -774,17 +774,17 @@ static void fb_render_split(struct inkcell_draw_state *state,
     } else {
         switch (nav->screen) {
         case MESH_UI_SCREEN_NODES:
-            inkcell_fb_draw_empty(state, &detail, INKCELL_ICON_NODES,
-                                  inkcell_str(MESH_STR_NODES_PICK));
+            inkcell_fb_draw_placeholder(state, &detail, INKCELL_ICON_NODES,
+                                        inkcell_str(MESH_STR_NODES_PICK));
             break;
         case MESH_UI_SCREEN_SETTINGS:
-            inkcell_fb_draw_empty(state, &detail, INKCELL_ICON_SETTINGS,
-                                  inkcell_str(MESH_STR_SETTINGS_PICK));
+            inkcell_fb_draw_placeholder(state, &detail, INKCELL_ICON_SETTINGS,
+                                        inkcell_str(MESH_STR_SETTINGS_PICK));
             break;
         case MESH_UI_SCREEN_MESSAGES:
         default:
-            inkcell_fb_draw_empty(state, &detail, INKCELL_ICON_MESSAGES,
-                                  inkcell_str(MESH_STR_MESSAGES_PICK));
+            inkcell_fb_draw_placeholder(state, &detail, INKCELL_ICON_MESSAGES,
+                                        inkcell_str(MESH_STR_MESSAGES_PICK));
             break;
         }
     }

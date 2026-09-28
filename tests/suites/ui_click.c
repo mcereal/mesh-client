@@ -810,6 +810,27 @@ MESH_TEST_CASE(ui_click_the_list_beside_an_unlisted_thread_or_a_layer, unit) {
     record_success(test_name);
 }
 
+/* Whether any pixel inside `box` is `role`'s colour - a ring is the only thing on a bubble in it.
+ */
+static bool click_box_has_color(const struct inkcell_capture *capture,
+                                struct inkcell_focus_rect box, enum inkcell_color role) {
+    const struct inkcell_rgb want =
+        inkcell_fb_color(inkcell_capture_state((struct inkcell_capture *)capture), role);
+    uint32_t w = 0U;
+    uint32_t h = 0U;
+    size_t stride = 0U;
+    const uint8_t *px = inkcell_capture_pixels(capture, &w, &h, &stride);
+    for (int y = box.y; px != NULL && y < box.y + box.h && y < (int)h; ++y) {
+        for (int x = box.x; x < box.x + box.w && x < (int)w; ++x) {
+            const uint8_t *p = px + (size_t)y * stride + (size_t)x * 4U;
+            if (p[0] == want.b && p[1] == want.g && p[2] == want.r) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 /*
  * A window writes a message in a field at the foot of the thread rather than on a screen of its
  * own: the field is pressed as Y, the thread stays on the panel with the list beside it and
@@ -865,6 +886,15 @@ MESH_TEST_CASE(ui_click_a_window_writes_in_the_field_at_the_foot_of_the_thread, 
         !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS, &bubble) ||
             !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_PANE_ROWS, &box),
         click_close(&store, capture), "the thread and the list beside it should still be drawn");
+    /* One place the reader is: the field, lit. The bubble under the thread's cursor is not
+       ringed beside it while a new message is being typed. */
+    const uint32_t cursor = store.nav.cursor[MESH_UI_SCREEN_MESSAGES];
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + cursor, &bubble),
+        click_close(&store, capture), "the cursor's bubble should be drawn");
+    MESH_TEST_FAIL_IF_CLEANUP(click_box_has_color(capture, bubble, INKCELL_COLOR_PRIMARY),
+                              click_close(&store, capture),
+                              "a bubble should not be ringed beside a field being written in");
 
     MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_FIELD, &action) ||
                                   !mesh_ui_nav_kb_writes_thread(&store.nav),

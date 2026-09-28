@@ -859,10 +859,16 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
        measure even if the loop ran out of passes. */
     const bool settled = (named == window.first);
 
+    /*
+     * The cursor's bubble is not lit while a new message is typed under it. The keys are the
+     * field's then, and a bubble ringed beside a ringed field was two places the reader seemed to
+     * be at once. A reply keeps it: that bubble is what the draft answers.
+     */
+    const bool typing_new = fb_thread_field_writing(state, nav) && nav->reply_to == 0U;
     int y = layout->body_y + (int)window.pad;
     for (uint32_t i = window.first; i < window.first + window.count && i < count; ++i) {
         fb_thread_row_get(snapshot, messages, indices, i, settled && i == named, cache, &row);
-        row.bubble.focused = (i == cursor);
+        row.bubble.focused = (i == cursor) && !typing_new;
         inkcell_fb_draw_bubble(state, layout, y, &row.bubble);
         /* A click selects a bubble - see src/ui/nav/nav_click.c. The whole band it stands in
            rather than the bubble's own box, so the air beside a short message is still it. */
