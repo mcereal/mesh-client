@@ -1,0 +1,42 @@
+# A MeshCore repeater, from the node sheet to its console.
+#
+# A repeater is a node you look after rather than talk to. Its sheet carries the three things
+# only MeshCore asks of one - log in, its status, and which nodes it hears - and its conversation
+# is its console: a message to it is a command it runs for its admin, and its reply is the next
+# bubble. The compose sheet lists its commands where the quick replies would be, because the
+# Brick has no keyboard worth typing `get advert.interval` on.
+#
+# The Nodes list has one row before its first node - the chip bar (MESH_UI_NODES_LEAD_ROWS) - so
+# a node's row is its index in the demo roster plus one. Echo Repeater is seeds[5] and row 6.
+
+scene demo
+clock 2026-01-15 12:00
+protocol meshcore
+repeater ECHO
+tab nodes
+key down 6
+key a
+hold 800
+
+# Into the sheet, and down to its last three verbs: log in, status, neighbours.
+key a
+hold 1200
+key down 6
+hold 1600
+
+# Back up to Message, which opens its conversation - and A there raises the compose sheet:
+# Commands, not Quick replies.
+key up 9
+key a
+hold 900
+key a
+hold 1600
+key down
+hold 900
+key a
+message out ECHO ver
+hold 700
+# No ack comes for a command: its reply is the answer, and settles it.
+ack delivered
+message in ECHO v1.17.1 (Build: 14-Aug-2026)
+hold 2000

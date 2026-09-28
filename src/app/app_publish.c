@@ -2142,8 +2142,20 @@ static void mesh_app_report_meshcore_answers(struct mesh_app *app) {
         what = MESH_STR_TOAST_LOGIN_REFUSED;
         break;
     case MESH_MESHCORE_ANSWER_SILENT:
-        what = notice->cmd == MESH_MESHCORE_CMD_SEND_STATUS_REQ ? MESH_STR_TOAST_NO_STATUS
-                                                                : MESH_STR_TOAST_NO_ANSWER;
+        switch (notice->cmd) {
+        case MESH_MESHCORE_CMD_SEND_STATUS_REQ:
+            what = MESH_STR_TOAST_NO_STATUS;
+            break;
+        case MESH_MESHCORE_CMD_SEND_BINARY_REQ:
+            what = MESH_STR_TOAST_NO_NEIGHBOURS;
+            break;
+        case MESH_MESHCORE_CMD_SEND_TXT_MSG:
+            what = MESH_STR_TOAST_NO_COMMAND_REPLY;
+            break;
+        default:
+            what = MESH_STR_TOAST_NO_ANSWER;
+            break;
+        }
         break;
     case MESH_MESHCORE_ANSWER_UNSENT:
         what = MESH_STR_TOAST_NOT_SENT;

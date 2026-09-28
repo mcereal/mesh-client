@@ -243,7 +243,10 @@ void fb_render_compose(struct inkcell_draw_state *state, const struct mesh_ui_sn
      * The heading is a row of the nav's model (MESH_UI_COMPOSE_ROW_HEADING), so the indices here
      * are the cursor's and a click lands on the row it was aimed at; the nav steps over it.
      */
-    const uint32_t count = mesh_ui_nav_compose_row_count();
+    struct mesh_ui_store view;
+    mesh_ui_store_view(snapshot, &view);
+    const bool commands = mesh_ui_nav_compose_commands(nav, &view);
+    const uint32_t count = mesh_ui_nav_compose_row_count(nav, &view);
     uint8_t cards[MESH_UI_COMPOSE_FIRST_CANNED + MESH_UI_CANNED_MAX];
     const uint32_t carded = count < (uint32_t)sizeof cards ? count : (uint32_t)sizeof cards;
     for (uint32_t r = 0; r < carded; ++r) {
@@ -264,7 +267,9 @@ void fb_render_compose(struct inkcell_draw_state *state, const struct mesh_ui_sn
     while (inkcell_fb_list_next(&list, &i)) {
         if (i == MESH_UI_COMPOSE_ROW_HEADING) {
             inkcell_fb_list_subheader_icon(state, &list, i,
-                                           inkcell_str(MESH_STR_COMPOSE_QUICK_REPLIES), slot);
+                                           inkcell_str(commands ? MESH_STR_COMPOSE_REPEATER_COMMANDS
+                                                                : MESH_STR_COMPOSE_QUICK_REPLIES),
+                                           slot);
             continue;
         }
         if (i == MESH_UI_COMPOSE_ROW_DRAFT) {
@@ -277,7 +282,9 @@ void fb_render_compose(struct inkcell_draw_state *state, const struct mesh_ui_sn
             if (drafted) {
                 inkcell_line_str(&line, MESH_STR_COMPOSE_DRAFT, nav->draft);
             } else {
-                inkcell_line_printf(&line, "%s", inkcell_str(MESH_STR_COMPOSE_DRAFT_EMPTY));
+                inkcell_line_printf(&line, "%s",
+                                    inkcell_str(commands ? MESH_STR_COMPOSE_DRAFT_EMPTY_COMMAND
+                                                         : MESH_STR_COMPOSE_DRAFT_EMPTY));
             }
             const struct inkcell_fb_list_item row = {
                 .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_EDIT},
@@ -291,7 +298,7 @@ void fb_render_compose(struct inkcell_draw_state *state, const struct mesh_ui_sn
         }
         const struct inkcell_fb_list_item row = {
             .leading = slot,
-            .text = mesh_ui_canned_text(i - MESH_UI_COMPOSE_FIRST_CANNED),
+            .text = mesh_ui_nav_compose_line(nav, &view, i - MESH_UI_COMPOSE_FIRST_CANNED),
             .divider = true,
         };
         inkcell_fb_list_item(state, &list, i, &row);

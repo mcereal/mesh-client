@@ -12,7 +12,10 @@
 #include "mesh/core/message.h"
 #include "mesh/ui/commands.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/node_detail.h"
+#include "mesh/ui/protocols.h"
 #include "mesh/ui/reactions.h"
+#include "mesh/ui/repeater_commands.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
 
@@ -2901,7 +2904,7 @@ MESH_TEST_CASE(ui_nav_compose_steps_over_the_quick_replies_heading, unit) {
     mesh_test_nav_populate(&store);
     struct mesh_ui_action action;
 
-    if (mesh_ui_nav_compose_row_count() !=
+    if (mesh_ui_nav_compose_row_count(&store.nav, &store) !=
         MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)mesh_ui_canned_count()) {
         failure = "the sheet is the draft, the heading and one row per quick reply";
         goto cleanup;
@@ -2934,6 +2937,95 @@ MESH_TEST_CASE(ui_nav_compose_steps_over_the_quick_replies_heading, unit) {
     if (mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action) ||
         action.type != MESH_UI_ACTION_NONE || !store.nav.compose_open) {
         failure = "A on the heading should do nothing";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * In a MeshCore repeater's conversation a message is a command it runs, so the compose sheet
+ * lists its commands where the quick replies would be - sent as they are spelled - and does not
+ * offer to keep a draft as a quick reply, since that list is not the one on screen. The same
+ * node under Meshtastic, which has no such thing, keeps the quick replies.
+ */
+MESH_TEST_CASE(ui_nav_compose_lists_a_repeaters_commands, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_action action;
+    static struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_command_set commands;
+
+    /* Into BRVO's thread, and make BRVO a repeater. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    struct mesh_ui_node_summary *peer = (struct mesh_ui_node_summary *)mesh_ui_node_detail_find(
+        &store.handshake, store.nav.target_node);
+    if (!store.nav.thread_open || peer == NULL) {
+        failure = "expected a node's thread open";
+        goto cleanup;
+    }
+    peer->role = 4U;
+
+    /* What the publish sets for a Meshtastic link, or for none. */
+    const struct mesh_protocol none = {NULL, NULL};
+    mesh_ui_protocol_features(&none, NULL, &store.settings.protocol_lacks);
+    if (mesh_ui_nav_compose_commands(&store.nav, &store) ||
+        mesh_ui_nav_compose_row_count(&store.nav, &store) !=
+            MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)mesh_ui_canned_count()) {
+        failure = "under Meshtastic a repeater's thread keeps the quick replies";
+        goto cleanup;
+    }
+    store.settings.protocol_lacks = MESH_UI_FEATURES_ALL & ~(uint32_t)MESH_UI_FEATURE_NODE_COMMANDS;
+    if (!mesh_ui_nav_compose_commands(&store.nav, &store) ||
+        mesh_ui_nav_compose_row_count(&store.nav, &store) !=
+            MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)mesh_ui_repeater_command_count()) {
+        failure = "under MeshCore it lists the repeater's commands";
+        goto cleanup;
+    }
+
+    /* A in its thread is its commands, whatever bubble the cursor is on - a command answers
+       none - and the bar says so where it would have said "reply". */
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_commands_for(&snapshot, &commands);
+    const struct mesh_ui_command *open = mesh_ui_commands_find(&commands, MESH_UI_COMMAND_OPEN);
+    if (open == NULL || open->button != INKCELL_BUTTON_A ||
+        open->label != MESH_STR_ACTION_COMMANDS ||
+        mesh_ui_commands_find(&commands, MESH_UI_COMMAND_REPLY) != NULL) {
+        failure = "the thread's bar names A as the repeater's commands";
+        goto cleanup;
+    }
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "get name");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.compose_open || store.nav.reply_to != 0U) {
+        failure = "A opens the commands, answering no bubble";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_commands_for(&snapshot, &commands);
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+    if (!store.nav.compose_open ||
+        mesh_ui_commands_find(&commands, MESH_UI_COMMAND_SAVE_REPLY) != NULL ||
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "a draft is not offered as a quick reply over the commands";
+        goto cleanup;
+    }
+
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_SEND_TEXT || action.dest != peer->node_id ||
+        strcmp(action.text, mesh_ui_repeater_command(0)) != 0 || store.nav.compose_open) {
+        failure = "A on the first command sends it to the repeater, spelled as it is";
         goto cleanup;
     }
 

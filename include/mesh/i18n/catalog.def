@@ -164,6 +164,9 @@ MESH_STR_ENTRY(ACTION_DONE,               "done")
 MESH_STR_ENTRY(ACTION_SEND,               "send")
 /* Answer with one of the canned messages, rather than opening the keyboard to write one. */
 MESH_STR_ENTRY(ACTION_REPLY,              "reply")
+/* In a MeshCore repeater's conversation, where a message is a command it runs: open the list of
+   its commands. Replaces "reply" there, since a command answers no message. */
+MESH_STR_ENTRY(ACTION_COMMANDS,           "commands")
 /* Open the keyboard to compose a message to whoever the cursor is on. Named for what comes out
    of it rather than for the act: "write" alone left the reader asking write what. */
 MESH_STR_ENTRY(ACTION_WRITE,              "message")
@@ -529,8 +532,14 @@ MESH_STR_ENTRY(COMPOSE_DRAFT,             "Draft: %s")
 /* The draft row with nothing written yet: a field's placeholder, drawn quiet, so it reads as
    the invitation it is rather than as a message already there. */
 MESH_STR_ENTRY(COMPOSE_DRAFT_EMPTY,       "Write a message")
+/* The same placeholder in a MeshCore repeater's conversation, where what is written is a
+   command it runs. */
+MESH_STR_ENTRY(COMPOSE_DRAFT_EMPTY_COMMAND, "Write a command")
 /* The heading over the canned replies on the compose sheet. */
 MESH_STR_ENTRY(COMPOSE_QUICK_REPLIES,     "Quick replies")
+/* The same heading in a MeshCore repeater's conversation, where the rows under it are commands
+   the repeater runs - untranslated, since they are what it reads. */
+MESH_STR_ENTRY(COMPOSE_REPEATER_COMMANDS, "Commands")
 /* The badge on the compose sheet and the keyboard when what is being written answers one
    message rather than the conversation. One word - it is a capsule, not a sentence. */
 MESH_STR_ENTRY(COMPOSE_BADGE_REPLY,       "reply")
@@ -1050,6 +1059,9 @@ MESH_STR_ENTRY(NODE_ACT_ADMIN,            "Configure by radio")
 MESH_STR_ENTRY(NODE_ACT_LOGIN,            "Log in")
 MESH_STR_ENTRY(LOGIN_PROMPT,              "Password for %.20s")
 MESH_STR_ENTRY(NODE_ACT_REQUEST_STATUS,   "Ask for status")
+/* Asking a MeshCore repeater which nodes it hears directly. The answer fills the node's
+   Neighbours group. Under MESH_UI_NODE_LABEL_MAX, which is 20 bytes and cuts silently. */
+MESH_STR_ENTRY(NODE_ACT_REQUEST_NEIGHBOURS, "Ask for neighbours")
 
 /* ---- the key verification sheet ------------------------------------------------------------
  *
@@ -2915,6 +2927,7 @@ MESH_STR_ENTRY(TOAST_ASKED_TELEMETRY,     "Asked %.20s for its telemetry")
 MESH_STR_ENTRY(TOAST_LOGGING_IN,          "Logging in to %.20s")
 MESH_STR_ENTRY(TOAST_LOGGING_IN_GUEST,    "Logging in to %.20s as a guest")
 MESH_STR_ENTRY(TOAST_ASKED_STATUS,        "Asked %.20s for its status")
+MESH_STR_ENTRY(TOAST_ASKED_NEIGHBOURS,    "Asked %.20s who it hears")
 /* How a request to a MeshCore node ended, when its answer - or the lack of one - arrives. */
 MESH_STR_ENTRY(TOAST_LOGGED_IN,           "Logged in to %.20s")
 MESH_STR_ENTRY(TOAST_LOGGED_IN_ADMIN,     "Logged in to %.20s as admin")
@@ -2922,6 +2935,11 @@ MESH_STR_ENTRY(TOAST_LOGIN_REFUSED,       "%.20s refused the password")
 MESH_STR_ENTRY(TOAST_NO_ANSWER,           "%.20s did not answer")
 /* A repeater answers a status request only from a client logged in to it. */
 MESH_STR_ENTRY(TOAST_NO_STATUS,           "%.20s did not answer; log in to it first")
+/* The same, for its neighbours: a repeater answers that only from a client logged in to it. */
+MESH_STR_ENTRY(TOAST_NO_NEIGHBOURS,       "%.20s did not answer; log in to it first")
+/* A message to a repeater is a command it runs, and it runs one only for a client logged in as
+   its admin - silence is nearly always a login that was not one. */
+MESH_STR_ENTRY(TOAST_NO_COMMAND_REPLY,    "%.20s did not reply; log in as its admin")
 MESH_STR_ENTRY(TOAST_NOT_SENT,            "The radio could not send that to %.20s")
 MESH_STR_ENTRY(TOAST_STILL_SYNCING,       "Still syncing; try again in a moment")
 MESH_STR_ENTRY(TOAST_CANNOT_ASK,          "Cannot ask this node")

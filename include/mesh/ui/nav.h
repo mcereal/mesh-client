@@ -934,6 +934,7 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_REQUEST_TELEMETRY, /* dest = node to ask for a reading now */
     MESH_UI_ACTION_LOGIN,             /* dest = node to log in to; `text` its password */
     MESH_UI_ACTION_REQUEST_STATUS,    /* dest = repeater or room server to ask for its status */
+    MESH_UI_ACTION_REQUEST_NEIGHBORS, /* dest = repeater to ask which nodes it hears */
     MESH_UI_ACTION_TOGGLE_IGNORE,     /* dest = node; `number` is 1 to start ignoring it */
     /* dest = node. Mute is a bare toggle rather than a wanted state, because the admin verb
        behind it (toggle_muted_node) offers nothing else. */
@@ -1428,7 +1429,18 @@ void mesh_ui_nav_target_avatar(const struct mesh_ui_store *store, uint32_t node,
 #define MESH_UI_COMPOSE_ROW_DRAFT 0U
 #define MESH_UI_COMPOSE_ROW_HEADING 1U
 #define MESH_UI_COMPOSE_FIRST_CANNED 2U
-uint32_t mesh_ui_nav_compose_row_count(void);
+/*
+ * Whether the compose sheet over the open thread lists a repeater's commands rather than the
+ * canned replies: the thread is a MeshCore repeater's, where a message is a command it runs and
+ * a canned "On my way" would be one it does not know (mesh/ui/repeater_commands.h). The heading
+ * over the rows says which it is.
+ */
+bool mesh_ui_nav_compose_commands(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
+uint32_t mesh_ui_nav_compose_row_count(const struct mesh_ui_nav *nav,
+                                       const struct mesh_ui_store *store);
+/* The text of the `index`th row under the heading - a canned reply or a command - or "". */
+const char *mesh_ui_nav_compose_line(const struct mesh_ui_nav *nav,
+                                     const struct mesh_ui_store *store, size_t index);
 
 /*
  * Places on the bubble sheet: one per emoji in the fixed set (include/mesh/ui/reactions.h), plus

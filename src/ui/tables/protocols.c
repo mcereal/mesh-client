@@ -4,8 +4,11 @@
 
 #include <string.h>
 
-/* Everything but a login and a status, which are a MeshCore repeater's and room server's. */
-#define MESHTASTIC_LACKS ((uint32_t)(MESH_UI_FEATURE_NODE_LOGIN | MESH_UI_FEATURE_NODE_STATUS))
+/* Everything but what is asked of a MeshCore repeater or room server: a login, a status, its
+   neighbours and its commands. */
+#define MESHTASTIC_LACKS                                                                           \
+    ((uint32_t)(MESH_UI_FEATURE_NODE_LOGIN | MESH_UI_FEATURE_NODE_STATUS |                         \
+                MESH_UI_FEATURE_NODE_NEIGHBORS | MESH_UI_FEATURE_NODE_COMMANDS))
 
 static const struct {
     const char *name; /* mesh_protocol_ops.name */
@@ -16,11 +19,11 @@ static const struct {
     /* Text, direct and on channels, over a roster of contacts. Everything below is a verb
        MeshCore's companion protocol either has no counterpart for or that this client does
        not speak yet: its remote admin is not Meshtastic's. Its traceroute is a path discovery,
-       which names each repeater and reads no SNR. A login to a repeater, and its status, are
-       MeshCore's alone. Its contact and channel links are the MeshCore app's
-       `meshcore://contact/add` and `meshcore://channel/add`, read and written by
-       mesh/proto/meshcore_url.h - one channel to a link, so each channel shares its own.
-       Its firmware is checked against MeshCore's own releases, not Meshtastic's.
+       which names each repeater and reads no SNR. A login to a repeater, its status, its
+       neighbours and a conversation that is its console are MeshCore's alone. Its contact and
+       channel links are the MeshCore app's `meshcore://contact/add` and `meshcore://channel/add`,
+       read and written by mesh/proto/meshcore_url.h - one channel to a link, so each channel shares
+       its own. Its firmware is checked against MeshCore's own releases, not Meshtastic's.
      */
     {"meshcore", MESH_UI_PROTOCOL_MESHCORE,
      MESH_UI_FEATURE_WAYPOINTS | MESH_UI_FEATURE_NODE_REQUESTS | MESH_UI_FEATURE_NODE_FLAGS |

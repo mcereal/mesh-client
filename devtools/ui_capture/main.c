@@ -105,6 +105,7 @@
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/protocols.h"
 #include "mesh/ui/route.h"
 /* For the flag rows' masks: the fixture sets position_flags and the field table is what says
    which bit each row is, so the scene is filmed against the same answer the screen draws. */
@@ -2661,6 +2662,53 @@ static int verb_units(struct inkstand_scene *scene, char *rest, void *userdata) 
     return 0;
 }
 
+/*
+ * The protocol on the link, as the publish words it: `protocol meshcore` hides what MeshCore
+ * lacks and offers what only it has, from the same table the app reads (src/ui/tables/protocols.c).
+ * No conversation stands behind it - the table is keyed by the protocol's name and nothing else.
+ */
+static int verb_protocol(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *value = inkstand_scene_word(&rest);
+    if (value == NULL || (strcmp(value, "meshcore") != 0 && strcmp(value, "meshtastic") != 0)) {
+        return inkstand_scene_fail(scene, "'protocol' is meshtastic or meshcore");
+    }
+    static const struct mesh_protocol_ops k_named[] = {{.name = "meshtastic"},
+                                                       {.name = "meshcore"}};
+    static int bound;
+    const struct mesh_protocol protocol = {&k_named[strcmp(value, "meshcore") == 0 ? 1 : 0],
+                                           &bound};
+    struct mesh_ui_settings settings = cap->store.settings;
+    mesh_ui_protocol_features(&protocol, &settings.protocol, &settings.protocol_lacks);
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
+/* A node as a MeshCore repeater advertises itself: the REPEATER role, a contact the radio
+   carries by its whole key - what the login, status and neighbours rows and its console ask. */
+static int verb_repeater(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *name = inkstand_scene_word(&rest);
+    if (name == NULL) {
+        return inkstand_scene_fail(scene, "'repeater' needs a short name");
+    }
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        struct mesh_ui_node_summary *node = &handshake.nodes[i];
+        if (strcmp(node->short_name, name) == 0) {
+            node->role = 4U;
+            node->in_nodedb = true;
+            node->public_key_len = (uint8_t)sizeof node->public_key;
+            for (size_t b = 0; b < sizeof node->public_key; ++b) {
+                node->public_key[b] = (uint8_t)(node->node_id >> (8U * (3U - (b % 4U))));
+            }
+            mesh_ui_store_set_handshake(&cap->store, &handshake);
+            return 0;
+        }
+    }
+    return inkstand_scene_fail(scene, "no node in the scene called '%s'", name);
+}
+
 static int verb_reboots(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
     char *count_text = inkstand_scene_word(&rest);
@@ -2826,6 +2874,8 @@ static const struct inkstand_scene_verb uicap_verbs[] = {
     {"firmware-install", 0U, verb_firmware_install},
     {"firmware-silent", 0U, verb_firmware_silent},
     {"units", 0U, verb_units},
+    {"protocol", 0U, verb_protocol},
+    {"repeater", 0U, verb_repeater},
     {"reboots", 0U, verb_reboots},
     {"message", 0U, verb_message},
     {"reply", 0U, verb_reply},
