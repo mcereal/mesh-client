@@ -1865,9 +1865,10 @@ static void maps_refused(struct mesh_app *app, int result) {
     } else if (result == -ENOTSUP) {
         /* The module's own reason when it has one - no TLS, or MESHCLIENT_MAP_PACK choosing
            the map - rather than a guess at which it was. */
-        snprintf(toast, sizeof toast, "%s",
-                 app->map_packs.message[0] != '\0' ? app->map_packs.message
-                                                   : inkcell_str(MESH_STR_MAP_PACKS_NO_TLS));
+        inkwell_str_copy(toast, sizeof toast,
+                         app->map_packs.message[0] != '\0'
+                             ? app->map_packs.message
+                             : inkcell_str(MESH_STR_MAP_PACKS_NO_TLS));
     } else {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_MAPS_FAILED, strerror(-result));
     }

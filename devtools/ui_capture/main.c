@@ -1658,7 +1658,7 @@ static int verb_config(struct inkstand_scene *scene, char *rest, void *userdata)
         meshtastic_ChannelSet set = meshtastic_ChannelSet_init_zero;
         for (unsigned i = 0; i < 2U; ++i) {
             meshtastic_ChannelSettings *slot = &set.settings[set.settings_count++];
-            snprintf(slot->name, sizeof slot->name, "%s", settings.channels[i].name);
+            inkwell_str_copy(slot->name, sizeof slot->name, settings.channels[i].name);
             slot->psk.size = settings.channels[i].psk_len;
             memcpy(slot->psk.bytes, settings.channels[i].psk, slot->psk.size);
         }

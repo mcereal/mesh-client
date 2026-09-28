@@ -441,7 +441,7 @@ static void mesh_meshcore_settle_write(struct mesh_meshcore *meshcore, int32_t e
     if (error != 0 && meshcore->write_error == 0) {
         meshcore->write_error = error;
     }
-    meshcore->writes_outstanding -= 1U;
+    meshcore->writes_outstanding--;
     if (meshcore->writes_outstanding > 0U) {
         return;
     }
@@ -650,7 +650,7 @@ static void mesh_meshcore_store_message(struct mesh_meshcore *meshcore,
             const uint32_t author = mesh_meshcore_find_prefix(meshcore, decoded->author_prefix, 4U);
             const struct mesh_node_summary *node =
                 author != 0U ? mesh_meshcore_model_find(meshcore, author) : NULL;
-            char attributed[MESH_MESSAGE_TEXT_MAX + 1U];
+            char attributed[sizeof node->long_name + sizeof ": " + sizeof text];
             if (node != NULL && node->has_user) {
                 snprintf(attributed, sizeof attributed, "%s: %s", node->long_name, text);
             } else {
@@ -658,7 +658,12 @@ static void mesh_meshcore_store_message(struct mesh_meshcore *meshcore,
                          decoded->author_prefix[0], decoded->author_prefix[1],
                          decoded->author_prefix[2], decoded->author_prefix[3], text);
             }
-            snprintf(text, sizeof text, "%s", attributed);
+            /* A post is at most MESH_MESHCORE_TEXT_MAX bytes, so a name in front of one
+               still fits a message and nothing here is cut. */
+            _Static_assert(sizeof node->long_name + sizeof ": " + MESH_MESHCORE_TEXT_MAX <=
+                               MESH_MESSAGE_TEXT_MAX + 1U,
+                           "an attributed room post fits a message");
+            inkwell_str_copy(text, sizeof text, attributed);
         }
         uint32_t from =
             mesh_meshcore_find_prefix(meshcore, decoded->sender_prefix, MESH_MESHCORE_PREFIX_LEN);
@@ -2265,7 +2270,7 @@ int mesh_meshcore_import_channel(struct mesh_meshcore *meshcore, const char *nam
             continue;
         }
         const meshtastic_Channel *record = &settings->channels[slot];
-        if (record->role == MESH_MESHCORE_ROLE_DISABLED) {
+        if (record->role == meshtastic_Channel_Role_DISABLED) {
             if (free_slot < 0) {
                 free_slot = (int)slot;
             }

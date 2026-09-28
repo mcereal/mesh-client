@@ -502,7 +502,7 @@ static int32_t lpp_value(const uint8_t *p, size_t size, bool is_signed) {
         v = (v << 8U) | p[i];
     }
     if (is_signed && size < 4U && (v & (1UL << (size * 8U - 1U))) != 0U) {
-        v |= ~((1UL << (size * 8U)) - 1U);
+        v |= UINT32_MAX << (size * 8U);
     }
     return (int32_t)v;
 }

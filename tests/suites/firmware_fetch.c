@@ -369,8 +369,13 @@ static void direct_serve(void *userdata, const struct https_fixture_request *req
     (void)userdata;
     if (strcmp(request->host, "objects.githubusercontent.com") != 0) {
         char location[160];
-        snprintf(location, sizeof location, "Location: https://objects.githubusercontent.com%s\r\n",
-                 request->target);
+        const int n =
+            snprintf(location, sizeof location,
+                     "Location: https://objects.githubusercontent.com%s\r\n", request->target);
+        if (n < 0 || (size_t)n >= sizeof location) {
+            https_fixture_reply(conn, 414, NULL, NULL, 0U);
+            return;
+        }
         https_fixture_reply(conn, 302, location, NULL, 0U);
         return;
     }
