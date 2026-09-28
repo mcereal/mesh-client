@@ -1067,6 +1067,14 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .emphasize_first = actions.count > 0U && actions.items[0].button == INKCELL_BUTTON_A,
     };
     inkcell_fb_scaffold_end(state, &frame, footless ? NULL : &bar);
+    /*
+     * A screen whose body is not running text - the map, the Status cards in two columns -
+     * turns the reading measure off for its body and the action bar under it, so the keycaps
+     * and the link's state stand under the same edges as what they are about. Neither is the
+     * window's: the menu and the notice below are over the frame, not in a screen's body, so the
+     * measure is back on before them whichever screen was drawn.
+     */
+    (void)inkcell_fb_set_measured(state, true);
     fb_render_context(state, snapshot);
 
     /*

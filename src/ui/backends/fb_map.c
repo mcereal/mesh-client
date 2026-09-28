@@ -960,6 +960,21 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
     }
 
     /*
+     * The heading over the picture rather than over the middle of it.
+     *
+     * The picture is drawn edge to edge (inkcell_fb_full_box() below) because a map is not
+     * text, and on a window wider than the reading measure the heading used to stay in the
+     * measure: the title, the link and the help button floated over the middle of a map that ran
+     * to both edges, and the line under the map started at its leading edge while the title over
+     * it did not. With the measure off, the heading, the picture, the line under it and the
+     * action bar at the foot share one pair of edges; the frame puts the measure back once the
+     * action bar is drawn (fb_render_snapshot()). An empty map is a heading and a sentence, which
+     * is text, and returned above with the measure left on. On the Brick the frame is compact and
+     * the measure never engages, so nothing moves.
+     */
+    (void)inkcell_fb_set_measured(state, false);
+
+    /*
      * The nav's viewport is copied and resized to the body this backend actually has.
      *
      * A copy rather than the nav's own, because a backend is handed a `const` snapshot and has

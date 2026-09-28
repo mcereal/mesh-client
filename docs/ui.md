@@ -474,6 +474,16 @@ there is room is inkcell's scaffold's to decide. `ui_click_a_wide_window_opens_a
 `ui_click_a_wide_window_opens_a_node_beside_its_roster` and
 `ui_click_a_wide_window_opens_a_section_beside_the_sections` hold it.
 
+Two screens have no list to stand beside a detail, and use the width differently. **Status**
+stands its cards in two columns at the same window rather than a ribbon down the middle: the link
+and the broker on the leading side, the mesh and the radio on the other (`fb_status_columns()` in
+`src/ui/backends/fb_screens_status.c`). The d-pad still walks the verbs in the order the cards are
+read. **Map** draws its picture edge to edge, and its heading with it: both turn inkcell's reading
+measure off (`inkcell_fb_set_measured()`), since neither is running text, and the action bar under
+them follows. The frame turns the measure back on once that bar is drawn. On the Brick the frame is
+compact and neither changes. `ui_click_a_wide_window_stands_the_status_cards_in_two_columns` and
+`ui_click_a_wide_window_puts_the_map_heading_over_the_whole_map` hold them.
+
 `make ui-capture` is still the way to *review* a UI change, because a picture in a pull request
 is reviewable and a window on somebody's desk is not.
 
