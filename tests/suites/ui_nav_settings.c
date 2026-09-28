@@ -2525,7 +2525,7 @@ static void maps_settings(struct mesh_ui_settings *settings) {
          .kind = MESH_UI_MAPS_ROW_AVAILABLE},
     };
     memcpy(settings->maps_rows, rows, sizeof rows);
-    settings->maps_row_count = (uint8_t)(sizeof rows / sizeof rows[0]);
+    settings->maps_row_count = (uint16_t)(sizeof rows / sizeof rows[0]);
     snprintf(settings->maps_groups[0].name, sizeof settings->maps_groups[0].name, "%s",
              "United States");
     settings->maps_groups[0].count = 2U;

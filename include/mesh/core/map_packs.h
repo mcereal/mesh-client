@@ -76,7 +76,9 @@ struct inkwell_loop;
 #define MESH_MAP_PACKS_NAME_ON_CARD_MAX 256U
 
 #define MESH_MAP_PACKS_GROUPS_MAX 32U
-#define MESH_MAP_PACKS_ENTRIES_MAX 96U
+/* Room for every country and the subdivisions of the largest (meshclient-maps plans about 320),
+   with headroom; meshclient-maps' `check` refuses a catalog longer than this. */
+#define MESH_MAP_PACKS_ENTRIES_MAX 512U
 #define MESH_MAP_PACKS_INSTALLED_MAX 32U
 
 #define MESH_MAP_PACKS_ID_MAX 48U

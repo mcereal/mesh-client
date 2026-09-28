@@ -839,7 +839,7 @@ static void build_maps(const struct mesh_ui_settings *s, uint8_t channel, struct
 
     /* One group open: its packs, and nothing else - its name is the heading's title. */
     if (channel != MESH_UI_SETTINGS_NO_CHANNEL) {
-        for (uint8_t i = 0U; offering && i < s->maps_row_count && i < MESH_UI_MAPS_ROWS_MAX; ++i) {
+        for (uint16_t i = 0U; offering && i < s->maps_row_count && i < MESH_UI_MAPS_ROWS_MAX; ++i) {
             const struct mesh_ui_maps_row *const row = &s->maps_rows[i];
             if (row->kind == (uint8_t)MESH_UI_MAPS_ROW_AVAILABLE && row->group == channel) {
                 maps_available_row(row, list);
@@ -850,7 +850,7 @@ static void build_maps(const struct mesh_ui_settings *s, uint8_t channel, struct
 
     /* A heading only over something: with nothing installed the list starts at the server's. */
     bool headed = false;
-    for (uint8_t i = 0U; i < s->maps_row_count && i < MESH_UI_MAPS_ROWS_MAX; ++i) {
+    for (uint16_t i = 0U; i < s->maps_row_count && i < MESH_UI_MAPS_ROWS_MAX; ++i) {
         const struct mesh_ui_maps_row *const row = &s->maps_rows[i];
         if (row->kind != (uint8_t)MESH_UI_MAPS_ROW_INSTALLED) {
             continue;
@@ -880,7 +880,7 @@ static void build_maps(const struct mesh_ui_settings *s, uint8_t channel, struct
 
     /* The top of the catalog's tree: the world base, which belongs to no group. */
     headed = false;
-    for (uint8_t i = 0U; i < s->maps_row_count && i < MESH_UI_MAPS_ROWS_MAX; ++i) {
+    for (uint16_t i = 0U; i < s->maps_row_count && i < MESH_UI_MAPS_ROWS_MAX; ++i) {
         const struct mesh_ui_maps_row *const row = &s->maps_rows[i];
         if (row->kind != (uint8_t)MESH_UI_MAPS_ROW_AVAILABLE ||
             row->group != MESH_UI_MAPS_NO_GROUP) {

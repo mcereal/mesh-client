@@ -86,6 +86,38 @@ MESH_TEST_CASE(map_downloads_catalog_keeps_what_it_can_trust, unit) {
     record_success(test_name);
 }
 
+/* A catalog of every country and the subdivisions of the largest - about 320 packs, which is
+   what meshclient-maps plans - is read whole, not cut off at an old limit. */
+MESH_TEST_CASE(map_downloads_catalog_holds_the_whole_world, unit) {
+    enum { PACKS = 400 };
+    const size_t cap = 256U + (size_t)PACKS * 256U;
+    char *const text = malloc(cap);
+    struct mesh_map_packs_catalog *catalog = calloc(1U, sizeof *catalog);
+    MESH_TEST_FAIL_IF(text == NULL || catalog == NULL, "catalog memory");
+    size_t len = (size_t)snprintf(text, cap, "%s",
+                                  "{\"format\": 1, \"groups\": [{\"id\": \"all\", "
+                                  "\"name\": \"All\"}], \"packs\": [");
+    for (int i = 0; i < PACKS; ++i) {
+        len += (size_t)snprintf(text + len, cap - len,
+                                "%s{\"id\": \"region-%d\", \"name\": \"Region %d\", "
+                                "\"parent\": \"all\", \"style\": \"light\", \"cut\": "
+                                "\"20260927\", \"bytes\": 1, \"sha256\": \"" DOWNLOADS_SHA_A
+                                "\", \"url\": \"packs/region-%d/20260927-light.mctp\"}",
+                                i == 0 ? "" : ",", i, i, i);
+    }
+    len += (size_t)snprintf(text + len, cap - len, "%s", "]}");
+    const bool parsed = mesh_map_packs_catalog_parse(text, len, catalog);
+    const size_t count = catalog->entry_count;
+    const bool last = count == PACKS && strcmp(catalog->entries[PACKS - 1].id, "region-399") == 0;
+    free(catalog);
+    free(text);
+
+    MESH_TEST_FAIL_IF(!parsed, "the catalog parses");
+    MESH_TEST_FAIL_IF(len > MESH_MAP_PACKS_CATALOG_MAX, "inside what a fetch will take");
+    MESH_TEST_FAIL_IF(!last, "with every pack in it");
+    record_success(test_name);
+}
+
 static bool downloads_touch(const char *dir, const char *name, size_t bytes) {
     char path[512];
     snprintf(path, sizeof path, "%s/%s", dir, name);
