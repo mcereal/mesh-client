@@ -267,10 +267,12 @@ only a consequence of one of them, and neither is a thing a test could pin.
   is asking not to be interrupted, not asking to be kept in the dark; what it takes away is
   `mesh_ui_nav_unread_total()`, which is what keeps the badge worth looking at. `ui_nav_unread`,
   `ui_capture_nav_bar_badges_unread_messages`.
-- **Only the Messages tab carries a badge, and that is a rule rather than a start.** A badge must
-  be **clearable by going there**, exactly as a banner must be able to resolve; a count of nodes
-  would never go down however often it was looked at.
-  `ui_capture_nav_bar_badges_unread_messages`.
+- **A tab badge must be clearable by going there**, exactly as a banner must be able to resolve.
+  Messages counts unread; Nodes counts nodes *discovered since the tab was last up*, never the
+  roster, which would never go down however often it was looked at. A node restored from the card
+  or brought by the first sync of an empty roster is not a discovery.
+  `ui_capture_nav_bar_badges_unread_messages`, `ui_store_nodes_badge_clears_by_going_there`,
+  `session_nodes_the_first_sync_of_an_empty_roster_discovers_nothing`.
 - **The transcript's unread line is captured by the press that opened the thread, not derived from
   the read mark.** By the time a frame is built the mark says "all of it".
   `nav.thread_unread_from` is the one copy of where the reader *was*, and does not move while they

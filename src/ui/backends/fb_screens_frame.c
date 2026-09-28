@@ -25,6 +25,7 @@
 #include "mesh/ui/focus.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/route.h"
 
 #include <stdio.h>
@@ -74,40 +75,56 @@ static enum inkcell_icon fb_screen_icon(enum mesh_ui_screen screen) {
  * carried that off the screen. The badge is the navigation bar doing what a navigation bar is
  * for - saying which of the places you are not is worth going to.
  *
- * Only the Messages tab has one, and that is not a simplification waiting to be generalised. A
- * badge has to be *clearable by going there*, exactly as a banner has to be able to resolve:
- * unread messages are, because opening the conversation marks them read. A count of nodes or of
- * waypoints would be a number that never went down however often it was looked at.
+ * Two tabs have one, and that is not a start on badging every tab. A badge has
+ * to be *clearable by going there*, exactly as a banner has to be able to resolve: unread
+ * messages are, because opening the conversation marks them read, and so are nodes discovered
+ * since the Nodes tab was last up, because standing on it marks them seen (nav.nodes_seen). A
+ * count of *all* the nodes or of waypoints would be a number that never went down however often
+ * it was looked at.
  *
- * The count is mesh_ui_nav_unread_total(), so a muted conversation contributes nothing to it -
- * see the note there for why a permanently badged tab is the same as an unbadged one.
+ * The Messages count is mesh_ui_nav_unread_total(), so a muted conversation contributes nothing
+ * to it - see the note there for why a permanently badged tab is the same as an unbadged one.
  */
+
+/* A count as a capsule says it: "99+" past two figures, which is the conversation row's rule
+   and for the stronger reason - this capsule is competing with five tabs for the panel's width.
+   Empty for none, which is a tab with no badge. */
+static void fb_tab_badge(uint32_t count, char *out, size_t out_len) {
+    out[0] = '\0';
+    if (count > 99U) {
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_MESSAGES_UNREAD_OVERFLOW));
+    } else if (count > 0U) {
+        snprintf(out, out_len, "%u", (unsigned)count);
+    }
+}
+
 static const struct inkcell_fb_chip *fb_tab_chips(const struct mesh_ui_snapshot *snapshot) {
     static struct inkcell_fb_chip chips[MESH_UI_SCREEN_COUNT];
     /* Static because the strip points at it for the length of the draw, and the frame is built
        and drawn on one turn of the one loop this client has. The chips array above is static
        for the same reason and has always been. */
     static char unread[8];
+    static char discovered[8];
 
     struct mesh_ui_store view;
     mesh_ui_store_view(snapshot, &view);
-    const uint32_t total = mesh_ui_nav_unread_total(&view);
-    unread[0] = '\0';
-    if (total > 0U) {
-        /* "99+" past two figures, which is the conversation row's rule and for the stronger
-           reason: this capsule is competing with five tabs for the width of the panel. */
-        if (total > 99U) {
-            snprintf(unread, sizeof unread, "%s", inkcell_str(MESH_STR_MESSAGES_UNREAD_OVERFLOW));
-        } else {
-            snprintf(unread, sizeof unread, "%u", (unsigned)total);
-        }
-    }
+    fb_tab_badge(mesh_ui_nav_unread_total(&view), unread, sizeof unread);
+    /* Never on the tab the reader is standing on. The store's mark has already caught up by the
+       time a snapshot is taken there, so this is zero anyway - said here as well so that a
+       snapshot built by hand cannot badge the tab it is on, and because the rows below the
+       strip are already saying which nodes are the new ones. */
+    fb_tab_badge(snapshot->nav.screen == MESH_UI_SCREEN_NODES || !snapshot->handshake_valid
+                     ? 0U
+                     : mesh_ui_nodes_new_count(&snapshot->handshake, snapshot->nav.nodes_seen),
+                 discovered, sizeof discovered);
 
     for (int i = 0; i < MESH_UI_SCREEN_COUNT; ++i) {
         const enum mesh_ui_screen screen = (enum mesh_ui_screen)i;
         chips[i].icon = fb_screen_icon(screen);
         chips[i].label = mesh_ui_screen_name(screen);
-        chips[i].badge = (screen == MESH_UI_SCREEN_MESSAGES) ? unread : "";
+        chips[i].badge = (screen == MESH_UI_SCREEN_MESSAGES) ? unread
+                         : (screen == MESH_UI_SCREEN_NODES)  ? discovered
+                                                             : "";
         /* What a click on the tab names - see src/ui/nav/nav_click.c. */
         chips[i].focus_id = (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)i;
     }

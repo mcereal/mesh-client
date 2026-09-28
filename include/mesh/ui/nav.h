@@ -414,6 +414,26 @@ struct mesh_ui_nav {
      */
     char node_query[MESH_UI_NODE_QUERY_MAX];
     /*
+     * Nodes tab: how far through the session's discoveries the reader has looked, and where
+     * they had got to when they last came to the tab.
+     *
+     * `nodes_seen` is what the tab's badge is measured against, and it is the badge's promise
+     * kept: every node discovered after it is one the reader has not been on the tab to see, and
+     * standing on the tab moves it to the newest (mesh_ui_store_consume_updates()) - so the
+     * badge is clearable by going there, which is the rule a badge is held to.
+     *
+     * `nodes_new_after` is what the *rows* are measured against, and it is `nodes_seen` as it
+     * stood when the reader arrived. It is the thread's unread line on another tab, and it is
+     * captured for the same reason: the mark moves on the first frame the tab is up, so rows
+     * measured against the live mark would be "new" for no frame at all. It does not move while
+     * the reader is here, so a node discovered while they are looking arrives unmarked-by-badge
+     * and marked-by-row, and both clear together when they leave and come back.
+     *
+     * Neither survives a restart: the stamps they are compared with start again with the run.
+     */
+    uint32_t nodes_seen;
+    uint32_t nodes_new_after;
+    /*
      * Nodes tab: what order the rows the filter kept are in - `enum mesh_ui_node_sort`, chosen
      * on the sheet the sort chip raises (`node_sort_open`).
      *

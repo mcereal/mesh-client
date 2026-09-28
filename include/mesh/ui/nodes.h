@@ -301,6 +301,23 @@ void mesh_ui_node_row_facts(const struct mesh_ui_handshake_state *handshake,
                             size_t out_len);
 
 /*
+ * ---- nodes discovered since the reader last looked ------------------------------------------
+ *
+ * Whether `node` was discovered after `after` - a mark the nav keeps (`nodes_seen` for the tab's
+ * badge, `nodes_new_after` for a row). A node whose arrival was not news carries stamp 0 and is
+ * never new, whatever the mark.
+ */
+bool mesh_ui_node_is_new(const struct mesh_ui_node_summary *node, uint32_t after);
+
+/*
+ * How many of the published rows are new against `after` - the Nodes tab's badge.
+ *
+ * Counted from the rows themselves, for mesh_ui_handshake_off_radio()'s reason: a count in the
+ * same scope as the list, so the badge can never promise a node the tab cannot show.
+ */
+uint32_t mesh_ui_nodes_new_count(const struct mesh_ui_handshake_state *handshake, uint32_t after);
+
+/*
  * A channel slot as a reader knows it: "#LongFast" when the radio's table names it, "#Primary"
  * for an unnamed slot 0 (the firmware shows the modem preset there, which is not tracked), and
  * "#Ch2" otherwise. `handshake` may be NULL - no table yet - and the answer is still a name.

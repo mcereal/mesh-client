@@ -32,6 +32,7 @@
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
@@ -3896,6 +3897,109 @@ MESH_TEST_CASE(app_direct_message_notice, unit) {
 cleanup:
     /* The publish cache is lazily allocated by the first publish, exactly as it is on a device,
        and this app was never through mesh_app_shutdown() to have it released. */
+    free(app->publish_cache);
+    mesh_ui_store_shutdown(&app->ui_store);
+    inkwell_ble_mock_disable();
+    free(app);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A node the mesh tells us about for the first time is announced once, by name - and the three
+ * moments it must hold its tongue: a sync still landing, a burst that is one situation, and the
+ * Nodes tab already on screen.
+ */
+static struct mesh_node_summary *app_discover(struct mesh_app *app, uint32_t id, const char *name) {
+    struct mesh_node_summary *node = mesh_session_model_node(&app->session, id, false);
+    if (node != NULL) {
+        snprintf(node->short_name, sizeof node->short_name, "%s", name);
+    }
+    return node;
+}
+
+MESH_TEST_CASE(app_new_node_notice, unit) {
+    struct mesh_app *app = calloc(1U, sizeof *app);
+    if (app == NULL) {
+        record_failure(test_name, "out of memory");
+        return;
+    }
+    if (mesh_ui_store_init(&app->ui_store) != 0) {
+        free(app);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    struct inkwell_ble_mock_config mock = {0};
+    inkwell_ble_mock_enable(&mock);
+    const char *failure = NULL;
+
+    app->config.run_mode = MESH_APP_RUN_FOREGROUND;
+    app->ui_store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+    struct mesh_handshake_status *handshake = &app->session.handshake;
+    handshake->has_my_info = true;
+    handshake->my_info.my_node_num = 1U;
+    handshake->config_complete = true;
+    handshake->node_count = 1U;
+    handshake->nodes[0].node_id = 1U;
+
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.nav.toast.text[0] != '\0') {
+        failure = "a roster with nobody new in it should say nothing";
+        goto cleanup;
+    }
+
+    if (app_discover(app, 2U, "ALFA") == NULL) {
+        failure = "the roster refused a node";
+        goto cleanup;
+    }
+    mesh_app_publish_ui_state(app);
+    if (strstr(app->ui_store.nav.toast.text, "ALFA") == NULL) {
+        failure = "one new node should be announced by name";
+        goto cleanup;
+    }
+    if (mesh_ui_nodes_new_count(&app->ui_store.handshake, app->ui_store.nav.nodes_seen) != 1U) {
+        failure = "and should badge the Nodes tab";
+        goto cleanup;
+    }
+
+    /* Two together are one notice with the number in it, not the second name over the first. */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    (void)app_discover(app, 3U, "BRVO");
+    (void)app_discover(app, 4U, "CHRL");
+    mesh_app_publish_ui_state(app);
+    if (strstr(app->ui_store.nav.toast.text, "2") == NULL ||
+        strstr(app->ui_store.nav.toast.text, "CHRL") != NULL) {
+        failure = "a burst should be counted, not named";
+        goto cleanup;
+    }
+
+    /* A sync still landing is held until it is through, and then said once. */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    handshake->request_in_flight = true;
+    (void)app_discover(app, 5U, "DLTA");
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.nav.toast.text[0] != '\0') {
+        failure = "a node arriving mid-sync should wait for the sync";
+        goto cleanup;
+    }
+    handshake->request_in_flight = false;
+    mesh_app_publish_ui_state(app);
+    if (strstr(app->ui_store.nav.toast.text, "DLTA") == NULL) {
+        failure = "and be announced when it completes";
+        goto cleanup;
+    }
+
+    /* On the Nodes tab the rows are saying it already. */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    app->ui_store.nav.screen = MESH_UI_SCREEN_NODES;
+    (void)app_discover(app, 6U, "ECHO");
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.nav.toast.text[0] != '\0') {
+        failure = "a notice over the list that is marking the node is the client talking to itself";
+        goto cleanup;
+    }
+
+cleanup:
     free(app->publish_cache);
     mesh_ui_store_shutdown(&app->ui_store);
     inkwell_ble_mock_disable();

@@ -2446,6 +2446,61 @@ static void mesh_app_report_direct_messages(struct mesh_app *app) {
     }
 }
 
+/*
+ * Announces nodes the mesh has told us about for the first time: by name when there is one, as a
+ * count when a burst arrived together.
+ *
+ * Held while a sync is running, and that is the burst's reason. A sync against a roster that
+ * already has nodes in it brings back whoever the radio heard while this client was not
+ * running, one NodeInfo at a time across several seconds - so announcing as they land would be
+ * a notice per node, each replacing the last, and the user would read the last of five. Waiting
+ * for the sync to finish makes them one notice with the right number in it.
+ *
+ * Set rather than posted, which is the alerts' call and the opposite of the direct messages':
+ * two notices about new nodes are one situation, and the newer says it better. Nothing while
+ * the Nodes tab is up - the list is marking them already, and a notice reporting a row the
+ * reader is looking at is the client talking to itself.
+ */
+static void mesh_app_report_new_nodes(struct mesh_app *app) {
+    const uint32_t latest = mesh_session_nodes_discovered(&app->session);
+    if (latest == app->ui_nodes_announced) {
+        return;
+    }
+    const struct mesh_handshake_status *status = mesh_session_handshake(&app->session);
+    if (status != NULL && status->request_in_flight) {
+        return;
+    }
+    const uint32_t fresh = latest - app->ui_nodes_announced;
+    app->ui_nodes_announced = latest;
+    if (app->config.run_mode != MESH_APP_RUN_FOREGROUND ||
+        app->ui_store.nav.screen == MESH_UI_SCREEN_NODES) {
+        return;
+    }
+
+    /* The newest discovery by its stamp. A single one is named; it can have been forgotten or
+       evicted since, in which case there is nobody to name and the count says it instead. */
+    const struct mesh_node_summary *newest = NULL;
+    if (status != NULL && fresh == 1U) {
+        for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+            if (status->nodes[i].discovered == latest) {
+                newest = &status->nodes[i];
+                break;
+            }
+        }
+    }
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    if (newest != NULL) {
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(status, newest->node_id, name, sizeof name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_NODE_NEW, name);
+    } else {
+        inkcell_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_NODES_NEW_ONE, fresh,
+                                  (unsigned)fresh);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+    inkwell_log_info("app", "Discovered %u new node%s", (unsigned)fresh, fresh == 1U ? "" : "s");
+}
+
 /* Nodes that have to appear on one sync before the divergence is worth interrupting for. */
 #define MESH_APP_OFF_RADIO_HINT_MIN 8U
 
@@ -2498,6 +2553,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_report_alerts(app);
     mesh_app_report_direct_messages(app);
     mesh_app_report_off_radio_nodes(app);
+    mesh_app_report_new_nodes(app);
     mesh_app_report_key_verification(app);
 
     struct mesh_transport *ble = mesh_ble_transport();
@@ -2794,6 +2850,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_handshake.nodes_forgettable_off_radio =
             mesh_session_forgettable_nodes(&app->session, true);
         ui_handshake.nodes_forgettable_all = mesh_session_forgettable_nodes(&app->session, false);
+        ui_handshake.nodes_discovered = mesh_session_nodes_discovered(&app->session);
         ui_handshake.cached = !status->config_complete && !status->has_my_info &&
                               !status->request_in_flight && !status->has_config;
         if (status->has_my_info) {
@@ -2888,6 +2945,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             dst->is_ignored = src->is_ignored;
             dst->is_muted = src->is_muted;
             dst->channel = src->channel;
+            dst->discovered = src->discovered;
             mesh_app_copy_node_detail(src, dst);
         }
         ui_handshake.node_count = (uint32_t)copy_count;

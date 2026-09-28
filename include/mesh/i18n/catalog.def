@@ -512,6 +512,9 @@ MESH_STR_ENTRY(NODES_ROW_BATTERY,         "%u%% battery")
 MESH_STR_ENTRY(NODES_ROW_PLUGGED_IN,      "plugged in")
 /* Our own row, where the others say how they were heard: a radio has no signal to itself. */
 MESH_STR_ENTRY(NODES_ROW_SELF,            "this radio")
+/* First on the line of a node discovered since the reader last opened the Nodes tab. One of the
+   facts, so it is lower case and takes the separator like them. */
+MESH_STR_ENTRY(NODES_ROW_NEW,             "new")
 
 /* ---- compose, the picker and the keyboard --------------------------------------------------- */
 
@@ -3064,6 +3067,11 @@ MESH_STR_ENTRY(TOAST_ALERT_FROM,          "Alert from %.16s: ")
    nothing, so there is no channel to name. */
 MESH_STR_ENTRY(TOAST_MESSAGE_FROM,        "%.16s: ")
 MESH_STR_ENTRY(TOAST_NODES_OFF_RADIO,     "%u nodes now off radio; forget them in Settings")
+/* A node the mesh has just told us about for the first time, named; the Nodes tab carries a
+   badge for it too. */
+MESH_STR_ENTRY(TOAST_NODE_NEW,            "New node: %.32s")
+/* Several at once - a sync that brought back what the radio heard while the client was off. */
+MESH_STR_PLURAL_ENTRY(TOAST_NODES_NEW,    "%u new node", "%u new nodes")
 
 /* ---- self-update -------------------------------------------------------------------------------- */
 

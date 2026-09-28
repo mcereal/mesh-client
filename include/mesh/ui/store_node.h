@@ -245,6 +245,10 @@ struct mesh_ui_node_summary {
     bool is_ignored;
     bool is_muted;
     uint8_t channel;
+    /* The session's discovery stamp: this node's place in the run's count of nodes the mesh
+       told us about, 0 when its arrival was not news. See mesh_session_nodes_discovered(), and
+       mesh_ui_node_is_new() for what the Nodes tab does with it. Never cached. */
+    uint32_t discovered;
     struct mesh_ui_node_position position;
     struct mesh_ui_node_metrics metrics;
     struct mesh_ui_node_environment environment;

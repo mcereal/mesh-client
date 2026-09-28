@@ -232,3 +232,98 @@ MESH_TEST_CASE(session_events_a_position_is_on_the_record_when_announced, unit) 
                       "the first fix is on the record the hearing names");
     record_success(test_name);
 }
+
+/* ---- which nodes are discoveries ------------------------------------------------------------ */
+
+static const struct mesh_node_summary *ev_node(const struct mesh_session *session, uint32_t id) {
+    const struct mesh_handshake_status *handshake = mesh_session_handshake(session);
+    for (size_t i = 0; i < handshake->node_count; ++i) {
+        if (handshake->nodes[i].node_id == id) {
+            return &handshake->nodes[i];
+        }
+    }
+    return NULL;
+}
+
+static bool ev_feed_node_info(struct mesh_session *session, uint32_t num) {
+    meshtastic_FromRadio info = meshtastic_FromRadio_init_default;
+    info.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    info.node_info.num = num;
+    info.node_info.last_heard = 1750000000U;
+    return mesh_test_session_feed_from_radio(session, &info);
+}
+
+static bool ev_complete_sync(struct mesh_session *session) {
+    meshtastic_FromRadio done = meshtastic_FromRadio_init_default;
+    done.which_payload_variant = meshtastic_FromRadio_config_complete_id_tag;
+    done.config_complete_id = mesh_session_handshake(session)->request_id;
+    return mesh_test_session_feed_from_radio(session, &done);
+}
+
+/*
+ * The first sync of an empty roster is the radio's database arriving whole, and none of it is a
+ * discovery - "80 new nodes" on a fresh install is true of every node and useful about none. A
+ * node heard for the first time *after* that sync is one.
+ */
+MESH_TEST_CASE(session_nodes_the_first_sync_of_an_empty_roster_discovers_nothing, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    struct mesh_test_event_record record;
+    ev_open(&session, &capture, &record);
+    MESH_TEST_FAIL_IF(mesh_session_begin_handshake(&session) != 0, "the handshake did not start");
+
+    MESH_TEST_FAIL_IF(!ev_feed_node_info(&session, EV_US) ||
+                          !ev_feed_node_info(&session, EV_PEER) || !ev_complete_sync(&session),
+                      "encode failed");
+    MESH_TEST_FAIL_IF(mesh_session_nodes_discovered(&session) != 0U,
+                      "a sync that began with nothing to compare against discovers nothing");
+    const struct mesh_node_summary *peer = ev_node(&session, EV_PEER);
+    MESH_TEST_FAIL_IF(peer == NULL || peer->discovered != 0U, "so the node it brought is not new");
+
+    meshtastic_FromRadio packet = ev_text(EV_OTHER, 0x300U, "just arrived");
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &packet), "encode failed");
+    const struct mesh_node_summary *other = ev_node(&session, EV_OTHER);
+    MESH_TEST_FAIL_IF(mesh_session_nodes_discovered(&session) != 1U || other == NULL ||
+                          other->discovered != 1U,
+                      "a node first heard after the sync is the first discovery");
+
+    /* Heard again, it is the same discovery - a node is new the once. */
+    meshtastic_FromRadio again = ev_text(EV_OTHER, 0x301U, "still here");
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &again), "encode failed");
+    MESH_TEST_FAIL_IF(mesh_session_nodes_discovered(&session) != 1U || other->discovered != 1U,
+                      "hearing a known node again discovers nothing");
+    record_success(test_name);
+}
+
+/*
+ * A sync against a roster that already holds nodes is the other case: a node in *that* replay is
+ * one the radio heard while the client was not running, which is exactly the news somebody coming
+ * back wants. The node the card handed back is not, and neither is our own.
+ */
+MESH_TEST_CASE(session_nodes_a_resync_discovers_what_the_radio_heard_meanwhile, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    struct mesh_test_event_record record;
+    ev_open(&session, &capture, &record);
+
+    struct mesh_node_summary cached;
+    memset(&cached, 0, sizeof cached);
+    cached.node_id = EV_PEER;
+    cached.discovered = 7U; /* another run's count, which must not survive the seed */
+    mesh_session_seed_node(&session, &cached);
+    MESH_TEST_FAIL_IF(mesh_session_nodes_discovered(&session) != 0U ||
+                          ev_node(&session, EV_PEER)->discovered != 0U,
+                      "a node handed back from the card is not a discovery");
+
+    MESH_TEST_FAIL_IF(mesh_session_begin_handshake(&session) != 0, "the handshake did not start");
+    MESH_TEST_FAIL_IF(!ev_feed_node_info(&session, EV_US) ||
+                          !ev_feed_node_info(&session, EV_PEER) ||
+                          !ev_feed_node_info(&session, EV_OTHER) || !ev_complete_sync(&session),
+                      "encode failed");
+    MESH_TEST_FAIL_IF(mesh_session_nodes_discovered(&session) != 1U,
+                      "only the node the roster did not hold is a discovery");
+    MESH_TEST_FAIL_IF(ev_node(&session, EV_OTHER)->discovered != 1U,
+                      "and it carries its place in the count");
+    MESH_TEST_FAIL_IF(ev_node(&session, EV_US)->discovered != 0U, "our own record is never news");
+    record_success(test_name);
+}
