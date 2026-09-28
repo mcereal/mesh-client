@@ -9,8 +9,8 @@
  *
  * Most of this file is neither, and that is the point of it having one: a bubble is expensive to
  * word and to measure, so the rows a thread draws are derived once and cached against the
- * messages they were built from. Nothing here computes a pixel - inkcell_fb_bubble_rows() says how
- * tall a message is and inkcell_transcript_window() says which of them are on screen.
+ * messages they were built from. Nothing here works out a height - inkcell_fb_bubble_height() says
+ * how tall a message is and inkcell_transcript_window_px() says which of them are on screen.
  */
 
 #include "inkcell/ui/emoji.h"
@@ -173,8 +173,8 @@ void fb_render_conversations(struct inkcell_draw_state *state,
  * detail pane underneath - which meant the only way to read a message in full was to select it,
  * and reading the one before it meant losing the one you had.
  *
- * Nothing here computes a pixel: inkcell_fb_bubble_rows() says how tall a message is and
- * inkcell_transcript_window() says which of them are on screen.
+ * Nothing here works out a height: inkcell_fb_bubble_height() says how tall a message is and
+ * inkcell_transcript_window_px() says which of them are on screen.
  */
 
 /* A message as the screen describes it, with the strings the bubble points at.
@@ -222,7 +222,7 @@ struct inkcell_fb_thread_cache {
     size_t cols;
     char calendar[80];
     struct fb_thread_row rows[2][MESH_UI_MAX_THREAD_MESSAGES];
-    uint8_t heights[2][MESH_UI_MAX_THREAD_MESSAGES];
+    uint16_t heights[2][MESH_UI_MAX_THREAD_MESSAGES];
 };
 
 void fb_thread_cache_free(struct inkcell_draw_state *state) {
@@ -595,12 +595,12 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
     fb_thread_reactions(messages, message->packet_id, row->reactions, sizeof row->reactions);
 }
 
-/* A bubble's height, clamped into the byte the transcript window measures in. */
-static uint8_t fb_thread_height(const struct inkcell_draw_state *state,
-                                const struct inkcell_fb_layout *layout,
-                                const struct fb_thread_row *row) {
-    const uint32_t rows = inkcell_fb_bubble_rows(state, layout, &row->bubble);
-    return rows > 0xFFU ? 0xFFU : (uint8_t)rows;
+/* A bubble's height in pixels, clamped into the width the transcript window measures in. */
+static uint16_t fb_thread_height(const struct inkcell_draw_state *state,
+                                 const struct inkcell_fb_layout *layout,
+                                 const struct fb_thread_row *row) {
+    const int height = inkcell_fb_bubble_height(state, layout, &row->bubble);
+    return height <= 0 ? 0U : height > 0xFFFF ? 0xFFFFU : (uint16_t)height;
 }
 
 static struct inkcell_fb_thread_cache *
@@ -731,7 +731,7 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
     /* Measure every message, then let the transcript say which of them are on screen. Heights
        come from the same component that draws them, so the window can never be a row out. */
     const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
-    uint8_t heights[MESH_UI_MAX_THREAD_MESSAGES];
+    uint16_t heights[MESH_UI_MAX_THREAD_MESSAGES];
     struct fb_thread_row row;
     struct inkcell_fb_thread_cache *cache =
         fb_thread_cache_get(state, snapshot, layout, messages, indices, count);
@@ -743,8 +743,9 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
             heights[i] = fb_thread_height(state, layout, &row);
         }
     }
-    struct inkcell_transcript window =
-        inkcell_transcript_window(heights, count, cursor, layout->rows);
+    /* In pixels: a bubble is its lines plus the padding round them, which is not whole rows. */
+    const uint32_t body_h = layout->rows * (uint32_t)layout->line;
+    struct inkcell_transcript window = inkcell_transcript_window_px(heights, count, cursor, body_h);
 
     /*
      * The first bubble on screen always names its sender.
@@ -778,13 +779,13 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
             fb_thread_row_build(snapshot, messages, indices, named, true, &row);
             heights[named] = fb_thread_height(state, layout, &row);
         }
-        window = inkcell_transcript_window(heights, count, cursor, layout->rows);
+        window = inkcell_transcript_window_px(heights, count, cursor, body_h);
     }
     /* Only force what the heights were settled against, so the draw can never disagree with the
        measure even if the loop ran out of passes. */
     const bool settled = (named == window.first);
 
-    int y = layout->body_y + (int)window.pad * layout->line;
+    int y = layout->body_y + (int)window.pad;
     for (uint32_t i = window.first; i < window.first + window.count && i < count; ++i) {
         fb_thread_row_get(snapshot, messages, indices, i, settled && i == named, cache, &row);
         row.bubble.focused = (i == cursor);
@@ -796,8 +797,8 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
                                        .x = inkcell_fb_content_x(state),
                                        .y = y,
                                        .w = inkcell_fb_content_w(state),
-                                       .h = (int)heights[i] * layout->line,
+                                       .h = (int)heights[i],
                                    });
-        y += (int)heights[i] * layout->line;
+        y += (int)heights[i];
     }
 }
