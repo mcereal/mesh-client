@@ -682,6 +682,30 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
                 inkcell_fb_list_item(state, &list, i, &row);
                 continue;
             }
+            /*
+             * A switch the radio reports and nothing here can change is a state, not a control,
+             * and is said as one: "on" in a capsule in the value column, beside the other facts
+             * on the card, rather than a knob against the edge. Drawn as a dimmed switch
+             * it still read as something to press - Connected, MQTT broker, Syslog on Radio
+             * details are facts about what the radio is doing - and the press landed on nothing.
+             * The capsule is the node detail's "plugged in": filled when the state is on, the
+             * outlined neutral chip when it is off, so a column of them is read by shape before
+             * it is read by word.
+             */
+            if (item.kind == INKSTAND_FORM_TOGGLE && item.field == MESH_UI_FIELD_NONE) {
+                const struct inkcell_fb_list_item row = {
+                    .leading = leading,
+                    .label = item.label,
+                    .label_cols = label_cols,
+                    .label_quiet = fact,
+                    .marker_icon = marker,
+                    .value = item.value,
+                    .tone = item.number != 0U ? INKCELL_TONE_SECONDARY : tone,
+                    .value_chip = true,
+                };
+                inkcell_fb_list_item(state, &list, i, &row);
+                continue;
+            }
             if (item.kind == INKSTAND_FORM_TOGGLE) {
                 struct inkcell_fb_switch sw = {
                     .id = item.field != MESH_UI_FIELD_NONE
