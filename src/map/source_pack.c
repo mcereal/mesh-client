@@ -148,8 +148,13 @@ static const struct pack_entry *pack_find(const struct pack *pack, struct mesh_m
  * and the way it goes wrong is a builder that names a city and packs a suburb. This cannot be
  * wrong about anything except sparseness, and sparseness is a state the map has to draw anyway.
  *
- * Measured on the unit square rather than in degrees, so tiles at different zooms are directly
- * comparable: tile (z, x, y) occupies [x, x+1] / 2^z of the world's width. A pack that straddles
+ * From the deepest level's tiles only. A regional pack also holds the few shallow tiles above
+ * its region - a pyramid has to reach zoom 0 to be zoomed out of - and the zoom-0 tile is the
+ * whole world, so a box over every tile says every regional pack covers the Earth. The deepest
+ * level is the region itself.
+ *
+ * Measured on the unit square rather than in degrees: tile (z, x, y) occupies [x, x+1] / 2^z of
+ * the world's width. A pack that straddles
  * the antimeridian comes back as the whole world wide, which is honest about the box and not
  * about the pack - nothing builds one, and the seam is where a bounding box stops being able to
  * say anything useful.
@@ -159,7 +164,9 @@ static void pack_coverage(const struct pack *pack, struct mesh_map_source_info *
     double east = 0.0;
     double north = 1.0;
     double south = 0.0;
-    for (uint32_t i = 0U; i < pack->count; ++i) {
+    /* Sorted by zoom first, so the deepest level is the tail of the index. */
+    const uint8_t deepest = pack->entries[pack->count - 1U].zoom;
+    for (uint32_t i = pack->count; i-- > 0U && pack->entries[i].zoom == deepest;) {
         const struct pack_entry *const entry = &pack->entries[i];
         const double span = 1.0 / (double)((uint64_t)1 << entry->zoom);
         const double x0 = (double)entry->x * span;
