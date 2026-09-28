@@ -483,7 +483,11 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
     const bool labelled = message->kind != (uint8_t)MESH_MESSAGE_KIND_TEXT;
     row->bubble.alert = (message->kind == (uint8_t)MESH_MESSAGE_KIND_ALERT);
 
-    if (labelled || ((starts_run || force_name) && (names_needed || (outbound && nav->inbox)))) {
+    /* Ours is named only in all traffic, where it has to say where it went. In a channel the
+       bubble's side and fill already say "you", and "You" over it was the one name line on the
+       screen that told the reader nothing. */
+    const bool named = outbound ? nav->inbox : names_needed;
+    if (labelled || ((starts_run || force_name) && named)) {
         const char *peer = message->peer_name[0] != '\0'
                                ? message->peer_name
                                : inkcell_str(INKCELL_STR_COMMON_UNKNOWN_SHORT);
