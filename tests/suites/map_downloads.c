@@ -160,6 +160,27 @@ MESH_TEST_CASE(map_downloads_the_card_says_what_is_installed, unit) {
     record_success(test_name);
 }
 
+/*
+ * With no directory the module manages nothing: that is how the app says the map is drawing a
+ * single file MESHCLIENT_MAP_PACK named, which no download could reach. It lists nothing and
+ * fetches nothing, rather than filling a directory the map is not reading.
+ */
+MESH_TEST_CASE(map_downloads_without_a_directory_download_nothing, unit) {
+    struct inkwell_loop loop;
+    MESH_TEST_FAIL_IF(inkwell_loop_init(&loop) != 0, "event loop init failed");
+    struct mesh_map_packs *packs = calloc(1U, sizeof *packs);
+    MESH_TEST_FAIL_IF_CLEANUP(packs == NULL, inkwell_loop_shutdown(&loop), "module memory");
+    (void)mesh_map_packs_init(packs, &loop, "");
+    const bool off = !mesh_map_packs_available(packs) && packs->installed_count == 0U &&
+                     mesh_map_packs_refresh(packs, 0U) == -ENOTSUP &&
+                     mesh_map_packs_download(packs, "world", 0U) == -ENOTSUP;
+    mesh_map_packs_shutdown(packs);
+    free(packs);
+    inkwell_loop_shutdown(&loop);
+    MESH_TEST_FAIL_IF(!off, "a module with no directory offers nothing");
+    record_success(test_name);
+}
+
 #ifdef INKWELL_HAVE_TLS
 
 #include "support/https_fixture.h"
@@ -431,6 +452,58 @@ MESH_TEST_CASE(map_downloads_refuse_a_pack_that_does_not_verify, unit) {
                             downloads_exists(rig.maps, "test-region.20260927.mctp.part") ||
                             rig.packs.installed_count != 0U)) {
         failure = "what did not verify was kept";
+    }
+    downloads_rig_down(&rig);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The map draws MESH_MAP_PACKS_DRAWN_MAX packs, so with that many installed a new region is
+ * refused - the map would leave it out, or push out one it was drawing, and the section would
+ * have said "on the map" of it. A newer cut of a region already installed replaces it, so it is
+ * not refused.
+ */
+MESH_TEST_CASE(map_downloads_stop_at_what_the_map_draws, unit) {
+    struct downloads_rig rig;
+    const char *failure = downloads_rig_up(&rig, NULL);
+    if (failure == NULL) {
+        char parent[160];
+        snprintf(parent, sizeof parent, "%s/home/.meshclient", rig.dir);
+        (void)mkdir(parent, 0700);
+        (void)mkdir(rig.maps, 0700);
+        for (unsigned i = 0U; i < MESH_MAP_PACKS_DRAWN_MAX && failure == NULL; ++i) {
+            char name[64];
+            snprintf(name, sizeof name, "region-%02u.20260927.mctp", i);
+            if (!downloads_touch(rig.maps, name, 1U)) {
+                failure = "the full card could not be laid out";
+            }
+        }
+        mesh_map_packs_rescan(&rig.packs);
+    }
+    if (failure == NULL && (mesh_map_packs_refresh(&rig.packs, 0U) != 0 ||
+                            !downloads_wait_past(&rig, MESH_MAP_PACKS_LOADING))) {
+        failure = "the catalog did not arrive";
+    }
+    if (failure == NULL && mesh_map_packs_download(&rig.packs, "test-region", 0U) != -ENOSPC) {
+        failure = "a region past what the map draws was not refused";
+    }
+    if (failure == NULL) {
+        /* One of the sixteen becomes an older cut of the region on offer. */
+        char from[256];
+        char to[256];
+        snprintf(from, sizeof from, "%s/region-00.20260927.mctp", rig.maps);
+        snprintf(to, sizeof to, "%s/test-region.20250101.mctp", rig.maps);
+        if (rename(from, to) != 0) {
+            failure = "the older cut could not be put in place";
+        }
+        mesh_map_packs_rescan(&rig.packs);
+    }
+    if (failure == NULL && (mesh_map_packs_download(&rig.packs, "test-region", 0U) != 0 ||
+                            !downloads_wait_past(&rig, MESH_MAP_PACKS_DOWNLOADING) ||
+                            rig.packs.state != MESH_MAP_PACKS_READY ||
+                            rig.packs.installed_count != MESH_MAP_PACKS_DRAWN_MAX)) {
+        failure = "an update of an installed region was refused, or grew the set";
     }
     downloads_rig_down(&rig);
     MESH_TEST_FAIL_IF(failure != NULL, failure);

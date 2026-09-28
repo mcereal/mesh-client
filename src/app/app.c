@@ -10,6 +10,7 @@
  */
 
 #include "inkwell/base/env.h"
+#include "inkwell/base/file.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
@@ -23,6 +24,7 @@
 #include "mesh/core/meshcore.h"
 #include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/map/stack.h"
 #include "mesh/proto/ble_profile.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
@@ -40,6 +42,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+
+/* The download manager refuses the region the map would not draw; the two limits are one number
+   seen from the two layers that may not include each other. */
+_Static_assert(MESH_MAP_PACKS_DRAWN_MAX == MESH_MAP_STACK_PACKS_MAX,
+               "the maps a download may install and the maps the map draws must agree");
 
 /* ---- link routing --------------------------------------------------------------------- */
 
@@ -1535,16 +1542,29 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     /* Never fatal: a client that cannot update itself is still a working client, and the
        About section says why rather than offering a row that would do nothing. */
     (void)mesh_updater_init(&app->updater, &app->loop);
-    /* The same directory the map opens its packs from (fb_basemap_open_default()), so what this
-       downloads is what the map draws. Never fatal either: with no home there is nowhere to put
-       a pack, and the Maps section lists nothing. */
+    /*
+     * The same directory the map opens its packs from (fb_basemap_open_default()), so what this
+     * downloads is what the map draws: MESHCLIENT_MAP_PACK when it names a directory, the maps
+     * directory under $HOME otherwise. When it names a single file the map draws that file and
+     * nothing else, so there is no directory a download would reach the map through - and the
+     * Maps section says so rather than listing packs the map is not reading. Never fatal either:
+     * with no home there is nowhere to put a pack.
+     */
     {
-        const char *home = getenv("HOME");
+        const char *const named = getenv("MESHCLIENT_MAP_PACK");
+        const char *const home = getenv("HOME");
         char maps_dir[MESH_MAP_PACKS_PATH_MAX] = "";
-        if (home != NULL && home[0] != '\0') {
+        const bool file_named = named != NULL && named[0] != '\0' && !inkwell_file_is_dir(named);
+        if (named != NULL && named[0] != '\0' && !file_named) {
+            snprintf(maps_dir, sizeof maps_dir, "%s", named);
+        } else if (!file_named && home != NULL && home[0] != '\0') {
             snprintf(maps_dir, sizeof maps_dir, "%s/.meshclient/maps", home);
         }
         (void)mesh_map_packs_init(&app->map_packs, &app->loop, maps_dir);
+        if (file_named) {
+            snprintf(app->map_packs.message, sizeof app->map_packs.message, "%s",
+                     inkcell_str(MESH_STR_MAP_PACKS_ENV_FILE));
+        }
     }
     /* After init, which zeroes the struct. A prefs file written before the setting existed
        reads as DEFAULT, so this is a no-op for anyone who has never picked a channel. */

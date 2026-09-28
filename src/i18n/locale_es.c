@@ -1772,6 +1772,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_MAP_PACKS_WRITE_FAILED] = "No se pudo guardar el mapa. ¿Está llena la tarjeta?",
     [MESH_STR_MAP_PACKS_BAD_CATALOG] = "No se pudo leer la lista de mapas",
     [MESH_STR_MAP_PACKS_NO_TLS] = "Esta versión no puede descargar mapas",
+    [MESH_STR_MAP_PACKS_ENV_FILE] = "Desactivado: MESHCLIENT_MAP_PACK",
     [MESH_STR_MAP_PACKS_DAMAGED] = "%s llegó dañado. Inténtalo de nuevo.",
     [MESH_STR_MAP_PACKS_DONE] = "%s ya está en el mapa",
     [MESH_STR_MAP_PACKS_DELETED] = "%s eliminado",
@@ -1790,6 +1791,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_MAPS_INSTALLED_VALUE] = "%s, %.4s-%.2s-%.2s",
     [MESH_STR_MAPS_UPDATE_VALUE] = "Actualizar, %s",
     [MESH_STR_TOAST_MAPS_BUSY] = "Una descarga a la vez",
+    [MESH_STR_TOAST_MAPS_FULL] = "El mapa dibuja %u mapas como máximo. Elimina uno primero.",
     [MESH_STR_TOAST_MAPS_FAILED] = "Mapas: %s",
     [MESH_STR_UPDATE_DOWNLOAD_HTTP] = "Falló la descarga (HTTP %d)",
 

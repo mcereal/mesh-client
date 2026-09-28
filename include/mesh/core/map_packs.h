@@ -58,6 +58,16 @@ struct inkwell_loop;
    reply that is not what it claims to be. */
 #define MESH_MAP_PACKS_CATALOG_MAX (512U * 1024U)
 
+/*
+ * The most packs the map draws at once - MESH_MAP_STACK_PACKS_MAX, which this layer may not
+ * include; src/app/app.c asserts the two agree. A download that would install one more region
+ * than this is refused, because the map would open the first this-many by name and the new pack
+ * would be left out, or would push out one that was being drawn - and either way the screen that
+ * said "on the map" would be wrong. An update of a pack already installed replaces it, and is
+ * never refused for this.
+ */
+#define MESH_MAP_PACKS_DRAWN_MAX 16U
+
 #define MESH_MAP_PACKS_GROUPS_MAX 32U
 #define MESH_MAP_PACKS_ENTRIES_MAX 96U
 #define MESH_MAP_PACKS_INSTALLED_MAX 32U
@@ -156,7 +166,9 @@ int mesh_map_packs_init(struct mesh_map_packs *packs, struct inkwell_loop *loop,
 /* Abandons a download in flight (its .part stays, for a resume) and releases everything. */
 void mesh_map_packs_shutdown(struct mesh_map_packs *packs);
 
-/* Whether this build and this loop can fetch at all. */
+/* Whether this module can download: this build and this loop can fetch, and it was given a
+   directory to put packs in. An empty `dir` is how the app says the map is drawing packs from
+   somewhere this module does not manage (MESHCLIENT_MAP_PACK naming a file). */
 bool mesh_map_packs_available(const struct mesh_map_packs *packs);
 
 /* Enforces the fetch's deadlines. Called every turn of the loop, as the updater's tick is. */
@@ -168,7 +180,8 @@ int mesh_map_packs_refresh(struct mesh_map_packs *packs, uint64_t now_ms);
 /*
  * Downloads the catalog's pack `id`, resuming a `.part` of the same cut if there is one.
  * -ENOENT when the catalog has no such pack, -EBUSY while a request runs, -ENOTSUP when
- * fetching is unavailable, or -errno from the card.
+ * fetching is unavailable, -ENOSPC when it would be one region more than the map draws
+ * (MESH_MAP_PACKS_DRAWN_MAX), or -errno from the card.
  */
 int mesh_map_packs_download(struct mesh_map_packs *packs, const char *id, uint64_t now_ms);
 

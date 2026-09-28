@@ -377,7 +377,7 @@ void mesh_map_packs_shutdown(struct mesh_map_packs *packs) {
 }
 
 bool mesh_map_packs_available(const struct mesh_map_packs *packs) {
-    return packs != NULL && inkwell_fetch_available(&packs->fetch);
+    return packs != NULL && packs->dir[0] != '\0' && inkwell_fetch_available(&packs->fetch);
 }
 
 void mesh_map_packs_tick(struct mesh_map_packs *packs, uint64_t now_ms) {
@@ -518,7 +518,7 @@ int mesh_map_packs_refresh(struct mesh_map_packs *packs, uint64_t now_ms) {
     if (packs == NULL) {
         return -EINVAL;
     }
-    if (!inkwell_fetch_available(&packs->fetch)) {
+    if (!mesh_map_packs_available(packs)) {
         return -ENOTSUP;
     }
     if (inkwell_fetch_busy(&packs->fetch) || packs->state == MESH_MAP_PACKS_DOWNLOADING) {
@@ -729,7 +729,7 @@ int mesh_map_packs_download(struct mesh_map_packs *packs, const char *id, uint64
     if (packs == NULL || id == NULL) {
         return -EINVAL;
     }
-    if (!inkwell_fetch_available(&packs->fetch)) {
+    if (!mesh_map_packs_available(packs)) {
         return -ENOTSUP;
     }
     if (inkwell_fetch_busy(&packs->fetch) || packs->state == MESH_MAP_PACKS_DOWNLOADING) {
@@ -738,6 +738,10 @@ int mesh_map_packs_download(struct mesh_map_packs *packs, const char *id, uint64
     const struct mesh_map_packs_entry *const entry = mesh_map_packs_find(packs, id);
     if (entry == NULL) {
         return -ENOENT;
+    }
+    if (mesh_map_packs_find_installed(packs, id) == NULL &&
+        packs->installed_count >= MESH_MAP_PACKS_DRAWN_MAX) {
+        return -ENOSPC;
     }
     const int made = packs_make_dir(packs->dir);
     if (made < 0) {

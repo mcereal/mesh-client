@@ -3132,6 +3132,8 @@ MESH_STR_ENTRY(MAP_PACKS_HTTP_STATUS,     "The map server answered HTTP %d")
 MESH_STR_ENTRY(MAP_PACKS_WRITE_FAILED,    "Could not save the map. Is the card full?")
 MESH_STR_ENTRY(MAP_PACKS_BAD_CATALOG,     "The list of maps could not be read")
 MESH_STR_ENTRY(MAP_PACKS_NO_TLS,          "This build cannot download maps")
+/* MESHCLIENT_MAP_PACK is an environment variable's name and is not translated. */
+MESH_STR_ENTRY(MAP_PACKS_ENV_FILE,        "Off: MESHCLIENT_MAP_PACK is set")
 /* The %s is a region's name: "Puerto Rico arrived damaged. Try again." */
 MESH_STR_ENTRY(MAP_PACKS_DAMAGED,         "%s arrived damaged. Try again.")
 MESH_STR_ENTRY(MAP_PACKS_DONE,            "%s is on the map")
@@ -3160,6 +3162,8 @@ MESH_STR_ENTRY(MAPS_INSTALLED_VALUE,      "%s, %.4s-%.2s-%.2s")
 /* A newer version of an installed map, and its size: "Update, 22.5 MB". */
 MESH_STR_ENTRY(MAPS_UPDATE_VALUE,         "Update, %s")
 MESH_STR_ENTRY(TOAST_MAPS_BUSY,           "One download at a time")
+/* The most regions the map draws at once, which is also the most that can be installed. */
+MESH_STR_ENTRY(TOAST_MAPS_FULL,           "The map draws %u maps at most. Delete one first.")
 /* The %s is the C library's own description of an errno and arrives untranslated. */
 MESH_STR_ENTRY(TOAST_MAPS_FAILED,         "Maps: %s")
 
