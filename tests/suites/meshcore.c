@@ -2058,6 +2058,28 @@ MESH_TEST_CASE(meshcore_a_repeater_is_sent_commands, unit) {
                           g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_SILENT ||
                           g_meshcore.notice.node_id != alice,
                       "and the silence is said, naming her");
+
+    /* Its reply, late, while a newer command waits: it is the late one's answer - delivered
+       after all - and the newer keeps its own place rather than being settled by it. */
+    const uint32_t late_id = packet_id;
+    uint32_t newer_id = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, alice, 0U, "ver", &newer_id) != 0,
+                      "a newer command goes out");
+    feed(&protocol, sent, sizeof sent);
+    feed_code(&protocol, MESH_MESHCORE_PUSH_MSG_WAITING);
+    feed(&protocol, reply, sizeof reply);
+    MESH_TEST_FAIL_IF(
+        mesh_message_log_find(&g_model.messages, late_id)->ack != MESH_MESSAGE_ACK_DELIVERED ||
+            mesh_message_log_find(&g_model.messages, newer_id)->ack != MESH_MESSAGE_ACK_PENDING,
+        "a late reply settles the command it answers, not the next one");
+    feed_code(&protocol, MESH_MESHCORE_RESP_NO_MORE_MESSAGES);
+
+    /* Past the grace, an unanswered command gives its place up: the next reply is the newer's. */
+    mesh_protocol_tick(&protocol, g_meshcore.now_ms + 60000U);
+    mesh_protocol_tick(&protocol, g_meshcore.now_ms + MESH_MESHCORE_COMMAND_LATE_MS + 1U);
+    for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
+        MESH_TEST_FAIL_IF(g_meshcore.pending[i].packet_id != 0U, "every slot is free again");
+    }
     record_success(test_name);
 }
 

@@ -219,6 +219,8 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `stats-*` run from its serial console alone - and nothing that is a slip of the thumb away
   from `reboot` or a `set`. A command is never tried again, since it may have run and only its
   reply been lost; one unanswered by the deadline fails, and the toast says to log in as admin.
+  A reply names no command, only the order they went in, so a failed one keeps its place for a
+  minute: a late reply is its answer - it is delivered after all - not the next command's.
 - **A repeater's neighbours** are `SEND_BINARY_REQ` with `REQ_GET_NEIGHBOURS` - the ten it heard
   most recently, each by the first four bytes of its key - answered by a `BINARY_RESPONSE`. That
   answer names no node, only the tag the request's `SENT` carried, so the tag is what ends it.

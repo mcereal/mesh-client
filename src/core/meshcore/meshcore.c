@@ -795,8 +795,9 @@ static void mesh_meshcore_pending_done(struct mesh_meshcore *meshcore,
 }
 
 /* A repeater replied to a command: the oldest one to it still waiting - the first sent, which is
-   not the lowest packet id - is the one answered. The reply names its sender by a six-byte
-   prefix, and a command is held by the whole key. */
+   not the lowest packet id - is the one answered. One already given up on counts: its reply was
+   late, not missing, so it is delivered after all and the next command keeps its own place. The
+   reply names its sender by a six-byte prefix, and a command is held by the whole key. */
 static void mesh_meshcore_command_answered(struct mesh_meshcore *meshcore,
                                            const uint8_t prefix[MESH_MESHCORE_PREFIX_LEN]) {
     struct mesh_meshcore_pending *oldest = NULL;
@@ -819,13 +820,20 @@ static void mesh_meshcore_retry(struct mesh_meshcore *meshcore,
                                 struct mesh_meshcore_pending *pending) {
     /* A command the repeater did not answer is not sent again: it may have run and only the
        reply been lost, and "reboot" twice is not what anybody asked for. Silence from a
-       repeater is usually a login that did not make us its admin, which is worth saying. */
+       repeater is usually a login that did not make us its admin, which is worth saying. It
+       keeps its place in line a while longer (MESH_MESHCORE_COMMAND_LATE_MS), then goes. */
     if (pending->command) {
+        if (pending->expired) {
+            memset(pending, 0, sizeof *pending);
+            return;
+        }
         inkwell_log_info("meshcore", "Command %u: no reply", pending->packet_id);
         mesh_meshcore_notify(meshcore,
                              mesh_meshcore_node_id(pending->key, MESH_MESHCORE_PUBKEY_LEN),
                              MESH_MESHCORE_CMD_SEND_TXT_MSG, MESH_MESHCORE_ANSWER_SILENT);
-        mesh_meshcore_pending_done(meshcore, pending, MESH_MESSAGE_ACK_FAILED);
+        mesh_meshcore_mark(meshcore, pending->packet_id, MESH_MESSAGE_ACK_FAILED);
+        pending->expired = true;
+        pending->deadline_ms = meshcore->now_ms + MESH_MESHCORE_COMMAND_LATE_MS;
         return;
     }
     if (pending->attempt + 1U >= MESH_MESHCORE_SEND_ATTEMPTS) {

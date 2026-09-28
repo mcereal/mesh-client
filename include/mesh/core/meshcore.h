@@ -418,6 +418,10 @@ uint32_t mesh_meshcore_node_id(const uint8_t *key, size_t key_len);
 /* A command the radio has not answered in this long is given up on, and two in a row is a link
    whose far end has gone. */
 #define MESH_MESHCORE_REPLY_TIMEOUT_MS 10000U
+/* How long a command that went unanswered keeps its place in line after it is marked failed. A
+   repeater's replies carry nothing naming the command, only the order they come in, so a late
+   reply to it must still find it first - or it would settle the next command in its stead. */
+#define MESH_MESHCORE_COMMAND_LATE_MS 60000U
 /* How many times a direct message is tried before it is marked failed; the last goes flooded. */
 #define MESH_MESHCORE_SEND_ATTEMPTS 3U
 
@@ -463,6 +467,9 @@ struct mesh_meshcore_pending {
     /* When it was sent, as a count: a repeater's replies come back in the order its commands
        went, and the packet id is a xorshift, not a clock. */
     uint32_t sequence;
+    /* A command past its deadline, already marked failed and said so, held until
+       `deadline_ms` in case its reply is only late. */
+    bool expired;
     /* Whole, not a prefix: the last attempt resets the route, which names the contact by key. */
     uint8_t key[MESH_MESHCORE_PUBKEY_LEN];
     char text[MESH_MESHCORE_TEXT_MAX + 1U];
