@@ -1627,7 +1627,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
     /*
      * The traced route, after every verb rather than beside the one that starts it.
      *
-     * It reads as the first of the report groups, which is what it is - a measurement, like the
+     * It reads as one of the report groups, which is what it is - a measurement, like the
      * readings under it, rather than something to press. Beside its verb it was a group in the
      * middle of the action block, and the rows after it went on being actions under a "Route
      * back" heading: harmless-looking in a flat list and a card whose heading lies about its
@@ -1638,13 +1638,20 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
      * trace is not offered against our own node, so one targeting it is a trace nothing here
      * could have started.
      */
+    /*
+     * The order is the reader's questions in the order they are asked: can I reach it (signal),
+     * will it stay up (battery), how does it get to me (the route), where is it (position) - and
+     * only then who it is. The title already says the name, so an Identity card opening the
+     * screen spent its best rows repeating it over a node number and a key fingerprint, and put
+     * "last heard" below the fold on the panel this is read on.
+     */
+    node_rows_signal(&rows, node, roster, is_self, now);
+    node_rows_power(&rows, node, now);
     if (!is_self) {
         node_rows_route_path(&rows, node, trace, now);
     }
-    node_rows_identity(&rows, node);
-    node_rows_signal(&rows, node, roster, is_self, now);
-    node_rows_power(&rows, node, now);
     node_rows_position(&rows, node, now);
+    node_rows_identity(&rows, node);
     node_rows_environment(&rows, node, now);
     node_rows_power_metrics(&rows, node, now);
     node_rows_air_quality(&rows, node, now);
