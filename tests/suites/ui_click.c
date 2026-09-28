@@ -1079,3 +1079,116 @@ MESH_TEST_CASE(ui_click_a_list_heading_offers_no_row_verbs, unit) {
                               "the conversations' heading should still offer New");
     click_close(&store, capture);
 }
+
+/*
+ * A window as wide as the one the list-detail tabs split at stands the Status cards in two
+ * columns rather than one ribbon down the middle - and a verb in the second column is still a
+ * box a click lands on. The Brick keeps its one column.
+ */
+MESH_TEST_CASE(ui_click_a_wide_window_stands_the_status_cards_in_two_columns, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    struct mesh_ui_action action;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_RADIO,
+                  &action) ||
+            store.nav.screen != MESH_UI_SCREEN_RADIO,
+        click_close(&store, capture), "a click on the tab should open the cards");
+    click_settle(&store);
+
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    uint32_t leading = 0U, trailing = 0U, trailing_id = 0U;
+    for (uint32_t i = 0U; i < MESH_UI_STATUS_ACTIONS_MAX; ++i) {
+        struct inkcell_focus_rect verb;
+        if (!inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + i, &verb)) {
+            continue;
+        }
+        if (verb.x + verb.w <= 1920 / 2) {
+            ++leading;
+        } else if (verb.x >= 1920 / 2) {
+            ++trailing;
+            trailing_id = (uint32_t)MESH_UI_FOCUS_ROWS + i;
+        }
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(leading == 0U || trailing == 0U, click_close(&store, capture),
+                              "the cards' verbs should stand on both sides of the window");
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, trailing_id, &action),
+                              click_close(&store, capture),
+                              "a verb in the second column should be a box a click lands on");
+    click_close(&store, capture);
+
+    MESH_TEST_FAIL_IF(click_open(&store, &capture) != 0, "store or capture failed to open");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_RADIO,
+                  &action),
+        click_close(&store, capture), "the strip drew no box for Radio");
+    click_settle(&store);
+    map = click_render(&store, capture);
+    struct inkcell_focus_rect first, previous;
+    bool have = false;
+    for (uint32_t i = 0U; i < MESH_UI_STATUS_ACTIONS_MAX; ++i) {
+        struct inkcell_focus_rect verb;
+        if (!inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + i, &verb)) {
+            continue;
+        }
+        if (!have) {
+            first = verb;
+            have = true;
+        }
+        previous = verb;
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(!have || previous.y <= first.y, click_close(&store, capture),
+                              "the Brick should keep the cards in one column, top to bottom");
+    click_close(&store, capture);
+}
+
+/*
+ * The map is drawn edge to edge, so its heading is too: on a window wider than the reading
+ * measure the help button stands over the map's trailing edge, not over its middle.
+ */
+MESH_TEST_CASE(ui_click_a_wide_window_puts_the_map_heading_over_the_whole_map, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    /* The fixture's nodes have no fix, and a map with no marker is a sentence rather than a map;
+       one fix is enough to draw the picture. */
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.config_complete = true;
+    handshake.link_up = true;
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 0x1000U;
+    handshake.nodes[0].in_nodedb = true;
+    snprintf(handshake.nodes[0].short_name, sizeof handshake.nodes[0].short_name, "%s", "ME");
+    handshake.nodes[0].position.valid = true;
+    handshake.nodes[0].position.latitude_i = 476180000;
+    handshake.nodes[0].position.longitude_i = -1223320000;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    struct mesh_ui_action action;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_MAP,
+                  &action) ||
+            store.nav.screen != MESH_UI_SCREEN_MAP,
+        click_close(&store, capture), "a click on the tab should open the map");
+    click_settle(&store);
+
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect help;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_BAR + (uint32_t)MESH_UI_COMMAND_HELP,
+                               &help),
+        click_close(&store, capture), "the map's heading should offer help");
+    MESH_TEST_FAIL_IF_CLEANUP(help.x + help.w < 1920 - 1920 / 10, click_close(&store, capture),
+                              "the map's heading should run to the map's trailing edge");
+    click_close(&store, capture);
+}

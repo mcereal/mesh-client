@@ -125,6 +125,46 @@ static void fb_status_card_actions(struct inkcell_fb_card *card,
 }
 
 /*
+ * The narrowest a column of cards may be, in columns of body text: the Mesh card's airtime line
+ * beside its label, which is the widest row any card writes, with a little over.
+ *
+ * In columns rather than pixels for the width classes' reason: the reader's scale is already in
+ * the unit, so a window with the text turned up keeps one column for exactly as long as two
+ * would wrap. Below it the cards still draw - a row wraps - but two columns of wrapped rows are
+ * taller than one column of whole ones, and the second column bought nothing.
+ */
+#define FB_STATUS_COLUMN_COLS 44U
+
+/*
+ * Whether the cards stand in two columns, and where.
+ *
+ * One column is a phone's answer, and on the Brick it is the only one: the panel is a measure
+ * wide. On a window it was a ribbon of three cards down the middle of a desktop with most of the
+ * glass either side of it empty, because a card is placed against the reading column and the
+ * reading column is capped. The cards are not running text - they are label and value rows read
+ * a line at a time - so the measure is the wrong cap for them, and what the room is for is the
+ * second column a dashboard on any wider screen has.
+ *
+ * Two halves of the region, each inset by its own margins, which leaves the gap between them the
+ * same two margins a card leaves between itself and the panel edge. Only above the compact class,
+ * and only when both halves hold FB_STATUS_COLUMN_COLS; at the Brick's scale that is the window
+ * the other tabs split at, so a window becomes two-pane everywhere at once.
+ */
+static bool fb_status_columns(struct inkcell_draw_state *state, struct inkcell_box columns[2]) {
+    if (inkcell_fb_width_class(state) == INKCELL_WIDTH_COMPACT) {
+        return false;
+    }
+    const struct inkcell_box region = inkcell_fb_region(state);
+    const int half = region.w / 2;
+    columns[0] = (struct inkcell_box){region.x, region.y, half, region.h};
+    columns[1] = (struct inkcell_box){region.x + half, region.y, region.w - half, region.h};
+    const struct inkcell_box was = inkcell_fb_set_region(state, columns[0]);
+    const bool room = inkcell_fb_cols(state, state->scale) >= FB_STATUS_COLUMN_COLS;
+    (void)inkcell_fb_set_region(state, was);
+    return room;
+}
+
+/*
  * The Status tab, as three cards.
  *
  * It used to be eighteen label/value lines on the bare ground, in one column, and nothing in it
@@ -140,7 +180,11 @@ static void fb_status_card_actions(struct inkcell_fb_card *card,
  * Cards are declared and then drawn (see inkcell/ui/widgets.h), so a row that only exists when the
  * radio has reported something is an `if` around one call. Nothing here guards the footer
  * either: inkcell_fb_draw_card() drops what does not fit and refuses a card outright when nothing
- * does, which is the check this screen used to write out per row, and in two different ways.
+ * does, which is the check this screen used to write out per row, and in two different ways. *
+ * On a window with room the cards stand in two columns (fb_status_columns()): the link and the
+ * broker - what this client is connected to - on the leading side, and the mesh and the radio -
+ * what it has heard - on the other. The order they are read in is unchanged, and so is the order
+ * the d-pad walks their verbs, which is the flat list's rather than the panel's.
  */
 void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                       struct inkcell_fb_layout *layout) {
@@ -162,6 +206,19 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
     bool have_broker = false;
     char buffer[64];
     char second[64];
+
+    /*
+     * Two columns or one. With two the measure is off for the rest of the frame - each column is
+     * narrower than a measure and a card fills it, and the action bar under them spans both - and
+     * fb_render_snapshot() puts it back once that bar is drawn.
+     */
+    struct inkcell_box columns[2];
+    const bool two = fb_status_columns(state, columns);
+    const struct inkcell_box whole = inkcell_fb_region(state);
+    if (two) {
+        (void)inkcell_fb_set_measured(state, false);
+        (void)inkcell_fb_set_region(state, columns[0]);
+    }
 
     /* ---- the link: what we are talking to, and whether it has told us who it is ---- */
 
@@ -818,6 +875,10 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
      * rows it takes are the ones the Mesh card declared last - the message ring and the received
      * composition, which are the rows a reader chasing a fault would have skipped.
      */
+    /* Measured in the column it is drawn in, since a narrower card wraps into more rows. */
+    if (two) {
+        (void)inkcell_fb_set_region(state, columns[1]);
+    }
     const int radio_reserve = radio_tone == INKCELL_TONE_PRIMARY
                                   ? inkcell_fb_card_min_height(state, layout, &radio)
                                   : inkcell_fb_card_height(state, layout, &radio);
@@ -835,6 +896,22 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
      * the Mesh card gives up are its packet counters, and a reader who has come to this screen
      * because MQTT is not working is not reading packet counters.
      */
+    if (two) {
+        /*
+         * Beside each other, the reservations shrink to what is still below a card in its own
+         * column: the broker is under the link with nothing after it, and the mesh keeps the
+         * radio's claim exactly as it does in one column.
+         */
+        int right_y = layout->body_y;
+        (void)inkcell_fb_draw_card_reserving(state, layout, &right_y, &card, radio_reserve);
+        (void)inkcell_fb_draw_card(state, layout, &right_y, &radio);
+        if (have_broker) {
+            (void)inkcell_fb_set_region(state, columns[0]);
+            (void)inkcell_fb_draw_card(state, layout, &y, &broker);
+        }
+        (void)inkcell_fb_set_region(state, whole);
+        return;
+    }
     if (have_broker) {
         (void)inkcell_fb_draw_card_reserving(state, layout, &y, &broker,
                                              inkcell_fb_card_min_height(state, layout, &card) +

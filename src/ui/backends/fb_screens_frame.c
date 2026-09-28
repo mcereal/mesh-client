@@ -1025,6 +1025,12 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
      * it as the app no longer wanting it up, so one already on the panel walks out rather than
      * being cut off mid-frame.
      */
+    /*
+     * The measure back on for them: a dialog belongs to the window, not to the screen under it,
+     * so one raised over the map or the two-column cards is the width it is everywhere else. The
+     * screen's own choice is kept for the action bar below, which is the screen's.
+     */
+    const bool body_measured = inkcell_fb_set_measured(state, true);
     fb_render_reactions(state, snapshot, &layout);
     fb_render_confirm(state, snapshot, &layout);
     fb_render_verify(state, snapshot, &layout);
@@ -1066,7 +1072,16 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
            round the verb that drops the link would be recommending it. */
         .emphasize_first = actions.count > 0U && actions.items[0].button == INKCELL_BUTTON_A,
     };
+    /*
+     * A screen whose body is not running text - the map, the Status cards in two columns -
+     * turns the reading measure off for its body and the action bar under it, so the keycaps
+     * and the link's state stand under the same edges as what they are about. Nothing else is
+     * the screen's: the dialogs above and the menu and the notice below are over the frame, so
+     * the measure is on for all of them whichever screen was drawn.
+     */
+    (void)inkcell_fb_set_measured(state, body_measured);
     inkcell_fb_scaffold_end(state, &frame, footless ? NULL : &bar);
+    (void)inkcell_fb_set_measured(state, true);
     fb_render_context(state, snapshot);
 
     /*
