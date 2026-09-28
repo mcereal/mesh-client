@@ -762,12 +762,86 @@ MESH_TEST_CASE(ui_click_a_window_writes_in_the_field_at_the_foot_of_the_thread, 
             !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_PANE_ROWS, &box),
         click_close(&store, capture), "the thread and the list beside it should still be drawn");
 
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_FIELD, &action) ||
+                                  !mesh_ui_nav_kb_writes_thread(&store.nav),
+                              click_close(&store, capture),
+                              "a click in the field being written in should keep it");
+
+    /* Somewhere nothing else is drawn - the air above a short transcript - which is where a
+       reader clicks to be done with a text box. */
+    map = click_render(&store, capture);
+    int blank_x = -1;
+    int blank_y = -1;
+    for (int y = 0; y < 1080 && blank_x < 0; y += 8) {
+        for (int x = 1919; x >= 0 && blank_x < 0; x -= 8) {
+            if (inkcell_focus_hit(map, x, y) == (uint32_t)MESH_UI_FOCUS_FIELD_DISMISS) {
+                blank_x = x;
+                blank_y = y;
+            }
+        }
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(blank_x < 0, click_close(&store, capture),
+                              "a click on nothing should still land on something while writing");
+    (void)mesh_ui_store_handle_click(&store, inkcell_focus_hit(map, blank_x, blank_y), &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.keyboard_open || !store.nav.thread_open,
+                              click_close(&store, capture),
+                              "a click on nothing should put the field down");
+    MESH_TEST_FAIL_IF_CLEANUP(strcmp(store.nav.draft, "on my way") != 0,
+                              click_close(&store, capture), "and keep what was written in it");
+    map = click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_FIELD_DISMISS, &box),
+        click_close(&store, capture), "with the field put down, nothing lies under the frame");
+
+    /* And a click on the transcript puts it down too, landing on the bubble as well. */
+    (void)mesh_ui_store_handle_key(&store, inkcell_focus_key_of(field), &action);
     MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS, &action) ||
                                   store.nav.keyboard_open || !store.nav.thread_open,
                               click_close(&store, capture),
                               "a click on the transcript should put the field down");
-    MESH_TEST_FAIL_IF_CLEANUP(strcmp(store.nav.draft, "on my way") != 0,
-                              click_close(&store, capture), "and keep what was written in it");
+    click_close(&store, capture);
+}
+
+/*
+ * A click on the list beside an open section is a way out of it, and leaving a section with
+ * unsaved edits asks first. The click asks exactly once: it stops at the question rather than
+ * pressing B again, which would be the answer - and the edits gone.
+ */
+MESH_TEST_CASE(ui_click_the_list_beside_a_section_with_edits_asks_first, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.use_preset = true;
+    mesh_ui_store_set_settings(&store, &settings);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    click_settle(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_settings_open(&store, MESH_UI_SETTINGS_LORA),
+                              click_close(&store, capture), "LoRa should open");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.settings_edit_count != 1U, click_close(&store, capture),
+                              "A on a toggle should record an edit");
+
+    uint32_t device = 0U;
+    while (mesh_ui_settings_root_at(&store.settings, device) != MESH_UI_SETTINGS_DEVICE) {
+        ++device;
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + device, &action),
+        click_close(&store, capture), "the sections beside LoRa should be click targets");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        store.nav.settings_section != MESH_UI_SETTINGS_LORA || !store.nav.settings_discard_armed ||
+            store.nav.settings_edit_count != 1U,
+        click_close(&store, capture), "the click should stop at the question with the edit kept");
     click_close(&store, capture);
 }
 

@@ -725,7 +725,7 @@ static void fb_draw_thread_field(const struct inkcell_draw_state *state,
         .lines = 1U,
         .placeholder = placeholder,
         .lit = writing,
-        .target = writing ? INKCELL_FOCUS_NONE : INKCELL_FOCUS_KEY(INKCELL_KEY_Y),
+        .target = writing ? (uint32_t)MESH_UI_FOCUS_FIELD : INKCELL_FOCUS_KEY(INKCELL_KEY_Y),
     };
     if (writing) {
         /* The draft and the caret after it, wrapped as the field will draw them. */

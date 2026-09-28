@@ -806,6 +806,16 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         inkcell_focus_begin(&cache->focus, cache->focus_storage, MESH_UI_FOCUS_MAX);
         inkcell_fb_set_focus_map(state, &cache->focus);
     }
+    /* First, so it is under everything: a click that lands on nothing else while the thread's
+       field is being written in is a click away from the field. See MESH_UI_FOCUS_FIELD. */
+    if (fb_thread_field_writing(state, &snapshot->nav)) {
+        inkcell_fb_target_register(
+            state, (uint32_t)MESH_UI_FOCUS_FIELD_DISMISS,
+            &(const struct inkcell_fb_rect){.x = 0,
+                                            .y = 0,
+                                            .w = inkcell_fb_panel_width(state),
+                                            .h = inkcell_fb_panel_height(state)});
+    }
 
     inkcell_fb_clear(state, inkcell_fb_color(state, INKCELL_COLOR_BG));
 

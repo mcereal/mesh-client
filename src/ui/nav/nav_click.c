@@ -236,9 +236,15 @@ static bool mesh_ui_nav_click_pane_row(struct mesh_ui_nav *nav, const struct mes
     }
     bool changed = false;
     for (int i = 0; i < 8 && mesh_ui_nav_click_detail_open(nav); ++i) {
-        const struct mesh_ui_nav before = *nav;
+        /* A B that did not take the reader up a level asked something instead - a dialog, or
+           the section's "B again to discard" - and a second B would be the answer the reader
+           has not given. So the walk stops at the first press that goes nowhere. */
+        struct mesh_ui_route was;
+        mesh_ui_route_of(nav, &was);
         changed = mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_B, out_action) || changed;
-        if (nav->confirm.open || memcmp(&before, nav, sizeof before) == 0) {
+        struct mesh_ui_route now;
+        mesh_ui_route_of(nav, &now);
+        if (nav->confirm.open || now.depth >= was.depth) {
             return changed;
         }
     }
@@ -291,6 +297,9 @@ bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_stor
      * on what it was aimed at. Without this every click would meet the keyboard, which takes no
      * clicks, and the only way off the field would be the Escape key.
      */
+    if (target == (uint32_t)MESH_UI_FOCUS_FIELD) {
+        return false; /* a click in the field being written in keeps it */
+    }
     bool field_put_down = false;
     if (mesh_ui_nav_kb_writes_thread(nav)) {
         (void)mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_B, out_action);
