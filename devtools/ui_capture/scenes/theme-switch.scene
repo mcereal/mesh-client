@@ -9,6 +9,7 @@ scale 4
 delay 260
 
 tab settings
+key r2 3
 key a
 hold 700
 key down

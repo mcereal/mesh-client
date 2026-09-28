@@ -46,6 +46,7 @@ hold 900
 # of filling - the one shape that says "working" without also claiming "this far along".
 tab settings
 hold 500
+key r2 3
 key a
 hold 700
 key down 6

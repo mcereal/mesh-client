@@ -35,7 +35,7 @@ hold 300
 # Settings > Position: the smart broadcast threshold, which is a length the reader picks off a
 # list rather than one the mesh reported.
 tab settings
-key down 5
+key down 4
 key a
 key down 4
 hold 2200
@@ -45,7 +45,7 @@ hold 300
 # Settings > Modules > MQTT: the map report's precision, which is the same ladder the node
 # detail's Precision row reads and was the last place still answering in metres.
 tab settings
-key down 13
+key down 7
 key a
 key a
 key down 9
@@ -83,7 +83,7 @@ key b
 hold 300
 
 tab settings
-key down 5
+key up 7
 key a
 key down 4
 hold 2200
@@ -91,7 +91,7 @@ key b
 hold 300
 
 tab settings
-key down 13
+key down 7
 key a
 key a
 key down 9

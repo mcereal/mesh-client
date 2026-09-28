@@ -567,8 +567,9 @@ only a consequence of one of them, and neither is a thing a test could pin.
 - **A slider's stops are evenly spaced, and its zero may not be on it at all.** A `NUMBER` setting
   steps a preset list that climbs geometrically, so value space crowds eight of screen-on's ten
   choices into the first sixth of the track. Most lists open with a 0 the field reads as a word,
-  which is not a quantity, so `SCALE_PRESETS_AFTER_ZERO()` stands it outside the track - drawn the
-  other way, `max` reported itself at the empty end of its own bar. Which lists are a scale at all
+  which is not a quantity, so `SCALE_PRESETS_AFTER_ZERO()` stands it outside the track. Transmit
+  power's `max` is the one word that is a place - the top - so it is drawn full; drawn at either
+  empty end it read as no power at all. Which lists are a scale at all
   is stated per field: `{0, 1, ... 7}` is a hop limit under one and a GPIO pin under the next.
   `ui_settings_number`, `ui_capture_slider`.
 - **The settings edit buffer's width is a `sizeof`, not a number.** It is the size of a union of

@@ -51,7 +51,6 @@ hold 1400
 # them, and the banner stands down - a banner pointing at a screen that states the same thing in
 # more detail is noise on that screen. The node number is the target's, and the reboot count is
 # gone: MyNodeInfo is what a radio tells the client attached to it.
-key down 1
 key a
 hold 2200
 

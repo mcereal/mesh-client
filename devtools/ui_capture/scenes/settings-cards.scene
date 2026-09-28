@@ -26,13 +26,14 @@ tab settings
 hold 700
 
 # About: four rows, one column. The two verbs carry a disc and the two fields carry the gutter.
+key r2 3
 key a
 hold 1800
 key b
 hold 500
 
 # Modules: no groups, so no card. Fourteen rows on the panel, with room around their symbols.
-key down 12
+key up 1
 key a
 hold 2000
 key b

@@ -432,7 +432,7 @@ MESH_TEST_CASE(ui_capture_status_keeps_the_last_card_when_the_one_above_overflow
 }
 
 /*
- * The three card variants, and the ring that says which card the next press acts on.
+ * The three card variants, and the one cue that says which verb the next press acts on.
  *
  * Same approach as the case above - structure, never pixels. What is asked for is that the
  * Status column is drawn at more than one weight: a card is one of three surface tiers, and a
@@ -441,10 +441,12 @@ MESH_TEST_CASE(ui_capture_status_keeps_the_last_card_when_the_one_above_overflow
  * and nothing else on this screen; the fixture's radio has said nothing about itself, so its
  * Radio card is the outlined one and carries no fill of its own at all.
  *
- * The ring is the second half. A card holding the selected verb draws its edge in the primary
- * rather than in the outline, so a full-width run of INKCELL_COLOR_PRIMARY appears in the body
- * and appears nowhere else: the navigation bar's active chip is the primary *container*, and
- * every other use of the base colour here is a glyph, which is at most a stroke wide.
+ * The cursor is the second half. The selected verb is a pill filled in the primary's full
+ * strength - its neighbours are the primary *container* - so a band of INKCELL_COLOR_PRIMARY a
+ * few cells wide appears on the verb's line and nowhere else: every other use of the base
+ * colour here is a glyph, which is at most a stroke wide. And the card holding it draws no ring
+ * of its own: it used to, and two accent outlines nested one in the other were two answers to
+ * where the cursor is. A full-width run of the primary is that second ring coming back.
  */
 MESH_TEST_CASE(ui_capture_draws_the_card_variants, unit) {
     struct mesh_ui_store store;
@@ -485,23 +487,24 @@ MESH_TEST_CASE(ui_capture_draws_the_card_variants, unit) {
 
     const unsigned ring =
         widest_row_run(capture, pixels, width, height, stride, INKCELL_COLOR_PRIMARY);
-    MESH_TEST_FAIL_IF_CLEANUP(ring < 80U, inkcell_capture_close(capture);
+    MESH_TEST_FAIL_IF_CLEANUP(ring >= 80U, inkcell_capture_close(capture);
                               mesh_ui_store_shutdown(&store),
-                              "the focused card draws no ring, so nothing says what A acts on");
+                              "the card rings itself as well as its verb: two focus indicators");
 
     /*
      * Where the lowest card ends, which must not depend on where the cursor is.
      *
-     * The ring is a thicker edge, and an earlier draft grew the card's *layout* edge to draw
-     * it - so selecting a card made it taller, pushed every card under it down the panel and
-     * could change which rows were clipped, all because the cursor arrived. The ring is painted
-     * inward into the padding now, and this is what says so.
+     * The card once drew a thicker edge when it held the cursor, and an earlier draft grew the
+     * card's *layout* edge to draw it - so selecting a card made it taller, pushed every card
+     * under it down the panel and could change which rows were clipped, all because the cursor
+     * arrived. This is what says the cursor changes nothing about a card's size.
      */
     const uint32_t bottom_before = last_card_edge_y(capture, pixels, width, height, stride);
 
-    /* And it moves. The cursor steps to the Radio card's verb, which is a different card, so
-       the ring has to end up on a different scanline - a ring painted at a fixed place would
-       pass every check above and still be wrong. */
+    /* And it moves. The cursor steps to the next card's verb, so the filled pill has to end up
+       on a different scanline - a pill painted at a fixed place would pass every check above
+       and still be wrong. A pill is several cells wide; a glyph stroke is not. */
+    const unsigned pill_min = width / 20U;
     unsigned first_ring_y = height;
     for (uint32_t y = 0U; y < height && first_ring_y == height; ++y) {
         const uint8_t *row = pixels + (size_t)y * stride;
@@ -509,7 +512,7 @@ MESH_TEST_CASE(ui_capture_draws_the_card_variants, unit) {
         for (uint32_t x = 0U; x < width; ++x) {
             run =
                 pixel_is_role(capture, row + (size_t)x * 4U, INKCELL_COLOR_PRIMARY) ? run + 1U : 0U;
-            if ((uint64_t)run * 100U / width >= 80U) {
+            if (run >= pill_min) {
                 first_ring_y = y;
                 break;
             }
@@ -534,15 +537,18 @@ MESH_TEST_CASE(ui_capture_draws_the_card_variants, unit) {
         for (uint32_t x = 0U; x < width; ++x) {
             run =
                 pixel_is_role(capture, row + (size_t)x * 4U, INKCELL_COLOR_PRIMARY) ? run + 1U : 0U;
-            if ((uint64_t)run * 100U / width >= 80U) {
+            if (run >= pill_min) {
                 moved_ring_y = y;
                 break;
             }
         }
     }
+    MESH_TEST_FAIL_IF_CLEANUP(first_ring_y == height, inkcell_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "no verb is filled in the primary, so nothing says what A acts on");
     MESH_TEST_FAIL_IF_CLEANUP(
         moved_ring_y == height || moved_ring_y == first_ring_y, inkcell_capture_close(capture);
-        mesh_ui_store_shutdown(&store), "Down did not move the ring onto the next card's verb");
+        mesh_ui_store_shutdown(&store), "Down did not move the cursor onto the next card's verb");
 
     const uint32_t bottom_after = last_card_edge_y(capture, pixels, width, height, stride);
     MESH_TEST_FAIL_IF_CLEANUP(bottom_after != bottom_before, inkcell_capture_close(capture);

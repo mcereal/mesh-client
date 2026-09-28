@@ -490,6 +490,9 @@ MESH_STR_ENTRY(MAP_BADGE_IN_VIEW,         "%u of %u")
 MESH_STR_ENTRY(MAP_NOTHING_SELECTED,      "nothing under the crosshair")
 /* A marker's own line: what it is, and how far away it is from the middle of the view. */
 MESH_STR_ENTRY(MAP_SELECTED_RANGE,        "%s  %s")
+/* A marker's name when the names of markers crowded against it had no room of their own: how
+   many more are there. The crosshair and the line under the map name each one in turn. */
+MESH_STR_ENTRY(MAP_LABEL_MORE,            "%s +%u")
 /* What a node marker whose fix the sender rounded says, so a pin is never read as an exact
    spot. The distance comes from the same table the node detail and the channel's own
    position_precision row read. */
@@ -688,7 +691,9 @@ MESH_STR_ENTRY(STATUS_LABEL_TX_QUEUE,     "TX queue")
 MESH_STR_ENTRY(STATUS_LABEL_RADIO_SAID,   "Radio said")
 MESH_STR_ENTRY(STATUS_LABEL_REBOOTS,      "Reboots")
 MESH_STR_ENTRY(STATUS_LABEL_MESSAGES,     "Messages")
-MESH_STR_ENTRY(STATUS_LABEL_DEVICES,      "Devices")
+/* Radios this Brick could connect to, not nodes on the mesh: "Devices" beside a count read as
+   a second node count on a card that already has one. */
+MESH_STR_ENTRY(STATUS_LABEL_DEVICES,      "Radios")
 /* The Broker card's own labels. "Status" rather than "State" for the one that carries the
    connection's sentence: every other row here reports a fact and this one reports progress. */
 MESH_STR_ENTRY(STATUS_LABEL_BROKER,       "Server")
@@ -753,6 +758,8 @@ MESH_STR_ENTRY(STATUS_RADIO_SAID_COUNT,   "%s, %u this connection")
 MESH_STR_ENTRY(STATUS_REBOOTS_SINCE,      "%u since connecting")
 MESH_STR_ENTRY(STATUS_MESSAGES_KEPT,      "%u kept, %u dropped")
 MESH_STR_ENTRY(STATUS_DEVICES_IN_RANGE,   "%zu in range")
+/* The primary channel's name, tagged the way a channel is everywhere else it is named. */
+MESH_STR_ENTRY(STATUS_CHANNEL_NAME,       "#%s")
 
 /*
  * The Broker card's values.
@@ -1148,7 +1155,7 @@ MESH_STR_ENTRY(NODE_POWER_CHANNEL,        "Channel %u")
  * translation of the English here - the point of these names is that a user can follow a guide
  * written for the phone app while holding a Brick.
  */
-MESH_STR_ENTRY(SETTINGS_GROUP_RADIO,                      "Radio settings")
+MESH_STR_ENTRY(SETTINGS_GROUP_CLIENT,                     "This app")
 MESH_STR_ENTRY(SETTINGS_SECTION_ABOUT,                    "About MeshClient")
 MESH_STR_ENTRY(SETTINGS_SECTION_RADIO,                    "About radio")
 MESH_STR_ENTRY(SETTINGS_SECTION_USER,                     "User")

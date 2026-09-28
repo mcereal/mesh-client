@@ -6,6 +6,7 @@ scale 4
 delay 250
 config
 tab settings
+key r2 3
 key a
 hold 1200
 key b
