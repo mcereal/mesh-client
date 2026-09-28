@@ -501,6 +501,10 @@ struct mesh_ui_nav {
        panned to - and so the renderer can tell an empty map from a map looking at empty
        ground. */
     bool map_framed;
+    /* Whether the frame is done with: on our own radio, or moved by the reader. A frame made
+       before our own position was known (a cached roster at start) is a fit, and the first
+       fix of ours to arrive re-aims it - unless the reader has already moved the map. */
+    bool map_settled;
     struct mesh_map_viewport map_viewport;
     /*
      * Radio tab, the Status cards: which verb the cursor is on.

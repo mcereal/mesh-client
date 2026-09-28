@@ -659,6 +659,75 @@ MESH_TEST_CASE(map_is_a_tab_that_frames_its_first_fix, unit) {
     record_success(test_name);
 }
 
+/* A map opens where the reader is, not framed on the furthest node heard; START is the fit. */
+MESH_TEST_CASE(map_opens_on_our_own_radio_and_start_shows_all_of_it, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+    struct mesh_ui_handshake_state handshake = store.handshake;
+    handshake.nodes[1].position.latitude_i = MAP_TEST_LATITUDE + 10000000; /* a degree away */
+    handshake.nodes[1].position.longitude_i = MAP_TEST_LONGITUDE + 10000000;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    map_test_open(&store);
+    MESH_TEST_FAIL_IF(
+        !map_near(store.nav.map_viewport.center_latitude_i, MAP_TEST_LATITUDE, 200) ||
+            !map_near(store.nav.map_viewport.center_longitude_i, MAP_TEST_LONGITUDE, 200),
+        "the map opens on our own radio");
+    MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom != MESH_UI_MAP_ZOOM_HOME,
+                      "close enough to see what is around it");
+
+    struct mesh_ui_action action;
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
+    MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom >= MESH_UI_MAP_ZOOM_HOME,
+                      "START widens out to everything");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/* A map framed from a cached roster before our own fix arrived goes to it when it does - unless
+   the reader has moved it in the meantime. */
+MESH_TEST_CASE(map_goes_to_our_own_fix_when_it_arrives_late, unit) {
+    for (int moved = 0; moved <= 1; ++moved) {
+        struct mesh_ui_store store;
+        MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+        map_test_populate(&store);
+        struct mesh_ui_handshake_state handshake = store.handshake;
+        handshake.nodes[0].position.valid = false; /* not ours yet */
+        handshake.nodes[1].position.latitude_i = MAP_TEST_LATITUDE + 10000000;
+        handshake.nodes[1].position.longitude_i = MAP_TEST_LONGITUDE + 10000000;
+        mesh_ui_store_set_handshake(&store, &handshake);
+        mesh_ui_store_consume_updates(&store, NULL);
+
+        map_test_open(&store);
+        MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom == MESH_UI_MAP_ZOOM_HOME,
+                          "without our own fix the map is a fit");
+        struct mesh_ui_action action;
+        if (moved != 0) {
+            (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
+        }
+        const int32_t zoom_before = store.nav.map_viewport.zoom;
+
+        handshake = store.handshake;
+        handshake.nodes[0].position.valid = true;
+        mesh_ui_store_set_handshake(&store, &handshake);
+        map_test_publish(&store);
+        if (moved == 0) {
+            MESH_TEST_FAIL_IF(
+                store.nav.map_viewport.zoom != MESH_UI_MAP_ZOOM_HOME ||
+                    !map_near(store.nav.map_viewport.center_latitude_i, MAP_TEST_LATITUDE, 200),
+                "our fix arriving takes the map to it");
+        } else {
+            MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom != zoom_before,
+                              "but not once the reader has moved the map");
+        }
+        mesh_ui_store_shutdown(&store);
+    }
+    record_success(test_name);
+}
+
 /*
  * The d-pad moves the world here, and the shoulders still move the tabs.
  *
