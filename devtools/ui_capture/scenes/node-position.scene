@@ -12,16 +12,15 @@
 scene demo
 tab nodes
 
-# The Nodes list has four rows before its first node - the filter row, the sort row, the Map and
-# Waypoints (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
-# four. Foxtrot Mobile is seeds[6] and row 10, Alfa Ridge is
-# seeds[1] and row 5. Inside a detail the
-# counts are *presses* rather than row numbers - the cursor steps over each group's title on its
-# way down - so check them against a render rather than against the row list.
+# The Nodes list has one row before its first node - the chip bar (MESH_UI_NODES_LEAD_ROWS) - so a
+# node's row is its index in the demo roster plus one. Foxtrot Mobile is seeds[6] and row 7, Alfa
+# Ridge is seeds[1] and row 2. Inside a detail the counts are *presses* rather than row numbers -
+# the cursor steps over each group's title on its way down - so check them against a render rather
+# than against the row list.
 
 # Foxtrot Mobile: satellites, and a fix the node dated itself. Its detail has no Precision row,
 # so Fix is one row earlier than Alfa's, which is the difference this scene is about.
-key down 11
+key down 7
 key a
 key down 28
 hold 1500

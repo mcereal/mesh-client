@@ -11,15 +11,13 @@
 # look-ahead short of the cursor rather than on it, so a card jumped onto has its heading and
 # its first rows on the panel instead of one row at the bottom edge.
 #
-# Row 0 of the Nodes list is the Map, so a node's row is its index in the demo roster plus one -
-# Echo Repeater is seeds[5] and row 9.
+# The Nodes list has one row before its first node - the chip bar (MESH_UI_NODES_LEAD_ROWS) -
+# so a node's row is its index in the demo roster plus one.
+# Echo Repeater is seeds[5] and row 6.
 
 scene demo
 tab nodes
-# The Nodes list has four rows before its first node - the filter row, the sort row, the Map and
-# Waypoints (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
-# four. Echo Repeater is seeds[5] and row 9.
-key down 10
+key down 6
 key a
 hold 1200
 

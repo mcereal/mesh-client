@@ -1,6 +1,6 @@
-# The Waypoints tab on a radio that does not know where it is.
+# The places list on a radio that does not know where it is.
 #
-# A Brick has no GPS of its own, so this is the ordinary state of the tab until the radio it is
+# A Brick has no GPS of its own, so this is the ordinary state of the list until the radio it is
 # attached to has a fix or a fixed position: the list still has its last row, because there is
 # always something to do here, and that row has to explain itself twice - once on its supporting
 # line for the reader, and once out loud for whoever pressed A before reading it.
@@ -8,9 +8,9 @@
 scene demo
 nofix
 
-tab nodes
-key down 4
-key a
+# R2 on the Map tab turns the map into the list.
+tab map
+key r2
 hold 1400
 
 # A on the row that makes a place. Refused - there is nowhere to put it - and said so, rather

@@ -20,15 +20,8 @@ scene demo
 map pack build/demo.mctp
 waypoint ALFA Ridge repeater | up the fire road, gate code is on the tag
 
-# Into the map from the Nodes list, which is where it is opened from.
-#
-# The Map is the third row of the Nodes list, under the filter row and the sort row
-# (MESH_UI_NODES_LEAD_ROWS) - it was the first row before either of them existed, and a
-# bare `key a` here steps the chips instead.
-tab nodes
-hold 800
-key down 3
-key a
+# Into the map, which is the Map tab's face.
+tab map
 hold 2000
 
 # A direction stops on the next marker that way, so the view re-centres and the tiles under the

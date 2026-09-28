@@ -19,10 +19,9 @@ hold 1200
 # because it is past a mark that is drawn where it actually is, not because a threshold nobody
 # can see was crossed.
 #
-# The Nodes list has four rows before its first node - the filter row, the sort row, the Map and
-# Waypoints (MESH_UI_NODES_LEAD_ROWS) - so a node's row is its index in the demo roster plus
-# four. Foxtrot Mobile is seeds[6] and row 10.
-key down 11
+# The Nodes list has one row before its first node - the chip bar (MESH_UI_NODES_LEAD_ROWS) -
+# so a node's row is its index in the demo roster plus one. Foxtrot Mobile is seeds[6] and row 7.
+key down 7
 key a
 key down 26
 hold 1600

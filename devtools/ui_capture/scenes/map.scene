@@ -26,16 +26,8 @@ scene demo
 waypoint ALFA Ridge repeater | up the fire road, gate code is on the tag
 waypoint CHRL Water cache
 
-# The Nodes list's Map row is the way in, and it says how many of the roster has a position at
-# all - which on a real mesh is a small fraction of it.
-#
-# The Map is the third row of the Nodes list, under the filter row and the sort row
-# (MESH_UI_NODES_LEAD_ROWS) - it was the first row before either of them existed, and a
-# bare `key a` here steps the chips instead.
-tab nodes
-hold 1000
-key down 3
-key a
+# The map is the Map tab's face, so the way in is the tab itself.
+tab map
 hold 1600
 
 # The map opens framed on everything it can place, with the crosshair wherever that leaves it -
@@ -61,8 +53,9 @@ hold 1400
 key right
 hold 1600
 
-# And opening what the crosshair is on: the node's own detail, over the map rather than instead
-# of it - so B lands back on the view that was aimed rather than on the list.
+# And opening what the crosshair is on: the node's own detail, on the Nodes tab where a node's
+# detail lives - and B comes back to the Map tab, on the view that was aimed rather than on the
+# list.
 key a
 hold 1600
 key b
@@ -74,7 +67,7 @@ key start
 hold 1400
 
 # And two levels closer than the fit, where the cluster is off the panel and the header says 0 of
-# 24 - which is the other half of the rule. There is nothing within a step of the crosshair, so
+# 6 in view - which is the other half of the rule. There is nothing within a step of the crosshair, so
 # the presses below are pans: the grid moves under a crosshair that stays empty, which is what
 # looking around between two nodes is. A press that went to the nearest marker however far away
 # it was would have answered each of these by teleporting back onto the cluster.
