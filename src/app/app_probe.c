@@ -46,10 +46,10 @@ static uint8_t mesh_app_probe_forced(void) {
 
 static struct mesh_app_probe_port *mesh_app_probe_port(struct mesh_app_probe *probe,
                                                        const char *identifier) {
-    for (size_t i = 0; i < MESH_APP_PROBE_PORTS; ++i) {
-        if (probe->ports[i].identifier[0] != '\0' &&
-            strcmp(probe->ports[i].identifier, identifier) == 0) {
-            return &probe->ports[i];
+    for (struct mesh_app_probe_port *port = probe->ports;
+         port < probe->ports + MESH_APP_PROBE_PORTS; ++port) {
+        if (port->identifier[0] != '\0' && strcmp(port->identifier, identifier) == 0) {
+            return port;
         }
     }
     return NULL;
