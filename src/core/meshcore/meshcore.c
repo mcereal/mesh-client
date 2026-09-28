@@ -827,20 +827,29 @@ static void mesh_meshcore_command_answered(struct mesh_meshcore *meshcore,
     }
 }
 
-/* Puts a command given up on in line for a late reply, and frees its send slot. With every
-   entry taken, the one that has waited longest gives its place up first. */
+/* Commands still in line for a reply: those waiting on their deadline and those past it. Kept
+   within MESH_MESHCORE_PENDING_SENDS by mesh_meshcore_send_text(), so every command that times
+   out finds a free entry in `late` and no place in line is ever given up early. */
+static size_t mesh_meshcore_commands_in_line(const struct mesh_meshcore *meshcore) {
+    size_t count = 0U;
+    for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
+        count += meshcore->pending[i].packet_id != 0U && meshcore->pending[i].command ? 1U : 0U;
+        count += meshcore->late[i].packet_id != 0U ? 1U : 0U;
+    }
+    return count;
+}
+
+/* Puts a command given up on in line for a late reply, and frees its send slot. */
 static void mesh_meshcore_command_late(struct mesh_meshcore *meshcore,
                                        const struct mesh_meshcore_pending *pending) {
-    struct mesh_meshcore_late_command *slot = &meshcore->late[0];
-    for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
-        struct mesh_meshcore_late_command *entry = &meshcore->late[i];
-        if (entry->packet_id == 0U) {
-            slot = entry;
-            break;
+    struct mesh_meshcore_late_command *slot = NULL;
+    for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS && slot == NULL; ++i) {
+        if (meshcore->late[i].packet_id == 0U) {
+            slot = &meshcore->late[i];
         }
-        if (entry->until_ms < slot->until_ms) {
-            slot = entry;
-        }
+    }
+    if (slot == NULL) {
+        return; /* not reached: mesh_meshcore_commands_in_line() keeps one free */
     }
     slot->packet_id = pending->packet_id;
     slot->sequence = pending->sequence;
@@ -1886,6 +1895,12 @@ int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8
         const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, dest);
         if (node == NULL || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN) {
             return -ENOENT;
+        }
+        /* A command is refused rather than let one already in line lose its place: a reply
+           names no command, only the order they went in. */
+        if (mesh_meshcore_is_command_peer(meshcore, dest) &&
+            mesh_meshcore_commands_in_line(meshcore) >= MESH_MESHCORE_PENDING_SENDS) {
+            return -EBUSY;
         }
         struct mesh_meshcore_pending *pending = NULL;
         for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {

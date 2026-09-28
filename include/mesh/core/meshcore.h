@@ -487,9 +487,11 @@ enum mesh_meshcore_answer {
 
 /*
  * A command given up on, still in line for its reply: marked failed and said so, its send slot
- * already free for the next message. A reply from its repeater before `until_ms` is its answer,
- * not the next command's. Kept apart from the send slots so that a repeater gone quiet cannot
- * hold every one of them - and every direct message behind them - for the length of the wait.
+ * already free for the next message. Commands waiting and commands here are never more than
+ * MESH_MESHCORE_PENDING_SENDS together - a new one is refused first - so none is dropped. A reply
+ * from its repeater before `until_ms` is its answer, not the next command's. Kept apart from the
+ * send slots so that a repeater gone quiet cannot hold every one of them - and every direct message
+ * behind them - for the length of the wait.
  */
 struct mesh_meshcore_late_command {
     uint32_t packet_id; /* 0 for a free entry */
@@ -631,7 +633,8 @@ size_t mesh_meshcore_text_max(const struct mesh_meshcore *meshcore, uint32_t des
  * logs it in the model as ours. Returns the log entry's id through `out_packet_id` and 0, or
  * -ENOTCONN until the handshake has named the radio, -ENOENT for a node whose key the roster does
  * not hold, -EMSGSIZE for text past mesh_meshcore_text_max(), -ENOBUFS when the command queue is
- * full.
+ * full, and -EBUSY for a command to a repeater while MESH_MESHCORE_PENDING_SENDS commands are
+ * still in line for their replies.
  */
 int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8_t channel,
                             const char *text, uint32_t *out_packet_id);

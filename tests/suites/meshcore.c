@@ -2128,7 +2128,8 @@ MESH_TEST_CASE(meshcore_quiet_repeaters_neither_hold_slots_nor_lose_notices, uni
                       "while they wait, the slots are full");
 
     const uint32_t notices = g_meshcore.notices;
-    mesh_protocol_tick(&protocol, g_meshcore.now_ms + 60000U);
+    const uint64_t timed_out = g_meshcore.now_ms + 60000U;
+    mesh_protocol_tick(&protocol, timed_out);
     MESH_TEST_FAIL_IF(g_meshcore.notices != notices + MESH_MESHCORE_PENDING_SENDS,
                       "each one that timed out is a notice");
     unsigned said_alice = 0U;
@@ -2148,6 +2149,17 @@ MESH_TEST_CASE(meshcore_quiet_repeaters_neither_hold_slots_nor_lose_notices, uni
 
     MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, bob, 0U, "hi", &id) != 0,
                       "a message to Bob goes while theirs wait out the grace");
+
+    /* But while those eight are still in line for a reply, a ninth command is refused rather
+       than one of them losing its place - a late reply would otherwise settle the ninth. */
+    const size_t logged = g_model.messages.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, alice, 0U, "ver", &id) != -EBUSY ||
+                          g_model.messages.count != logged,
+                      "a command past the line's length is refused, and not logged");
+    /* Timed from the tick that gave them up: a write since reads the real clock afresh. */
+    mesh_protocol_tick(&protocol, timed_out + MESH_MESHCORE_COMMAND_LATE_MS + 1U);
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, alice, 0U, "ver", &id) != 0,
+                      "and goes once they have waited out their grace");
     record_success(test_name);
 }
 

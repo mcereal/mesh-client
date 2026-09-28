@@ -548,6 +548,9 @@ static void on_send_text(struct mesh_app *app, const struct mesh_ui_action *acti
         mesh_app_watch_sent(app, packet_id, app->ui_store.nav.target_name);
     } else if (result == -ENOTCONN) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else if (result == -EBUSY) {
+        /* MeshCore: every place in line for a repeater's reply is taken. */
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_REQUEST_BUSY));
     } else {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SEND_FAILED, result);
         inkwell_log_warn("ui", "Send to %s failed: %d", app->ui_store.nav.target_name, result);
