@@ -276,14 +276,15 @@ static const struct help_feature k_help_features[] = {
     HELP_FEATURE(MESH_UI_SCREEN_MESSAGES, MESH_UI_ROUTE_REACTION, MESH_STR_HELP_SUBJECT_REACTION,
                  k_help_reaction),
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_LIST, MESH_STR_TAB_NODES, k_help_nodes),
-    /* The map is its own feature rather than the Nodes tab's help one level in, because it is
-       not the same screen with more of it: the d-pad does something else here, and that is the
-       first thing its help has to say. */
-    HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_MAP, MESH_STR_HELP_SUBJECT_MAP, k_help_map),
+    /* The sort sheet over that list is the list's help: the orders are one of its paragraphs. */
+    HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_NODE_SORT, MESH_STR_TAB_NODES, k_help_nodes),
+    /* The Map tab's two faces. The map's help has to say first that the d-pad does something
+       else here, which is the thing a reader arriving from any other tab does not expect. */
+    HELP_FEATURE(MESH_UI_SCREEN_MAP, MESH_UI_ROUTE_MAP, MESH_STR_HELP_SUBJECT_MAP, k_help_map),
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_NODE, MESH_STR_HELP_SUBJECT_NODE, k_help_node),
     /* The verbs over that detail. Its own feature rather than the detail's help one level in,
        for the map's reason two rows up: it is not the same screen with more of it. Every row is
-       a press here and none of them is on the screen underneath. */
+       a press here and none of them is on the screen underneath - the map's reason, too. */
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_NODE_ACTIONS,
                  MESH_STR_HELP_SUBJECT_NODE_ACTIONS, k_help_node_actions),
     /* And the chart one of that detail's readings opens. Keyed on the route like every other
@@ -292,13 +293,12 @@ static const struct help_feature k_help_features[] = {
        the airtime one two rows down. */
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_TREND, MESH_STR_HELP_SUBJECT_NODE_CHART,
                  k_help_node_chart),
-    /* The places, a level of this tab since they stopped being a tab of their own, and keeping
-       the subject they had then. */
-    HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_WAYPOINTS, MESH_STR_TAB_WAYPOINTS,
+    /* The places, the Map tab's list face, keeping the subject they had as a tab of their own. */
+    HELP_FEATURE(MESH_UI_SCREEN_MAP, MESH_UI_ROUTE_WAYPOINTS, MESH_STR_TAB_WAYPOINTS,
                  k_help_waypoints),
     /* One open place, answered by the list's paragraphs: it is the same feature one level in,
        and the four things worth knowing about a waypoint do not change with the depth. */
-    HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_WAYPOINT, MESH_STR_HELP_SUBJECT_WAYPOINT,
+    HELP_FEATURE(MESH_UI_SCREEN_MAP, MESH_UI_ROUTE_WAYPOINT, MESH_STR_HELP_SUBJECT_WAYPOINT,
                  k_help_waypoints),
     /* The Radio tab's three places: the cards it opens on, and the two levels those open. Each
        keeps the subject it had while it was a tab of its own, because each is still answering

@@ -1,9 +1,9 @@
 # The Waypoints shot: the places the mesh has shared, and how far away each one is.
 #
-# The right-hand column is the whole reason this tab exists before a map does. A waypoint is a
-# name and a point, and what a handheld can say about a point without drawing one is how far
-# away it is and which way it lies - so the list answers that, from our own radio's fix, and is
-# ordered by it. Three places at three scales, so the shot shows metres and kilometres and more
+# The right-hand column is what the list says that the map it is the other face of does not. A
+# waypoint is a name and a point, and what can be said about a point without drawing one is how
+# far away it is and which way it lies - so the list answers that, from our own radio's fix, and
+# is ordered by it. Three places at three scales, so the shot shows metres and kilometres and more
 # than one compass point rather than one range repeated.
 #
 # The places are put at nodes already in the demo roster, so the ranges are measured between two
@@ -19,6 +19,6 @@ config
 waypoint FXTR Trailhead | park on the verge, the gate is unlocked
 waypoint ALFA Ridge repeater
 waypoint CHRL Water cache
-tab nodes
-key down 4
-key a
+# R2 on the Map tab turns the map into the list.
+tab map
+key r2

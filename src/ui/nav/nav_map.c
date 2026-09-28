@@ -66,28 +66,35 @@ static bool mesh_ui_nav_map_fit(struct mesh_ui_nav *nav, const struct mesh_ui_st
     return mesh_map_viewport_fit(&nav->map_viewport, points, (size_t)count, MESH_UI_MAP_FIT_MARGIN);
 }
 
+/* The declared box, a fresh viewport, and a fit - what a map that has never been looked at
+   starts from, and what one whose markers all went away starts from again. */
+static bool mesh_ui_nav_map_frame(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
+    mesh_map_viewport_init(&nav->map_viewport, 0, 0, MESH_MAP_ZOOM_DEFAULT);
+    /* The declared box rather than a measured one; see MESH_UI_MAP_FIT_WIDTH for why the nav
+       cannot have a measured one and why a small declared box is the safe direction. */
+    mesh_map_viewport_resize(&nav->map_viewport, MESH_UI_MAP_FIT_WIDTH, MESH_UI_MAP_FIT_HEIGHT);
+    (void)mesh_ui_nav_map_fit(nav, store);
+    nav->map_framed = true;
+    return true;
+}
+
+/* A viewport the nav has never aimed: the state mesh_ui_nav_init() leaves, and the one the clamp
+   puts back when there is nothing to draw. */
+static bool mesh_ui_nav_map_unframed(const struct mesh_ui_nav *nav) { return !nav->map_framed; }
+
 void mesh_ui_nav_open_map(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                           uint32_t focus_node) {
     if (nav == NULL) {
         return;
     }
-    if (!nav->map_open) {
-        /* The list's position, parked exactly as opening a node detail parks it - the map is a
-           level over the same list, so backing out has to land where the reader left. */
-        nav->node_list_cursor = nav->cursor[MESH_UI_SCREEN_NODES];
-    }
-    nav->map_open = true;
-    nav->screen = MESH_UI_SCREEN_NODES;
-
-    mesh_map_viewport_init(&nav->map_viewport, 0, 0, MESH_MAP_ZOOM_DEFAULT);
-    /* The declared box rather than a measured one; see MESH_UI_MAP_FIT_WIDTH for why the nav
-       cannot have a measured one and why a small declared box is the safe direction. */
-    mesh_map_viewport_resize(&nav->map_viewport, MESH_UI_MAP_FIT_WIDTH, MESH_UI_MAP_FIT_HEIGHT);
+    nav->screen = MESH_UI_SCREEN_MAP;
+    (void)mesh_ui_nav_map_face(nav, store, false);
+    (void)mesh_ui_nav_map_frame(nav, store);
 
     /*
      * Aimed, or framed. A press that named a node is a press about that node, so the map opens
      * looking at it and close enough to see where it is; a press that named nothing is "show me
-     * the mesh", and that is a fit.
+     * the mesh", and that is the fit the frame above already made.
      */
     struct mesh_ui_map_view view;
     map_view(store, &view);
@@ -98,37 +105,34 @@ void mesh_ui_nav_open_map(struct mesh_ui_nav *nav, const struct mesh_ui_store *s
         (void)mesh_map_viewport_center_on(&nav->map_viewport, view.markers[index].latitude_i,
                                           view.markers[index].longitude_i);
         nav->map_viewport.zoom = MESH_UI_MAP_ZOOM_FOCUS;
-        return;
     }
-    (void)mesh_ui_nav_map_fit(nav, store);
-}
-
-bool mesh_ui_nav_close_map(struct mesh_ui_nav *nav) {
-    if (nav == NULL || !nav->map_open) {
-        return false;
-    }
-    nav->map_open = false;
-    memset(&nav->map_viewport, 0, sizeof nav->map_viewport);
-    nav->cursor[MESH_UI_SCREEN_NODES] = nav->node_list_cursor;
-    return true;
 }
 
 bool mesh_ui_nav_map_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
-    if (nav == NULL || store == NULL || !nav->map_open) {
+    if (nav == NULL || store == NULL) {
         return false;
     }
     /*
-     * A map with nothing left to draw closes, the way a node detail whose node has left the
-     * roster does. The two cases are the same case - a screen about something that is no longer
-     * there - and they arrive the same way: a forget, a radio swap, a cache that emptied.
+     * A map with nothing left to draw forgets where it was looking, and the renderer says so
+     * in words instead of drawing the grid. The case arrives the way a node detail's node
+     * leaving does - a forget, a radio swap, a cache that emptied - and the grid is the trap: a
+     * map of empty graticule looks like a working map that has been panned into the ocean, and
+     * a reader would sooner believe they had lost their place than that the roster had gone.
      *
-     * The grid would still draw, which is exactly the trap: a map of empty graticule looks like
-     * a working map that has been panned into the ocean, and a reader would sooner believe they
-     * had lost their place than that the roster had gone.
+     * Forgetting the frame is what makes the next marker to arrive a *fit* rather than a pan:
+     * a radio attached for the first time lands the reader on its mesh, not on the zeroed
+     * viewport's null island.
      */
     if (!mesh_ui_map_has_markers(store)) {
-        mesh_ui_nav_close_map(nav);
+        if (mesh_ui_nav_map_unframed(nav)) {
+            return false;
+        }
+        memset(&nav->map_viewport, 0, sizeof nav->map_viewport);
+        nav->map_framed = false;
         return true;
+    }
+    if (mesh_ui_nav_map_unframed(nav)) {
+        return mesh_ui_nav_map_frame(nav, store);
     }
     return false;
 }
@@ -219,13 +223,30 @@ static bool mesh_ui_nav_map_confirm(struct mesh_ui_nav *nav, const struct mesh_u
         return true;
     }
     /*
-     * A node's detail, opened *over* the map rather than instead of it: `map_open` stays set, so
-     * B lands back on the map with the view exactly where it was left. Opening a node from a map
-     * and being returned to a list is the move that loses a reader's place.
+     * A node's detail is the Nodes tab's, so the press crosses to it - and remembers that it
+     * did, so B lands back on the map with the view exactly where it was left. Opening a node
+     * from a map and being returned to a list is the move that loses a reader's place.
+     *
+     * The Nodes list's own position is parked the way its own A parks it, so a reader who
+     * does later back out to the list finds it where they left it.
      */
+    if (!nav->node_detail_open) {
+        nav->node_list_cursor = nav->cursor[MESH_UI_SCREEN_NODES];
+    }
+    nav->screen = MESH_UI_SCREEN_NODES;
+    nav->node_sort_open = false; /* a sheet left up on the list is not what the reader is opening */
     nav->node_detail_node = marker->id;
     nav->node_detail_open = true;
+    nav->node_detail_from_map = true;
+    nav->map_from_node = false;
     nav->node_remove_armed = false;
+    /* A detail left open on the Nodes tab behind a shoulder press keeps its chart and its sheet
+       of verbs; they are levels of *that* node, and the one being opened starts at its own
+       top. Left set, the next A could run the last node's verb on this one. */
+    nav->node_actions_open = false;
+    nav->node_actions_cursor = 0U;
+    nav->node_trend = MESH_UI_HISTORY_NONE;
+    nav->trend_scroll = 0U;
     /* The same landing the Nodes list's own A gets, asked for rather than written as 0: the
        detail's row 0 is the actions group's heading, and a heading is not a row the cursor may
        stand on. A marker that opened the detail on its title would be this press arriving at a
@@ -240,24 +261,20 @@ bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *st
     if (handled != NULL) {
         *handled = false;
     }
-    if (nav == NULL || store == NULL || !nav->map_open) {
+    if (nav == NULL || store == NULL || !mesh_ui_nav_map_showing(nav)) {
         return false;
     }
+    if (mesh_ui_nav_map_unframed(nav) && mesh_ui_map_has_markers(store)) {
+        /* A press can arrive before the first publish has framed it - a tab walked to and
+           pressed inside one frame. Frame it now, so the press moves a real view. */
+        (void)mesh_ui_nav_map_frame(nav, store);
+    }
     /*
-     * The map has to be the thing on the panel, not merely a thing that is open.
-     *
-     * `map_open` deliberately outlives a change of tab - every tab in this client keeps its own
-     * place, and coming back to Nodes should show the view that was left - so it says where the
-     * Nodes tab is standing and *not* what the reader is looking at. Two presses make the
-     * difference visible: a shoulder walks off this tab with the map still open behind it, and A
-     * on a waypoint marker opens that place over the map. Without the screen test below,
-     * the arrows would pan a map nobody can see and the first B on that place would close it
-     * instead of the place.
-     *
-     * A node's detail, or a place's, is the same question one level in: it is drawn over the map
-     * and owns its own presses, and the map underneath is not being looked at either.
+     * A map with nothing on it takes nothing but B. Every other press would be moving or
+     * opening in a view that is not drawn - the renderer says there is nothing to place - so
+     * the d-pad goes back to being the tab switch, as it is on every other empty screen.
      */
-    if (nav->screen != MESH_UI_SCREEN_NODES || nav->node_detail_open || nav->waypoint_detail_open) {
+    if (!mesh_ui_map_has_markers(store) && key != INKCELL_KEY_B) {
         return false;
     }
 
@@ -329,7 +346,14 @@ bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *st
         if (handled != NULL) {
             *handled = true;
         }
-        return mesh_ui_nav_close_map(nav);
+        /* The map is the tab's own face, so B has nowhere to go - unless the reader came
+           here from a node's "Show on map", in which case B is the way back to it. */
+        if (!nav->map_from_node) {
+            return false;
+        }
+        nav->map_from_node = false;
+        nav->screen = MESH_UI_SCREEN_NODES;
+        return true;
     /* Everything else - the shoulders, SELECT, the quit key - is not the map's, and falls
        through to the routing that has always answered for it. */
     case INKCELL_KEY_L1:

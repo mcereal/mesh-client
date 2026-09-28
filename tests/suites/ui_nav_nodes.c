@@ -13,6 +13,7 @@
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/nodes.h"
+#include "mesh/ui/route.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 
@@ -1046,10 +1047,10 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
     struct mesh_ui_action action;
     store.nav.screen = MESH_UI_SCREEN_NODES;
 
-    /* The list opens on its filter row, and the map row is under it - two rows that are about
-       no node at all, so X on either asks for nothing and it takes two steps down to reach the
-       first node. Counted from MESH_UI_NODES_LEAD_ROWS rather than written out, so a third lead
-       row arrives here as a compile-time fact rather than as a mystery failure. */
+    /* The list opens on its chip bar, which is about no node at all, so X there asks for
+       nothing and it takes a step down to reach the first node. Counted from
+       MESH_UI_NODES_LEAD_ROWS rather than written out, so a new lead row arrives here as a
+       compile-time fact rather than as a mystery failure. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
         mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
         if (action.type != MESH_UI_ACTION_NONE) {
@@ -1604,12 +1605,40 @@ nodes_filter_at(const struct mesh_ui_handshake_state *handshake, enum mesh_ui_no
     return mesh_ui_node_view_at(handshake, &view, index);
 }
 
+/* A on one chip of the Nodes list's chip bar, the way a reader gets there: the cursor onto the
+   bar, the chip under it, then the press. */
+static void nodes_press_chip(struct mesh_ui_store *store, enum mesh_ui_nodes_chip chip) {
+    struct mesh_ui_action action;
+    store->nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_CHIP_ROW;
+    store->nav.node_chip = (uint8_t)chip;
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+}
+
+/* The filter chip for `filter`. */
+static enum mesh_ui_nodes_chip nodes_filter_chip(enum mesh_ui_node_filter filter) {
+    return (enum mesh_ui_nodes_chip)((unsigned)MESH_UI_NODES_CHIP_FILTER_FIRST + (unsigned)filter);
+}
+
+/* An order off the sort sheet: the sort chip raises it, the d-pad walks to `sort`, A takes it. */
+static void nodes_pick_sort(struct mesh_ui_store *store, enum mesh_ui_node_sort sort) {
+    struct mesh_ui_action action;
+    nodes_press_chip(store, MESH_UI_NODES_CHIP_SORT);
+    for (unsigned guard = 0U; guard < 8U && store->nav.node_sort_cursor != (uint32_t)sort;
+         ++guard) {
+        mesh_ui_store_handle_key(
+            store, store->nav.node_sort_cursor < (uint32_t)sort ? INKCELL_KEY_DOWN : INKCELL_KEY_UP,
+            &action);
+    }
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+}
+
 /*
- * ---- the filter row -------------------------------------------------------------------------
+ * ---- the filter chips ------------------------------------------------------------------------
  *
- * The list's first row is a control and A steps it, which is three separate claims: the
- * press changes the filter, the filter changes how many rows the list has, and - the one worth
- * the test rather than a screenshot - the *row-to-node mapping* moves with it. That last is why
+ * The list's first row is the chip bar and A on a filter chip chooses it, which is three
+ * separate claims: the press changes the filter, the filter changes how many rows the list has,
+ * and - the one worth the test rather than a screenshot - the *row-to-node mapping* moves with
+ * it. That last is why
  * the filter goes through mesh_ui_node_view_at() rather than through an offset: a wrong
  * answer there is a plausible node rather than an obviously shifted one, so X pins somebody
  * else's radio and nothing on the frame looks wrong.
@@ -1643,24 +1672,23 @@ MESH_TEST_CASE(ui_nav_nodes_filter_steps_and_renumbers_the_rows, unit) {
     memset(&action, 0, sizeof action);
     store.nav.screen = MESH_UI_SCREEN_NODES;
 
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_FILTER_ROW,
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_CHIP_ROW,
                               mesh_ui_store_shutdown(&store),
-                              "the list opens on the row that filters it");
+                              "the list opens on the chip bar that filters it");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
                               mesh_ui_store_shutdown(&store), "and it opens on All");
     MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) !=
                                   MESH_UI_NODES_LEAD_ROWS + 3U,
                               mesh_ui_store_shutdown(&store),
-                              "All shows the whole roster under the two lead rows");
+                              "All shows the whole roster under the chip bar");
 
-    /* A steps the filter and leaves the cursor where it is - this row is the one row the press
-       cannot re-number. Left and Right do the same thing and are what the row and the bar name;
-       ui_nav_nodes_controls_take_the_d_pad holds that half. */
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    /* A on a filter chip chooses it and leaves the cursor where it is - the bar is the one row
+       the press cannot re-number. Walking the chips is ui_nav_nodes_chips_take_the_d_pad's. */
+    nodes_press_chip(&store, nodes_filter_chip(MESH_UI_NODE_FILTER_DIRECT));
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_DIRECT,
-                              mesh_ui_store_shutdown(&store), "A steps the filter on");
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_FILTER_ROW,
-                              mesh_ui_store_shutdown(&store), "and stays on the row it pressed");
+                              mesh_ui_store_shutdown(&store), "A chooses the Direct chip");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_CHIP_ROW,
+                              mesh_ui_store_shutdown(&store), "and stays on the bar it pressed");
     MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_NONE, mesh_ui_store_shutdown(&store),
                               "a filter asks the radio for nothing");
     MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) !=
@@ -1685,8 +1713,7 @@ MESH_TEST_CASE(ui_nav_nodes_filter_steps_and_renumbers_the_rows, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
 
     /* On to Pinned, which keeps the other one - so the same row is now a different node. */
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    nodes_press_chip(&store, nodes_filter_chip(MESH_UI_NODE_FILTER_PINNED));
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_PINNED,
                               mesh_ui_store_shutdown(&store), "and on to Pinned");
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
@@ -1698,31 +1725,29 @@ MESH_TEST_CASE(ui_nav_nodes_filter_steps_and_renumbers_the_rows, unit) {
                               "the same row under a Pinned filter is the pinned node");
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
 
-    /* Three filters, so a third press is back where it started. */
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    /* And All puts the whole roster back. */
+    nodes_press_chip(&store, nodes_filter_chip(MESH_UI_NODE_FILTER_ALL));
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
-                              mesh_ui_store_shutdown(&store), "and wraps back to All");
+                              mesh_ui_store_shutdown(&store), "and All is the whole roster again");
 
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }
 
 /*
- * ---- the d-pad on the two control rows -------------------------------------------------------
+ * ---- the d-pad on the chip bar ---------------------------------------------------------------
  *
- * The filter and the sort are edited with Left and Right, which is the press the row's pencil and
- * the action bar both name, and the reason this list's top no longer reads as a caption over it.
+ * Left and Right walk the chips, which the ring on the chip and the action bar both say, and A
+ * presses the one the cursor is on.
  *
- * Four claims, and the last two are the ones that pay for the first two. The axis steps the
- * control *both ways*, which A alone could not do - five sorts wrapped in one direction meant
- * four presses to undo one. It leaves the cursor where it is, which is what makes it safe: these
- * are the only two rows of this list that what they change cannot re-number. On any row under
- * them Left and Right are the tab switch again, unchanged. And the shoulders are the tab switch
- * on *every* row including these two, which is the whole reason the d-pad's axis could be spent
- * here at all - the same split the map and the trend chart already make.
+ * Four claims, and the last two are the ones that pay for the first two. Walking a chip changes
+ * nothing until A - the cursor is the reader's and the filter is the list's. The walk stops at
+ * either end rather than escaping to the next tab, so holding Right to reach the sort does not
+ * overshoot. On any row under the bar Left and Right are the tab switch again, unchanged. And
+ * the shoulders are the tab switch on *every* row including the bar, which is the whole reason
+ * the d-pad's axis could be spent here at all - the same split the map already makes.
  */
-MESH_TEST_CASE(ui_nav_nodes_controls_take_the_d_pad, unit) {
+MESH_TEST_CASE(ui_nav_nodes_chips_take_the_d_pad, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
@@ -1730,64 +1755,64 @@ MESH_TEST_CASE(ui_nav_nodes_controls_take_the_d_pad, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     store.nav.screen = MESH_UI_SCREEN_NODES;
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_CHIP_ROW;
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_chip != (uint8_t)MESH_UI_NODES_CHIP_FILTER_FIRST,
+                              mesh_ui_store_shutdown(&store),
+                              "the bar starts on the chip that is lit, All");
 
-    /* Forward, and the cursor has not moved off the row that did it. */
+    /* Right walks to Direct and chooses nothing yet. */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_DIRECT,
-                              mesh_ui_store_shutdown(&store), "Right steps the filter on");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_chip !=
+                                  (uint8_t)nodes_filter_chip(MESH_UI_NODE_FILTER_DIRECT),
+                              mesh_ui_store_shutdown(&store), "Right walks to the next chip");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
+                              mesh_ui_store_shutdown(&store), "without choosing it");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen != MESH_UI_SCREEN_NODES,
                               mesh_ui_store_shutdown(&store),
                               "and does not fall through to the tab switch");
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_FILTER_ROW,
-                              mesh_ui_store_shutdown(&store), "and stays on the row it pressed");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_DIRECT,
+                              mesh_ui_store_shutdown(&store), "A chooses it");
 
-    /* And back the way it came, which is the half A never had. */
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
-                              mesh_ui_store_shutdown(&store), "Left steps the filter back");
-
-    /* Left off the first of the set wraps rather than leaving the tab, for the same reason
-       Right off the last one does: the row is a ring and the shoulders are the way out. */
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_PINNED,
-                              mesh_ui_store_shutdown(&store), "and wraps rather than escaping");
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen != MESH_UI_SCREEN_NODES,
-                              mesh_ui_store_shutdown(&store), "still on the Nodes tab");
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* back to All */
-
-    /* The sort row, the same axis over a set of five. */
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_SORT_ROW;
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_HEARD,
-                              mesh_ui_store_shutdown(&store), "Right steps the sort on");
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_DEFAULT,
-                              mesh_ui_store_shutdown(&store), "Left steps the sort back");
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_SORT_ROW,
-                              mesh_ui_store_shutdown(&store), "and stays on the sort row");
+    /* Left past the search chip stops there rather than leaving the tab. */
+    for (int i = 0; i < 4; ++i) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_chip != (uint8_t)MESH_UI_NODES_CHIP_FIND ||
+                                  store.nav.screen != MESH_UI_SCREEN_NODES,
+                              mesh_ui_store_shutdown(&store),
+                              "Left stops on the first chip, still on the Nodes tab");
+    /* And Right past the sort stops there too. */
+    for (int i = 0; i < 8; ++i) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_chip != (uint8_t)MESH_UI_NODES_CHIP_SORT ||
+                                  store.nav.screen != MESH_UI_SCREEN_NODES,
+                              mesh_ui_store_shutdown(&store),
+                              "Right stops on the last chip, still on the Nodes tab");
 
     /*
-     * The shoulders still walk the tabs from a control row, which is what pays for all of the
-     * above: a reader who has landed on the filter is never stuck on this tab.
+     * The shoulders still walk the tabs from the bar, which is what pays for all of the above: a
+     * reader who has landed on a chip is never stuck on this tab.
      */
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
     const uint8_t filter_before = store.nav.node_filter;
     mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == MESH_UI_SCREEN_NODES,
                               mesh_ui_store_shutdown(&store),
-                              "the shoulder leaves the tab from a control row");
+                              "the shoulder leaves the tab from the chip bar");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != filter_before,
                               mesh_ui_store_shutdown(&store),
-                              "and does not also step the control it was standing on");
+                              "and does not also change the list it was standing on");
     mesh_ui_store_handle_key(&store, INKCELL_KEY_L1, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen != MESH_UI_SCREEN_NODES,
                               mesh_ui_store_shutdown(&store), "and back again");
 
     /*
      * And on a node row the d-pad is the tab switch, unchanged. This is the claim the whole
-     * arrangement rests on: the axis is spent on two rows, not on the screen.
+     * arrangement rests on: the axis is spent on the bar, not on the screen. All first, so there
+     * is a node row to stand on - nothing in this roster is heard directly.
      */
+    nodes_press_chip(&store, nodes_filter_chip(MESH_UI_NODE_FILTER_ALL));
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_LEAD_ROWS;
     mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == MESH_UI_SCREEN_NODES,
@@ -1799,17 +1824,56 @@ MESH_TEST_CASE(ui_nav_nodes_controls_take_the_d_pad, unit) {
 }
 
 /*
- * A roster with nothing in it has no control rows, so the d-pad is the tab switch there.
- *
- * The one state where row 0 is not the filter row: mesh_ui_nav_row_count() answers 0 for an
- * empty roster and the screen draws the empty state rather than a list, so there is no filter
- * on the panel to step. Taking Left and Right for it anyway would be the d-pad going dead on
- * the first screen a client with no radio attached shows - a reader trying to leave the tab,
- * silently changing a control they cannot see.
- *
- * mesh_ui_nav_confirm() has always made this check one line in (`cursor >= rows`), so A was
- * never wrong here; it is the d-pad arm that had to be told.
+ * The sort chip raises a sheet of the five orders, with the current one under the cursor; the
+ * d-pad walks them, A takes one and puts the sheet down, and B puts it down unchanged.
  */
+MESH_TEST_CASE(ui_nav_nodes_sort_chip_raises_a_sheet, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+
+    nodes_press_chip(&store, MESH_UI_NODES_CHIP_SORT);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_sort_open, mesh_ui_store_shutdown(&store),
+                              "A on the sort chip raises the sheet");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort_cursor != (uint32_t)store.nav.node_sort,
+                              mesh_ui_store_shutdown(&store), "on the order the list is in");
+    {
+        /* A level of the tab, so it slides, has a back arrow and answers B. */
+        struct mesh_ui_route route;
+        mesh_ui_route_of(&store.nav, &route);
+        MESH_TEST_FAIL_IF_CLEANUP(route.level != MESH_UI_ROUTE_NODE_SORT || route.depth != 1U,
+                                  mesh_ui_store_shutdown(&store),
+                                  "the sheet is a level over the list");
+    }
+
+    /* Left and Right are the sheet's while it is up, so they cannot walk the chips under it. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_chip != (uint8_t)MESH_UI_NODES_CHIP_SORT ||
+                                  store.nav.screen != MESH_UI_SCREEN_NODES,
+                              mesh_ui_store_shutdown(&store),
+                              "Right does not reach under the sheet");
+
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        store.nav.node_sort_open || store.nav.node_sort != MESH_UI_NODE_SORT_DEFAULT,
+        mesh_ui_store_shutdown(&store), "B puts it down with nothing changed");
+
+    nodes_pick_sort(&store, MESH_UI_NODE_SORT_NAME);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort_open ||
+                                  store.nav.node_sort != MESH_UI_NODE_SORT_NAME,
+                              mesh_ui_store_shutdown(&store), "A takes the order it is on");
+    MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_NONE, mesh_ui_store_shutdown(&store),
+                              "an order asks the radio for nothing");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_nav_nodes_an_empty_roster_keeps_the_tab_switch, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
@@ -1818,7 +1882,7 @@ MESH_TEST_CASE(ui_nav_nodes_an_empty_roster_keeps_the_tab_switch, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     store.nav.screen = MESH_UI_SCREEN_NODES;
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_CHIP_ROW;
 
     MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) != 0U,
                               mesh_ui_store_shutdown(&store),
@@ -1828,7 +1892,7 @@ MESH_TEST_CASE(ui_nav_nodes_an_empty_roster_keeps_the_tab_switch, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != filter_before,
                               mesh_ui_store_shutdown(&store),
-                              "Right must not step a filter that is not on the panel");
+                              "Right must not walk a chip bar that is not on the panel");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == MESH_UI_SCREEN_NODES,
                               mesh_ui_store_shutdown(&store),
                               "Right on an empty Nodes list is still the tab switch");
@@ -1838,13 +1902,11 @@ MESH_TEST_CASE(ui_nav_nodes_an_empty_roster_keeps_the_tab_switch, unit) {
 }
 
 /*
- * A filter that keeps nothing keeps its own two rows, and the map row still opens the map.
+ * A filter that keeps nothing keeps its chip bar.
  *
  * The failure this is against is a list that empties itself: the chip that emptied it is on the
  * first row, so a screen that answered zero rows would have taken away the control that puts it
- * back - and the clamp would have parked the cursor at 0 on a list with no rows at all. It is
- * the Waypoints tab's rule ("the row that makes a place is the last one, and it says why it
- * cannot be pressed rather than disappearing") applied to the row that filters.
+ * back - and the clamp would have parked the cursor at 0 on a list with no rows at all.
  */
 MESH_TEST_CASE(ui_nav_nodes_filter_that_keeps_nothing_keeps_its_own_rows, unit) {
     struct mesh_ui_store store;
@@ -1874,22 +1936,16 @@ MESH_TEST_CASE(ui_nav_nodes_filter_that_keeps_nothing_keeps_its_own_rows, unit) 
         mesh_ui_store_shutdown(&store), "nothing is pinned in this roster");
     MESH_TEST_FAIL_IF_CLEANUP(
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) != MESH_UI_NODES_LEAD_ROWS,
-        mesh_ui_store_shutdown(&store), "an empty filter still leaves the filter and map rows");
+        mesh_ui_store_shutdown(&store), "an empty filter still leaves the chip bar");
 
-    /* And both of them still work: the map row opens, and A on the filter row puts the roster
-       back. Walked in that order because the map is the row a stranded reader reaches first. */
-    for (uint32_t lead = 0; lead < MESH_UI_NODES_MAP_ROW; ++lead) {
-        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
-    }
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_MAP_ROW,
+    /* And it still works: Down has nowhere to go, and the All chip puts the roster back. */
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_CHIP_ROW,
                               mesh_ui_store_shutdown(&store),
-                              "the cursor can still reach the map row");
-
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+                              "the cursor stays on the bar, the one row there is");
+    nodes_press_chip(&store, nodes_filter_chip(MESH_UI_NODE_FILTER_ALL));
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != MESH_UI_NODE_FILTER_ALL,
-                              mesh_ui_store_shutdown(&store),
-                              "and A wraps Pinned back round to All");
+                              mesh_ui_store_shutdown(&store), "and A on All chooses it");
     MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) !=
                                   MESH_UI_NODES_LEAD_ROWS + 2U,
                               mesh_ui_store_shutdown(&store), "which brings the nodes back");
@@ -1971,7 +2027,7 @@ MESH_TEST_CASE(ui_nav_nodes_filter_direct_asks_the_lists_own_question, unit) {
      * And a value the enum has never held reads as All rather than as an empty screen.
      *
      * nav.node_filter is a uint8_t and the nav is memcpy'd around, so this is reachable without
-     * anyone writing a bug: what a reader can act on is a filter row that has come back on All,
+     * anyone writing a bug: what a reader can act on is a chip bar that has come back on All,
      * and what they cannot act on is a node list that is empty for no stated reason.
      */
     const enum mesh_ui_node_filter bogus = (enum mesh_ui_node_filter)200;
@@ -1980,11 +2036,9 @@ MESH_TEST_CASE(ui_nav_nodes_filter_direct_asks_the_lists_own_question, unit) {
     MESH_TEST_FAIL_IF(
         !mesh_ui_node_filter_matches(&handshake, &handshake.nodes[4], MESH_UI_NODE_FILTER_ALL),
         "and All keeps the off-radio node, which is the list as it has always been");
-    MESH_TEST_FAIL_IF(mesh_ui_node_filter_step(bogus, +1) != MESH_UI_NODE_FILTER_DIRECT,
-                      "and steps on from All rather than from nowhere");
-    MESH_TEST_FAIL_IF(mesh_ui_node_filter_step(MESH_UI_NODE_FILTER_ALL, -1) !=
-                          (enum mesh_ui_node_filter)(MESH_UI_NODE_FILTER_COUNT - 1),
-                      "a backwards step wraps rather than going negative");
+    MESH_TEST_FAIL_IF(mesh_ui_node_filter_label(bogus) !=
+                          mesh_ui_node_filter_label(MESH_UI_NODE_FILTER_ALL),
+                      "and is named for the chip it has come back to");
 
     record_success(test_name);
 }
@@ -2078,18 +2132,13 @@ MESH_TEST_CASE(ui_nav_nodes_sort_steps_and_renumbers_the_rows, unit) {
                               mesh_ui_store_shutdown(&store),
                               "the list opens on the order the app published");
 
-    /* Down onto the sort row, and A steps it. The cursor stays: everything the press moves is
-       below the row it was pressed on. */
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_SORT_ROW,
-                              mesh_ui_store_shutdown(&store), "the sort row is under the filter's");
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    /* Recent, off the sheet. The cursor stays on the chip bar: everything the choice moves is
+       below the row it was made on. */
+    nodes_pick_sort(&store, MESH_UI_NODE_SORT_HEARD);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_HEARD,
-                              mesh_ui_store_shutdown(&store), "A steps the filter on");
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_SORT_ROW,
-                              mesh_ui_store_shutdown(&store), "and stays on the row it pressed");
-    MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_NONE, mesh_ui_store_shutdown(&store),
-                              "an order asks the radio for nothing");
+                              mesh_ui_store_shutdown(&store), "the sheet takes Recent");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_CHIP_ROW,
+                              mesh_ui_store_shutdown(&store), "and the cursor stays on the bar");
     MESH_TEST_FAIL_IF_CLEANUP(
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) != rows,
         mesh_ui_store_shutdown(&store), "and the list is exactly as long as it was");
@@ -2099,7 +2148,7 @@ MESH_TEST_CASE(ui_nav_nodes_sort_steps_and_renumbers_the_rows, unit) {
      * pinned one - read through the press, because what this is checking is that A on that row
      * opens the node the row drew.
      */
-    for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS - 1U; ++lead) {
+    for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
         mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
@@ -2110,11 +2159,10 @@ MESH_TEST_CASE(ui_nav_nodes_sort_steps_and_renumbers_the_rows, unit) {
 
     /* On to Name, where the same row is a different node again - and case is folded, so a
        lower-case name does not sort below every capital one. */
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_SORT_ROW;
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    nodes_pick_sort(&store, MESH_UI_NODE_SORT_NAME);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_NAME,
                               mesh_ui_store_shutdown(&store), "and on to Name");
-    for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS - 1U; ++lead) {
+    for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
         mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
@@ -2123,13 +2171,10 @@ MESH_TEST_CASE(ui_nav_nodes_sort_steps_and_renumbers_the_rows, unit) {
                               "A to Z is the reader's alphabet, not the byte order of the case");
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
 
-    /* Five chips, so the fifth press is back where it started. */
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_SORT_ROW;
-    for (uint32_t press = 0; press < (uint32_t)MESH_UI_NODE_SORT_COUNT - 2U; ++press) {
-        mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    }
+    /* And Default puts the app's own order back. */
+    nodes_pick_sort(&store, MESH_UI_NODE_SORT_DEFAULT);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort != MESH_UI_NODE_SORT_DEFAULT,
-                              mesh_ui_store_shutdown(&store), "and wraps back to the app's order");
+                              mesh_ui_store_shutdown(&store), "and Default is the app's order");
 
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
@@ -2290,16 +2335,10 @@ MESH_TEST_CASE(ui_nav_nodes_sort_permutes_but_never_selects, unit) {
         }
     }
 
-    MESH_TEST_FAIL_IF(mesh_ui_node_sort_step((enum mesh_ui_node_sort)200, +1) !=
-                          MESH_UI_NODE_SORT_HEARD,
-                      "an out-of-range sort steps on from the app's order rather than from "
-                      "nowhere");
-    MESH_TEST_FAIL_IF(mesh_ui_node_sort_step(MESH_UI_NODE_SORT_DEFAULT, -1) !=
-                          (enum mesh_ui_node_sort)(MESH_UI_NODE_SORT_COUNT - 1),
-                      "and a backwards step wraps rather than going negative");
     MESH_TEST_FAIL_IF(mesh_ui_node_sort_label((enum mesh_ui_node_sort)200) !=
                           mesh_ui_node_sort_label(MESH_UI_NODE_SORT_DEFAULT),
-                      "and it is named for the chip it has come back to");
+                      "an out-of-range sort is named for the app's order, the chip it has "
+                      "come back to");
 
     record_success(test_name);
 }
@@ -2473,7 +2512,7 @@ MESH_TEST_CASE(ui_nodes_query_matches_names_and_ids, unit) {
 }
 
 /*
- * The Find row, end to end: A opens the keyboard on it, Done narrows the list and leaves the
+ * The search chip, end to end: A opens the keyboard on it, Done narrows the list and leaves the
  * cursor on the row, a node row then opens the node that matched, and X on the row clears it.
  */
 MESH_TEST_CASE(ui_nav_nodes_find_row_narrows_the_list, unit) {
@@ -2485,23 +2524,25 @@ MESH_TEST_CASE(ui_nav_nodes_find_row_narrows_the_list, unit) {
     struct mesh_ui_action action;
     mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
     const uint32_t all_rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES);
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FIND_ROW;
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_CHIP_ROW;
+    store.nav.node_chip = (uint8_t)MESH_UI_NODES_CHIP_FIND;
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!store.nav.keyboard_open || !store.nav.keyboard_node_query) {
-        failure = "A on the Find row should open its keyboard";
+        failure = "A on the search chip should open its keyboard";
         goto cleanup;
     }
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "brv");
     mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
     if (store.nav.keyboard_open || strcmp(store.nav.node_query, "brv") != 0 ||
         store.nav.screen != MESH_UI_SCREEN_NODES ||
-        store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_FIND_ROW) {
-        failure = "Done should set the query and land on the Find row";
+        store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_CHIP_ROW ||
+        store.nav.node_chip != (uint8_t)MESH_UI_NODES_CHIP_FIND) {
+        failure = "Done should set the query and land on the search chip";
         goto cleanup;
     }
     if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) !=
         MESH_UI_NODES_LEAD_ROWS + 1U) {
-        failure = "the query should leave one node under the lead rows";
+        failure = "the query should leave one node under the chip bar";
         goto cleanup;
     }
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_LEAD_ROWS;
@@ -2512,12 +2553,13 @@ MESH_TEST_CASE(ui_nav_nodes_find_row_narrows_the_list, unit) {
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
 
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FIND_ROW;
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_CHIP_ROW;
+    store.nav.node_chip = (uint8_t)MESH_UI_NODES_CHIP_FIND;
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     if (store.nav.node_query[0] != '\0' || action.type != MESH_UI_ACTION_NONE ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) != all_rows) {
-        failure = "X on the Find row should clear it, and pin nobody";
+        failure = "X on the search chip should clear it, and pin nobody";
         goto cleanup;
     }
 
@@ -2549,14 +2591,15 @@ MESH_TEST_CASE(ui_nav_nodes_find_yields_to_a_security_prompt, unit) {
 
     struct mesh_ui_action action;
     mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FIND_ROW;
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_CHIP_ROW;
+    store.nav.node_chip = (uint8_t)MESH_UI_NODES_CHIP_FIND;
     if (mesh_ui_nav_kb_node_search(&store.nav)) {
         failure = "the list is not the Find keyboard";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (!mesh_ui_nav_kb_node_search(&store.nav)) {
-        failure = "A on the Find row should open the Find keyboard";
+        failure = "A on the search chip should open the Find keyboard";
         goto cleanup;
     }
 
@@ -2634,6 +2677,19 @@ MESH_TEST_CASE(ui_nav_triggers_page_a_list_with_no_groups, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
+    /* Longer than a page whatever the control rows in front of it come to. */
+    {
+        struct mesh_ui_handshake_state handshake = store.handshake;
+        for (uint32_t i = handshake.node_count; i < 12U; ++i) {
+            handshake.nodes[i] = handshake.nodes[2];
+            handshake.nodes[i].node_id = 0x4000U + i;
+            snprintf(handshake.nodes[i].short_name, sizeof handshake.nodes[i].short_name, "N%02u",
+                     (unsigned)i);
+        }
+        handshake.node_count = 12U;
+        mesh_ui_store_set_handshake(&store, &handshake);
+        mesh_ui_store_consume_updates(&store, NULL);
+    }
     mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
 
     const char *failure = NULL;
@@ -2647,6 +2703,9 @@ MESH_TEST_CASE(ui_nav_triggers_page_a_list_with_no_groups, unit) {
     if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action) || *cursor != 5U) {
         failure = "R2 should move the cursor a page down";
         goto cleanup;
+    }
+    for (unsigned page = 0U; page < 8U && *cursor + 5U < rows; ++page) {
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
     }
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
     if (*cursor != rows - 1U) {
@@ -2662,18 +2721,22 @@ MESH_TEST_CASE(ui_nav_triggers_page_a_list_with_no_groups, unit) {
         failure = "L2 should move the cursor a page up";
         goto cleanup;
     }
+    for (unsigned page = 0U; page < 8U && *cursor > 5U; ++page) {
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    }
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
-    if (*cursor != 0U || store.nav.node_detail_open || store.nav.map_open) {
+    if (*cursor != 0U || store.nav.node_detail_open || store.nav.screen != MESH_UI_SCREEN_NODES) {
         failure = "L2 near the top should stop on the first row and open nothing";
         goto cleanup;
     }
 
-    /* The map stays open behind a change of tab, and must not take paging with it. */
-    store.nav.map_open = true;
+    /* The Map tab spends its triggers on its two faces, and that must not take paging from
+       any other tab. */
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_MAP);
     mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES);
     if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action) ||
         store.nav.cursor[MESH_UI_SCREEN_MESSAGES] == 0U) {
-        failure = "a map left open on Nodes should not stop R2 paging the conversation list";
+        failure = "a visit to the Map tab should not stop R2 paging the conversation list";
         goto cleanup;
     }
 

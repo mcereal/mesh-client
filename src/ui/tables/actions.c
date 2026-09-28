@@ -8,6 +8,7 @@
 #include "mesh/ui/devices.h"
 #include "mesh/ui/help.h"
 #include "mesh/ui/history.h"
+#include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/nodes.h"
@@ -199,10 +200,40 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
  * L/R still walks the tabs, which is the whole reason the d-pad could be spent: the shoulders
  * and the directions are the same press on every other screen, and this is the one place they
  * part company.
+ *
+ * B is named only when it goes somewhere - back to the node whose "Show on map" brought the
+ * reader here. The map is the tab's own face otherwise, with nothing under it.
  */
-static void actions_map(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_command_set *bar) {
+static void commands_add_face(const struct mesh_ui_snapshot *snapshot,
+                              struct mesh_ui_command_set *bar, inkcell_str_id label) {
+    /* Not on a protocol with no places: the press would only raise the toast saying so. */
+    if (snapshot == NULL ||
+        mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_WAYPOINTS)) {
+        command_add(bar, MESH_UI_COMMAND_FACE, label, INKCELL_BUTTON_TRIGGERS);
+    }
+}
+
+static void actions_map(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
+                        struct mesh_ui_command_set *bar) {
+    const bool back = nav->map_from_node;
+    /* With nothing to draw, nothing to aim at: the map takes only B and the triggers. */
+    struct mesh_ui_store view;
+    if (snapshot != NULL) {
+        mesh_ui_store_view(snapshot, &view);
+    }
+    if (snapshot != NULL && !mesh_ui_map_has_markers(&view)) {
+        if (back) {
+            command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
+        }
+        commands_add_face(snapshot, bar, MESH_STR_ACTION_PLACES);
+        commands_add_help(snapshot, bar);
+        commands_add_tabs(bar);
+        return;
+    }
     command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
-    command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
+    if (back) {
+        command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
+    }
     command_add(bar, MESH_UI_COMMAND_ZOOM_IN, MESH_STR_ACTION_ZOOM_IN, INKCELL_BUTTON_X);
     command_add(bar, MESH_UI_COMMAND_ZOOM_OUT, MESH_STR_ACTION_ZOOM_OUT, INKCELL_BUTTON_Y);
     command_add(bar, MESH_UI_COMMAND_FIT, MESH_STR_ACTION_FIT, INKCELL_BUTTON_START);
@@ -210,6 +241,7 @@ static void actions_map(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_
        ones that leave the screen or change what is on it, and this one names a gesture a reader
        discovers by trying it. */
     command_add(bar, MESH_UI_COMMAND_PAN, MESH_STR_ACTION_PAN, INKCELL_BUTTON_DPAD);
+    commands_add_face(snapshot, bar, MESH_STR_ACTION_PLACES);
     commands_add_help(snapshot, bar);
     commands_add_tabs(bar);
 }
@@ -317,10 +349,10 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
          * runs nothing, so on most rows it is not named.
          *
          * This is the Status screen's rule rather than the node list's, and the difference is
-         * worth stating because both are in this file. The list names X and Y over its map row
-         * where they do nothing, because they are true of every *other* row and a bar that shed
-         * keycaps as the cursor moved would be describing the row rather than the screen. Here
-         * they are not true of every other row and never were: the screen is ten verbs and a
+         * worth stating because both are in this file. The list names X and Y on every node row,
+         * because they are true of every node and a bar that shed keycaps as the cursor moved
+         * would be describing the row rather than the screen. Here they are not true of every
+         * other row and never were: the screen is ten verbs and a
          * hundred facts, and mesh_ui_nav_confirm() has always returned false on the facts. The
          * bar said "A select" over all of them anyway, which is the keycap-that-does-nothing
          * this whole table exists to prevent, offered on two rows in three of the longest screen
@@ -369,39 +401,10 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
         commands_add_tabs(bar);
         return;
     }
-    /* The map, under any detail opened from it and over the list it was opened from - the same
-       order fb_render_snapshot() draws them in, for the reason this file always follows it:
-       describing a screen the reader cannot see is describing presses that will not arrive. */
-    if (nav->map_open) {
-        actions_map(snapshot, bar);
-        return;
-    }
     /*
-     * The list, whose first five rows are the filter, the sort, the find, the map and the places
-     * rather than nodes - so X's pin and Y's message have no node under them there, and are
-     * not named. They were once, on the argument that they are true of every other row; but
-     * "X pin" sitting under the filter chips read as a press about the filter, and a keycap
-     * that does nothing is the thing this table exists to prevent.
-     *
-     * A is named per row too, which is the Waypoints list's rule: the top three rows genuinely
-     * offer a different press from the rest of the list, and naming "open" over a row that
-     * filters would be the bar describing something else.
-     *
-     * What changes on those rows is the *keycap* as well as the word, which is the point of it.
-     * The d-pad is what edits them - the Settings tab's press, and the one the pencil in each
-     * row's gutter is already pointing at - so the bar names the d-pad, exactly as the Settings
-     * bar does. A still steps forward and is deliberately not named: a bar that offered both
-     * would spend a slot on the second way of doing a thing it has already said how to do, on
-     * the one screen here whose bar is already five keycaps long.
-     *
-     * The sort row takes its own word rather than borrowing "filter": the two rows look alike
-     * and sit one above the other, so the bar is the only thing on the frame that says which of
-     * them the press is about to move.
-     */
-    /*
-     * No list at all: fb_render_node_list() draws the empty state over no rows, so the filter,
+     * No list at all: fb_render_node_list() draws the empty state over no rows, so the chips,
      * the pin and the write have nothing under them, and Left and Right are the tab switch
-     * rather than the filter (mesh_ui_nav_nodes_list_showing()). With no radio, A is the way
+     * rather than the chips (mesh_ui_nav_nodes_list_showing()). With no radio, A is the way
      * out - it lands on the device list, which is what the sentence on the screen asks for.
      * Waiting for a roster the radio is already sending, it has nothing to do either.
      */
@@ -413,20 +416,44 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
         commands_add_tabs(bar);
         return;
     }
+    /* The sort sheet over the list: pick an order, or put it down. */
+    if (nav->node_sort_open) {
+        command_add(bar, MESH_UI_COMMAND_SELECT, MESH_STR_ACTION_SELECT, INKCELL_BUTTON_A);
+        command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
+        commands_add_help(snapshot, bar);
+        commands_add_tabs(bar);
+        return;
+    }
+    /*
+     * The list, whose first row is the chip bar rather than a node - so X's pin and Y's message
+     * have no node under them there, and are not named. "X pin" sitting under the filter chips
+     * read as a press about the filter, and a keycap that does nothing is the thing this table
+     * exists to prevent.
+     *
+     * A is named for the chip under the cursor, which is the Waypoints list's rule: the chips
+     * offer three different presses, and naming "open" over one that filters would be the bar
+     * describing something else. Left and Right are named too, because on this row they walk
+     * the chips rather than the tabs, and a reader arriving from a node row has every reason to
+     * expect the other.
+     */
     const uint32_t nodes_cursor = nav->cursor[MESH_UI_SCREEN_NODES];
-    if (nodes_cursor == MESH_UI_NODES_FILTER_ROW) {
-        command_add(bar, MESH_UI_COMMAND_FILTER, MESH_STR_ACTION_FILTER, INKCELL_BUTTON_LEFT_RIGHT);
-    } else if (nodes_cursor == MESH_UI_NODES_SORT_ROW) {
-        command_add(bar, MESH_UI_COMMAND_SORT, MESH_STR_ACTION_SORT, INKCELL_BUTTON_LEFT_RIGHT);
-    } else if (nodes_cursor == MESH_UI_NODES_FIND_ROW) {
+    const bool on_chips = nodes_cursor == MESH_UI_NODES_CHIP_ROW;
+    const bool on_find = on_chips && nav->node_chip == (uint8_t)MESH_UI_NODES_CHIP_FIND;
+    if (on_find) {
         command_add(bar, MESH_UI_COMMAND_FIND, MESH_STR_ACTION_FIND, INKCELL_BUTTON_A);
+    } else if (on_chips && nav->node_chip == (uint8_t)MESH_UI_NODES_CHIP_SORT) {
+        command_add(bar, MESH_UI_COMMAND_SORT, MESH_STR_ACTION_SORT, INKCELL_BUTTON_A);
+    } else if (on_chips) {
+        command_add(bar, MESH_UI_COMMAND_FILTER, MESH_STR_ACTION_FILTER, INKCELL_BUTTON_A);
     } else {
         command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
     }
-    /* The Find row's X is a different verb while there is a query - it clears it - so it is
-       named for the row then. With nothing typed it has nothing to do, like the other lead
-       rows. */
-    if (nodes_cursor == MESH_UI_NODES_FIND_ROW && nav->node_query[0] != '\0') {
+    if (on_chips) {
+        command_add(bar, MESH_UI_COMMAND_CHOOSE, MESH_STR_ACTION_CHOOSE, INKCELL_BUTTON_LEFT_RIGHT);
+    }
+    /* The search chip's X clears the query, and is named only while there is one: with nothing
+       typed it has nothing to do, like the rest of the chip bar. */
+    if (on_find && nav->node_query[0] != '\0') {
         command_add(bar, MESH_UI_COMMAND_CLEAR, MESH_STR_ACTION_CLEAR, INKCELL_BUTTON_X);
     } else if (snapshot == NULL || mesh_ui_actions_list_pins(snapshot, nav, nodes_cursor)) {
         command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
@@ -439,7 +466,7 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
 }
 
 /*
- * The places: the list over the Nodes roster, and one place over it or over the map.
+ * The places: the Map tab's list face, and one place over it or over the map.
  *
  * Two levels, the Nodes tab's shape - except that the list's A does two different things and
  * the bar says so: on a place it opens, and on the last row it starts a new one. Naming the
@@ -466,13 +493,14 @@ static void actions_waypoints(const struct mesh_ui_nav *nav,
     const uint32_t places = snapshot->waypoints.count > MESH_UI_MAX_WAYPOINTS
                                 ? MESH_UI_MAX_WAYPOINTS
                                 : snapshot->waypoints.count;
-    if (nav->cursor[MESH_UI_SCREEN_NODES] >= places) {
+    if (nav->cursor[MESH_UI_SCREEN_MAP] >= places) {
         command_add(bar, MESH_UI_COMMAND_NEW, MESH_STR_ACTION_NEW, INKCELL_BUTTON_A);
     } else {
         command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
     }
-    /* A level of the Nodes tab, so B goes back to the roster it was opened from. */
-    command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
+    /* The tab's face rather than a level of it, so there is no B: the triggers go back to the
+       map, as they came from it. */
+    commands_add_face(snapshot, bar, MESH_STR_ACTION_MAP);
     commands_add_help(snapshot, bar);
     commands_add_tabs(bar);
 }
@@ -1060,12 +1088,15 @@ static void commands_for_route(const struct mesh_ui_snapshot *snapshot,
         actions_messages(nav, snapshot, out);
         break;
     case MESH_UI_SCREEN_NODES:
-        /* A place, or the list of them, over the roster or the map - checked first because it
-           is drawn over both. */
+        actions_nodes(nav, snapshot, out);
+        break;
+    case MESH_UI_SCREEN_MAP:
+        /* A place, or the list of them - checked first because a place is drawn over either
+           face. */
         if (mesh_ui_nav_waypoints_showing(nav)) {
             actions_waypoints(nav, snapshot, out);
         } else {
-            actions_nodes(nav, snapshot, out);
+            actions_map(nav, snapshot, out);
         }
         break;
     case MESH_UI_SCREEN_SETTINGS:

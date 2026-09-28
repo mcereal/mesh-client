@@ -135,8 +135,8 @@ enum mesh_ui_node_action {
      * place with no coordinates is not a place.
      */
     MESH_UI_NODE_ACTION_WAYPOINT,
-    /* Open the map looking at this node. Its own action rather than a second way into the
-       Nodes list's map row, because the press names a node and the map opens aimed at it. */
+    /* The Map tab, looking at this node. Its own action rather than a walk to the tab, because
+       the press names a node and the map opens aimed at it - and B comes back. */
     MESH_UI_NODE_ACTION_SHOW_ON_MAP,
     /*
      * The two rows about this node's key (mesh/ui/trust.h).

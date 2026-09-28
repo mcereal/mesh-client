@@ -24,17 +24,38 @@ struct mesh_ui_store;
    press is a fact about a piece of plastic, and the navigation model never sees a keycode
    either way. The names are INKCELL_KEY_*. */
 
+/* The chips on the Nodes list's chip bar, in the order Left and Right walk them: the search,
+   then one per filter in enum mesh_ui_node_filter's order, then the sort. */
+enum mesh_ui_nodes_chip {
+    MESH_UI_NODES_CHIP_FIND = 0,
+    MESH_UI_NODES_CHIP_FILTER_FIRST = 1,
+    /* Past the filters: 1 + MESH_UI_NODE_FILTER_COUNT, which nodes.h owns. nav.c holds the two
+       to each other with a static assertion, since this header cannot see the filter enum. */
+    MESH_UI_NODES_CHIP_SORT = 4,
+    MESH_UI_NODES_CHIP_COUNT = 5,
+};
+
 /* Tabs, in the order LEFT/RIGHT (and L1/R1) walk them. Compose is not one: it is an overlay
    over the open conversation, so it can never be reached with a stale destination. */
 enum mesh_ui_screen {
     MESH_UI_SCREEN_MESSAGES = 0,
-    /*
-     * The points on the mesh: the nodes, which move, and the places, which do not. Waypoints was
-     * a tab of its own beside this one and is now a row of it (MESH_UI_NODES_WAYPOINTS_ROW),
-     * beside the map row - the map already drew both, so the list of places belongs with the
-     * picture of them rather than a tab away from it.
-     */
+    /* The nodes on the mesh, as a list: who is there, how well they are heard, and what each
+       one has reported. Where they are is the Map tab's. */
     MESH_UI_SCREEN_NODES,
+    /*
+     * Where things are: the map, and the places shared on the mesh as a list beside it.
+     *
+     * The map and the places were two rows on the front of the Nodes list, and before that the
+     * places were a tab of their own. Both arrangements were wrong the same way: the map is the
+     * picture of the places, so the list of places belongs with it, and neither belongs in front
+     * of a hundred and twenty-eight nodes, where two rows of controls pushed the first node down
+     * the panel for a screen most readers open far less often than the list.
+     *
+     * The tab opens on the map. The places list is the tab's other face, a trigger away
+     * (`waypoints_open`), and the two are siblings rather than one over the other: each is a
+     * whole way of reading the same set, so neither has a back arrow to the other.
+     */
+    MESH_UI_SCREEN_MAP,
     /*
      * The radio we are attached to, and the radios we could be.
      *
@@ -52,44 +73,32 @@ enum mesh_ui_screen {
 };
 
 /*
- * The rows on the front of the Nodes list that are not nodes.
+ * The row on the front of the Nodes list that is not a node: the chip bar.
  *
- * The map row opens the map. A row rather than a keycap because the Nodes tab has already spent
- * A, X and Y on things a node row does, and because a way into a screen that only a button
- * nobody mentions can reach is a screen nobody finds - the argument the conversation list's
- * "New message" row and the Waypoints tab's "New waypoint here" row both make. Both of these
- * are at the *front* of the list for the one reason those two are at the back of theirs: this
- * list can be a hundred and twenty-eight rows long, and a control at the bottom of that is a
- * control that is not there.
+ * Search, the filter and the sort, as one row of chips under the heading - [Find] [All] [Direct]
+ * [Pinned] [Sort]. They were three field rows once, and with the map and the places two more,
+ * which was five rows of controls pushed in front of the first node on the one list in this
+ * client that runs to a hundred and twenty-eight rows. A chip bar is the shape every phone gives
+ * the same three questions, and it says what the list is showing at a glance: the filter that
+ * is on is the filled chip, the search is the words on the first one, the order is the words on
+ * the last.
  *
- * The filter row is the control that says which of the roster is below it
- * (include/mesh/ui/nodes.h), and it is above the map row rather than below it because a control
- * belongs above the thing it changes. It costs a row on every Nodes list, which is the honest
- * price of a control the reader can see rather than a keycap they have to be told about - and
- * the same trade the map row made first.
+ * The bar is the list's row 0 so the d-pad reaches it the way it reaches everything else - Up
+ * from the first node - and `node_chip` is which chip the d-pad is on while it is there. Left
+ * and Right walk the chips, which mesh_ui_nav_handle_key() takes before the tab switch, and A
+ * presses the one the cursor is on. The chip bar is drawn fixed under the heading rather than
+ * scrolled with the rows, so the state of the list is on the panel however far down the reader
+ * has gone.
  *
- * Both are edited with Left and Right, which mesh_ui_nav_handle_key() takes before the tab
- * switch, and A steps either forward through mesh_ui_nav_confirm(). mesh_ui_nav_node_at_row() is
- * the one place that knows how many rows to subtract, so the four presses this list offers cannot
- * disagree about which node row 7 is about.
+ * mesh_ui_nav_node_at_row() is the one place that knows how many rows to subtract, so the
+ * presses this list offers cannot disagree about which node row 7 is about.
  */
-#define MESH_UI_NODES_FILTER_ROW 0U
-#define MESH_UI_NODES_SORT_ROW 1U
-/* Find: a piece of a name, typed. A opens the keyboard on it and X clears it; Left and Right
-   are the tabs here, since the row edits nothing in place - see `node_query`. */
-#define MESH_UI_NODES_FIND_ROW 2U
+#define MESH_UI_NODES_CHIP_ROW 0U
+/* Rows before the first node. Written once so a new one cannot be added to only some of the
+   arithmetic - which is exactly how the map row's own arrival went wrong before it was. */
+#define MESH_UI_NODES_LEAD_ROWS 1U
 /* The Find text's buffer, NUL included: longer than any short name and most long ones. */
 #define MESH_UI_NODE_QUERY_MAX 24U
-#define MESH_UI_NODES_MAP_ROW 3U
-/* The places list, one level in (`waypoints_open`). Under the map row because it is the same
-   argument - a way into a screen is a row somebody can see - and because the two are the two
-   halves of "where things are". */
-#define MESH_UI_NODES_WAYPOINTS_ROW 4U
-/* Rows before the first node. Written once so a third one cannot be added to only some of the
-   arithmetic - which is exactly how the map row's own arrival went wrong before it was, and
-   what made the sort row's and the find row's arrivals a constant and a row id rather than an
-   audit. */
-#define MESH_UI_NODES_LEAD_ROWS 5U
 
 #define MESH_UI_NAV_TARGET_NAME_MAX 40U
 /* A MeshCore repeater's password is 15 characters in its prefs; a sixteenth could never match
@@ -379,11 +388,11 @@ struct mesh_ui_nav {
     bool node_actions_open;
     uint32_t node_actions_cursor;
     /*
-     * Nodes tab: which of the roster the list is showing - `enum mesh_ui_node_filter`, stepped
-     * by A on the list's own first row.
+     * Nodes tab: which of the roster the list is showing - `enum mesh_ui_node_filter`, chosen
+     * by A on its chip in the chip bar.
      *
-     * A filter rather than a sort, and the reasoning is in include/mesh/ui/nodes.h; the Find
-     * row's text is `node_query`, beside it.
+     * A filter rather than a sort, and the reasoning is in include/mesh/ui/nodes.h; the search
+     * chip's text is `node_query`, beside it.
      * What belongs here is why it is on the nav at all: it decides how many rows the screen has,
      * so mesh_ui_nav_row_count() has to read it, and everything that turns a row into a node has
      * to read it too or the cursor and the list part company on the first press.
@@ -398,15 +407,15 @@ struct mesh_ui_nav {
      */
     uint8_t node_filter; /* enum mesh_ui_node_filter */
     /*
-     * Nodes tab: the Find row's text - a piece of a name, a short name or an id, narrowing what
+     * Nodes tab: the search chip's text - a piece of a name, a short name or an id, narrowing what
      * the filter kept. "" is no query. On the nav for the filter's reason, since it decides how
      * many rows there are, and like the filter it lasts until the reader clears it but not
      * past a restart.
      */
     char node_query[MESH_UI_NODE_QUERY_MAX];
     /*
-     * Nodes tab: what order the rows the filter kept are in - `enum mesh_ui_node_sort`, stepped
-     * by A on the row under the filter's.
+     * Nodes tab: what order the rows the filter kept are in - `enum mesh_ui_node_sort`, chosen
+     * on the sheet the sort chip raises (`node_sort_open`).
      *
      * Beside the filter rather than folded into it because they are different axes: "which of
      * them" and "in what order", and a reader looking for the nearest pinned node wants both at
@@ -422,6 +431,19 @@ struct mesh_ui_nav {
      * why the two still land in the same place.
      */
     uint8_t node_sort; /* enum mesh_ui_node_sort */
+    /* Nodes tab: which chip of the chip bar the d-pad is on - enum mesh_ui_nodes_chip. Kept
+       while the cursor is down among the nodes, so Up comes back to the chip it left. */
+    uint8_t node_chip;
+    /*
+     * Nodes tab: the sort sheet is up over the list, `node_sort_cursor` the order it is on.
+     *
+     * A sheet rather than a chip that steps, because there are five orders and a reader
+     * stepping blind through them is a reader who cannot see the one they want until they
+     * reach it. The sheet shows all five at once with the current one checked - the node
+     * verbs' sheet, one press from the list.
+     */
+    bool node_sort_open;
+    uint32_t node_sort_cursor;
     /* "Remove from radio" is armed by one press and acts on the second, the same way Y on the
        Devices tab is: it is the one node row that takes its own row away, so a press that
        lands on it by accident should cost nothing. Any other press stands it down. */
@@ -442,18 +464,21 @@ struct mesh_ui_nav {
      * re-numbers them under the reader. The reading survives that; a row number quietly becomes
      * a different row.
      *
-     * Like map_open and trend_open it outlives a change of tab, so anything reading it checks
+     * Like trend_open it outlives a change of tab, so anything reading it checks
      * `screen` and `node_detail_open` as well.
      */
     uint8_t node_trend; /* enum mesh_ui_history_reading */
     /*
-     * Nodes tab: the map, opened over the node list.
+     * Map tab: the map is showing whenever the tab is on neither the places list nor a place -
+     * it is the tab's own face, so there is no flag for it being open; mesh_ui_nav_map_showing()
+     * is the question.
      *
-     * A level of the Nodes tab rather than a tab of its own, which is what the shape of the thing
-     * wants: a map is a second way of reading the roster, not a seventh place to be. A node's
-     * detail can be opened *over* it - the map is then one level deeper than the list and the
-     * detail is one deeper again - so backing out of a node opened from the map lands on the map
-     * rather than on the list it was never on.
+     * A node opened from the map is the Nodes tab's detail, reached across the tabs, and
+     * `node_detail_from_map` is what sends its B back here rather than to a list the reader was
+     * never on. `map_from_node` is the same promise the other way: "Show on map" on a node's
+     * detail lands here, and B from the map goes back to the Nodes tab. Both are cleared by any
+     * change of tab, because a reader who walked away with the shoulders has chosen where they
+     * are and a B that jumped tabs from there would be a surprise.
      *
      * The viewport is the whole of the map's state and it is here rather than in a backend for
      * the reason every other cursor is: a press moves it, and presses arrive at the nav. Its
@@ -469,7 +494,13 @@ struct mesh_ui_nav {
      * transition route again: a second opinion about the nav is a second opinion that can be
      * wrong.
      */
-    bool map_open;
+    bool node_detail_from_map;
+    bool map_from_node;
+    /* Whether `map_viewport` has been aimed at anything. Clear until the first marker arrives
+       and again once the last one leaves, so the next one to arrive is framed rather than
+       panned to - and so the renderer can tell an empty map from a map looking at empty
+       ground. */
+    bool map_framed;
     struct mesh_map_viewport map_viewport;
     /*
      * Radio tab, the Status cards: which verb the cursor is on.
@@ -498,8 +529,8 @@ struct mesh_ui_nav {
      * rather than the screen being a fourth card: the cards are a list of verbs the cursor
      * walks, and a picture is not a verb.
      *
-     * It outlives a change of tab, as map_open does and for the same reason - every tab keeps
-     * its own place - which means it says *where the Radio tab is standing* rather than *what
+     * It outlives a change of tab, as the places list does and for the same reason - every tab
+     * keeps its own place - which means it says *where the Radio tab is standing* rather than *what
      * is on the panel*. Anything reading it has to check `screen` as well, or a press meant for
      * the Nodes list closes a chart nobody can see.
      */
@@ -588,9 +619,9 @@ struct mesh_ui_nav {
     bool trend_table;
     uint32_t trend_scroll;
     /*
-     * Nodes tab, the places: a place's detail is open (cursor[NODES] indexes its rows) rather
-     * than whatever it was opened from - the places list, or the map - whose position is parked
-     * in waypoint_list_cursor meanwhile. The same two-level shape as a node's detail.
+     * Map tab: a place's detail is open (cursor[MAP] indexes its rows) rather than whatever it
+     * was opened from - the places list, or the map - whose position is parked in
+     * waypoint_list_cursor meanwhile. The same two-level shape as a node's detail.
      *
      * The open place is named by id rather than by row for the reason the node detail is: the
      * list is ordered by distance from our own fix, so a fix arriving re-ranks it under the
@@ -605,14 +636,11 @@ struct mesh_ui_nav {
        that lands on it by accident should cost nothing. */
     bool waypoint_delete_armed;
     /*
-     * Nodes tab: the places list is open over the roster, opened from its row. cursor[NODES]
-     * walks the places while it is up; the roster's own position is parked in
-     * `waypoints_nodes_cursor` and put back by B, the node detail's arrangement one level
-     * sideways. Like map_open it outlives a change of tab, so ask
-     * mesh_ui_nav_waypoints_showing() rather than reading it.
+     * Map tab: the places list is the tab's face rather than the map, switched with L2 and R2.
+     * cursor[MAP] walks the places while it is up. It outlives a change of tab, as every tab's
+     * place does, so ask mesh_ui_nav_waypoints_showing() rather than reading it.
      */
     bool waypoints_open;
-    uint32_t waypoints_nodes_cursor;
     /* Settings tab: the open section (enum mesh_ui_settings_section) or NO_SECTION for the
        section list. cursor[SETTINGS] indexes whichever list is showing; the section list's
        position is parked here while a section is open. */
@@ -1450,9 +1478,11 @@ const char *mesh_ui_screen_name(enum mesh_ui_screen screen);
  * said `screen == DEVICES` are forty places that could each have forgotten half of it.
  */
 bool mesh_ui_nav_devices_showing(const struct mesh_ui_nav *nav);
-/* The Nodes tab showing a place - the places list, or one place's detail, from the list or from
-   the map - rather than the roster, the map or a node. What the Waypoints tab was. */
+/* The Map tab showing a place - the places list, or one place's detail, from the list or from
+   the map - rather than the map itself. */
 bool mesh_ui_nav_waypoints_showing(const struct mesh_ui_nav *nav);
+/* The Map tab showing the map: on the tab, and on neither the places list nor a place. */
+bool mesh_ui_nav_map_showing(const struct mesh_ui_nav *nav);
 bool mesh_ui_nav_status_showing(const struct mesh_ui_nav *nav);
 
 /*

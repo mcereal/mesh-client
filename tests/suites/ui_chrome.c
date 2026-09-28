@@ -449,8 +449,8 @@ MESH_TEST_CASE(ui_chrome_list_title_counts_only_what_the_list_holds_back, unit) 
                       "every radio is on the list, so a total is arithmetic the reader can "
                       "check against rows that include a control, and gets wrong");
 
-    mesh_ui_chrome_list_title(title, sizeof title, "Nodes", 22U, 42U, 0U);
-    MESH_TEST_FAIL_IF(strcmp(title, "Nodes (22 of 42)") != 0,
+    mesh_ui_chrome_list_title(title, sizeof title, "Nodes", 5U, 22U, 0U);
+    MESH_TEST_FAIL_IF(strcmp(title, "Nodes (5 of 22)") != 0,
                       "a list holding some back says how many of how many");
 
     mesh_ui_chrome_list_title(title, sizeof title, "#LongFast", 64U, 64U, 30U);

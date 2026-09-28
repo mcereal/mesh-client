@@ -176,8 +176,10 @@ bool mesh_ui_chrome_banner(const struct mesh_ui_snapshot *snapshot, struct mesh_
  * there is. Every list screen - Messages, a thread, Nodes, Devices, Waypoints, Send to - names
  * its heading through this, so a number in one means the same thing in all of them.
  *
- *   - `shown` of `exist`, when fewer are on the list than exist: a filter, the roster cap, a
- *     radio that knows nodes the client has not been sent. "Nodes (22 of 42)".
+ *   - `shown` of `exist`, when the reader has narrowed the list - a filter chip, a search - and
+ *     `exist` is what the same list holds with nothing narrowing it. "Nodes (5 of 22)". A total
+ *     the reader did not choose and cannot reach from the screen, such as a radio's database
+ *     count, is not an `exist`: it reads as a filter nobody set.
  *   - `older` dropped off the top, when the list's history does not reach back that far.
  *     "#LongFast (+30 older)".
  *   - Otherwise the name alone. `shown` is not said on its own.

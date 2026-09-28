@@ -161,6 +161,8 @@ enum fb_overlay_id {
     FB_OVERLAY_VERIFY,
     /* One node's verbs, over that node's detail. */
     FB_OVERLAY_NODE_ACTIONS,
+    /* The orders the Nodes list can be in, over the list. */
+    FB_OVERLAY_NODE_SORT,
     /* The faces one message can be answered with, over the transcript it is in. */
     FB_OVERLAY_REACTIONS,
     /* A window's right-click menu: the verbs of the row under the cursor, at the pointer. */
@@ -185,6 +187,7 @@ enum fb_list_id {
     FB_LIST_NODES,
     FB_LIST_NODE_DETAIL,
     FB_LIST_NODE_ACTIONS,
+    FB_LIST_NODE_SORT,
     FB_LIST_WAYPOINTS,
     FB_LIST_WAYPOINT_DETAIL,
     FB_LIST_DEVICES,

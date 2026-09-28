@@ -102,7 +102,7 @@ bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen)
     /*
      * The shoulder rather than the d-pad, because the shoulder is the press that means "the next
      * tab" from anywhere. Left and Right mean it on most rows and not on all of them - a
-     * Settings field edits, and so do the Nodes list's filter and sort rows - so a fixture that
+     * Settings field edits, and so does the Nodes list's chip bar - so a fixture that
      * walked the ring with Right would hang on the first screen whose cursor happened to be
      * resting on a control. That is the split the action bar has always described: "L/R tabs"
      * names the shoulders, and this is a test asking for a tab rather than for a d-pad.
@@ -120,27 +120,18 @@ bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen)
 }
 
 /*
- * The places list, reached the way a reader reaches it: the Nodes tab, down to its Waypoints row,
- * then A. The row is one of the list's lead rows, so it is only there when the roster is - which
- * mesh_test_nav_populate() gives every store that calls this.
+ * The places list, reached the way a reader reaches it: the Map tab, then R2 to turn it from the
+ * map to the list.
  */
 bool mesh_test_open_waypoints(struct mesh_ui_store *store) {
-    if (!mesh_test_open_tab(store, MESH_UI_SCREEN_NODES)) {
+    if (!mesh_test_open_tab(store, MESH_UI_SCREEN_MAP)) {
         return false;
     }
     if (mesh_ui_nav_waypoints_showing(&store->nav)) {
         return true;
     }
     struct mesh_ui_action action;
-    for (unsigned guard = 0;
-         guard < 16U && store->nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_WAYPOINTS_ROW;
-         ++guard) {
-        const enum inkcell_key key =
-            store->nav.cursor[MESH_UI_SCREEN_NODES] < MESH_UI_NODES_WAYPOINTS_ROW ? INKCELL_KEY_DOWN
-                                                                                  : INKCELL_KEY_UP;
-        mesh_ui_store_handle_key(store, key, &action);
-    }
-    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_R2, &action);
     return mesh_ui_nav_waypoints_showing(&store->nav);
 }
 

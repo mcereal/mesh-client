@@ -19,8 +19,9 @@ clock 2026-01-15 12:00
 tab nodes
 hold 600
 
-# The Find row, and in. The field opens empty, saying what it is for.
-key down 2
+# Left from All onto the Find chip, and in. The field opens empty, saying what it is for.
+key left
+hold 600
 key a
 hold 900
 
@@ -49,5 +50,9 @@ hold 500
 key l2
 hold 1100
 
-key b
-hold 600
+# START is Done. The list keeps what the typing kept, the Find chip shows the query, and the
+# cursor is back on the chip it was opened from - where X is the clear.
+key start
+hold 1800
+key x
+hold 1200

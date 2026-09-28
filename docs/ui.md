@@ -477,9 +477,11 @@ while (inkcell_fb_list_next(&list, &i)) {
 ### A heading's number is what the list is not showing
 
 Every list heading is built by `mesh_ui_chrome_list_title()` in `src/ui/tables/chrome.c`, and a
-number appears in one only for what is *not* on the list: "Nodes (22 of 42)" when a filter, the
-roster cap or a sync still arriving holds some back, "#LongFast (+30 older)" when history was
-dropped off the top. A list with everything on it is its name alone. The bare total is refused
+number appears in one only for what is *not* on the list: "Nodes (5 of 22)" when the reader's own
+filter chip or search narrows it, "#LongFast (+30 older)" when history was dropped off the top. A
+total the reader did not choose - the radio's NodeDB count, which can run ahead of the nodes it
+sent - is not an "of": it read as a filter nobody had set, and the Radio tab's roster card is
+where that gap is said. A list with everything on it is its name alone. The bare total is refused
 because a reader counts the rows in front of them, and each screen's rows mix items with controls
 differently - "Messages (4)" counted conversations over five conversation-shaped rows (All
 traffic is one), "Devices (5)" radios over six rows (the network row is one). The rows already
@@ -709,9 +711,10 @@ the tab, and left the handful of rows that really do open one saying nothing the
 `ui_settings_a_marker_says_how_the_row_is_changed` walks every section and holds the table above;
 `ui_settings_a_state_mark_outranks_the_offer` holds the ranking.
 
-The Nodes list's filter and sort rows answer the same table, which is why they are drawn as
-settings rows at all: the filter is a segmented button and says nothing, the sort is five orders
-and one word and takes the stepper.
+The Nodes list's search, filter and sort are not settings rows: they are one row of chips under
+the heading (`MESH_UI_NODES_CHIP_ROW`), where the chosen filter is the filled chip and the search
+and the sort carry what they are doing in their own words. The sort's five orders are a sheet the
+chip raises, not a value stepped in place.
 
 ### A section on the Radio tab
 
@@ -1173,8 +1176,8 @@ scene can only reach a screen the device can reach. The one thing the harness ca
 a `mesh_ui_action` — pressing START in the keyboard raises `SEND_TEXT` and the store stops there,
 so `message out ...` is how a scene stands in for the echo.
 
-A scene that walks the **Nodes** list counts rows, not roster entries: the filter row, the sort
-row and the Map are in front of the first node (`MESH_UI_NODES_LEAD_ROWS`), so a node's row is its
+A scene that walks the **Nodes** list counts rows, not roster entries: the chip bar is in front of
+the first node (`MESH_UI_NODES_LEAD_ROWS`), so a node's row is its
 index plus that, and a node detail's row numbers move with what that node reported. Both mistakes
 render a perfectly good picture of the wrong screen, which is the one failure a capture cannot
 report — so check the frames rather than the count.

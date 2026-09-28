@@ -19,13 +19,13 @@ config
 
 units metric
 
-# Alfa Ridge is a repeater with a rounded fix, so its detail carries both of the node rows this
-# is about: an altitude and a precision. It is seeds[1], and the Nodes list has three rows before
-# its first node - the filter row, the sort row, the Map and Waypoints (MESH_UI_NODES_LEAD_ROWS) - so its
-# row is 4. Inside a detail the counts are *presses* rather than row numbers - the cursor steps
-# over each group's title on its way down.
+# Alfa Ridge is a repeater with a rounded fix, so its detail carries both of the node rows this is
+# about: an altitude and a precision. It is seeds[1], and the Nodes list has one row before its
+# first node - the chip bar (MESH_UI_NODES_LEAD_ROWS) - so its row is 2. Inside a detail the
+# counts are *presses* rather than row numbers - the cursor steps over each group's title on its
+# way down.
 tab nodes
-key down 6
+key down 2
 key a
 key down 30
 hold 2200
@@ -57,25 +57,18 @@ hold 300
 # The map, which was already honouring the setting - filmed so the strip holds the screen the
 # other three had to agree with rather than asking a reader to remember it, and because its
 # selected-marker line is where the disagreement was loudest: a range in feet and a footprint in
-# metres, one space apart. The list is left with the cursor on a node, so this walks back to the
-# top rather than indexing into it; the Map row is the third, under the filter row and the
-# sort row.
-tab nodes
-key up 6
-key down 2
-key a
+# metres, one space apart.
+tab map
 hold 1200
 key left
 hold 2400
-key b
-hold 600
 
 # The same four, with the radio switched over. Nothing else about the scene changes.
 units imperial
 hold 1400
 
+# The Nodes list kept its cursor on Alfa Ridge's row, so this opens it again without walking.
 tab nodes
-key down 6
 key a
 key down 30
 hold 2200
@@ -100,10 +93,10 @@ key b
 key b
 hold 300
 
-tab nodes
-key up 6
-key down 2
-key a
+# The map kept the view it was left on, so START frames everything again before the same press
+# west lands on ALFA.
+tab map
+key start
 hold 1200
 key left
 hold 2600

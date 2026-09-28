@@ -83,7 +83,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 
 | Feature | What disappears without it |
 |---|---|
-| `WAYPOINTS` | "Send a waypoint" on a node's sheet; the Nodes list's Waypoints row dims and a press says why, since every row under it is counted from it (`MESH_UI_NODES_LEAD_ROWS`) |
+| `WAYPOINTS` | "Send a waypoint" on a node's sheet; the Map tab's L2/R2 to the places, which the bar stops naming and a press says why |
 | `TRACEROUTE` | the traceroute verb (on MeshCore, a path discovery to a contact) |
 | `NODE_REQUESTS` | asking a node for its name or position |
 | `NODE_TELEMETRY` | asking a node for its readings (on MeshCore, a contact) |

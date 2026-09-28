@@ -78,7 +78,7 @@ bool mesh_ui_node_filter_matches(const struct mesh_ui_handshake_state *handshake
          *
          * The default is deliberate rather than defensive. `nav.node_filter` is a uint8_t
          * restored from a preferences file, so a value this enum has never held can reach here
-         * - and the failure a reader can act on is a filter row that has come back on "All",
+         * - and the failure a reader can act on is a chip bar that has come back on "All",
          * not a node list that is empty for a reason nothing on the frame can say.
          */
         return true;
@@ -141,17 +141,6 @@ uint32_t mesh_ui_node_query_count(const struct mesh_ui_handshake_state *handshak
     return kept;
 }
 
-enum mesh_ui_node_filter mesh_ui_node_filter_step(enum mesh_ui_node_filter filter, int delta) {
-    const int count = (int)MESH_UI_NODE_FILTER_COUNT;
-    int at = (int)filter;
-    if (at < 0 || at >= count) {
-        at = (int)MESH_UI_NODE_FILTER_ALL; /* the same out-of-range answer the predicate gives */
-    }
-    /* Modulo over a signed step, so a delta of -1 walks backwards without going negative. */
-    at = ((at + delta) % count + count) % count;
-    return (enum mesh_ui_node_filter)at;
-}
-
 inkcell_str_id mesh_ui_node_filter_label(enum mesh_ui_node_filter filter) {
     if ((int)filter < 0 || filter >= MESH_UI_NODE_FILTER_COUNT) {
         return k_filter_labels[MESH_UI_NODE_FILTER_ALL];
@@ -161,9 +150,8 @@ inkcell_str_id mesh_ui_node_filter_label(enum mesh_ui_node_filter filter) {
 
 /* ---- the sort ------------------------------------------------------------------------------
  *
- * The second table, in the order the row steps through. One word each, because the row that
- * shows it is a label and a value column rather than a strip of pills - see the renderer for why
- * five of these could not be chips.
+ * The second table, in the order the sort sheet lists it. One word each, because the chosen one
+ * rides on the sort chip beside the filters, and a chip is as wide as its words.
  */
 static const inkcell_str_id k_sort_labels[MESH_UI_NODE_SORT_COUNT] = {
     [MESH_UI_NODE_SORT_DEFAULT] = MESH_STR_NODES_SORT_DEFAULT,
@@ -384,17 +372,6 @@ uint32_t mesh_ui_node_view_find(const struct mesh_ui_handshake_state *handshake,
         }
     }
     return view->count;
-}
-
-enum mesh_ui_node_sort mesh_ui_node_sort_step(enum mesh_ui_node_sort sort, int delta) {
-    const int count = (int)MESH_UI_NODE_SORT_COUNT;
-    int at = (int)sort;
-    if (at < 0 || at >= count) {
-        at =
-            (int)MESH_UI_NODE_SORT_DEFAULT; /* the same out-of-range answer the key builder gives */
-    }
-    at = ((at + delta) % count + count) % count;
-    return (enum mesh_ui_node_sort)at;
 }
 
 inkcell_str_id mesh_ui_node_sort_label(enum mesh_ui_node_sort sort) {

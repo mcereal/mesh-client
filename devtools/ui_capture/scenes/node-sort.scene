@@ -1,21 +1,18 @@
-# The Nodes list's sort row: what order the rows the filter kept are in, under the row that
-# decides which rows those are.
+# The Nodes list's sort chip: what order the rows the filter kept are in, on the same bar as the
+# chips that decide which rows those are.
 #
 # Four things to watch, and the fourth is the one that would be a bug nobody could see.
 #
-#   - Two controls, one shape, two forms. Both rows are a label, a pencil and a value column -
-#     the Settings tab's field row - and what differs is only what fits in the column. Three
-#     filters are inside INKCELL_FB_SEGMENTED_MAX so all three are on the panel; five orders are outside
-#     it, so the sort is the word it is set to. The component measures and decides, which is why
-#     the filter above falls back to a word too at the largest glyph scales rather than to three
-#     pills with nothing in them.
-#   - The action bar names the d-pad per row. On the filter it reads "filter", on this one
-#     "sort", and on a node A reads "open" - the keycap whose verb changes is named per row.
-#   - The heading does not change as the order steps. A filter changes how many rows there
-#     are and a sort does not, which is the difference the two rows exist to keep apart.
-#   - Under Distance the rows reorder. Under Distance with no fix of our own they cannot, and the
-#     value column says so rather than leaving a list that did not move under a word that says it
-#     did - the filter row's failure one axis over.
+#   - The sort is the last chip on the bar and says the order it is set to, so the list's state
+#     reads at a glance. Five orders are too many to lay out as chips beside the filters, so the
+#     chip is the word and A on it raises a sheet with all five, the current one checked.
+#   - The sheet is a choice rather than a step. Up and Down move, A picks and closes, B closes
+#     with nothing changed - so going one too far costs a press back up the sheet, not a lap of
+#     all five orders.
+#   - The heading does not change as the order changes. A filter changes how many rows there
+#     are and a sort does not, which is the difference the two kinds of chip exist to keep apart.
+#   - Under Distance the rows reorder, and the cursor still opens the node the row drew rather
+#     than the one that used to be there.
 
 scene demo
 scale 4
@@ -27,32 +24,53 @@ pin ECHO
 tab nodes
 hold 1600
 
-# Onto the sort row. The filter above stays on All, so everything that moves below is the order.
-key down
-hold 1400
+# Along the bar to the sort chip. The walk changes nothing - the filter stays on All, so
+# everything that moves below is the order.
+key right 3
+hold 1000
 
-# Default -> Recent. The client's own ranking floats the pinned node and the people you talk to;
-# this is the plain question the phone apps open on, and the first row under the lead rows moves.
-key right
+# A raises the sheet: the five orders, Default checked.
+key a
+hold 1600
+
+# Default -> Recent: last heard first, the plain question the phone apps open on. On this roster
+# the client's own ranking already agrees with it down the first screenful, and the chip is what
+# says which of the two questions the list is answering.
+key down
+hold 700
+key a
 hold 2200
 
-# Recent -> Name. The answer to the search this client is not going to have: a name you would
-# know on sight, at a place you can scroll to, with no keyboard to type it on.
-key right
+# Recent -> Name. The answer to the search a reader would rather not type: a name you would know
+# on sight, at a place you can scroll to.
+key a
+hold 900
+key down
+hold 700
+key a
 hold 2200
 
 # Name -> Distance. The one a filter genuinely cannot answer - "near me" is an ordering of all of
-# them rather than a kind of node - and the reason this row exists at all.
-key right
+# them rather than a kind of node.
+key a
+hold 900
+key down
+hold 700
+key a
 hold 2400
 
-# And one step back, to the order before it. Left is the half this row did not have while A was
-# the only press on it: five orders wrapped in one direction meant four presses to undo one.
-key left
-hold 2000
+# And a change of mind. The sheet opens on Distance, the cursor moves, and B closes it with the
+# order left where it was.
+key a
+hold 900
+key up
+hold 700
+key b
+hold 1600
 
-# The rows under it are still rows. The cursor walks off both controls into them and A opens the
-# node the row drew, which is the half that would look right while being wrong.
+# The rows under it are still rows. The cursor walks off the bar into them and A opens the node
+# the row drew, which is the half that would look right while being wrong. The fifth row under
+# Distance is Bravo Creek; the fifth under Default was Delta Camp.
 key down 5
 hold 1200
 key a

@@ -76,6 +76,7 @@ MESH_STR_ENTRY(DATE_WEEKDAY_DAY_MONTH,    "%s %d %s")
 
 MESH_STR_ENTRY(TAB_MESSAGES,              "Messages")
 MESH_STR_ENTRY(TAB_NODES,                 "Nodes")
+MESH_STR_ENTRY(TAB_MAP,                   "Map")
 MESH_STR_ENTRY(TAB_WAYPOINTS,             "Waypoints")
 MESH_STR_ENTRY(TAB_DEVICES,               "Devices")
 MESH_STR_ENTRY(TAB_STATUS,                "Status")
@@ -143,6 +144,10 @@ MESH_STR_ENTRY(ACTION_ZOOM_OUT,           "zoom out")
 /* START on the map: frame every marker again, which is the view the map opened on. A verb
    rather than "reset" because nothing is being undone - the reader is asking to see all of it. */
 MESH_STR_ENTRY(ACTION_FIT,                "fit all")
+/* The Map tab's triggers, named for the face they turn to: from the map, the list of places;
+   from the list, the map. */
+MESH_STR_ENTRY(ACTION_PLACES,             "places")
+MESH_STR_ENTRY(ACTION_MAP,                "map")
 /* Put the highlighted character into the draft - what A does on the on-screen keyboard. */
 MESH_STR_ENTRY(ACTION_TYPE,               "type")
 MESH_STR_ENTRY(ACTION_FIND,               "find")
@@ -278,8 +283,8 @@ MESH_STR_ENTRY(MESSAGES_UNREAD_OVERFLOW,  "99+")
 MESH_STR_ENTRY(THREAD_EMPTY_INBOX,        "No messages yet. B goes back to the list.")
 MESH_STR_ENTRY(THREAD_EMPTY,              "Nothing here yet. Y writes one, B goes back.")
 /* The two things a list's heading may add to its name - see mesh_ui_chrome_list_title(), which
-   is the one rule for every list. The first is a list holding some back - a filter, a cap, a
-   roster still arriving - as how many are on it of how many there are; the second is older
+   is the one rule for every list. The first is a list the reader has narrowed - a filter, a
+   search - as how many are on it of how many there are; the second is older
    entries dropped off the top. A bare total is neither and is not said: the rows are right
    there, and the scroll rail says when there are more of them. */
 MESH_STR_ENTRY(LIST_TITLE_OF,             "%s (%u of %u)")
@@ -412,31 +417,20 @@ MESH_STR_ENTRY(NODES_EMPTY_DISCONNECTED,  "Connect to a radio to see the mesh.")
 MESH_STR_ENTRY(NODES_GONE,                "That node is no longer in the list.")
 MESH_STR_ENTRY(NODES_PICK,                "Open a node to see it here.")
 MESH_STR_ENTRY(NODES_DETAIL_EMPTY,        "Nothing reported for this node yet.")
-/* The filter chips on the list's first row - see include/mesh/ui/nodes.h for why there are
-   three of them and why there is not a fourth. One word each: they are chips in a strip that
-   has to fit across the panel beside two others, and the strip drops the words before it drops
-   the pills. "Direct" is nodes heard with no relay between us and them; "Pinned" is the word X
-   is already called, so it must match ACTION_PIN in whatever language this is. */
-/* The name of the question the segments answer, in the label column the sort row below it
-   shares. The two rows are one control group and are drawn as the Settings tab draws a field -
-   a label, the pencil that says Left and Right edit it, and where it currently stands - so the
-   label is a noun naming the axis rather than a sentence about what to press. */
-MESH_STR_ENTRY(NODES_FILTER_ROW,          "Filter")
+/* The filter chips on the list's chip bar - see include/mesh/ui/nodes.h for why there are
+   three of them and why there is not a fourth. One word each: they share one row across the
+   panel with the search and the sort. "Direct" is nodes heard with no relay between us and
+   them; "Pinned" is the word X is already called, so it must match ACTION_PIN in whatever
+   language this is. */
 MESH_STR_ENTRY(NODES_FILTER_ALL,          "All")
 MESH_STR_ENTRY(NODES_FILTER_DIRECT,       "Direct")
 MESH_STR_ENTRY(NODES_FILTER_PINNED,       "Pinned")
-/* What the filtered list says when the chip the reader has landed on keeps nothing. The row
-   stays and says why rather than the list going blank - the map row's rule, and the Waypoints
-   tab's before it: a screen that empties explains nothing to the reader wondering what they
-   just pressed. */
+/* What the filtered list says when the chip the reader has chosen keeps nothing. The row says
+   why rather than the list going blank: a screen that empties explains nothing to the reader
+   wondering what they just pressed. */
 MESH_STR_ENTRY(NODES_FILTER_NONE,         "No nodes match this filter")
-/* The order the list is in, on the row under the chips - see include/mesh/ui/nodes.h for why an
-   order is a second axis rather than a fourth filter, and the renderer for why five of these are
-   a label and a word rather than a second strip. "Default" is the order the list has always been
-   in - ourselves, then pins, then the people you talk to - and it is deliberately not named
-   after any one of those, because it is all of them. */
-/* The row under the sort: a piece of a name, typed, narrowing what the filter kept. The value
-   is what was typed. */
+/* The search chip, first on the bar: its word while nothing is typed, and what was typed once
+   something is. */
 MESH_STR_ENTRY(NODES_FIND_ROW,            "Find")
 MESH_STR_ENTRY(NODES_FIND_PROMPT,         "Find a node")
 MESH_STR_ENTRY(NODES_FIND_NONE,           "No node matches what you typed")
@@ -444,47 +438,43 @@ MESH_STR_ENTRY(NODES_FIND_NONE,           "No node matches what you typed")
    typed so far keeps, counted through the filter the list is on, so it is the number the list
    will show once the keyboard is done. A badge, so keep it short. */
 MESH_STR_PLURAL_ENTRY(NODES_FIND_MATCHES, "%u match", "%u matches")
-MESH_STR_ENTRY(NODES_SORT_ROW,            "Sort")
+/* The order the list is in, on the last chip of the bar and on the sheet that chip raises - see
+   include/mesh/ui/nodes.h for why an order is a second axis rather than a fourth filter.
+   "Default" is the order the list has always been in - ourselves, then pins, then the people
+   you talk to - and it is deliberately not named after any one of those, because it is all of
+   them. The chip says the axis and the order, so it reads as a sort rather than a fourth
+   filter; the sheet's title is the question its rows answer. */
+MESH_STR_ENTRY(NODES_SORT_CHIP,           "Sort: %s")
+MESH_STR_ENTRY(NODES_SORT_TITLE,          "Sort by")
 MESH_STR_ENTRY(NODES_SORT_DEFAULT,        "Default")
 MESH_STR_ENTRY(NODES_SORT_HEARD,          "Recent")
 MESH_STR_ENTRY(NODES_SORT_NAME,           "Name")
 MESH_STR_ENTRY(NODES_SORT_DISTANCE,       "Distance")
 MESH_STR_ENTRY(NODES_SORT_HOPS,           "Hops")
 /* The chosen order when it has nothing to measure with, which is the distance sort on a radio
-   with no fix of its own. The order's own word, then why the rows did not move - said in the
-   column that already answers "what is this set to", because that is where the reader just
+   with no fix of its own. The order's own word, then why the rows did not move - said on the
+   chip that already answers "what is this set to", because that is where the reader just
    pressed and it costs the list no row. "Fix" is the word the node detail uses for the same
    thing. */
 MESH_STR_ENTRY(NODES_SORT_NO_FIX,         "%s (no fix)")
 
 /* ---- the map ----------------------------------------------------------------------------------
  *
- * A picture of where the nodes and the shared places are, opened from the first row of the Nodes
- * list. There is no basemap under it yet, so what it draws is a graticule, the markers, and a scale
+ * A picture of where the nodes and the shared places are: the Map tab's first face. There is no basemap under it yet, so what it draws is a graticule, the markers, and a scale
  * bar to read the distances against.
  */
 
-/* The Nodes list's first row, and what its supporting line says. The count is nodes and places
-   that have reported a position, which is usually far fewer than the roster holds. */
-MESH_STR_ENTRY(MAP_ROW,                   "Map")
-MESH_STR_PLURAL_ENTRY(MAP_ROW_MARKERS,    "%u position", "%u positions")
-/* ...and what that row says instead when nothing on the mesh has ever reported a position. The
-   row stays and says why, rather than disappearing: a row that vanishes explains nothing. */
-MESH_STR_ENTRY(MAP_ROW_EMPTY,             "Nothing has reported a position yet")
-/* The row under it, which opens the shared places; its title is TAB_WAYPOINTS, the name the
-   places had as a tab. The count is places held, and with none the row says what it is for,
-   since pressing it is how the first one is made. */
-MESH_STR_PLURAL_ENTRY(WAYPOINTS_ROW_COUNT, "%u place", "%u places")
-MESH_STR_ENTRY(WAYPOINTS_ROW_EMPTY,       "None shared yet")
-/* Raised when the row is pressed anyway - the reader who most needs the reason is the one who
-   just pressed A without reading it. */
-MESH_STR_ENTRY(TOAST_MAP_NO_FIXES,        "Nothing on the mesh has a position yet")
+/* What the map says instead of drawing an empty grid when nothing on the mesh has ever reported
+   a position: a grid with no markers on it reads as a map panned into the ocean. */
+MESH_STR_ENTRY(MAP_EMPTY,                 "Nothing has reported a position yet")
+/* L2/R2 to the places on a protocol that has none. */
 MESH_STR_ENTRY(TOAST_NO_WAYPOINTS,        "This mesh does not share waypoints")
-/* The map's own heading, and the badge beside it: how many markers are on the panel as it is
-   framed right now, out of every one the client could place. A reader who has panned away from
-   everything is told so rather than left wondering whether the map is broken. */
+/* The map's own heading, and the badge beside it once some markers are off the edge: how many
+   are on the panel as it is framed right now, out of every one it could draw. A reader who has
+   panned away from everything is told so rather than left wondering whether the map is broken.
+   Nothing is said while every marker is in view. */
 MESH_STR_ENTRY(MAP_TITLE,                 "Map")
-MESH_STR_ENTRY(MAP_BADGE_IN_VIEW,         "%u of %u")
+MESH_STR_ENTRY(MAP_BADGE_IN_VIEW,         "%u of %u in view")
 /* Under the crosshair when it is on nothing. Its own line rather than an empty one, because the
    space where a name would be is where a reader looks to find out what they have aimed at. */
 MESH_STR_ENTRY(MAP_NOTHING_SELECTED,      "nothing under the crosshair")
@@ -1543,13 +1533,13 @@ MESH_STR_ENTRY(HELP_NOTE_REACTION_SEND,   "One small packet, sent without asking
 MESH_STR_ENTRY(HELP_NOTE_REACTION_DELETE, "The button under the faces throws the message away, in two presses. It removes your copy only - the mesh cannot recall a message, so everyone who heard it still has it. Tapbacks on it go with it.")
 
 /* Nodes. */
-MESH_STR_ENTRY(HELP_LABEL_NODES_FILTER,   "The filter row")
-MESH_STR_ENTRY(HELP_LABEL_NODES_SORT,     "The sort row")
+MESH_STR_ENTRY(HELP_LABEL_NODES_FILTER,   "The filter chips")
+MESH_STR_ENTRY(HELP_LABEL_NODES_SORT,     "The sort chip")
 MESH_STR_ENTRY(HELP_LABEL_NODES_PIN,      "Pinned nodes")
 MESH_STR_ENTRY(HELP_LABEL_NODES_CACHED,   "Nodes the radio has forgotten")
 MESH_STR_ENTRY(HELP_NOTE_NODES,           "Everyone this client has heard of. A node that has never said what it is called is listed by its node number, exactly as the phone apps list it.")
-MESH_STR_ENTRY(HELP_NOTE_NODES_FILTER,    "The first row decides what is under it: all of the roster, the nodes heard with no relay in the way, or the ones you pinned. Left and Right move between them, and the heading counts what is shown.")
-MESH_STR_ENTRY(HELP_NOTE_NODES_SORT,      "The second row is the order. Default puts this radio, pinned nodes, your other radios and anyone you have messaged first, then the rest by last heard. Distance needs a fix of your own.")
+MESH_STR_ENTRY(HELP_NOTE_NODES_FILTER,    "The chips under the heading decide what is listed: all of it, the nodes heard with no relay in the way, or the ones you pinned. Left and Right walk the chips and A picks one.")
+MESH_STR_ENTRY(HELP_NOTE_NODES_SORT,      "The last chip is the order, and A shows all five. Default puts this radio, pinned nodes, your other radios and anyone you have messaged first. Distance needs a fix of your own.")
 MESH_STR_ENTRY(HELP_NOTE_NODES_PIN,       "X pins a node to the top of the list and keeps it there. Pins are this client's own and are kept across a restart; they change nothing on the radio.")
 MESH_STR_ENTRY(HELP_NOTE_NODES_CACHED,    "The radio holds about eighty nodes and drops the oldest, so this list is deliberately longer than its NodeDB and marks what the radio no longer carries. Radio > Mesh > nodes clears them.")
 
@@ -1608,7 +1598,7 @@ MESH_STR_ENTRY(HELP_LABEL_MAP_MOVE,       "Moving around")
 MESH_STR_ENTRY(HELP_LABEL_MAP_PICK,       "Opening a marker")
 MESH_STR_ENTRY(HELP_LABEL_MAP_TRUST,      "How much to believe it")
 MESH_STR_ENTRY(HELP_NOTE_MAP,             "Every node and shared place that has reported a position, drawn north-up. There is no map underneath yet, so the grid and the scale bar are what distances are read against.")
-MESH_STR_ENTRY(HELP_NOTE_MAP_MOVE,        "The d-pad moves the view, not a cursor: a direction stops on the next marker that way, or slides the view when there is none. The shoulders still change tab and START frames everything.")
+MESH_STR_ENTRY(HELP_NOTE_MAP_MOVE,        "The d-pad moves the view, not a cursor: a direction stops on the next marker that way. The shoulders still change tab, START frames everything, and L2 and R2 turn to the list of places.")
 MESH_STR_ENTRY(HELP_NOTE_MAP_PICK,        "Whatever is nearest the crosshair in the middle is what A opens, so aiming is panning. A node opens its details and a place opens on the Waypoints tab.")
 MESH_STR_ENTRY(HELP_NOTE_MAP_TRUST,       "A marker is where a node last said it was, not where it is now. Senders often round their position on purpose, and the ring around a marker is how far out it may be.")
 

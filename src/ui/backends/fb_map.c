@@ -795,6 +795,17 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
     struct mesh_ui_map_view view;
     mesh_ui_map_build(&view_store, &view);
 
+    /* Nothing to place: the heading and a sentence, never an empty grid - a grid with no
+       markers on it reads as a map panned into the ocean (mesh_ui_nav_map_clamp()). A view the
+       nav has aimed is drawn even so, since the ground under it may be worth looking at. */
+    if (view.count == 0U && !snapshot->nav.map_framed) {
+        fb_draw_app_bar(
+            state, layout,
+            &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_MAP_TITLE)});
+        inkcell_fb_draw_empty(state, layout, INKCELL_ICON_MAP, inkcell_str(MESH_STR_MAP_EMPTY));
+        return;
+    }
+
     /*
      * The nav's viewport is copied and resized to the body this backend actually has.
      *
@@ -847,18 +858,26 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
     struct mesh_map_viewport viewport = snapshot->nav.map_viewport;
     mesh_map_viewport_resize(&viewport, body.w > 0 ? body.w : 0, body.h > 0 ? body.h : 0);
 
+    /*
+     * The badge says only what the panel is not showing: how many of the markers are in view,
+     * once the reader has panned or zoomed some of them off it. It used to be measured against
+     * the whole roster - "4 of 22" - which read as eighteen markers hidden somewhere on a map
+     * that simply has no fix for them; a node with no position is not something the map is
+     * holding back. The list heading's rule, for the list heading's reason.
+     */
     char badge[24];
-    inkcell_str_format(badge, sizeof badge, MESH_STR_MAP_BADGE_IN_VIEW,
-                       mesh_ui_map_visible(&view, &viewport), view.known);
+    badge[0] = '\0';
+    const uint32_t visible = mesh_ui_map_visible(&view, &viewport);
+    if (visible < view.count) {
+        inkcell_str_format(badge, sizeof badge, MESH_STR_MAP_BADGE_IN_VIEW, visible, view.count);
+    }
     struct inkcell_fb_app_bar bar;
     memset(&bar, 0, sizeof bar);
     bar.title = inkcell_str(MESH_STR_MAP_TITLE);
     bar.badge = badge;
     /*
-     * The primary rather than the warning family the badge was invented for. "4 of 9" is a fact
-     * about the screen, not a complaint about it: most of a roster having no fix is the ordinary
-     * state of a mesh, and a capsule that read as a problem every time the map opened would be
-     * the frame crying wolf.
+     * The primary rather than the warning family the badge was invented for. Markers off the
+     * edge are a fact about the view, not a complaint about it.
      */
     bar.badge_family = INKCELL_FAMILY_PRIMARY;
     fb_draw_app_bar(state, layout, &bar);

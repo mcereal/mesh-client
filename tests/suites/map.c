@@ -435,26 +435,27 @@ MESH_TEST_CASE(map_viewport_fits_across_the_antimeridian, unit) {
 
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/route.h"
 #include "mesh/ui/store.h"
 
 #include <stdio.h>
 #include <string.h>
 
+/* A real publish, because that is where the clamp runs: mesh_ui_store_consume_updates() refuses
+   a NULL snapshot before it gets there. */
+static void map_test_publish(struct mesh_ui_store *store) {
+    static struct mesh_ui_snapshot snapshot;
+    (void)mesh_ui_store_consume_updates(store, &snapshot);
+}
+
 /*
- * Stand on the Nodes list's map row.
- *
- * Written as a walk rather than as an assignment because that is what a reader does, and
- * because the row's index has moved once already: the filter chips took the front of the list
- * and every test that pressed A on row 0 opened a filter instead of a map. Counted off
- * MESH_UI_NODES_MAP_ROW, so the next row to arrive in front of it moves these tests with it.
+ * Go to the map the way a reader does: along the tabs to the Map tab, whose face it is. The
+ * publish after is what frames it - the clamp frames a map that has never been framed - so a
+ * test reads a viewport the reader would have seen rather than the zeroed one.
  */
-static void map_test_stand_on_the_map_row(struct mesh_ui_store *store) {
-    struct mesh_ui_action action;
-    store->nav.screen = MESH_UI_SCREEN_NODES;
-    store->nav.cursor[MESH_UI_SCREEN_NODES] = 0U;
-    while (store->nav.cursor[MESH_UI_SCREEN_NODES] < MESH_UI_NODES_MAP_ROW) {
-        (void)mesh_ui_store_handle_key(store, INKCELL_KEY_DOWN, &action);
-    }
+static void map_test_open(struct mesh_ui_store *store) {
+    (void)mesh_test_open_tab(store, MESH_UI_SCREEN_MAP);
+    map_test_publish(store);
 }
 
 /* The fixture's roster with fixes on two of its three nodes, and one shared place. Two rather
@@ -615,46 +616,44 @@ MESH_TEST_CASE(map_the_crosshair_selects_by_panning, unit) {
     record_success(test_name);
 }
 
-/* The Nodes list's first row opens the map, and refuses out loud when there is nothing to put
-   on one. */
-MESH_TEST_CASE(map_opens_from_the_node_list, unit) {
+/*
+ * The Map tab opens on the map. With nothing to place it says so and takes nothing but the tab
+ * switch - the d-pad pans nothing - and the first fix to arrive is framed rather than panned to.
+ */
+MESH_TEST_CASE(map_is_a_tab_that_frames_its_first_fix, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store); /* a roster with no fixes anywhere in it */
 
     struct mesh_ui_action action;
-    MESH_TEST_FAIL_IF(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_FILTER_ROW,
-                      "the list opens on its filter row");
-    map_test_stand_on_the_map_row(&store);
-    MESH_TEST_FAIL_IF(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_MAP_ROW,
-                      "and the map row is the one under it");
+    map_test_open(&store);
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "the Map tab opens on the map");
     MESH_TEST_FAIL_IF(mesh_ui_map_has_markers(&store), "and nothing has a position");
+    MESH_TEST_FAIL_IF(store.nav.map_framed, "so nothing has been framed");
 
-    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    MESH_TEST_FAIL_IF(store.nav.map_open, "so the press does not open a map");
-    MESH_TEST_FAIL_IF(store.nav.toast.text[0] == '\0', "and says why rather than doing nothing");
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    MESH_TEST_FAIL_IF(store.nav.screen == MESH_UI_SCREEN_MAP,
+                      "an empty map pans nothing, so Right is the tab switch again");
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_LEFT, &action);
+    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_MAP, "and Left comes back");
 
-    /* Give something a position and the same press opens. */
+    /* Give something a position and the next publish frames it. */
     struct mesh_ui_handshake_state handshake = store.handshake;
     handshake.nodes[1].position.valid = true;
     handshake.nodes[1].position.latitude_i = MAP_TEST_LATITUDE;
     handshake.nodes[1].position.longitude_i = MAP_TEST_LONGITUDE;
     mesh_ui_store_set_handshake(&store, &handshake);
-    mesh_ui_store_consume_updates(&store, NULL);
+    map_test_publish(&store);
 
-    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "now it opens");
     MESH_TEST_FAIL_IF(!mesh_geo_coords_valid(store.nav.map_viewport.center_latitude_i,
                                              store.nav.map_viewport.center_longitude_i),
                       "looking at somewhere real");
     MESH_TEST_FAIL_IF(!map_near(store.nav.map_viewport.center_latitude_i, MAP_TEST_LATITUDE, 200),
                       "framed on the one thing it has");
 
-    /* B goes back to the list, on the row it was opened from. */
+    /* The map is the tab's face, so B has nowhere to go and goes nowhere. */
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
-    MESH_TEST_FAIL_IF(store.nav.map_open, "B closes it");
-    MESH_TEST_FAIL_IF(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_MAP_ROW,
-                      "landing back on the row that opened it");
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "B leaves the map where it is");
 
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
@@ -674,15 +673,14 @@ MESH_TEST_CASE(map_the_dpad_moves_the_world, unit) {
     map_test_populate(&store);
 
     struct mesh_ui_action action;
-    map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+    map_test_open(&store);
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "the map opened");
 
     const int32_t longitude = store.nav.map_viewport.center_longitude_i;
     const int32_t latitude = store.nav.map_viewport.center_latitude_i;
 
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
-    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_NODES,
+    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_MAP,
                       "Right pans rather than changing tab");
     MESH_TEST_FAIL_IF(store.nav.map_viewport.center_longitude_i <= longitude, "and pans east");
 
@@ -691,10 +689,10 @@ MESH_TEST_CASE(map_the_dpad_moves_the_world, unit) {
 
     /* The shoulders are untouched, so the strip above the body still works from here. */
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
-    MESH_TEST_FAIL_IF(store.nav.screen == MESH_UI_SCREEN_NODES, "R1 still changes tab");
+    MESH_TEST_FAIL_IF(store.nav.screen == MESH_UI_SCREEN_MAP, "R1 still changes tab");
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L1, &action);
-    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_NODES, "and L1 comes back");
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "with the map still open");
+    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_MAP, "and L1 comes back");
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "with the map still open");
 
     /* X and Y are the zoom, in whole levels and clamped. */
     const uint8_t zoom = store.nav.map_viewport.zoom;
@@ -907,9 +905,8 @@ MESH_TEST_CASE(map_the_dpad_reaches_what_a_pan_could_not, unit) {
     map_test_populate(&store);
 
     struct mesh_ui_action action;
-    map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+    map_test_open(&store);
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "the map opened");
 
     /* Standing on our own radio, at a zoom a reader would actually use. */
     store.nav.map_viewport.zoom = 16U;
@@ -991,9 +988,8 @@ MESH_TEST_CASE(map_a_direction_pans_when_nothing_is_that_way, unit) {
     map_test_populate(&store);
 
     struct mesh_ui_action action;
-    map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+    map_test_open(&store);
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "the map opened");
 
     /* Well out in open country, with the whole roster behind us to the east. */
     store.nav.map_viewport.zoom = 16U;
@@ -1022,9 +1018,9 @@ MESH_TEST_CASE(map_a_direction_pans_when_nothing_is_that_way, unit) {
 /*
  * A opens what is under the crosshair, and B comes back to the map rather than to the list.
  *
- * The second half is the one worth a test: a node opened from a map and closed onto the node
- * list is a reader losing the view they had panned to, and the only thing that prevents it is
- * the map staying open underneath the detail.
+ * The second half is the one worth a test: a node's detail is the Nodes tab's, so the press
+ * crosses tabs, and a node opened from a map and closed onto the node list is a reader losing
+ * the view they had panned to. `node_detail_from_map` is the only thing that prevents it.
  */
 MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
     struct mesh_ui_store store;
@@ -1032,10 +1028,8 @@ MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
     map_test_populate(&store);
 
     struct mesh_ui_action action;
-    store.nav.screen = MESH_UI_SCREEN_NODES;
-    map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* the map row */
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+    map_test_open(&store);
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "the map opened");
 
     /* Onto ALFA, whose fix the fixture put a few hundred metres north-east. */
     const uint32_t alfa = store.handshake.nodes[1].node_id;
@@ -1047,7 +1041,8 @@ MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(!store.nav.node_detail_open, "A opened the marker under the crosshair");
     MESH_TEST_FAIL_IF(store.nav.node_detail_node != alfa, "and it is that node");
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "with the map still underneath it");
+    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_NODES || !store.nav.node_detail_from_map,
+                      "on the Nodes tab, remembering that it came from the map");
     /*
      * And on a row the cursor may stand on, which is the marker's door into a screen whose row
      * 0 is the actions group's heading. This press does not go through nav.c's own open, so it
@@ -1068,15 +1063,15 @@ MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
 
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     MESH_TEST_FAIL_IF(store.nav.node_detail_open, "B closes the detail");
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "back onto the map it was opened from");
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "back onto the map it was opened from");
 
-    /* A place opens over the map the way a node does: the places are a level of this tab now,
-       so there is no tab to jump to and B comes back to the view that was left. */
+    /* A place opens over the map without leaving the tab: the places are the Map tab's own,
+       so B comes back to the view that was left. */
     (void)mesh_map_viewport_center_on(&store.nav.map_viewport, MAP_TEST_LATITUDE - 20000,
                                       MAP_TEST_LONGITUDE + 10000);
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_NODES || !store.nav.map_open,
-                      "a place opens over the map, on the Nodes tab");
+    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_MAP || store.nav.waypoints_open,
+                      "a place opens over the map, on the Map tab");
     MESH_TEST_FAIL_IF(!store.nav.waypoint_detail_open || store.nav.waypoint_detail_id != 7U,
                       "showing that place");
 
@@ -1084,17 +1079,16 @@ MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
     record_success(test_name);
 }
 
-/* A map with nothing left to draw closes itself, the way a node detail whose node has gone
-   does - a screen of empty graticule reads as a map panned into the ocean, not as an empty one. */
-MESH_TEST_CASE(map_closes_when_there_is_nothing_left_to_draw, unit) {
+/* A map with nothing left to draw forgets its frame, and the renderer says so rather than drawing
+   empty graticule - which reads as a map panned into the ocean, not as an empty one. */
+MESH_TEST_CASE(map_forgets_its_frame_when_there_is_nothing_left_to_draw, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     map_test_populate(&store);
 
-    struct mesh_ui_action action;
-    map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+    map_test_open(&store);
+    MESH_TEST_FAIL_IF(!store.nav.map_framed, "and framed what it had");
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "the map opened");
 
     struct mesh_ui_handshake_state handshake;
     memset(&handshake, 0, sizeof handshake);
@@ -1111,8 +1105,9 @@ MESH_TEST_CASE(map_closes_when_there_is_nothing_left_to_draw, unit) {
     static struct mesh_ui_snapshot snapshot;
     MESH_TEST_FAIL_IF(!mesh_ui_store_consume_updates(&store, &snapshot), "a frame was published");
 
-    MESH_TEST_FAIL_IF(store.nav.map_open, "an emptied roster closes the map");
-    MESH_TEST_FAIL_IF(snapshot.nav.map_open, "and the frame drawn from it shows the list");
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "the map is still the tab's face");
+    MESH_TEST_FAIL_IF(store.nav.map_framed, "but an emptied roster forgets where it was looking");
+    MESH_TEST_FAIL_IF(snapshot.nav.map_framed, "and the frame drawn from it says so");
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }
@@ -1120,15 +1115,14 @@ MESH_TEST_CASE(map_closes_when_there_is_nothing_left_to_draw, unit) {
 /*
  * The map's presses belong to the map's own screen, and to nothing else.
  *
- * `map_open` deliberately survives a change of tab - every tab in this client keeps its own
- * place, and coming back to Nodes should show the view that was left. What must not survive is
- * the *key handling*: nav_map.c takes the d-pad ahead of the routing that turns Left and Right
- * into tabs, so a guard that asked only whether a map was open somewhere would have the arrows,
- * A, B, X, Y and START acting on a screen the reader cannot see.
+ * The Map tab's face and viewport deliberately survive a change of tab - every tab in this
+ * client keeps its own place, and coming back to Map should show the view that was left. What
+ * must not survive is the *key handling*: nav_map.c takes the d-pad ahead of the routing that
+ * turns Left and Right into tabs, so a guard that asked only whether the map was the Map tab's
+ * face would have the arrows, A, X, Y and START acting on a screen the reader cannot see.
  *
- * Two ways in, and the second is the worse one. A shoulder press walks off the Nodes tab with
- * the map still open underneath it; and A on a waypoint marker jumps to the Waypoints tab, where
- * the first B would close the hidden map rather than the place that is actually on the panel.
+ * Two ways in: a shoulder press walks off the Map tab with the map behind it, and A on a
+ * waypoint marker opens a place over it, where the presses are the place's.
  */
 MESH_TEST_CASE(map_keys_belong_to_the_screen_the_map_is_on, unit) {
     struct mesh_ui_store store;
@@ -1136,14 +1130,14 @@ MESH_TEST_CASE(map_keys_belong_to_the_screen_the_map_is_on, unit) {
     map_test_populate(&store);
 
     struct mesh_ui_action action;
-    map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+    map_test_open(&store);
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "the map opened");
 
-    /* Off to the next tab, with the map still open behind us - which is the point. */
+    /* Off to the next tab, with the map still the Map tab's face behind us - which is the point. */
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
-    MESH_TEST_FAIL_IF(store.nav.screen == MESH_UI_SCREEN_NODES, "R1 left the Nodes tab");
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "and the map is still open behind it");
+    MESH_TEST_FAIL_IF(store.nav.screen == MESH_UI_SCREEN_MAP, "R1 left the Map tab");
+    MESH_TEST_FAIL_IF(mesh_ui_nav_map_showing(&store.nav) || store.nav.waypoints_open,
+                      "and the map is behind it, not on the panel");
 
     const enum mesh_ui_screen elsewhere = store.nav.screen;
     const int32_t longitude = store.nav.map_viewport.center_longitude_i;
@@ -1159,11 +1153,9 @@ MESH_TEST_CASE(map_keys_belong_to_the_screen_the_map_is_on, unit) {
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
     MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom != zoom,
                       "X on another tab must not zoom the hidden map");
-    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "B on another tab must not close the hidden map");
 
-    /* And back onto Nodes, where the map is what is on the panel and the presses are its own. */
-    while (store.nav.screen != MESH_UI_SCREEN_NODES) {
+    /* And back onto Map, where the map is what is on the panel and the presses are its own. */
+    while (store.nav.screen != MESH_UI_SCREEN_MAP) {
         (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L1, &action);
     }
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_X, &action);
@@ -1173,17 +1165,144 @@ MESH_TEST_CASE(map_keys_belong_to_the_screen_the_map_is_on, unit) {
     record_success(test_name);
 }
 
-/* The same guard, reached the other way: a place opened from the map lands on the Waypoints tab,
-   and the first B there has to close the place rather than the map left behind on Nodes. */
+/*
+ * A marker opens its node at the top of that node's detail, whatever another node left open on
+ * the Nodes tab behind a shoulder press - a chart, or the sheet of verbs with its cursor on a row
+ * the next A would run against the new node.
+ */
+MESH_TEST_CASE(map_marker_opens_a_node_without_the_last_ones_levels, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
+    store.nav.node_detail_open = true;
+    store.nav.node_detail_node = store.handshake.nodes[2].node_id; /* BRVO */
+    store.nav.node_actions_open = true;
+    store.nav.node_actions_cursor = 3U;
+    store.nav.node_trend = 1U;
+
+    map_test_open(&store);
+    const uint32_t alfa = store.handshake.nodes[1].node_id;
+    (void)mesh_map_viewport_center_on(&store.nav.map_viewport,
+                                      store.handshake.nodes[1].position.latitude_i,
+                                      store.handshake.nodes[1].position.longitude_i);
+    store.nav.map_viewport.zoom = 16U;
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.node_detail_open || store.nav.node_detail_node != alfa,
+                      "A opened the marker's node");
+    MESH_TEST_FAIL_IF(store.nav.node_actions_open || store.nav.node_actions_cursor != 0U,
+                      "without the last node's sheet of verbs over it");
+    MESH_TEST_FAIL_IF(store.nav.node_trend != 0U, "or the last node's chart");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * The Map tab's triggers turn it between its two faces, and neither face has a B: each is the
+ * tab's own bottom, reached sideways rather than by going in.
+ */
+MESH_TEST_CASE(map_triggers_turn_between_the_map_and_the_places, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_action action;
+    map_test_open(&store);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_waypoints_showing(&store.nav), "R2 turns to the places");
+    MESH_TEST_FAIL_IF(mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MAP) != 2U,
+                      "the one place and the row that makes another");
+
+    struct mesh_ui_route route;
+    mesh_ui_route_of(&store.nav, &route);
+    MESH_TEST_FAIL_IF(route.depth != 0U, "the places are the tab's face, not a level of it");
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_waypoints_showing(&store.nav), "so B goes nowhere");
+
+    /* A place opened from the list is a level over it, and the triggers wait until it closes. */
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.waypoint_detail_open, "A opens the place");
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    MESH_TEST_FAIL_IF(!store.nav.waypoint_detail_open, "L2 does not close an open place");
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    MESH_TEST_FAIL_IF(store.nav.waypoint_detail_open || !store.nav.waypoints_open,
+                      "B closes it back onto the list");
+
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "and L2 turns back to the map");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * "Show on map" crosses to the Map tab and B crosses back, because the reader came from a node
+ * and a B that did nothing there would strand them on a tab they never chose. A walk along the
+ * tabs is a choice, though, and takes the way back with it.
+ */
+MESH_TEST_CASE(map_show_on_map_goes_back_to_the_nodes_tab, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+    map_test_publish(&store);
+
+    const struct mesh_ui_node_summary *alfa = &store.handshake.nodes[1];
+    struct mesh_ui_node_item items[MESH_UI_NODE_ACTIONS_MAX];
+    const uint32_t count =
+        mesh_ui_node_actions_build(alfa, false, NULL, false, 0U, items, MESH_UI_NODE_ACTIONS_MAX);
+    uint32_t show = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].action == MESH_UI_NODE_ACTION_SHOW_ON_MAP) {
+            show = i;
+        }
+    }
+    MESH_TEST_FAIL_IF(show >= count, "a node with a fix offers Show on map");
+
+    for (int round = 0; round < 2; ++round) {
+        struct mesh_ui_action action;
+        (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
+        store.nav.node_detail_open = true;
+        store.nav.node_detail_node = alfa->node_id;
+        store.nav.node_actions_open = true;
+        store.nav.node_actions_cursor = show;
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+        MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav) || !store.nav.map_from_node,
+                          "Show on map lands on the Map tab's map, remembering the node");
+        MESH_TEST_FAIL_IF(
+            !map_near(store.nav.map_viewport.center_latitude_i, alfa->position.latitude_i, 200),
+            "aimed at that node");
+        if (round == 0) {
+            (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+            MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_NODES ||
+                                  store.nav.node_detail_open,
+                              "B goes back to the Nodes tab, on its list");
+        } else {
+            (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
+            (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L1, &action);
+            MESH_TEST_FAIL_IF(store.nav.map_from_node,
+                              "a walk along the tabs forgets the way back");
+            (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+            MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "so B stays on the map");
+        }
+    }
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/* The same guard, reached the other way: a place opened from the map is over it, and the first B
+   there closes the place and leaves the map where it was. */
 MESH_TEST_CASE(map_hands_the_keys_over_when_a_place_opens, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     map_test_populate(&store);
 
     struct mesh_ui_action action;
-    map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+    map_test_open(&store);
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "the map opened");
 
     (void)mesh_map_viewport_center_on(&store.nav.map_viewport, MAP_TEST_LATITUDE - 20000,
                                       MAP_TEST_LONGITUDE + 10000);
@@ -1194,7 +1313,8 @@ MESH_TEST_CASE(map_hands_the_keys_over_when_a_place_opens, unit) {
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     MESH_TEST_FAIL_IF(store.nav.waypoint_detail_open,
                       "B closes the place that is on the panel, not the map behind it");
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "and the map is still where it was left");
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav),
+                      "and the map is still where it was left");
 
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
@@ -1403,10 +1523,8 @@ MESH_TEST_CASE(map_press_refuses_a_node_it_cannot_open, unit) {
     mesh_ui_store_consume_updates(&store, NULL);
 
     struct mesh_ui_action action;
-    store.nav.screen = MESH_UI_SCREEN_NODES;
-    map_test_stand_on_the_map_row(&store);
-    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action); /* the map row */
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+    map_test_open(&store);
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "the map opened");
 
     /* Aimed at the last node, which is far enough down the ranking to have no row. */
     (void)mesh_map_viewport_center_on(&store.nav.map_viewport, hs.map_nodes[199].latitude_i,
@@ -1422,7 +1540,7 @@ MESH_TEST_CASE(map_press_refuses_a_node_it_cannot_open, unit) {
 
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF(store.nav.node_detail_open, "A opens no detail it cannot fill");
-    MESH_TEST_FAIL_IF(!store.nav.map_open, "and leaves the reader on the map");
+    MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "and leaves the reader on the map");
     /*
      * And records nothing on the way past. Without the guard the press writes the id, the
      * detail opens, and mesh_ui_nav_clamp() closes it again on the same frame - which looks

@@ -107,6 +107,9 @@ static uint32_t *mesh_ui_nav_click_cursor(struct mesh_ui_nav *nav, uint32_t bloc
         if (nav->node_actions_open && nav->screen == MESH_UI_SCREEN_NODES) {
             return &nav->node_actions_cursor;
         }
+        if (nav->node_sort_open && nav->screen == MESH_UI_SCREEN_NODES) {
+            return &nav->node_sort_cursor;
+        }
         return NULL;
     }
     /* The screen's own list, which the two full-screen overlays replace rather than cover. */
@@ -122,7 +125,7 @@ static uint32_t *mesh_ui_nav_click_cursor(struct mesh_ui_nav *nav, uint32_t bloc
     if (nav->reaction_open || nav->share_open || nav->contact_open || nav->firmware_open) {
         return NULL;
     }
-    if (nav->screen == MESH_UI_SCREEN_NODES && nav->node_actions_open) {
+    if (nav->screen == MESH_UI_SCREEN_NODES && (nav->node_actions_open || nav->node_sort_open)) {
         return NULL;
     }
     /* Status walks verbs rather than rows, and the node detail walks cards: neither has an index
@@ -243,6 +246,20 @@ bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_stor
         target < (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_COUNT) {
         return mesh_ui_nav_click_tab(
             nav, store, (enum mesh_ui_screen)(target - (uint32_t)MESH_UI_FOCUS_TABS), out_action);
+    }
+    /* A chip on the Nodes list's bar: the cursor onto the bar and that chip, then A - so a click
+       does exactly what the d-pad and the keycap would. */
+    if (target >= (uint32_t)MESH_UI_FOCUS_NODE_CHIPS &&
+        target < (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)MESH_UI_NODES_CHIP_COUNT) {
+        if (nav->screen != MESH_UI_SCREEN_NODES || nav->node_detail_open ||
+            nav->node_actions_open || nav->node_sort_open || mesh_ui_nav_click_modal(nav)) {
+            return false;
+        }
+        nav->cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_CHIP_ROW;
+        nav->node_chip = (uint8_t)(target - (uint32_t)MESH_UI_FOCUS_NODE_CHIPS);
+        mesh_ui_nav_click_stand_down(nav);
+        (void)mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_A, out_action);
+        return true; /* the cursor moved onto the bar, whatever the press then did */
     }
     const uint32_t blocks[] = {(uint32_t)MESH_UI_FOCUS_ROWS, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS};
     for (size_t b = 0; b < sizeof blocks / sizeof blocks[0]; ++b) {

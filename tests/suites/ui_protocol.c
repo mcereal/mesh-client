@@ -809,20 +809,19 @@ MESH_TEST_CASE(ui_protocol_draft_cap_follows_the_link, unit) {
     record_success(test_name);
 }
 
-/* The Waypoints row stays - every row under it is counted from it - but on a protocol with no
-   waypoints a press says so rather than opening a list whose only row makes a Meshtastic one. */
+/* On a protocol with no waypoints, R2 on the Map tab says so rather than opening a list whose only
+   row makes a Meshtastic one. */
 MESH_TEST_CASE(ui_protocol_waypoints_row_follows_the_protocol, unit) {
     const char *failure = NULL;
     static struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
-    store.nav.screen = MESH_UI_SCREEN_NODES;
-    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_WAYPOINTS_ROW;
+    store.nav.screen = MESH_UI_SCREEN_MAP;
 
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     store.settings.protocol_lacks = MESH_UI_FEATURE_WAYPOINTS;
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
     if (store.nav.waypoints_open) {
         failure = "a protocol without waypoints does not open the list";
         goto cleanup;
@@ -833,7 +832,7 @@ MESH_TEST_CASE(ui_protocol_waypoints_row_follows_the_protocol, unit) {
     }
 
     store.settings.protocol_lacks = 0U;
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
     if (!store.nav.waypoints_open) {
         failure = "Meshtastic opens it";
         goto cleanup;

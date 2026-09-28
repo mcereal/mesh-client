@@ -18,11 +18,11 @@ config
 waypoint ALFA Ridge repeater | up the fire road, gate code is on the tag
 waypoint FXTR Trailhead
 
-# A tab's own list. Nearest first from our own fix, and the last row makes a place - both of
-# which are on the paragraphs rather than on the screen.
-tab nodes
-key down 4
-key a
+# A tab's own list - the Map tab's places, which R2 turns the map into. Nearest first from our
+# own fix, and the last row makes a place - both of which are on the paragraphs rather than on
+# the screen.
+tab map
+key r2
 hold 900
 key select
 hold 1600

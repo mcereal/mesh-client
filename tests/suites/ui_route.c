@@ -145,7 +145,7 @@ MESH_TEST_CASE(ui_route_in_and_out_are_opposite, unit) {
      *
      * The shoulders rather than the d-pad, and that is the claim rather than a convenience: what
      * this case is about is that a tab hop is a *direction*, and the shoulder is the press that
-     * is a tab hop from every row. The Nodes list lands on its filter row, where Left and Right
+     * is a tab hop from every row. The Nodes list lands on its chip bar, where Left and Right
      * belong to the control - so asking them for a transition here would be asking the one row
      * on the tab that does not offer one.
      */
@@ -159,7 +159,7 @@ MESH_TEST_CASE(ui_route_in_and_out_are_opposite, unit) {
         goto cleanup;
     }
     (void)press(&store, INKCELL_KEY_R1);
-    /* Off the filter, the sort and the map rows, onto a node. */
+    /* Off the control rows, onto a node. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
         (void)press(&store, INKCELL_KEY_DOWN);
     }
@@ -197,7 +197,7 @@ MESH_TEST_CASE(ui_route_the_tab_strip_decides, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
-    /* Off the filter, the sort and the map rows, onto a node. */
+    /* Off the control rows, onto a node. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
         (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
@@ -209,7 +209,7 @@ MESH_TEST_CASE(ui_route_the_tab_strip_decides, unit) {
     /* One tab rightwards and one level shallower at the same time. The strip is what the eye
        is following, so the strip is what the body has to agree with. */
     if (press(&store, INKCELL_KEY_R1) != INKCELL_TRANSITION_FORWARD ||
-        store.nav.screen != MESH_UI_SCREEN_RADIO || route_now(&store).depth != 0U) {
+        store.nav.screen != MESH_UI_SCREEN_MAP || route_now(&store).depth != 0U) {
         failure = "Right off a nested screen should still move rightwards";
         goto cleanup;
     }
@@ -492,17 +492,16 @@ MESH_TEST_CASE(ui_route_describes_a_place_without_a_locale, unit) {
     MESH_TEST_FAIL_IF(strcmp(text, "messages/list") != 0, "the opening place is the message list");
 
     /* A level with neither a slot nor a subject says only where it is. */
-    nav.screen = MESH_UI_SCREEN_NODES;
-    nav.map_open = true;
+    nav.screen = MESH_UI_SCREEN_MAP;
     mesh_ui_route_of(&nav, &place);
     mesh_ui_route_describe(&place, text, sizeof text);
-    MESH_TEST_FAIL_IF(strcmp(text, "nodes/map") != 0, "the map should name itself");
+    MESH_TEST_FAIL_IF(strcmp(text, "map/map") != 0, "the map should name itself");
 
     /*
      * A node is appended in hex, because that is how this client and the whole of upstream
      * spell a node number - a report quoting one in decimal is a report nobody can grep for.
      */
-    nav.map_open = false;
+    nav.screen = MESH_UI_SCREEN_NODES;
     nav.node_detail_open = true;
     nav.node_detail_node = 0xA1B2C3D4U;
     mesh_ui_route_of(&nav, &place);

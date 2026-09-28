@@ -139,10 +139,11 @@ struct mesh_ui_map_marker {
 /*
  * The markers, and what could not be drawn.
  *
- * `known` and `count` are two different facts and the app bar says both: a mesh of two hundred
- * nodes where six have ever reported a position is a map with six markers on it, and a title
- * that said "6" alone would read as a mesh of six nodes. `known` is what the client holds,
- * `count` is what has somewhere to be drawn.
+ * `known` and `count` are two different facts: a mesh of two hundred nodes where six have ever
+ * reported a position is a map with six markers on it. `known` is what the client holds,
+ * `count` is what has somewhere to be drawn. The app bar's badge is measured against `count`
+ * only, and only once some of it is off the edge - "6 of 200" read as a hundred and ninety-four
+ * markers hidden somewhere, when a node with no fix is nothing the map could have shown.
  */
 struct mesh_ui_map_view {
     struct mesh_ui_map_marker markers[MESH_UI_MAP_MARKERS_MAX];
@@ -329,9 +330,8 @@ uint32_t mesh_ui_map_visible(const struct mesh_ui_map_view *view,
 bool mesh_ui_map_find(const struct mesh_ui_map_view *view, uint8_t kind, uint32_t id,
                       uint32_t *out_index);
 
-/* Whether there is anything worth opening a map on: at least one node or place with a position.
-   The Nodes tab's map row is unpressable when there is not, and says why rather than
-   disappearing - the Waypoints tab's rule about a row that cannot be pressed. */
+/* Whether there is anything to draw a map of: at least one node or place with a position. The
+   Map tab says so in words when there is not, rather than drawing an empty grid. */
 bool mesh_ui_map_has_markers(const struct mesh_ui_store *store);
 
 #ifdef __cplusplus

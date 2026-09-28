@@ -12,6 +12,8 @@ stats
 hold 500
 tab nodes
 hold 500
+tab map
+hold 500
 tab radio
 hold 500
 key a

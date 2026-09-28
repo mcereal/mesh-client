@@ -3155,8 +3155,8 @@ MESH_TEST_CASE(ui_capture_map_keeps_its_ink_off_the_chrome, unit) {
 
     /* One node at the centre, so the frame is a map with something on it, and one place whose
        position is what the sweep moves. */
-    snapshot->nav.screen = MESH_UI_SCREEN_NODES;
-    snapshot->nav.map_open = true;
+    snapshot->nav.screen = MESH_UI_SCREEN_MAP;
+    snapshot->nav.map_framed = true;
     snapshot->handshake_valid = true;
     snapshot->handshake.has_my_info = true;
     snapshot->handshake.my_info.node_num = 0x1000U;
@@ -3367,8 +3367,8 @@ MESH_TEST_CASE(ui_capture_map_draws_a_basemap_one_tile_at_a_time, unit) {
         record_failure(test_name, "snapshot allocation failed");
         return;
     }
-    snapshot->nav.screen = MESH_UI_SCREEN_NODES;
-    snapshot->nav.map_open = true;
+    snapshot->nav.screen = MESH_UI_SCREEN_MAP;
+    snapshot->nav.map_framed = true;
     snapshot->handshake_valid = true;
     snapshot->handshake.has_my_info = true;
     snapshot->handshake.my_info.node_num = 0x1000U;
@@ -3506,8 +3506,8 @@ MESH_TEST_CASE(ui_capture_map_stops_asking_once_it_is_left, unit) {
     if (snapshot == NULL) {
         failure = "snapshot allocation failed";
     } else {
-        snapshot->nav.screen = MESH_UI_SCREEN_NODES;
-        snapshot->nav.map_open = true;
+        snapshot->nav.screen = MESH_UI_SCREEN_MAP;
+        snapshot->nav.map_framed = true;
         snapshot->handshake_valid = true;
         mesh_map_viewport_init(&snapshot->nav.map_viewport, latitude_i, longitude_i, zoom);
     }
@@ -3533,7 +3533,6 @@ MESH_TEST_CASE(ui_capture_map_stops_asking_once_it_is_left, unit) {
          * the asking *ends*: the slide is a few hundred milliseconds and the tiles left behind
          * would be for ever.
          */
-        snapshot->nav.map_open = false;
         snapshot->nav.screen = MESH_UI_SCREEN_SETTINGS;
         unsigned frames = 0U;
         for (; frames < 60U && inkcell_capture_animating(capture); ++frames) {
@@ -3592,8 +3591,8 @@ MESH_TEST_CASE(ui_capture_map_forgets_the_pack_it_swapped_out, unit) {
     if (snapshot == NULL) {
         failure = "snapshot allocation failed";
     } else {
-        snapshot->nav.screen = MESH_UI_SCREEN_NODES;
-        snapshot->nav.map_open = true;
+        snapshot->nav.screen = MESH_UI_SCREEN_MAP;
+        snapshot->nav.map_framed = true;
         snapshot->handshake_valid = true;
         mesh_map_viewport_init(&snapshot->nav.map_viewport, latitude_i, longitude_i, zoom);
     }

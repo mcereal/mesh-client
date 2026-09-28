@@ -52,7 +52,7 @@ extern "C" {
 enum mesh_ui_route_level {
     MESH_UI_ROUTE_LIST = 0,     /* the tab's own list: conversations, nodes, sections, the cards */
     MESH_UI_ROUTE_THREAD,       /* one conversation, or the all-traffic transcript */
-    MESH_UI_ROUTE_MAP,          /* the map over the node list */
+    MESH_UI_ROUTE_MAP,          /* the Map tab's map */
     MESH_UI_ROUTE_NODE,         /* one node's detail */
     MESH_UI_ROUTE_NODE_ACTIONS, /* that node's verbs, over its detail */
     MESH_UI_ROUTE_WAYPOINT,     /* one shared place's detail */
@@ -81,11 +81,14 @@ enum mesh_ui_route_level {
     MESH_UI_ROUTE_CONTACT,
     /* The radios this client could attach to, over the Radio tab's Status cards. */
     MESH_UI_ROUTE_DEVICES,
-    /* The shared places, over the Nodes roster. One place's detail is MESH_UI_ROUTE_WAYPOINT. */
+    /* The shared places, the Map tab's other face. One place's detail is MESH_UI_ROUTE_WAYPOINT. */
     MESH_UI_ROUTE_WAYPOINTS,
     /* A radio firmware install, as the whole screen: the dial, the stage, the steps. Over the
        section or page whose row started it, on the Settings tab or the Radio tab. */
     MESH_UI_ROUTE_FIRMWARE,
+    /* The five orders the Nodes list can be in, as a sheet over it - raised by the sort chip. A
+       level for the node verbs' reason: the slide, the back arrow and the B keycap. */
+    MESH_UI_ROUTE_NODE_SORT,
     MESH_UI_ROUTE_COUNT
 };
 
