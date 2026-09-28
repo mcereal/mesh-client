@@ -1002,9 +1002,9 @@ MESH_STR_ENTRY(NODE_TRACE_TIMEOUT,        "no reply; press A")
    reading is one the firmware did not measure. */
 MESH_STR_ENTRY(NODE_HOP_START,            "start")
 MESH_STR_ENTRY(NODE_HOP_NO_READING,       "no reading")
-/* Each stop after the first is drawn indented behind an arrow drawn in ASCII, because the
-   framebuffer font has no arrow glyph. */
-MESH_STR_ENTRY(NODE_HOP_ARROW,            "-> ")
+/* Each stop after the first is drawn indented behind an arrow. Both faces carry U+2192, so it is
+   the glyph rather than the "->" this once had to spell. */
+MESH_STR_ENTRY(NODE_HOP_ARROW,            "→ ")
 
 /* The action rows at the foot of the screen. */
 MESH_STR_ENTRY(NODE_ACT_MESSAGE,          "Message this node")
