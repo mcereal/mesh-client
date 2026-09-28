@@ -17,6 +17,7 @@
 #include "inkcell/ui/latency.h"
 #include "inkcell/ui/widgets.h"
 #include "inkwell/base/array.h"
+#include "inkwell/base/file.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 
@@ -527,17 +528,16 @@ static void fb_map_draw_selection(const struct inkcell_draw_state *state,
 /* ---- the basemap -------------------------------------------------------------------------- */
 
 /*
- * Where a sideloaded pack lands when nobody names one.
+ * Where packs land when nobody names one: every `*.mctp` in the maps directory, drawn as one
+ * map (mesh/map/stack.h), and the single file a sideload went to before there was a directory.
  *
  * Under the client's own directory rather than beside the pak, because the pak is what
  * self-update replaces and a map is the user's file: a reader who spent an afternoon converting
  * a region should not lose it to an update. `$HOME` on the device is the launcher's userdata
  * directory (Tools/tg5040/MeshClient.pak/launch.sh), which is where the node cache and the
  * preferences already live.
- *
- * One path and one pack. Choosing between several is a screen, and a screen for it belongs with the
- * import step, not with the first thing that can draw one.
  */
+#define FB_BASEMAP_DEFAULT_DIR "%s/.meshclient/maps"
 #define FB_BASEMAP_DEFAULT_PATH "%s/.meshclient/map.mctp"
 
 /* How far a tile's pixels are apart, row to row: the decoder's format, not the panel's. */
@@ -562,16 +562,71 @@ void fb_basemap_frame_begin(struct inkcell_draw_state *state) {
     }
 }
 
+static void fb_basemap_free(struct fb_basemap *basemap) {
+    if (basemap != NULL) {
+        mesh_map_tile_cache_deinit(&basemap->cache);
+        mesh_map_stack_close(&basemap->stack);
+        free(basemap->encoded);
+        free(basemap);
+    }
+}
+
 void fb_basemap_close(struct inkcell_draw_state *state) {
     if (state == NULL || fb_app_of(state)->basemap == NULL) {
         return;
     }
     struct fb_basemap *const basemap = fb_app_of(state)->basemap;
     fb_app_of(state)->basemap = NULL;
-    mesh_map_tile_cache_deinit(&basemap->cache);
-    mesh_map_source_close(&basemap->source);
-    free(basemap->encoded);
-    free(basemap);
+    fb_basemap_free(basemap);
+}
+
+int fb_basemap_add(struct inkcell_draw_state *state, const char *path) {
+    if (state == NULL || path == NULL || path[0] == '\0') {
+        return -EINVAL;
+    }
+    struct fb_basemap *basemap = fb_app_of(state)->basemap;
+    const bool created = basemap == NULL;
+    if (created) {
+        basemap = calloc(1U, sizeof *basemap);
+        if (basemap == NULL) {
+            return -ENOMEM;
+        }
+        mesh_map_stack_init(&basemap->stack);
+        int result = mesh_map_tile_cache_init(&basemap->cache, MESH_MAP_TILE_CACHE_BYTES_DEFAULT);
+        if (result == 0) {
+            basemap->encoded = malloc(MESH_MAP_TILE_BYTES_MAX);
+            result = basemap->encoded != NULL ? 0 : -ENOMEM;
+        }
+        if (result < 0) {
+            fb_basemap_free(basemap);
+            return result;
+        }
+    }
+
+    const size_t before = basemap->stack.count;
+    int result = 0;
+    if (inkwell_file_is_dir(path)) {
+        result = mesh_map_stack_add_dir(&basemap->stack, path) > 0U ? 0 : -ENOENT;
+    } else {
+        result = mesh_map_stack_add(&basemap->stack, path);
+    }
+    if (result < 0) {
+        if (created) {
+            fb_basemap_free(basemap);
+        }
+        return result;
+    }
+
+    /* A new pack changes which pack answers for some keys, so what the cache holds under them
+       may be the wrong picture now - see mesh/map/stack.h on why a key alone is enough to
+       cache by only while the set of packs stands still. */
+    mesh_map_tile_cache_clear(&basemap->cache);
+    basemap->open = true;
+    fb_app_of(state)->basemap = basemap;
+    inkwell_log_info("ui", "Map: %s added %zu pack(s), %zu in all, holding up to %zu KiB of tiles",
+                     path, basemap->stack.count - before, basemap->stack.count,
+                     mesh_map_tile_cache_bytes(&basemap->cache) / 1024U);
+    return 0;
 }
 
 int fb_basemap_open(struct inkcell_draw_state *state, const char *path) {
@@ -581,35 +636,7 @@ int fb_basemap_open(struct inkcell_draw_state *state, const char *path) {
     /* Whatever was open goes first, and its cache goes with it - see the header's note on why a
        tile key outlives the file it came out of. */
     fb_basemap_close(state);
-
-    struct fb_basemap *const basemap = calloc(1U, sizeof *basemap);
-    if (basemap == NULL) {
-        return -ENOMEM;
-    }
-    int result = mesh_map_source_open_pack(path, &basemap->source);
-    if (result == 0) {
-        result = mesh_map_tile_cache_init(&basemap->cache, MESH_MAP_TILE_CACHE_BYTES_DEFAULT);
-    }
-    if (result == 0) {
-        basemap->encoded = malloc(MESH_MAP_TILE_BYTES_MAX);
-        result = basemap->encoded != NULL ? 0 : -ENOMEM;
-    }
-    if (result < 0) {
-        mesh_map_tile_cache_deinit(&basemap->cache);
-        mesh_map_source_close(&basemap->source);
-        free(basemap->encoded);
-        free(basemap);
-        return result;
-    }
-
-    basemap->open = true;
-    fb_app_of(state)->basemap = basemap;
-    inkwell_log_info("ui", "Map pack %s: %s, %u tiles, zoom %u-%u, holding up to %zu KiB of them",
-                     path, basemap->source.info.name[0] != '\0' ? basemap->source.info.name : path,
-                     basemap->source.info.tiles, (unsigned)basemap->source.info.min_zoom,
-                     (unsigned)basemap->source.info.max_zoom,
-                     mesh_map_tile_cache_bytes(&basemap->cache) / 1024U);
-    return 0;
+    return fb_basemap_add(state, path);
 }
 
 void fb_basemap_open_default(struct inkcell_draw_state *state) {
@@ -617,32 +644,40 @@ void fb_basemap_open_default(struct inkcell_draw_state *state) {
         return;
     }
     const char *named = getenv("MESHCLIENT_MAP_PACK");
-    char path[512];
-    if (named == NULL || named[0] == '\0') {
-        const char *home = getenv("HOME");
-        if (home == NULL || home[0] == '\0') {
-            return;
+    if (named != NULL && named[0] != '\0') {
+        const int opened = fb_basemap_open(state, named);
+        if (opened < 0) {
+            /* Named and unreadable is worth a line: somebody pointed the client at a file, and
+               the map about to draw a bare graticule is the only other evidence they get. */
+            inkwell_log_warn("ui", "Map pack %s could not be opened: %s", named, strerror(-opened));
         }
-        if (snprintf(path, sizeof path, FB_BASEMAP_DEFAULT_PATH, home) >= (int)sizeof path) {
-            return;
-        }
-        named = path;
-        /* Nothing sideloaded is the ordinary case and says nothing: a client that warned about
-           a missing map on every launch would be warning about a feature nobody asked for. */
-        if (access(named, R_OK) != 0) {
-            return;
-        }
+        return;
     }
-    const int opened = fb_basemap_open(state, named);
-    if (opened < 0) {
-        /* Named and unreadable is worth a line, though: somebody pointed the client at a file,
-           and the map about to draw a bare graticule is the only other evidence they get. */
-        inkwell_log_warn("ui", "Map pack %s could not be opened: %s", named, strerror(-opened));
+
+    fb_basemap_close(state);
+    const char *home = getenv("HOME");
+    if (home == NULL || home[0] == '\0') {
+        return;
+    }
+    /* Nothing installed is the ordinary case and says nothing: a client that warned about a
+       missing map on every launch would be warning about a feature nobody asked for. A pack
+       in the directory that will not open is logged by the stack, one line a file. */
+    char path[512];
+    if (snprintf(path, sizeof path, FB_BASEMAP_DEFAULT_DIR, home) < (int)sizeof path &&
+        inkwell_file_is_dir(path)) {
+        (void)fb_basemap_add(state, path);
+    }
+    if (snprintf(path, sizeof path, FB_BASEMAP_DEFAULT_PATH, home) < (int)sizeof path &&
+        access(path, R_OK) == 0) {
+        const int opened = fb_basemap_add(state, path);
+        if (opened < 0) {
+            inkwell_log_warn("ui", "Map pack %s could not be opened: %s", path, strerror(-opened));
+        }
     }
 }
 
 /*
- * `key` drawn from `above`, its ancestor at the pack's deepest level, into a cache slot of its
+ * `key` drawn from `above`, the ancestor the stack picked to draw it from, into a cache slot of its
  * own - or NULL when the ancestor is not held after all.
  *
  * The slot is claimed before the ancestor's pixels are asked for, because a claim may evict and
@@ -696,13 +731,12 @@ static const uint8_t *fb_basemap_overzoom(struct fb_basemap *basemap,
  * states differ in what the client *does* - one asks for another frame and the other stops
  * asking - which is the difference that matters on a handheld.
  *
- * **Past the pack's deepest level, a tile is its ancestor enlarged.** The map opens at zoom 14
- * and a region is cut to 13, so without this the first view of a freshly installed pack is the
- * grid. The enlargement is made once and kept in the cache under the deeper tile's own key, so
- * it costs a copy the frame it is made and a blit on every frame after, like any other tile; a
- * re-opened pack clears it with the rest. Only past the deepest level, and only from that level:
- * a tile the pack leaves out *above* it is outside the region, and an enlarged shallow tile
- * there would be ground the pack never drew passed off as a map.
+ * **Which pack draws a tile is the stack's answer** (mesh/map/stack.h), and past a pack's
+ * deepest level that answer is an ancestor to enlarge. The map opens at zoom 14 and a region is
+ * cut to 13, so without it the first view of a freshly installed pack is the grid. The
+ * enlargement is made once and kept in the cache under the deeper tile's own key, so it costs a
+ * copy the frame it is made and a blit on every frame after, like any other tile; a change to
+ * the set of packs clears it with the rest.
  *
  * Returns whether any tile was drawn, which is what decides whether the names on top of them
  * need a plate behind them.
@@ -722,7 +756,7 @@ static bool fb_map_draw_basemap(struct inkcell_draw_state *state,
     bool drew = false;
     unsigned wanted = 0U;
     int64_t nearest = 0;
-    struct mesh_map_tile_key next;
+    struct mesh_map_stack_pick next;
     int next_x = 0;
     int next_y = 0;
     memset(&next, 0, sizeof next);
@@ -749,20 +783,17 @@ static bool fb_map_draw_basemap(struct inkcell_draw_state *state,
                 continue;
             }
 
-            /* What this position is filled from: the tile itself, or past the pack's deepest
-               level the ancestor at that level. */
-            struct mesh_map_tile_key want = key;
-            const uint8_t deepest = basemap->source.info.max_zoom;
-            if (key.zoom > deepest) {
-                if ((unsigned)(key.zoom - deepest) > MESH_MAP_TILE_OVERZOOM_LEVELS ||
-                    !mesh_map_tile_ancestor(key, deepest, &want)) {
-                    mesh_map_tile_cache_note_absent(&basemap->cache, key);
-                    continue;
-                }
+            /* What this position is filled from: the tile itself, or an ancestor to enlarge. */
+            struct mesh_map_stack_pick pick;
+            if (!mesh_map_stack_resolve(&basemap->stack, key, &pick)) {
+                mesh_map_tile_cache_note_absent(&basemap->cache, key);
+                continue;
+            }
+            if (pick.key.zoom != key.zoom) {
                 const enum mesh_map_tile_state above =
-                    mesh_map_tile_cache_get(&basemap->cache, want, NULL);
+                    mesh_map_tile_cache_get(&basemap->cache, pick.key, NULL);
                 if (above == MESH_MAP_TILE_READY) {
-                    pixels = fb_basemap_overzoom(basemap, want, key);
+                    pixels = fb_basemap_overzoom(basemap, pick.key, key);
                     if (pixels != NULL) {
                         inkcell_fb_blit_bgra(state, x, y, MESH_MAP_TILE_SIZE, MESH_MAP_TILE_SIZE,
                                              pixels, FB_BASEMAP_TILE_STRIDE);
@@ -774,16 +805,10 @@ static bool fb_map_draw_basemap(struct inkcell_draw_state *state,
                     continue;
                 }
                 if (above == MESH_MAP_TILE_ABSENT) {
+                    /* The ancestor was read and would not draw, so nothing enlarges it. */
                     mesh_map_tile_cache_note_absent(&basemap->cache, key);
                     continue;
                 }
-            }
-            if (!mesh_map_source_has(&basemap->source, want)) {
-                mesh_map_tile_cache_note_absent(&basemap->cache, want);
-                if (want.zoom != key.zoom) {
-                    mesh_map_tile_cache_note_absent(&basemap->cache, key);
-                }
-                continue;
             }
 
             const int64_t dx = (int64_t)(x + MESH_MAP_TILE_SIZE / 2) - (body->x + body->w / 2);
@@ -791,7 +816,7 @@ static bool fb_map_draw_basemap(struct inkcell_draw_state *state,
             const int64_t distance = dx * dx + dy * dy;
             if (wanted == 0U || distance < nearest) {
                 nearest = distance;
-                next = want;
+                next = pick;
                 next_x = x;
                 next_y = y;
             }
@@ -819,9 +844,9 @@ static bool fb_map_draw_basemap(struct inkcell_draw_state *state,
      */
     const uint64_t read_at = inkcell_latency_now_us();
     const int length =
-        mesh_map_source_read(&basemap->source, next, basemap->encoded, MESH_MAP_TILE_BYTES_MAX);
+        mesh_map_stack_read(&basemap->stack, &next, basemap->encoded, MESH_MAP_TILE_BYTES_MAX);
     const uint64_t decode_at = inkcell_latency_now_us();
-    uint8_t *const slot = length > 0 ? mesh_map_tile_cache_claim(&basemap->cache, next) : NULL;
+    uint8_t *const slot = length > 0 ? mesh_map_tile_cache_claim(&basemap->cache, next.key) : NULL;
     const int decoded = slot == NULL ? -ENOENT
                                      : mesh_map_tile_decode(basemap->encoded, (size_t)length, slot,
                                                             MESH_MAP_TILE_CACHE_TILE_BYTES);
@@ -831,8 +856,8 @@ static bool fb_map_draw_basemap(struct inkcell_draw_state *state,
        together. */
     inkcell_latency_tile(decode_at - read_at, inkcell_latency_now_us() - decode_at);
     if (decoded == 0) {
-        mesh_map_tile_cache_commit(&basemap->cache, next);
-        if (next.zoom != span.zoom) {
+        mesh_map_tile_cache_commit(&basemap->cache, next.key);
+        if (next.key.zoom != span.zoom) {
             /* An ancestor, which is drawn by being enlarged into the tiles under it - the next
                frame's work, so that frame has to be asked for. */
             basemap->pending = true;
@@ -852,12 +877,12 @@ static bool fb_map_draw_basemap(struct inkcell_draw_state *state,
      * view stays empty. A re-opened pack is what forgets it.
      */
     if (slot != NULL) {
-        mesh_map_tile_cache_abandon(&basemap->cache, next);
+        mesh_map_tile_cache_abandon(&basemap->cache, next.key);
     }
-    mesh_map_tile_cache_note_absent(&basemap->cache, next);
+    mesh_map_tile_cache_note_absent(&basemap->cache, next.key);
     if (length != 0) {
-        inkwell_log_warn("ui", "Map tile z%u/%u/%u will not draw: %s", (unsigned)next.zoom, next.x,
-                         next.y, strerror(length < 0 ? -length : -decoded));
+        inkwell_log_warn("ui", "Map tile z%u/%u/%u will not draw: %s", (unsigned)next.key.zoom,
+                         next.key.x, next.key.y, strerror(length < 0 ? -length : -decoded));
     }
     return drew;
 }
@@ -1241,8 +1266,8 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
     fb_map_draw_crosshair(state, &body, on_something);
     fb_map_draw_scale(state, &viewport, &body, snapshot->settings.units == 1U, basemap, scale);
     if (basemap) {
-        fb_map_draw_attribution(state, &body, fb_app_of(state)->basemap->source.info.attribution,
-                                scale);
+        fb_map_draw_attribution(
+            state, &body, mesh_map_stack_attribution(&fb_app_of(state)->basemap->stack), scale);
     }
     fb_map_clip_pop(state, &clip);
 

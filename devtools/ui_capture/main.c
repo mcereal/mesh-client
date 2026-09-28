@@ -963,7 +963,8 @@ static void uicap_geometry(const char *text, uint32_t *out_width, uint32_t *out_
 /* ---- the verbs --------------------------------------------------------------------------- */
 
 /*
- * The pictures under the map - "map pack build/demo.mctp".
+ * The pictures under the map - "map pack build/demo.mctp". A second line adds a second pack,
+ * stacked the way a device's maps directory is, and a directory adds every pack in it.
  *
  * Named by the scene rather than found in the environment, for the reason
  * mesh_ui_capture_open_map_pack() gives: a frame that quietly picked up whatever pack the
@@ -981,7 +982,7 @@ static int verb_map(struct inkstand_scene *scene, char *rest, void *userdata) {
     if (what == NULL || strcmp(what, "pack") != 0 || path == NULL || path[0] == '\0') {
         return inkstand_scene_fail(scene, "'map' takes 'pack <path>'");
     }
-    const int opened = mesh_ui_capture_open_map_pack(inkstand_scene_capture(scene), path);
+    const int opened = mesh_ui_capture_add_map_pack(inkstand_scene_capture(scene), path);
     if (opened < 0) {
         return inkstand_scene_fail(scene, "could not open the tile pack %s: %s", path,
                                    strerror(-opened));

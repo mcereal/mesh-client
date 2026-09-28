@@ -28,7 +28,11 @@ int mesh_ui_capture_open(struct inkcell_capture **out, uint32_t width, uint32_t 
  */
 struct inkcell_box mesh_ui_capture_content(struct inkcell_capture *capture);
 
-/* Opens a tile pack on one, so a captured map has a basemap under it. */
+/* Opens a tile pack (or a directory of them) on one, in place of any it had, so a captured map
+   has a basemap under it. */
 int mesh_ui_capture_open_map_pack(struct inkcell_capture *capture, const char *path);
+
+/* The same, added to the packs already open rather than replacing them. */
+int mesh_ui_capture_add_map_pack(struct inkcell_capture *capture, const char *path);
 
 #endif /* MESH_UI_BACKENDS_FB_CAPTURE_H */

@@ -114,9 +114,13 @@ has. No radio, no network, nothing decoded. Coverage is derived from the tiles t
 at its deepest zoom rather than read out of a header, so it is the number a mis-built pack disagrees with; a "middle
 tile is not in the pack" line is not a fault, since a pack is a rectangle with holes in it.
 
-The map draws **`$HOME/.meshclient/map.mctp`** — beside the node cache, deliberately not inside
-the pak, because the pak is what self-update replaces and a converted region is the user's file.
-`MESHCLIENT_MAP_PACK` names another path. One pack only; choosing between several is a screen.
+The map draws every pack in **`$HOME/.meshclient/maps/`** as one map, plus
+`$HOME/.meshclient/map.mctp` if a sideload put one there — beside the node cache, deliberately
+not inside the pak, because the pak is what self-update replaces and a downloaded region is the
+user's file. `MESHCLIENT_MAP_PACK` names another file or directory instead. Up to 16 packs; a
+file that will not open is logged and skipped. Each tile comes from the pack that holds it
+deepest, and on a tie from the one with the shallower cut, so a world base draws the far zooms
+and a region the near ones (`include/mesh/map/stack.h`).
 
 Packs are built on a host with
 [`devtools/map_pack/map_pack.py`](../devtools/map_pack/map_pack.py) from an MBTiles file or a
@@ -169,7 +173,7 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_SDL_SIZE` | the window's geometry as `WxH`, in points; default `1024x768`, the Brick's panel. The window draws at the display's density, so on a Retina display that is a 2048x1536 frame; `MESHCLIENT_SDL_FIXED=1` keeps a frame the panel's size and scales it, which is the way to look at what the device will draw |
 | `MESHCLIENT_SDL_VSYNC` | `1` waits for the scan-out before returning from a present. Off by default: this client has one thread, and waiting there is up to a frame in which no transport is serviced |
 | `MESHCLIENT_SDL_POLL_MS` | how often SDL's event queue is drained, 1–200, default 8. It is drained on a timer because SDL exposes no descriptor to wait on |
-| `MESHCLIENT_MAP_PACK` | the tile pack the map draws. Read once at startup |
+| `MESHCLIENT_MAP_PACK` | the tile pack, or directory of packs, the map draws. Read once at startup |
 | `MESHCLIENT_THEME` | `dark\|light\|contrast\|colorblind`. Outranks Settings → About, which then shows it as a fact rather than a switch |
 | `MESHCLIENT_LANG` | which language the UI is drawn in. Outranks `LC_ALL`, `LC_MESSAGES`, `LANG`. See [`i18n.md`](i18n.md) |
 | `MESHCLIENT_INPUT_PROFILE` | `brick` (default) or `xbox`. Decides which evdev code each *printed* face button reports **and** the keycaps the bar draws — one table, since correcting the codes and not the words would name a key that does something else. See [`device.md`](device.md#the-buttons) |

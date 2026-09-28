@@ -21,7 +21,7 @@
 #include "inkcell/ui/fb_draw.h"
 #include "inkcell/ui/widgets/chrome.h"
 
-#include "mesh/map/source.h"
+#include "mesh/map/stack.h"
 #include "mesh/map/tile_cache.h"
 #include "mesh/ui/route.h"
 #include "mesh/ui/store.h"
@@ -31,7 +31,7 @@
 #include <stdint.h>
 
 /*
- * The pictures under the map: a tile pack, the tiles decoded out of it, and the buffer one
+ * The pictures under the map: the packs, the tiles decoded out of them, and the buffer one
  * tile's bytes are read into.
  *
  * It hangs off this client's app context rather than off the store, and that is the same
@@ -45,7 +45,7 @@
  * src/ui/backends/fb_map.c is the only file that touches these fields.
  */
 struct fb_basemap {
-    struct mesh_map_source source;
+    struct mesh_map_stack stack;
     struct mesh_map_tile_cache cache;
     /* One tile's encoded bytes. A caller's local in the flag that describes a pack, and a
        long-lived block here, because the fill loop reads one on the frame path and a megabyte
@@ -116,7 +116,9 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
                    struct inkcell_fb_layout *layout);
 
 /*
- * Opens the tile pack at `path` and hangs it off the app. 0, or -errno from the pack reader.
+ * Opens the tile pack at `path` - or every pack in it, when it is a directory - and hangs it off
+ * the app in place of whatever was there. 0, or -errno from the pack reader; -ENOENT for a
+ * directory with no pack in it that opens.
  *
  * A second open closes the first and **clears the cache with it**: a key is three numbers about
  * the world rather than about a file, so two packs of the same city hold different pictures at
@@ -125,10 +127,15 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
  */
 int fb_basemap_open(struct inkcell_draw_state *state, const char *path);
 
+/* The same, added to the packs already open rather than replacing them. The cache is cleared all
+   the same: a new pack changes which pack answers for the keys it holds. */
+int fb_basemap_add(struct inkcell_draw_state *state, const char *path);
+
 /*
- * Opens whatever pack this device has, if any: MESHCLIENT_MAP_PACK when it is set, otherwise the
- * conventional file a sideload lands at. Missing is the ordinary case and is not an error - the
- * map draws its graticule and says nothing.
+ * Opens whatever packs this device has, if any: MESHCLIENT_MAP_PACK when it is set (a file or a
+ * directory), otherwise every pack in `$HOME/.meshclient/maps/` and the single
+ * `$HOME/.meshclient/map.mctp` a sideload went to before there was a directory. Missing is the
+ * ordinary case and is not an error - the map draws its graticule and says nothing.
  *
  * The device backend calls this and the capture harness deliberately does not: a scene names its
  * pack, because a frame that quietly picked up whatever pack the developer had installed would

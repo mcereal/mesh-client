@@ -182,6 +182,15 @@ int mesh_ui_capture_open_map_pack(struct inkcell_capture *capture, const char *p
     return fb_basemap_open(state, path);
 }
 
+/* The same, stacked on the packs already open the way a device's maps directory is. */
+int mesh_ui_capture_add_map_pack(struct inkcell_capture *capture, const char *path) {
+    struct inkcell_draw_state *const state = inkcell_capture_state(capture);
+    if (state == NULL) {
+        return -EINVAL;
+    }
+    return fb_basemap_add(state, path);
+}
+
 /*
  * One app per backend, not one per process.
  *
