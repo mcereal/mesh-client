@@ -477,9 +477,11 @@ while (inkcell_fb_list_next(&list, &i)) {
 ### A heading's number is what the list is not showing
 
 Every list heading is built by `mesh_ui_chrome_list_title()` in `src/ui/tables/chrome.c`, and a
-number appears in one only for what is *not* on the list: "Nodes (22 of 42)" when a filter, the
-roster cap or a sync still arriving holds some back, "#LongFast (+30 older)" when history was
-dropped off the top. A list with everything on it is its name alone. The bare total is refused
+number appears in one only for what is *not* on the list: "Nodes (5 of 22)" when the reader's own
+filter chip or search narrows it, "#LongFast (+30 older)" when history was dropped off the top. A
+total the reader did not choose - the radio's NodeDB count, which can run ahead of the nodes it
+sent - is not an "of": it read as a filter nobody had set, and the Radio tab's roster card is
+where that gap is said. A list with everything on it is its name alone. The bare total is refused
 because a reader counts the rows in front of them, and each screen's rows mix items with controls
 differently - "Messages (4)" counted conversations over five conversation-shaped rows (All
 traffic is one), "Devices (5)" radios over six rows (the network row is one). The rows already

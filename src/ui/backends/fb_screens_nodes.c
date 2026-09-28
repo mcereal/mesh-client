@@ -543,19 +543,8 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
     }
 
     const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
-    /*
-     * Two counts, and keeping them apart is what the filter row cost this screen.
-     *
-     * `held` is the published roster - what the client knows and what "of" is measured against.
-     * `count` is what this list is about to draw, which is however much of it the filter
-     * keeps. Every number below is one or the other on purpose: conflated, the title said
-     * "Nodes 42" over three pinned rows, which is the arithmetic-no-screen-should-show rule
-     * reached from the other end.
-     */
     const enum mesh_ui_node_filter filter = (enum mesh_ui_node_filter)nav->node_filter;
     const enum mesh_ui_node_sort sort = (enum mesh_ui_node_sort)nav->node_sort;
-    const uint32_t held =
-        hs->node_count > MESH_UI_MAX_HANDSHAKE_NODES ? MESH_UI_MAX_HANDSHAKE_NODES : hs->node_count;
     /*
      * The list, built once for this frame: the rows the filter kept, in the order the sort puts
      * them. Every row below is read out of it rather than walked for, so the node a row draws
@@ -564,32 +553,29 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
     struct mesh_ui_node_view view_rows;
     mesh_ui_node_view_build_query(hs, filter, nav->node_query, sort, &view_rows);
     const uint32_t count = view_rows.count;
-    char title[96];
     /*
-     * Three things can be bigger than this list, and the honest "of" is whichever is biggest.
-     * The radio's database is one; the roster is the second, and it is the one that used to go
-     * unsaid - it holds 256 and the UI publishes its best 128, so a busy mesh quietly dropped
-     * half of what the client knew with the title still reading "128 nodes". After a NodeDB
-     * reset the radio's number is the smaller of the two, which is exactly when taking the max
-     * matters rather than preferring either.
+     * The heading's "of" is measured against this list with nothing narrowing it, and against
+     * nothing bigger.
      *
-     * The third is the roster this screen is *itself* holding back, which is the filter. It
-     * needs no title of its own: the heading already says "n of m" whenever something is
-     * bigger than what is drawn, and the filter row under it is where the reader looks for
-     * why. Which of the three is doing the holding back is deliberately not spelled out - one
-     * sentence that says "there is more than this" is worth more than three that compete.
+     * It used to take the largest of three totals - this list, the roster the client holds, and
+     * the radio's own NodeDB count - so a radio that had counted nodes it never sent read
+     * "Nodes (22 of 42)" over a list with every filter off. That is a number the reader cannot
+     * act on: nothing on the frame says which twenty are missing or how to see them, and it
+     * reads as a filter the reader did not set. The gap between the radio's count and the
+     * client's is real, and the Radio tab's roster card is where it is said.
+     *
+     * So the number is only ever the reader's own doing: a filter chip or a search, both of
+     * which are on the chip row under the heading, which is where the reader looks for why.
      */
-    const uint32_t known_by_radio = hs->has_my_info ? hs->my_info.nodedb_entries : 0U;
-    uint32_t known = hs->nodes_known > known_by_radio ? hs->nodes_known : known_by_radio;
-    if (held > known) {
-        known = held;
+    uint32_t unfiltered = count;
+    if (filter != MESH_UI_NODE_FILTER_ALL || nav->node_query[0] != '\0') {
+        struct mesh_ui_node_view all_rows;
+        mesh_ui_node_view_build(hs, MESH_UI_NODE_FILTER_ALL, sort, &all_rows);
+        unfiltered = all_rows.count;
     }
-    /* With nothing held back the heading is the name alone, as on every list: the rows are
-       there to be counted. A node only this client remembers says so on its own row, and the
-       Status screen's roster card says how many there are, so the gap between the radio's
-       count and this list's is explained where each number is. */
-    mesh_ui_chrome_list_title(title, sizeof title, inkcell_str(MESH_STR_TAB_NODES), count, known,
-                              0U);
+    char title[96];
+    mesh_ui_chrome_list_title(title, sizeof title, inkcell_str(MESH_STR_TAB_NODES), count,
+                              unfiltered, 0U);
     fb_draw_app_bar(state, layout, &(const struct inkcell_fb_app_bar){.title = title});
 
     const uint32_t me = hs->has_my_info ? hs->my_info.node_num : 0U;
