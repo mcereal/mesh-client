@@ -151,7 +151,7 @@ MESH_TEST_CASE(commands_are_the_source_of_the_legacy_action_bar, unit) {
                       "the Nodes sort row should declare SORT");
 
     actions_snapshot(&snapshot);
-    snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot.nav.screen = MESH_UI_SCREEN_MAP;
     snapshot.nav.waypoints_open = true;
     mesh_ui_commands_for(&snapshot, &commands);
     MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_A) != MESH_UI_COMMAND_NEW,
@@ -1017,10 +1017,10 @@ MESH_TEST_CASE(actions_empty_nodes_offer_only_the_way_forward, unit) {
 MESH_TEST_CASE(actions_map_pans_on_the_whole_d_pad, unit) {
     struct mesh_ui_snapshot snapshot;
     actions_snapshot(&snapshot);
-    snapshot.nav.screen = MESH_UI_SCREEN_NODES;
-    snapshot.nav.map_open = true;
+    snapshot.nav.screen = MESH_UI_SCREEN_MAP;
     snapshot.handshake_valid = true;
     snapshot.handshake.node_count = 1U;
+    snapshot.handshake.nodes[0].position.valid = true; /* something to pan between */
 
     struct mesh_ui_command_set commands;
     mesh_ui_commands_for(&snapshot, &commands);

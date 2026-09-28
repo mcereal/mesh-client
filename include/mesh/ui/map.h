@@ -139,10 +139,11 @@ struct mesh_ui_map_marker {
 /*
  * The markers, and what could not be drawn.
  *
- * `known` and `count` are two different facts and the app bar says both: a mesh of two hundred
- * nodes where six have ever reported a position is a map with six markers on it, and a title
- * that said "6" alone would read as a mesh of six nodes. `known` is what the client holds,
- * `count` is what has somewhere to be drawn.
+ * `known` and `count` are two different facts: a mesh of two hundred nodes where six have ever
+ * reported a position is a map with six markers on it. `known` is what the client holds,
+ * `count` is what has somewhere to be drawn. The app bar's badge is measured against `count`
+ * only, and only once some of it is off the edge - "6 of 200" read as a hundred and ninety-four
+ * markers hidden somewhere, when a node with no fix is nothing the map could have shown.
  */
 struct mesh_ui_map_view {
     struct mesh_ui_map_marker markers[MESH_UI_MAP_MARKERS_MAX];

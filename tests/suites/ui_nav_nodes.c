@@ -1874,16 +1874,16 @@ MESH_TEST_CASE(ui_nav_nodes_filter_that_keeps_nothing_keeps_its_own_rows, unit) 
         mesh_ui_store_shutdown(&store), "nothing is pinned in this roster");
     MESH_TEST_FAIL_IF_CLEANUP(
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) != MESH_UI_NODES_LEAD_ROWS,
-        mesh_ui_store_shutdown(&store), "an empty filter still leaves the filter and map rows");
+        mesh_ui_store_shutdown(&store), "an empty filter still leaves the control rows");
 
-    /* And both of them still work: the map row opens, and A on the filter row puts the roster
-       back. Walked in that order because the map is the row a stranded reader reaches first. */
-    for (uint32_t lead = 0; lead < MESH_UI_NODES_MAP_ROW; ++lead) {
+    /* And they still work: the cursor can reach the last of them, and A on the filter row puts
+       the roster back. */
+    for (uint32_t lead = 0; lead + 1U < MESH_UI_NODES_LEAD_ROWS; ++lead) {
         mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
-    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_MAP_ROW,
-                              mesh_ui_store_shutdown(&store),
-                              "the cursor can still reach the map row");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_LEAD_ROWS - 1U,
+        mesh_ui_store_shutdown(&store), "the cursor can still reach the last control row");
 
     store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
@@ -2634,6 +2634,19 @@ MESH_TEST_CASE(ui_nav_triggers_page_a_list_with_no_groups, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
+    /* Longer than a page whatever the control rows in front of it come to. */
+    {
+        struct mesh_ui_handshake_state handshake = store.handshake;
+        for (uint32_t i = handshake.node_count; i < 12U; ++i) {
+            handshake.nodes[i] = handshake.nodes[2];
+            handshake.nodes[i].node_id = 0x4000U + i;
+            snprintf(handshake.nodes[i].short_name, sizeof handshake.nodes[i].short_name, "N%02u",
+                     (unsigned)i);
+        }
+        handshake.node_count = 12U;
+        mesh_ui_store_set_handshake(&store, &handshake);
+        mesh_ui_store_consume_updates(&store, NULL);
+    }
     mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
 
     const char *failure = NULL;
@@ -2647,6 +2660,9 @@ MESH_TEST_CASE(ui_nav_triggers_page_a_list_with_no_groups, unit) {
     if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action) || *cursor != 5U) {
         failure = "R2 should move the cursor a page down";
         goto cleanup;
+    }
+    for (unsigned page = 0U; page < 8U && *cursor + 5U < rows; ++page) {
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
     }
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action);
     if (*cursor != rows - 1U) {
@@ -2662,18 +2678,22 @@ MESH_TEST_CASE(ui_nav_triggers_page_a_list_with_no_groups, unit) {
         failure = "L2 should move the cursor a page up";
         goto cleanup;
     }
+    for (unsigned page = 0U; page < 8U && *cursor > 5U; ++page) {
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    }
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
-    if (*cursor != 0U || store.nav.node_detail_open || store.nav.map_open) {
+    if (*cursor != 0U || store.nav.node_detail_open || store.nav.screen != MESH_UI_SCREEN_NODES) {
         failure = "L2 near the top should stop on the first row and open nothing";
         goto cleanup;
     }
 
-    /* The map stays open behind a change of tab, and must not take paging with it. */
-    store.nav.map_open = true;
+    /* The Map tab spends its triggers on its two faces, and that must not take paging from
+       any other tab. */
+    mesh_test_open_tab(&store, MESH_UI_SCREEN_MAP);
     mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES);
     if (!mesh_ui_store_handle_key(&store, INKCELL_KEY_R2, &action) ||
         store.nav.cursor[MESH_UI_SCREEN_MESSAGES] == 0U) {
-        failure = "a map left open on Nodes should not stop R2 paging the conversation list";
+        failure = "a visit to the Map tab should not stop R2 paging the conversation list";
         goto cleanup;
     }
 

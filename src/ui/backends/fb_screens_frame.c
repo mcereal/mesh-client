@@ -43,6 +43,8 @@ static enum inkcell_icon fb_screen_icon(enum mesh_ui_screen screen) {
         return INKCELL_ICON_MESSAGES;
     case MESH_UI_SCREEN_NODES:
         return INKCELL_ICON_NODES;
+    case MESH_UI_SCREEN_MAP:
+        return INKCELL_ICON_MAP;
     case MESH_UI_SCREEN_RADIO:
         /* The antenna the Devices tab wore, rather than the Status gauge: the tab is named for
            the thing, and the thing is a radio. */
@@ -641,7 +643,7 @@ static bool fb_route_split(const struct mesh_ui_route *body) {
 static bool fb_frame_split(const struct mesh_ui_snapshot *snapshot,
                            const struct mesh_ui_route *body) {
     return fb_route_split(body) &&
-           !(body->screen == MESH_UI_SCREEN_NODES && snapshot->nav.map_open);
+           !(body->screen == MESH_UI_SCREEN_NODES && snapshot->nav.node_detail_from_map);
 }
 
 bool fb_render_split_pair(const struct inkcell_draw_state *state, const struct mesh_ui_route *from,
@@ -920,15 +922,15 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
             }
             break;
         case MESH_UI_SCREEN_NODES:
-            /* A place or the list of them first, over the roster or the map; then the map, under
-               any node detail opened from it and over the list it was opened from - the same
-               order src/ui/tables/actions.c names the presses in. */
+            fb_render_nodes(state, snapshot, &layout);
+            break;
+        case MESH_UI_SCREEN_MAP:
+            /* A place or the list of them, and otherwise the map - the same order
+               src/ui/tables/actions.c names the presses in. */
             if (mesh_ui_nav_waypoints_showing(&snapshot->nav)) {
                 fb_render_waypoints(state, snapshot, &layout);
-            } else if (snapshot->nav.map_open && !snapshot->nav.node_detail_open) {
-                fb_render_map(state, snapshot, &layout);
             } else {
-                fb_render_nodes(state, snapshot, &layout);
+                fb_render_map(state, snapshot, &layout);
             }
             break;
         case MESH_UI_SCREEN_SETTINGS:
@@ -936,9 +938,9 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
             break;
         case MESH_UI_SCREEN_RADIO:
         default:
-            /* The device list, the chart or a page over the cards, the way the map is drawn over
-               the node list - and the screen is tested as well as the flag for the same reason: the
-               flags say where the Radio tab is standing, not what is on the panel. */
+            /* The device list, the chart or a page over the cards, the way a node's detail is
+               drawn over the node list - and the screen is tested as well as the flag for the same
+               reason: the flags say where the Radio tab is standing, not what is on the panel. */
             if (snapshot->nav.devices_open) {
                 fb_render_devices(state, snapshot, &layout);
             } else if (snapshot->nav.trend_open) {

@@ -674,10 +674,9 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
      * One label column for both rows, measured from the longer of the two words, so the group
      * reads as one block rather than as two rows that happen to adjoin.
      */
-    const char *const control_labels[] = {
-        inkcell_str(MESH_STR_NODES_FILTER_ROW), inkcell_str(MESH_STR_NODES_SORT_ROW),
-        inkcell_str(MESH_STR_NODES_FIND_ROW), inkcell_str(MESH_STR_MAP_ROW),
-        inkcell_str(MESH_STR_TAB_WAYPOINTS)};
+    const char *const control_labels[] = {inkcell_str(MESH_STR_NODES_FILTER_ROW),
+                                          inkcell_str(MESH_STR_NODES_SORT_ROW),
+                                          inkcell_str(MESH_STR_NODES_FIND_ROW)};
     const size_t control_label_cols = inkcell_fb_field_label_cols_fit(
         state, layout, control_labels, sizeof control_labels / sizeof control_labels[0]);
     /*
@@ -713,39 +712,10 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
     char right[32];
     char age[8];
     char initials[MESH_UI_CONVERSATION_INITIALS_MAX];
-    /* How many of what the client knows has somewhere to be drawn, which is what the map row's
-       supporting line says. Counted once, outside the loop: it walks the whole roster and the
-       waypoint book, and the row it is for is drawn at most once. */
-    struct mesh_ui_map_view markers;
-    mesh_ui_map_build(&view, &markers);
-    char map_line[48];
-    if (markers.count > 0U) {
-        inkcell_str_format_plural(map_line, sizeof map_line, MESH_STR_MAP_ROW_MARKERS_ONE,
-                                  markers.count, markers.count);
-    } else {
-        /* The row stays and says why it cannot be pressed, rather than disappearing - the
-           Waypoints tab's "New waypoint here" rule, and for its reason: a row that vanishes
-           explains nothing to the reader wondering where the map went. */
-        inkwell_str_copy(map_line, sizeof map_line, inkcell_str(MESH_STR_MAP_ROW_EMPTY));
-    }
-    const uint32_t places = snapshot->waypoints.count > MESH_UI_MAX_WAYPOINTS
-                                ? MESH_UI_MAX_WAYPOINTS
-                                : snapshot->waypoints.count;
-    char places_line[48];
-    if (places > 0U) {
-        inkcell_str_format_plural(places_line, sizeof places_line, MESH_STR_WAYPOINTS_ROW_COUNT_ONE,
-                                  places, places);
-    } else {
-        inkwell_str_copy(places_line, sizeof places_line,
-                         inkcell_str(MESH_STR_WAYPOINTS_ROW_EMPTY));
-    }
-
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {
         if (i == MESH_UI_NODES_FILTER_ROW) {
             const struct inkcell_fb_list_item filter_row = {
-                /* An empty icon slot on each control row, so every label and value on the
-                   screen starts in the column the map's and the places' do. */
                 .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_NONE},
                 .label = inkcell_str(MESH_STR_NODES_FILTER_ROW),
                 .label_cols = control_label_cols,
@@ -793,7 +763,7 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
             inkcell_fb_list_item(state, &list, i, &find_row);
             continue;
         }
-        if (nothing_matched && i > MESH_UI_NODES_WAYPOINTS_ROW) {
+        if (nothing_matched && i >= MESH_UI_NODES_LEAD_ROWS) {
             /* The row that is not a row: what the filter did, where the nodes would be. Dim
                because it is not something to press - the same tone the map row takes when it
                has nothing to open. A query says so in its own words, since the chip may well
@@ -803,36 +773,6 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
                                                 ? MESH_STR_NODES_FIND_NONE
                                                 : MESH_STR_NODES_FILTER_NONE),
                                 INKCELL_TONE_DIM);
-            continue;
-        }
-        if (i == MESH_UI_NODES_MAP_ROW) {
-            const struct inkcell_fb_list_item map_row = {
-                .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_MAP},
-                .label = inkcell_str(MESH_STR_MAP_ROW),
-                .label_cols = control_label_cols,
-                /* Dim when there is nothing to put on it, for the reason the "New message" row
-                   is dim: it is a button among things, and one that cannot be pressed. */
-                .tone = markers.count > 0U ? INKCELL_TONE_NORMAL : INKCELL_TONE_DIM,
-                .trailing = {.kind = INKCELL_FB_TRAILING_ICON, .icon = INKCELL_ICON_CHEVRON},
-                .value = map_line,
-            };
-            inkcell_fb_list_item(state, &list, i, &map_row);
-            continue;
-        }
-        if (i == MESH_UI_NODES_WAYPOINTS_ROW) {
-            /* Dim only on a protocol with no waypoints: otherwise the list always ends in the
-               row that makes a place, so there is always something to press it for. */
-            const struct inkcell_fb_list_item places_row = {
-                .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_POSITION},
-                .label = inkcell_str(MESH_STR_TAB_WAYPOINTS),
-                .label_cols = control_label_cols,
-                .tone = mesh_ui_settings_supports(&snapshot->settings, MESH_UI_FEATURE_WAYPOINTS)
-                            ? INKCELL_TONE_NORMAL
-                            : INKCELL_TONE_DIM,
-                .trailing = {.kind = INKCELL_FB_TRAILING_ICON, .icon = INKCELL_ICON_CHEVRON},
-                .value = places_line,
-            };
-            inkcell_fb_list_item(state, &list, i, &places_row);
             continue;
         }
         /* Through the view, never by subtracting from the raw roster: the row-to-node mapping

@@ -264,7 +264,7 @@ MESH_TEST_CASE(ui_click_elsewhere_stands_an_armed_delete_down, unit) {
     (void)mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_ROWS + 0U, &action);
     MESH_TEST_FAIL_IF_CLEANUP(!store.nav.waypoint_detail_open, mesh_ui_store_shutdown(&store),
                               "a click on a place should open it");
-    const uint32_t rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES);
+    const uint32_t rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MAP);
     const uint32_t remove = (uint32_t)MESH_UI_FOCUS_ROWS + rows - 1U;
 
     click_settle(&store);

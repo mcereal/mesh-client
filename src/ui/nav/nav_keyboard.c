@@ -247,9 +247,11 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
                drop the user somewhere they were not. */
             if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
                 nav->screen = MESH_UI_SCREEN_SETTINGS;
+            } else if (nav->keyboard_waypoint && nav->waypoint_source_node == 0U) {
+                /* The places list raised it, and that is the Map tab. */
+                nav->screen = MESH_UI_SCREEN_MAP;
             } else if (nav->keyboard_waypoint || nav->keyboard_node_query || nav->keyboard_login) {
-                /* The places list and the node detail that raise it are both the Nodes tab,
-                   and so is the Find row. */
+                /* A node's detail raised it, or the Find row: both the Nodes tab. */
                 nav->screen = MESH_UI_SCREEN_NODES;
             } else if (nav->keyboard_network) {
                 /* Survives the prompt untouched, exactly as `keyboard_waypoint` does - and it
@@ -316,13 +318,14 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         return;
     }
     if (nav->keyboard_waypoint) {
+        /* Back where it was raised, and the level underneath is still standing: a new place at
+           our own fix comes from the Map tab's places list, and one at a node's fix from that
+           node's "Save this place" row on the Nodes tab. */
+        nav->screen = nav->waypoint_source_node == 0U ? MESH_UI_SCREEN_MAP : MESH_UI_SCREEN_NODES;
         nav->keyboard_waypoint = false;
         nav->waypoint_source_node = 0U;
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
         nav->draft_saved[0] = '\0';
-        /* Back where it was raised: the places list and the node detail's "Save this place"
-           row are both levels of the Nodes tab, so the level underneath is still standing. */
-        nav->screen = MESH_UI_SCREEN_NODES;
     }
 }
 

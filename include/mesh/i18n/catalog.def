@@ -76,6 +76,7 @@ MESH_STR_ENTRY(DATE_WEEKDAY_DAY_MONTH,    "%s %d %s")
 
 MESH_STR_ENTRY(TAB_MESSAGES,              "Messages")
 MESH_STR_ENTRY(TAB_NODES,                 "Nodes")
+MESH_STR_ENTRY(TAB_MAP,                   "Map")
 MESH_STR_ENTRY(TAB_WAYPOINTS,             "Waypoints")
 MESH_STR_ENTRY(TAB_DEVICES,               "Devices")
 MESH_STR_ENTRY(TAB_STATUS,                "Status")
@@ -143,6 +144,10 @@ MESH_STR_ENTRY(ACTION_ZOOM_OUT,           "zoom out")
 /* START on the map: frame every marker again, which is the view the map opened on. A verb
    rather than "reset" because nothing is being undone - the reader is asking to see all of it. */
 MESH_STR_ENTRY(ACTION_FIT,                "fit all")
+/* The Map tab's triggers, named for the face they turn to: from the map, the list of places;
+   from the list, the map. */
+MESH_STR_ENTRY(ACTION_PLACES,             "places")
+MESH_STR_ENTRY(ACTION_MAP,                "map")
 /* Put the highlighted character into the draft - what A does on the on-screen keyboard. */
 MESH_STR_ENTRY(ACTION_TYPE,               "type")
 MESH_STR_ENTRY(ACTION_FIND,               "find")
@@ -459,32 +464,21 @@ MESH_STR_ENTRY(NODES_SORT_NO_FIX,         "%s (no fix)")
 
 /* ---- the map ----------------------------------------------------------------------------------
  *
- * A picture of where the nodes and the shared places are, opened from the first row of the Nodes
- * list. There is no basemap under it yet, so what it draws is a graticule, the markers, and a scale
+ * A picture of where the nodes and the shared places are: the Map tab's first face. There is no basemap under it yet, so what it draws is a graticule, the markers, and a scale
  * bar to read the distances against.
  */
 
-/* The Nodes list's first row, and what its supporting line says. The count is nodes and places
-   that have reported a position, which is usually far fewer than the roster holds. */
-MESH_STR_ENTRY(MAP_ROW,                   "Map")
-MESH_STR_PLURAL_ENTRY(MAP_ROW_MARKERS,    "%u position", "%u positions")
-/* ...and what that row says instead when nothing on the mesh has ever reported a position. The
-   row stays and says why, rather than disappearing: a row that vanishes explains nothing. */
-MESH_STR_ENTRY(MAP_ROW_EMPTY,             "Nothing has reported a position yet")
-/* The row under it, which opens the shared places; its title is TAB_WAYPOINTS, the name the
-   places had as a tab. The count is places held, and with none the row says what it is for,
-   since pressing it is how the first one is made. */
-MESH_STR_PLURAL_ENTRY(WAYPOINTS_ROW_COUNT, "%u place", "%u places")
-MESH_STR_ENTRY(WAYPOINTS_ROW_EMPTY,       "None shared yet")
-/* Raised when the row is pressed anyway - the reader who most needs the reason is the one who
-   just pressed A without reading it. */
-MESH_STR_ENTRY(TOAST_MAP_NO_FIXES,        "Nothing on the mesh has a position yet")
+/* What the map says instead of drawing an empty grid when nothing on the mesh has ever reported
+   a position: a grid with no markers on it reads as a map panned into the ocean. */
+MESH_STR_ENTRY(MAP_EMPTY,                 "Nothing has reported a position yet")
+/* L2/R2 to the places on a protocol that has none. */
 MESH_STR_ENTRY(TOAST_NO_WAYPOINTS,        "This mesh does not share waypoints")
-/* The map's own heading, and the badge beside it: how many markers are on the panel as it is
-   framed right now, out of every one the client could place. A reader who has panned away from
-   everything is told so rather than left wondering whether the map is broken. */
+/* The map's own heading, and the badge beside it once some markers are off the edge: how many
+   are on the panel as it is framed right now, out of every one it could draw. A reader who has
+   panned away from everything is told so rather than left wondering whether the map is broken.
+   Nothing is said while every marker is in view. */
 MESH_STR_ENTRY(MAP_TITLE,                 "Map")
-MESH_STR_ENTRY(MAP_BADGE_IN_VIEW,         "%u of %u")
+MESH_STR_ENTRY(MAP_BADGE_IN_VIEW,         "%u of %u in view")
 /* Under the crosshair when it is on nothing. Its own line rather than an empty one, because the
    space where a name would be is where a reader looks to find out what they have aimed at. */
 MESH_STR_ENTRY(MAP_NOTHING_SELECTED,      "nothing under the crosshair")
@@ -1608,7 +1602,7 @@ MESH_STR_ENTRY(HELP_LABEL_MAP_MOVE,       "Moving around")
 MESH_STR_ENTRY(HELP_LABEL_MAP_PICK,       "Opening a marker")
 MESH_STR_ENTRY(HELP_LABEL_MAP_TRUST,      "How much to believe it")
 MESH_STR_ENTRY(HELP_NOTE_MAP,             "Every node and shared place that has reported a position, drawn north-up. There is no map underneath yet, so the grid and the scale bar are what distances are read against.")
-MESH_STR_ENTRY(HELP_NOTE_MAP_MOVE,        "The d-pad moves the view, not a cursor: a direction stops on the next marker that way, or slides the view when there is none. The shoulders still change tab and START frames everything.")
+MESH_STR_ENTRY(HELP_NOTE_MAP_MOVE,        "The d-pad moves the view, not a cursor: a direction stops on the next marker that way. The shoulders still change tab, START frames everything, and L2 and R2 turn to the list of places.")
 MESH_STR_ENTRY(HELP_NOTE_MAP_PICK,        "Whatever is nearest the crosshair in the middle is what A opens, so aiming is panning. A node opens its details and a place opens on the Waypoints tab.")
 MESH_STR_ENTRY(HELP_NOTE_MAP_TRUST,       "A marker is where a node last said it was, not where it is now. Senders often round their position on purpose, and the ring around a marker is how far out it may be.")
 

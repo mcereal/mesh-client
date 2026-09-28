@@ -707,15 +707,14 @@ static bool help_store_devices(struct mesh_ui_store *store) {
  */
 
 MESH_TEST_CASE(help_every_tab_explains_itself, unit) {
-    /* The Nodes and Radio tabs twice each: once on their own list and once on the level that
-       used to be a tab of its own - the places and the device list - which kept its help when
-       it stopped being one. */
+    /* The Map and Radio tabs twice each: the Map tab on both its faces, and the Radio tab on its
+       cards and on the device list, which kept its help when it stopped being a tab. */
     static const enum mesh_ui_screen k_screens[] = {
-        MESH_UI_SCREEN_MESSAGES, MESH_UI_SCREEN_NODES, MESH_UI_SCREEN_NODES,
-        MESH_UI_SCREEN_RADIO,    MESH_UI_SCREEN_RADIO,
+        MESH_UI_SCREEN_MESSAGES, MESH_UI_SCREEN_NODES, MESH_UI_SCREEN_MAP,
+        MESH_UI_SCREEN_MAP,      MESH_UI_SCREEN_RADIO, MESH_UI_SCREEN_RADIO,
     };
-    static const bool k_devices[] = {false, false, false, false, true};
-    static const bool k_places[] = {false, false, true, false, false};
+    static const bool k_devices[] = {false, false, false, false, false, true};
+    static const bool k_places[] = {false, false, false, true, false, false};
     for (size_t i = 0; i < sizeof k_screens / sizeof k_screens[0]; ++i) {
         struct mesh_ui_store store;
         MESH_TEST_FAIL_IF(!(k_devices[i]  ? help_store_devices(&store)

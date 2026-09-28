@@ -23,25 +23,11 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
     case MESH_UI_SCREEN_MESSAGES:
         return nav->thread_open ? 1U : 0U;
     case MESH_UI_SCREEN_NODES: {
-        /*
-         * Four levels, and the map is the second *when it is open*: the list, the map over it, a
-         * node's detail over that, and a chart of one of that detail's readings over that. A
-         * detail opened from the list is one level in; the same detail opened from the map is
-         * two, and that is not bookkeeping - it is what makes B out of it slide the right way,
-         * because the place it lands on is the map rather than the list.
-         */
+        /* Three levels: the list, a node's detail over it, and a chart of one of that detail's
+           readings - or its sheet of verbs - over that. A node opened from the map is the same
+           detail, reached across the tabs; its B goes back there (`node_detail_from_map`), and
+           the change of tab is what slides, not a depth. */
         uint8_t depth = 0U;
-        if (nav->map_open) {
-            depth++;
-        }
-        /* The places list, the map's neighbour one row down, and a place opened from either of
-           them - over the list or over the map, as a node's detail is. */
-        if (nav->waypoints_open) {
-            depth++;
-        }
-        if (nav->waypoint_detail_open) {
-            depth++;
-        }
         if (nav->node_detail_open) {
             depth++;
         }
@@ -59,6 +45,10 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         }
         return depth;
     }
+    case MESH_UI_SCREEN_MAP:
+        /* The map and the places list are the tab's two faces, both at the bottom: neither is
+           reached by going *into* the other. A place is one level over either. */
+        return nav->waypoint_detail_open ? 1U : 0U;
     case MESH_UI_SCREEN_SETTINGS: {
         if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
             return 0U;
@@ -122,7 +112,7 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
         return;
     case MESH_UI_SCREEN_NODES:
         /* The topmost first, and `level` says what is being drawn rather than what is underneath
-           it. A chart of one of the node's readings is the highest of the tab's four levels. */
+           it. A chart of one of the node's readings is the highest of the tab's levels. */
         if (nav->node_detail_open) {
             out->subject = nav->node_detail_node;
             if (nav->node_actions_open) {
@@ -146,25 +136,15 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
             out->level = MESH_UI_ROUTE_NODE;
             return;
         }
-        /* A place next, over the list or the map it was opened from, and then the list of them. */
+        return;
+    case MESH_UI_SCREEN_MAP:
+        /* A place first, over the face it was opened from, and then whichever face is up. */
         if (nav->waypoint_detail_open) {
             out->level = MESH_UI_ROUTE_WAYPOINT;
             out->subject = nav->waypoint_detail_id;
             return;
         }
-        if (nav->waypoints_open) {
-            out->level = MESH_UI_ROUTE_WAYPOINTS;
-            return;
-        }
-        if (nav->map_open) {
-            /*
-             * One place, however far it has been panned. The centre and the zoom are
-             * deliberately not part of it, for the reason a cursor is not: they move constantly
-             * and change nothing about which screen is on the panel, and a route that carried
-             * them would restart the slide under the reader's thumb on every press of Left.
-             */
-            out->level = MESH_UI_ROUTE_MAP;
-        }
+        out->level = nav->waypoints_open ? MESH_UI_ROUTE_WAYPOINTS : MESH_UI_ROUTE_MAP;
         return;
     case MESH_UI_SCREEN_SETTINGS:
         if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
@@ -407,6 +387,11 @@ enum inkcell_transition mesh_ui_route_move(const struct mesh_ui_route *from,
     if (to->depth != from->depth) {
         return to->depth > from->depth ? INKCELL_TRANSITION_FORWARD : INKCELL_TRANSITION_BACK;
     }
+    /* The Map tab's two faces are siblings, and slide the way their triggers point: R2 to the
+       places is rightwards, L2 back to the map leftwards. */
+    if (to->level == MESH_UI_ROUTE_MAP && from->level == MESH_UI_ROUTE_WAYPOINTS) {
+        return INKCELL_TRANSITION_BACK;
+    }
     return INKCELL_TRANSITION_FORWARD;
 }
 
@@ -421,9 +406,8 @@ enum inkcell_transition mesh_ui_route_move(const struct mesh_ui_route *from,
  */
 
 static const char *const k_screen_names[MESH_UI_SCREEN_COUNT] = {
-    [MESH_UI_SCREEN_MESSAGES] = "messages",
-    [MESH_UI_SCREEN_NODES] = "nodes",
-    [MESH_UI_SCREEN_RADIO] = "radio",
+    [MESH_UI_SCREEN_MESSAGES] = "messages", [MESH_UI_SCREEN_NODES] = "nodes",
+    [MESH_UI_SCREEN_MAP] = "map",           [MESH_UI_SCREEN_RADIO] = "radio",
     [MESH_UI_SCREEN_SETTINGS] = "settings",
 };
 

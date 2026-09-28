@@ -119,11 +119,12 @@ bool mesh_ui_nav_firmware_key(struct mesh_ui_nav *nav, enum inkcell_key key);
 
 /* ---- nav_waypoints.c --------------------------------------------------------------------- */
 
-/* Opens the place with this id over the list, parking the list's cursor. */
+/* Opens the place with this id over the Map tab's face, parking its cursor. */
 void mesh_ui_nav_open_waypoint(struct mesh_ui_nav *nav, uint32_t id);
-/* The places list over the Nodes roster, and back out of it to the roster's own row. */
-void mesh_ui_nav_open_waypoints(struct mesh_ui_nav *nav);
-bool mesh_ui_nav_close_waypoints(struct mesh_ui_nav *nav);
+/* The Map tab's face: the places list when `places`, the map otherwise. Any open place closes
+   with it. False when the tab was already showing that face, or when the places are asked for on
+   a protocol that has none - which raises the toast that says so. */
+bool mesh_ui_nav_map_face(struct mesh_ui_nav *nav, const struct mesh_ui_store *store, bool places);
 /* B out of an open place. False when the list is already showing. */
 bool mesh_ui_nav_close_waypoint(struct mesh_ui_nav *nav);
 /* Raises the keyboard to name a new place at `source_node`'s fix - 0 for our own radio. */
@@ -142,13 +143,12 @@ bool mesh_ui_nav_waypoint_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_st
 
 /* ---- nav_map.c --------------------------------------------------------------------------- */
 
-/* Opens the map over the node list. `focus_node` aims it at one node - 0 frames everything,
-   which is also what START goes back to. */
+/* Goes to the Map tab's map. `focus_node` aims it at one node - 0 frames everything, which is
+   also what START goes back to. */
 void mesh_ui_nav_open_map(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                           uint32_t focus_node);
-/* B out of the map. False when it was not open. */
-bool mesh_ui_nav_close_map(struct mesh_ui_nav *nav);
-/* Closes a map with nothing left to draw on it. */
+/* Frames a map that has never been framed, and forgets the frame of one with nothing left to
+   draw, so the next marker to arrive is framed rather than panned to. */
 bool mesh_ui_nav_map_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
 /*
  * One key while the map is up, taken *before* the routing that turns Left and Right into tabs -

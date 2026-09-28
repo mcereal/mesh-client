@@ -42,6 +42,8 @@ const char *mesh_ui_screen_name(enum mesh_ui_screen screen) {
         return inkcell_str(MESH_STR_TAB_MESSAGES);
     case MESH_UI_SCREEN_NODES:
         return inkcell_str(MESH_STR_TAB_NODES);
+    case MESH_UI_SCREEN_MAP:
+        return inkcell_str(MESH_STR_TAB_MAP);
     case MESH_UI_SCREEN_RADIO:
         return inkcell_str(MESH_STR_TAB_RADIO);
     case MESH_UI_SCREEN_SETTINGS:
@@ -52,8 +54,13 @@ const char *mesh_ui_screen_name(enum mesh_ui_screen screen) {
 }
 
 bool mesh_ui_nav_waypoints_showing(const struct mesh_ui_nav *nav) {
-    return nav != NULL && nav->screen == MESH_UI_SCREEN_NODES && !nav->node_detail_open &&
+    return nav != NULL && nav->screen == MESH_UI_SCREEN_MAP &&
            (nav->waypoints_open || nav->waypoint_detail_open);
+}
+
+bool mesh_ui_nav_map_showing(const struct mesh_ui_nav *nav) {
+    return nav != NULL && nav->screen == MESH_UI_SCREEN_MAP && !nav->waypoints_open &&
+           !nav->waypoint_detail_open;
 }
 
 bool mesh_ui_nav_devices_showing(const struct mesh_ui_nav *nav) {
@@ -339,11 +346,16 @@ static bool mesh_ui_nav_close_node_detail(struct mesh_ui_nav *nav) {
     nav->node_actions_open = false;
     nav->node_actions_cursor = 0U;
     /* The chart is a level *of* the detail, so it cannot outlive it. Left set, it would be the
-       map's `map_open` bug one screen along: the next node opened would land straight on a chart
+       places list's bug one tab along: the next node opened would land straight on a chart
        of whichever reading the last one was showing. */
     nav->node_trend = MESH_UI_HISTORY_NONE;
     nav->trend_scroll = 0U;
     nav->cursor[MESH_UI_SCREEN_NODES] = nav->node_list_cursor;
+    /* A node opened from the map goes back to the map: the reader was never on the list. */
+    if (nav->node_detail_from_map) {
+        nav->node_detail_from_map = false;
+        nav->screen = MESH_UI_SCREEN_MAP;
+    }
     return true;
 }
 
@@ -415,10 +427,10 @@ static bool mesh_ui_nav_nodes_control_step(struct mesh_ui_nav *nav, uint32_t cur
 
 /*
  * Whether the Nodes list itself is what the reader is looking at, which is what decides that a
- * press belongs to a control row rather than to the map or the detail drawn over it.
+ * press belongs to a control row rather than to the detail drawn over it.
  *
- * The screen is checked as well as the two flags for `map_open`'s reason: both say where the
- * Nodes tab is standing, not what is on the panel.
+ * The screen is checked as well as the flag, because node_detail_open says where the Nodes tab
+ * is standing, not what is on the panel.
  *
  * And the row count is checked, which is the half that is not about overlays at all. A roster
  * with nothing in it answers 0 rows and the screen draws inkcell_fb_draw_empty() - no filter, no
@@ -431,7 +443,6 @@ static bool mesh_ui_nav_nodes_control_step(struct mesh_ui_nav *nav, uint32_t cur
 static bool mesh_ui_nav_nodes_list_showing(const struct mesh_ui_nav *nav,
                                            const struct mesh_ui_store *store) {
     return nav != NULL && nav->screen == MESH_UI_SCREEN_NODES && !nav->node_detail_open &&
-           !nav->map_open && !mesh_ui_nav_waypoints_showing(nav) &&
            nav->cursor[MESH_UI_SCREEN_NODES] <
                mesh_ui_nav_row_count(nav, store, MESH_UI_SCREEN_NODES);
 }
@@ -734,27 +745,23 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
             return mesh_ui_nav_conversation_count(store);
         }
         return mesh_ui_nav_filter_messages(nav, mesh_ui_store_message_view(store, nav), NULL, 0U);
-    case MESH_UI_SCREEN_NODES: {
-        /* The places first: they are drawn over the roster or over the map, and neither of
-           those counts while one is up. Asked of the flags rather than of
-           mesh_ui_nav_waypoints_showing(), because this is also the clamp's question about a tab
-           that is not on the panel - and a place left open behind a change of tab is still the
-           thing this tab's cursor is about. */
-        if (nav != NULL && !nav->node_detail_open &&
-            (nav->waypoints_open || nav->waypoint_detail_open)) {
+    case MESH_UI_SCREEN_MAP:
+        /* The map has no rows - the d-pad moves the world there rather than a cursor, so there
+           is nothing for the cursor clamp to hold in range (nav_map.c). The places list and an
+           open place do, and are asked of the flags rather than of
+           mesh_ui_nav_waypoints_showing(), because this is also the clamp's question about a
+           tab that is not on the panel. */
+        if (nav != NULL && (nav->waypoints_open || nav->waypoint_detail_open)) {
             return mesh_ui_nav_waypoint_row_count(nav, store);
         }
+        return 0U;
+    case MESH_UI_SCREEN_NODES: {
         if (!store->handshake_valid) {
             return 0U;
         }
         const uint32_t nodes = store->handshake.node_count > MESH_UI_MAX_HANDSHAKE_NODES
                                    ? MESH_UI_MAX_HANDSHAKE_NODES
                                    : store->handshake.node_count;
-        if (nav != NULL && nav->map_open && !nav->node_detail_open) {
-            /* The map has no rows. The d-pad moves the world here rather than a cursor, so
-               there is nothing for the cursor clamp to hold in range - see nav_map.c. */
-            return 0U;
-        }
         if (nav == NULL || !nav->node_detail_open) {
             /*
              * The filter row, the sort row, the map row, and then whichever nodes the filter
@@ -1099,6 +1106,10 @@ static bool mesh_ui_nav_switch_screen(struct mesh_ui_nav *nav, int delta) {
         next = 0;
     }
     nav->screen = (enum mesh_ui_screen)next;
+    /* A walk along the tabs is the reader choosing where to be, so neither cross-tab B survives
+       it - see `node_detail_from_map`. */
+    nav->node_detail_from_map = false;
+    nav->map_from_node = false;
     return true;
 }
 
@@ -1342,7 +1353,7 @@ static bool mesh_ui_nav_has_groups(const struct mesh_ui_nav *nav,
 static bool mesh_ui_nav_cursor_page(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                     int delta) {
     /* The Status cards walk verbs, not rows; the map's cursor is the world. */
-    if (mesh_ui_nav_status_showing(nav) || (nav->map_open && nav->screen == MESH_UI_SCREEN_NODES)) {
+    if (mesh_ui_nav_status_showing(nav) || mesh_ui_nav_map_showing(nav)) {
         return false;
     }
     bool moved = false;
@@ -1759,14 +1770,17 @@ static bool mesh_ui_nav_node_action_run(struct mesh_ui_nav *nav, const struct me
     }
     if (item->action == MESH_UI_NODE_ACTION_SHOW_ON_MAP) {
         /*
-         * The map, aimed at this node, opened *under* the detail rather than over it: the
-         * detail closes and the map is what is left, so B from the map goes on to the node
-         * list. Leaving the detail open over its own map would make B land back on the row
-         * that had just been pressed, which is a loop rather than a way out.
+         * The Map tab, aimed at this node. The detail closes behind it, so B from the map goes
+         * back to the node list rather than to the row that had just been pressed - which
+         * would be a loop rather than a way out. A detail that was itself opened from the map
+         * has nothing to go back to but the map, which is where this lands anyway.
          */
         const uint32_t focus = node->node_id;
+        const bool from_map = nav->node_detail_from_map;
+        nav->node_detail_from_map = false;
         mesh_ui_nav_close_node_detail(nav);
         mesh_ui_nav_open_map(nav, store, focus);
+        nav->map_from_node = !from_map;
         return true;
     }
     if (item->action == MESH_UI_NODE_ACTION_WAYPOINT) {
@@ -2096,10 +2110,14 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         mesh_ui_nav_open_compose(nav);
         return true;
     }
-    case MESH_UI_SCREEN_NODES: {
+    case MESH_UI_SCREEN_MAP:
+        /* The map's own A is taken before this, in mesh_ui_nav_map_key(); what reaches here is
+           the places list or an open place. */
         if (mesh_ui_nav_waypoints_showing(nav)) {
             return mesh_ui_nav_waypoint_confirm(nav, store, cursor, action);
         }
+        return false;
+    case MESH_UI_SCREEN_NODES: {
         /* An empty list with no radio behind it says "connect", and A is how: the device list
            is where connecting happens. The action bar names this press on the same condition. */
         if (!nav->node_detail_open && !store->handshake_valid) {
@@ -2125,33 +2143,6 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             }
             if (cursor == MESH_UI_NODES_FIND_ROW) {
                 mesh_ui_nav_open_node_query_keyboard(nav);
-                return true;
-            }
-            if (cursor == MESH_UI_NODES_WAYPOINTS_ROW) {
-                /* The places, one level in - refused only on a protocol with no waypoints at
-                   all, and out loud, as the map row is. Otherwise never: the list always ends in
-                   its "New waypoint here" row, so there is something to stand on even on a mesh
-                   that has shared nothing. The row stays rather than going, because every row
-                   below it is counted from it. */
-                if (!mesh_ui_settings_supports(&store->settings, MESH_UI_FEATURE_WAYPOINTS)) {
-                    mesh_ui_nav_raise_toast(nav, inkcell_str(MESH_STR_TOAST_NO_WAYPOINTS));
-                    return true;
-                }
-                mesh_ui_nav_open_waypoints(nav);
-                return true;
-            }
-            if (cursor == MESH_UI_NODES_MAP_ROW) {
-                /*
-                 * The map, framed on everything the client can place. It cannot be pressed when
-                 * there is nothing to place, and it says so out loud rather than doing nothing:
-                 * a row that swallows a press is the client telling the reader their Brick is
-                 * broken. The places list's "New waypoint here" row settled this rule.
-                 */
-                if (!mesh_ui_map_has_markers(store)) {
-                    mesh_ui_nav_raise_toast(nav, inkcell_str(MESH_STR_TOAST_MAP_NO_FIXES));
-                    return true; /* the toast is nav state, so the frame has changed */
-                }
-                mesh_ui_nav_open_map(nav, store, 0U);
                 return true;
             }
             /* A on a contact opens what we know about it, the way tapping one in the phone
@@ -2643,6 +2634,17 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     }
 
     /*
+     * L2 and R2 on the Map tab turn it between its two faces - the map and the list of places -
+     * rather than paging a list. The pair the triggers are is the pair the faces are: L2 the
+     * picture, R2 the list, as L1 and R1 are the tab to the left and the tab to the right. Not
+     * while a place is open, which is a level over either face and closes with B like any other.
+     */
+    if (nav->screen == MESH_UI_SCREEN_MAP && !nav->waypoint_detail_open &&
+        (key == INKCELL_KEY_L2 || key == INKCELL_KEY_R2)) {
+        return mesh_ui_nav_map_face(nav, store, key == INKCELL_KEY_R2) || changed;
+    }
+
+    /*
      * The map, before the routing below turns Left and Right into a change of tab.
      *
      * It is the only screen that has to be taken here, and the reason is the one thing that
@@ -2655,7 +2657,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      * strip above it going dead - so the action bar still says "L/R tabs" here, and still
      * means it.
      */
-    if (nav->map_open) {
+    if (mesh_ui_nav_map_showing(nav)) {
         bool handled = false;
         const bool result = mesh_ui_nav_map_key(nav, store, key, &handled);
         if (handled) {
@@ -2747,7 +2749,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
      * control would move the list underneath it. Which is the same ordering fb_render_snapshot()
      * draws the two in, and the same reason this file always follows it.
      *
-     * The screen is checked as well as the flag for `map_open`'s reason: node_detail_open says
+     * The screen is checked as well as the flag, because node_detail_open says
      * where the Nodes tab is standing, not what the reader is looking at, and a shoulder walks
      * off the tab with the detail still open behind it.
      */
@@ -2921,12 +2923,9 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             return mesh_ui_nav_settings_back(nav) || changed;
         }
         if (mesh_ui_nav_waypoints_showing(nav)) {
-            /* The open place first, which lands on whatever it was opened from - the list or
-               the map - and then the list, which lands on the roster at its own row. */
-            if (mesh_ui_nav_close_waypoint(nav)) {
-                return true;
-            }
-            return mesh_ui_nav_close_waypoints(nav) || changed;
+            /* The open place, which lands on whatever it was opened from - the list or the map.
+               The list itself is the tab's face, with nothing under it to go back to. */
+            return mesh_ui_nav_close_waypoint(nav) || changed;
         }
         if (nav->screen == MESH_UI_SCREEN_NODES) {
             /* The detail first, because it is the level on top - and when it was opened from
@@ -2990,8 +2989,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             return true;
         }
         if (nav->screen == MESH_UI_SCREEN_NODES && !mesh_ui_nav_waypoints_showing(nav) &&
-            !nav->node_detail_open && !nav->map_open &&
-            nav->cursor[nav->screen] == MESH_UI_NODES_FIND_ROW) {
+            !nav->node_detail_open && nav->cursor[nav->screen] == MESH_UI_NODES_FIND_ROW) {
             /* The Find row's X is its clear, and only while there is something to clear: the
                bar names it then and not otherwise. The cursor stays on the row - it is above
                every row a query renumbers. */

@@ -38,6 +38,8 @@ enum mesh_ui_command_id {
     MESH_UI_COMMAND_DISCONNECT,
     MESH_UI_COMMAND_DONE,
     MESH_UI_COMMAND_EDIT,
+    /* The Map tab's triggers: the map and the list of places, its two faces. */
+    MESH_UI_COMMAND_FACE,
     MESH_UI_COMMAND_FILTER,
     MESH_UI_COMMAND_FIND,
     MESH_UI_COMMAND_FIT,

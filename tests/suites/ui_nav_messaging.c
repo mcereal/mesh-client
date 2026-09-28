@@ -311,18 +311,23 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* Nodes */
 
-    /* The places are a row of the Nodes list, and their list is never empty - the row that
-       makes a place is always there, so A lands on a screen with something under the cursor
-       even on a mesh that has shared nothing. B goes back to the roster, on the row it left. */
+    /* The places are the Map tab's list face, and their list is never empty - the row that
+       makes a place is always there, so R2 lands on a screen with something under the cursor
+       even on a mesh that has shared nothing. They are the tab's face rather than a level of
+       it, so B stays put and L2 turns back to the map. */
     if (!mesh_test_open_waypoints(&store) ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_NODES) != 1U) {
-        failure = "the Waypoints row should open the places, which always offer their new row";
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MAP) != 1U) {
+        failure = "R2 on the Map tab should show the places, which always offer their new row";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
-    if (mesh_ui_nav_waypoints_showing(&store.nav) ||
-        store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_WAYPOINTS_ROW) {
-        failure = "B on the places should land on the roster's Waypoints row";
+    if (!mesh_ui_nav_waypoints_showing(&store.nav)) {
+        failure = "B on the places list has nowhere to go";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_L2, &action);
+    if (!mesh_ui_nav_map_showing(&store.nav)) {
+        failure = "L2 on the places should turn back to the map";
         goto cleanup;
     }
 
@@ -333,11 +338,11 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
      * Mesh card, and the details and Refresh on the Radio card - and a fresh cursor stands on
      * the first.
      */
-    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     if (store.nav.screen != MESH_UI_SCREEN_RADIO ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 5U ||
         store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DEVICES) {
-        failure = "RIGHT from Nodes should reach the Radio tab's cards, on Devices";
+        failure = "R1 from the Map tab should reach the Radio tab's cards, on Devices";
         goto cleanup;
     }
 
