@@ -77,16 +77,18 @@ static bool root_lists(const struct mesh_ui_settings *settings,
  * that fails; and nothing on the link reads as the Meshtastic this client has always assumed.
  */
 MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
+    const uint32_t k_meshcore_only =
+        (uint32_t)(MESH_UI_FEATURE_NODE_LOGIN | MESH_UI_FEATURE_NODE_STATUS |
+                   MESH_UI_FEATURE_NODE_NEIGHBORS | MESH_UI_FEATURE_NODE_COMMANDS);
     static struct mesh_session session;
     mesh_session_init(&session);
     const struct mesh_protocol meshtastic = mesh_session_protocol(&session);
     uint8_t id = 0xFFU;
     uint32_t lacks = 0xFFFFFFFFU;
     mesh_ui_protocol_features(&meshtastic, &id, &lacks);
-    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC ||
-                          lacks !=
-                              (uint32_t)(MESH_UI_FEATURE_NODE_LOGIN | MESH_UI_FEATURE_NODE_STATUS),
-                      "the Meshtastic session has every feature but MeshCore's login and status");
+    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC || lacks != k_meshcore_only,
+                      "the Meshtastic session has every feature but what MeshCore asks of a "
+                      "repeater");
 
     static const struct mesh_protocol_ops k_stranger = {.name = "stranger"};
     const struct mesh_protocol stranger = {&k_stranger, &session};
@@ -108,16 +110,13 @@ MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
         (lacks & MESH_UI_FEATURE_CONTACT_LINKS) != 0U ||
             (lacks & MESH_UI_FEATURE_CHANNEL_LINKS) != 0U ||
             (lacks & MESH_UI_FEATURE_TRACEROUTE) != 0U ||
-            (lacks & MESH_UI_FEATURE_NODE_LOGIN) != 0U ||
-            (lacks & MESH_UI_FEATURE_NODE_STATUS) != 0U,
+            (lacks & MESH_UI_FEATURE_NODE_LOGIN) != 0U || (lacks & k_meshcore_only) != 0U,
         "and shares contacts and channels in its own app's links, traces a route, and "
-        "logs in to a repeater and asks its status");
+        "logs in to a repeater, asks its status and neighbours, and sends it commands");
 
     const struct mesh_protocol none = {NULL, NULL};
     mesh_ui_protocol_features(&none, &id, &lacks);
-    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC ||
-                          lacks !=
-                              (uint32_t)(MESH_UI_FEATURE_NODE_LOGIN | MESH_UI_FEATURE_NODE_STATUS),
+    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC || lacks != k_meshcore_only,
                       "nothing on the link is the Meshtastic the cache was written by");
 
     struct mesh_ui_settings zeroed;
@@ -298,6 +297,17 @@ MESH_TEST_CASE(ui_protocol_meshcore_asks_a_repeater_for_status, unit) {
     node.role = 4U;
     node.in_nodedb = false;
     MESH_TEST_FAIL_IF(mesh_ui_node_statusable(&node, lacks), "not a heard repeater");
+    node.in_nodedb = true;
+
+    /* Its neighbours are a repeater's alone: a room server keeps no list of what it hears. */
+    MESH_TEST_FAIL_IF(!mesh_ui_node_neighbourable(&node, lacks), "a repeater contact's neighbours");
+    MESH_TEST_FAIL_IF(mesh_ui_node_neighbourable(&node, MESH_UI_FEATURE_NODE_NEIGHBORS),
+                      "not on Meshtastic");
+    node.role = 12U;
+    MESH_TEST_FAIL_IF(mesh_ui_node_neighbourable(&node, lacks), "not a room server's");
+    node.role = 4U;
+    node.in_nodedb = false;
+    MESH_TEST_FAIL_IF(mesh_ui_node_neighbourable(&node, lacks), "not a heard repeater's");
     node.in_nodedb = true;
 
     static struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
@@ -516,6 +526,16 @@ MESH_TEST_CASE(ui_protocol_meshcore_logs_in_to_a_repeater, unit) {
         items[login_row + 1U].action != MESH_UI_NODE_ACTION_REQUEST_STATUS ||
         action.type != MESH_UI_ACTION_REQUEST_STATUS || action.dest != repeater->node_id) {
         failure = "the row after the login asks the repeater for its status";
+        goto cleanup;
+    }
+    /* And the one after that, which nodes it hears. */
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (login_row + 2U >= count ||
+        items[login_row + 2U].action != MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS ||
+        action.type != MESH_UI_ACTION_REQUEST_NEIGHBORS || action.dest != repeater->node_id) {
+        failure = "the row after the status asks the repeater for its neighbours";
         goto cleanup;
     }
 

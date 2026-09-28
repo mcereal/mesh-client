@@ -19,6 +19,8 @@ extern "C" {
 #endif
 
 struct mesh_ui_store;
+struct mesh_ui_settings;
+struct mesh_ui_handshake_state;
 
 /* Logical buttons moved to inkcell (inkcell/ui/key.h): which physical button reports which
    press is a fact about a piece of plastic, and the navigation model never sees a keycode
@@ -934,6 +936,7 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_REQUEST_TELEMETRY, /* dest = node to ask for a reading now */
     MESH_UI_ACTION_LOGIN,             /* dest = node to log in to; `text` its password */
     MESH_UI_ACTION_REQUEST_STATUS,    /* dest = repeater or room server to ask for its status */
+    MESH_UI_ACTION_REQUEST_NEIGHBORS, /* dest = repeater to ask which nodes it hears */
     MESH_UI_ACTION_TOGGLE_IGNORE,     /* dest = node; `number` is 1 to start ignoring it */
     /* dest = node. Mute is a bare toggle rather than a wanted state, because the admin verb
        behind it (toggle_muted_node) offers nothing else. */
@@ -1248,9 +1251,13 @@ const struct mesh_ui_message *mesh_ui_nav_message_at_cursor(const struct mesh_ui
  *
  * Takes the message list rather than the whole store because the action bar has only a
  * snapshot, and building a store view to ask one question would be a snapshot-sized copy per
- * frame for a pointer comparison.
+ * frame for a pointer comparison. The settings and the roster are for the one thread where a
+ * failed message is not offered again: a MeshCore repeater's, where it was a command that may
+ * have run with only its reply lost (mesh_ui_nav_compose_commands()).
  */
 const struct mesh_ui_message *mesh_ui_nav_resendable(const struct mesh_ui_nav *nav,
+                                                     const struct mesh_ui_settings *settings,
+                                                     const struct mesh_ui_handshake_state *roster,
                                                      struct mesh_ui_message_view messages);
 
 /*
@@ -1436,7 +1443,25 @@ void mesh_ui_nav_target_avatar(const struct mesh_ui_store *store, uint32_t node,
 #define MESH_UI_COMPOSE_ROW_DRAFT 0U
 #define MESH_UI_COMPOSE_ROW_HEADING 1U
 #define MESH_UI_COMPOSE_FIRST_CANNED 2U
-uint32_t mesh_ui_nav_compose_row_count(void);
+/*
+ * Whether the compose sheet over the open thread lists a repeater's commands rather than the
+ * canned replies: the thread is a MeshCore repeater's, where a message is a command it runs and
+ * a canned "On my way" would be one it does not know (mesh/ui/repeater_commands.h). The heading
+ * over the rows says which it is.
+ *
+ * It takes the two records it reads rather than a store, because the renderer and the action
+ * bar hold a snapshot, and a store view of one is some 290 KB on a stack that is 1 MB on Windows.
+ */
+bool mesh_ui_nav_compose_commands(const struct mesh_ui_nav *nav,
+                                  const struct mesh_ui_settings *settings,
+                                  const struct mesh_ui_handshake_state *roster);
+uint32_t mesh_ui_nav_compose_row_count(const struct mesh_ui_nav *nav,
+                                       const struct mesh_ui_settings *settings,
+                                       const struct mesh_ui_handshake_state *roster);
+/* The text of the `index`th row under the heading - a canned reply or a command - or "". */
+const char *mesh_ui_nav_compose_line(const struct mesh_ui_nav *nav,
+                                     const struct mesh_ui_settings *settings,
+                                     const struct mesh_ui_handshake_state *roster, size_t index);
 
 /*
  * Places on the bubble sheet: one per emoji in the fixed set (include/mesh/ui/reactions.h), plus

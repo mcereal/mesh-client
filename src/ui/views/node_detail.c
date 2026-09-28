@@ -135,6 +135,8 @@ static const enum inkcell_icon k_action_icons[] = {
     /* The padlock: a password is what the row asks for. */
     [MESH_UI_NODE_ACTION_LOGIN] = INKCELL_ICON_ENCRYPTED,
     [MESH_UI_NODE_ACTION_REQUEST_STATUS] = INKCELL_ICON_STATUS,
+    /* The Neighbours group's own mark, since that group is where the answer lands. */
+    [MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS] = INKCELL_ICON_NEIGHBORS,
 };
 
 /*
@@ -188,6 +190,7 @@ static const enum inkcell_tone k_action_tones[] = {
     [MESH_UI_NODE_ACTION_ADMIN] = INKCELL_TONE_WARNING,
     [MESH_UI_NODE_ACTION_LOGIN] = INKCELL_TONE_NORMAL,
     [MESH_UI_NODE_ACTION_REQUEST_STATUS] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS] = INKCELL_TONE_NORMAL,
 };
 
 static enum inkcell_icon action_icon(enum mesh_ui_node_action action) {
@@ -1399,6 +1402,12 @@ bool mesh_ui_node_statusable(const struct mesh_ui_node_summary *node, uint32_t l
            node->public_key_len == sizeof node->public_key;
 }
 
+bool mesh_ui_node_neighbourable(const struct mesh_ui_node_summary *node, uint32_t lacks) {
+    /* A repeater's alone: a room server keeps no list of what it hears. */
+    return node != NULL && node_actions_offer(lacks, MESH_UI_FEATURE_NODE_NEIGHBORS) &&
+           node->role == 4U && node->in_nodedb && node->public_key_len == sizeof node->public_key;
+}
+
 uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, bool is_self,
                                     const struct mesh_ui_traceroute *trace, bool remove_armed,
                                     uint32_t lacks, struct mesh_ui_node_item *out,
@@ -1468,6 +1477,11 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
         if (mesh_ui_node_statusable(node, lacks)) {
             rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_STATUS,
                         inkcell_str(MESH_STR_COMMON_PRESS_A), MESH_UI_NODE_ACTION_REQUEST_STATUS);
+        }
+        if (mesh_ui_node_neighbourable(node, lacks)) {
+            rows_action(&rows, MESH_STR_NODE_ACT_REQUEST_NEIGHBOURS,
+                        inkcell_str(MESH_STR_COMMON_PRESS_A),
+                        MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS);
         }
         /* Muting is the gentle one of the three below: the node's traffic still arrives and
            still shows in its conversation, the radio just stops announcing it. The wire verb

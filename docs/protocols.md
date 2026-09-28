@@ -89,6 +89,8 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `NODE_TELEMETRY` | asking a node for its readings (on MeshCore, a contact) |
 | `NODE_LOGIN` | logging in to a MeshCore repeater or room server - MeshCore's alone |
 | `NODE_STATUS` | asking a MeshCore repeater or room server for its counters - MeshCore's alone |
+| `NODE_NEIGHBORS` | asking a MeshCore repeater which nodes it hears - MeshCore's alone |
+| `NODE_COMMANDS` | a MeshCore repeater's thread as its console: its commands where the quick replies would be - MeshCore's alone |
 | `NODE_FLAGS` | mute, ignore - and pin on a node that is not a whole-key contact |
 | `NODE_PIN` | pin, on the sheet and as X on the list and the detail |
 | `NODE_REMOVE` | remove, on a node's sheet |
@@ -208,6 +210,24 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   post counts - the same length, so the contact's kind picks the reading. They land on the
   node's `relay` group, the battery on `metrics`. A node answers only a client on its access
   list, so silence is said as "log in to it first".
+- **A message to a repeater is a command.** A repeater takes text only from its admin, and runs
+  it: so a direct message to one goes as `SEND_TXT_MSG` with `TXT_TYPE_CLI_DATA`, which the radio
+  sends with no ack, and the repeater's reply - a CLI-typed message through the radio's queue -
+  is the answer that marks it delivered and the next message in the thread. The thread is the
+  repeater's console, and its compose sheet lists commands where the quick replies would be
+  (`src/ui/tables/repeater_commands.c`): only what a repeater answers over the mesh - its
+  `stats-*` run from its serial console alone - and nothing that is a slip of the thumb away
+  from `reboot` or a `set`. A command is never tried again, since it may have run and only its
+  reply been lost - nor is it offered to START's resend - and one unanswered by the deadline
+  fails, with a toast that says to log in as admin.
+  A reply names no command, only the order they went in, so a failed one keeps its place for a
+  minute: a late reply is its answer - it is delivered after all - not the next command's.
+- **A repeater's neighbours** are `SEND_BINARY_REQ` with `REQ_GET_NEIGHBOURS` - the ten it heard
+  most recently, each by the first four bytes of its key - answered by a `BINARY_RESPONSE`. That
+  answer names no node, only the tag the request's `SENT` carried, so the tag is what ends it.
+  The list lands on the node's `neighbors`, the record Meshtastic's NeighborInfo fills, so its
+  Neighbours group and every other node's "Heard by" read it unchanged, and it is cached as a
+  Meshtastic list is. Like a status, a repeater answers only a client logged in to it.
 - **A channel link** is the MeshCore app's `meshcore://channel/add?name=...&secret=<32 hex>`:
   one channel, where Meshtastic's link is the whole set. So each channel in use has its own
   share row, drawn from that slot's name and secret, and a typed link joins one channel into the
@@ -222,7 +242,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   firmware's other trace, `SEND_TRACE_PATH`, measures SNR along a path given to it and is not
   sent yet.
 - **One request to another node at a time.** The firmware keeps one pending and clears it for
-  any new login, status or telemetry request (`clearPendingReqs()`), so a second is refused
+  any new login, status, telemetry or binary request (`clearPendingReqs()`), so a second is refused
   while the first is queued and until its answer or the deadline its `SENT` names. How each one
   ended is `mesh_meshcore.notice`, which the publish turns into a toast.
 - **A contact link** is the MeshCore app's QR text, `meshcore://contact/add?name=…&public_key=<64

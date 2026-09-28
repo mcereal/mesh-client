@@ -387,10 +387,16 @@ enum mesh_ui_feature {
     MESH_UI_FEATURE_NODE_LOGIN = 1U << 17,
     /* Asking a repeater or a room server for its own counters: MeshCore's SEND_STATUS_REQ. */
     MESH_UI_FEATURE_NODE_STATUS = 1U << 18,
+    /* Asking a repeater which nodes it hears: MeshCore's neighbours request. Meshtastic's
+       NeighborInfo arrives on the node's own schedule and cannot be asked for. */
+    MESH_UI_FEATURE_NODE_NEIGHBORS = 1U << 19,
+    /* A repeater's conversation is its console: a message is a command it runs for its admin,
+       and the compose sheet offers its commands where the canned replies would be. */
+    MESH_UI_FEATURE_NODE_COMMANDS = 1U << 20,
 };
 
 /* Every bit above: what a protocol this client has no row for lacks. */
-#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_STATUS << 1) - 1U))
+#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_COMMANDS << 1) - 1U))
 
 /*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so the

@@ -172,6 +172,9 @@ enum mesh_ui_node_action {
     /* Ask a MeshCore repeater or room server for its counters. Offered where a login is: only a
        client it has logged in answers. */
     MESH_UI_NODE_ACTION_REQUEST_STATUS,
+    /* Ask a MeshCore repeater which nodes it hears. Its answer fills the Neighbours group, as a
+       Meshtastic node's NeighborInfo does; like a status, only a client it logged in answers. */
+    MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS,
 };
 
 struct mesh_ui_node_item {
@@ -419,6 +422,9 @@ bool mesh_ui_node_loginable(const struct mesh_ui_node_summary *node, uint32_t la
 /* Whether the sheet offers to ask `node` for its status: the same nodes, on a protocol that
    has one. */
 bool mesh_ui_node_statusable(const struct mesh_ui_node_summary *node, uint32_t lacks);
+/* Whether the sheet offers to ask `node` which nodes it hears: a repeater the radio carries as
+   a contact, on a protocol that can ask. */
+bool mesh_ui_node_neighbourable(const struct mesh_ui_node_summary *node, uint32_t lacks);
 
 /* Verbs the node would offer. Zero is a node with no sheet - see the builder above. */
 uint32_t mesh_ui_node_actions_count(const struct mesh_ui_node_summary *node, bool is_self,

@@ -264,8 +264,9 @@ int mesh_meshcore_encode_key(uint8_t cmd, const uint8_t key[MESH_MESHCORE_PUBKEY
     return (int)(1U + MESH_MESHCORE_PUBKEY_LEN);
 }
 
-int mesh_meshcore_encode_text(const uint8_t prefix[MESH_MESHCORE_PREFIX_LEN], uint8_t attempt,
-                              uint32_t timestamp, const char *text, uint8_t *out, size_t out_len) {
+int mesh_meshcore_encode_text(const uint8_t prefix[MESH_MESHCORE_PREFIX_LEN], uint8_t txt_type,
+                              uint8_t attempt, uint32_t timestamp, const char *text, uint8_t *out,
+                              size_t out_len) {
     if (prefix == NULL || text == NULL || out == NULL) {
         return -EINVAL;
     }
@@ -279,7 +280,7 @@ int mesh_meshcore_encode_text(const uint8_t prefix[MESH_MESHCORE_PREFIX_LEN], ui
     }
     size_t i = 0U;
     out[i++] = MESH_MESHCORE_CMD_SEND_TXT_MSG;
-    out[i++] = MESH_MESHCORE_TXT_PLAIN;
+    out[i++] = txt_type;
     out[i++] = attempt;
     mesh_meshcore_put_u32(out + i, timestamp);
     i += 4U;
@@ -627,6 +628,60 @@ int mesh_meshcore_decode_status(const uint8_t *stats, size_t len, uint8_t adv_ty
         out->has_posts = true;
         out->posted = mesh_meshcore_u16(stats + 48);
         out->post_pushes = mesh_meshcore_u16(stats + 50);
+    }
+    return 0;
+}
+
+int mesh_meshcore_encode_neighbours_req(const uint8_t key[MESH_MESHCORE_PUBKEY_LEN], uint8_t count,
+                                        uint32_t nonce, uint8_t *out, size_t out_len) {
+    if (key == NULL || out == NULL) {
+        return -EINVAL;
+    }
+    /* The command and the key, then what the repeater reads: the type, a version (0), how many,
+       an offset into its list, the order (0, newest first), how much of each key, the nonce. */
+    const size_t total = 1U + MESH_MESHCORE_PUBKEY_LEN + 11U;
+    if (out_len < total) {
+        return -ENOSPC;
+    }
+    size_t i = 0U;
+    out[i++] = MESH_MESHCORE_CMD_SEND_BINARY_REQ;
+    memcpy(out + i, key, MESH_MESHCORE_PUBKEY_LEN);
+    i += MESH_MESHCORE_PUBKEY_LEN;
+    out[i++] = MESH_MESHCORE_REQ_GET_NEIGHBOURS;
+    out[i++] = 0U;
+    out[i++] = count;
+    out[i++] = 0U;
+    out[i++] = 0U;
+    out[i++] = 0U;
+    out[i++] = MESH_MESHCORE_NEIGHBOUR_PREFIX_LEN;
+    mesh_meshcore_put_u32(out + i, nonce);
+    return (int)total;
+}
+
+int mesh_meshcore_decode_neighbours(const uint8_t *data, size_t len,
+                                    struct mesh_meshcore_neighbours *out) {
+    if (data == NULL || out == NULL) {
+        return -EINVAL;
+    }
+    memset(out, 0, sizeof *out);
+    /* The total the repeater holds and how many follow, both 16-bit; the firmware writes a
+       signed count, and one below zero is not a list. */
+    if (len < 4U) {
+        return -EBADMSG;
+    }
+    out->total = (uint16_t)(data[0] | (data[1] << 8U));
+    const uint16_t count = (uint16_t)(data[2] | (data[3] << 8U));
+    const size_t entry = MESH_MESHCORE_NEIGHBOUR_PREFIX_LEN + 4U + 1U;
+    if (count > 0x7FFFU || len - 4U < (size_t)count * entry) {
+        return -EBADMSG;
+    }
+    for (uint16_t n = 0; n < count && n < MESH_MESHCORE_NEIGHBOURS_MAX; ++n) {
+        const uint8_t *at = data + 4U + (size_t)n * entry;
+        struct mesh_meshcore_neighbour *neighbour = &out->entries[n];
+        memcpy(neighbour->prefix, at, MESH_MESHCORE_NEIGHBOUR_PREFIX_LEN);
+        neighbour->heard_secs_ago = mesh_meshcore_u32(at + MESH_MESHCORE_NEIGHBOUR_PREFIX_LEN);
+        neighbour->snr_q4 = (int8_t)at[MESH_MESHCORE_NEIGHBOUR_PREFIX_LEN + 4U];
+        out->count += 1U;
     }
     return 0;
 }
