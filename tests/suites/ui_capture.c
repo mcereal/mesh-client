@@ -2316,25 +2316,22 @@ MESH_TEST_CASE(fb_emoji_box_draws_past_the_column_map, unit) {
 }
 
 /*
- * Every source pixel the same size, or none of the snapping is worth doing.
+ * A sprite fills the room it is given, up to inkcell's cap.
  *
- * inkcell_fb_emoji_box_fit() is what keeps a five-times upscale from landing as a mix of five- and
- * six-pixel blocks - one eye a pixel wider than the other - and it is also what lets
- * inkcell_fb_draw_emoji_box() take its block path, which draws the identical pixels for a fraction
- * of the comparisons. Both properties are the same one arithmetic fact.
+ * inkcell resamples an emoji smoothly to any size, so there is no grid of whole source pixels
+ * for a box to snap to: a keycap centring a sprite centres exactly the box it asked for, and only
+ * a box past INKCELL_FB_EMOJI_BOX_MAX - larger than any key on this panel - is drawn smaller.
  */
-MESH_TEST_CASE(fb_emoji_box_fit_snaps_to_whole_blocks, unit) {
+MESH_TEST_CASE(fb_emoji_box_fit_fills_the_box, unit) {
     const char *failure = NULL;
-    for (int box = 1; box <= 8 * INKCELL_EMOJI_SIZE && failure == NULL; ++box) {
+    for (int box = 1; box <= 2 * INKCELL_FB_EMOJI_BOX_MAX && failure == NULL; ++box) {
         const int fit = inkcell_fb_emoji_box_fit(box);
         if (fit > box || fit <= 0) {
             failure = "a fitted box must be positive and never larger than the room for it";
-        } else if (box >= 2 * INKCELL_EMOJI_SIZE && fit % INKCELL_EMOJI_SIZE != 0) {
-            failure = "a box with room for whole blocks must be a whole number of them";
-        } else if (box >= 2 * INKCELL_EMOJI_SIZE && box - fit >= INKCELL_EMOJI_SIZE) {
-            failure = "snapping must cost less than a whole block";
-        } else if (box < 2 * INKCELL_EMOJI_SIZE && fit != box) {
-            failure = "a box the size of a text cell must be left alone";
+        } else if (box <= INKCELL_FB_EMOJI_BOX_MAX && fit != box) {
+            failure = "a box within the cap must be filled whole";
+        } else if (box > INKCELL_FB_EMOJI_BOX_MAX && fit != INKCELL_FB_EMOJI_BOX_MAX) {
+            failure = "a box past the cap must be drawn at the cap";
         }
     }
     MESH_TEST_FAIL_IF(failure != NULL, failure);
