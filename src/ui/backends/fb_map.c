@@ -162,6 +162,60 @@ static void fb_map_disc(const struct inkcell_draw_state *state, int cx, int cy, 
                                color);
 }
 
+/* How far a footprint's inside is moved towards its colour, and how wide its edge is. Light
+   enough that the streets under it still read; the edge is what says where the area ends. */
+#define FB_MAP_FOOTPRINT_TINT_PERCENT 22
+#define FB_MAP_FOOTPRINT_EDGE_PX 2
+
+/*
+ * A see-through disc with a solid edge: an area on top of a map rather than a hole in it.
+ *
+ * There is no alpha on this panel, but the frame under the disc is ours and was drawn a moment
+ * ago, so the inside is the scrim's trick one row at a time - what is there moved a little
+ * towards `color` - and only the edge is written flat.
+ */
+/* The half-width of a disc's row, in whole pixels - an integer square root, since this
+   directory stays off <math.h>. */
+static int fb_map_half_width(int radius, int dy) {
+    unsigned long rest = (unsigned long)((long)radius * radius - (long)dy * dy);
+    unsigned long root = 0UL;
+    unsigned long bit = 1UL << 30;
+    while (bit > rest) {
+        bit >>= 2;
+    }
+    while (bit != 0UL) {
+        if (rest >= root + bit) {
+            rest -= root + bit;
+            root = (root >> 1) + bit;
+        } else {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    return (int)root;
+}
+
+static void fb_map_footprint(const struct inkcell_draw_state *state, int cx, int cy, int radius,
+                             struct inkcell_rgb color) {
+    const int edge = FB_MAP_FOOTPRINT_EDGE_PX;
+    const int inner = radius - edge;
+    for (int dy = -radius; dy <= radius; ++dy) {
+        const int outer_w = fb_map_half_width(radius, dy);
+        const int inner_w =
+            (inner > 0 && dy > -inner && dy < inner) ? fb_map_half_width(inner, dy) : -1;
+        if (inner_w < 0) {
+            inkcell_fb_fill_rect(state, cx - outer_w, cy + dy, outer_w * 2 + 1, 1, color);
+            continue;
+        }
+        inkcell_fb_fill_rect(state, cx - outer_w, cy + dy, outer_w - inner_w, 1, color);
+        inkcell_fb_fill_rect(state, cx + inner_w + 1, cy + dy, outer_w - inner_w, 1, color);
+        inkcell_fb_scrim_rect(
+            state,
+            (struct inkcell_fb_rect){.x = cx - inner_w, .y = cy + dy, .w = inner_w * 2 + 1, .h = 1},
+            color, FB_MAP_FOOTPRINT_TINT_PERCENT);
+    }
+}
+
 /*
  * The graticule step that gives cells at least FB_MAP_GRID_MIN_PX across.
  *
@@ -1016,10 +1070,9 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
      * The footprints first, under everything.
      *
      * A sender that rounded its position is telling us the node is somewhere in a circle, and a
-     * hard dot drawn for it would be the client claiming a precision it was never sent. Drawn as
-     * a filled disc rather than an outline because there is no alpha on this panel: a ring would
-     * have to be a fill and a second fill in the ground colour, and the second one would erase
-     * the grid inside it - which is the very thing a reader judges the distance against.
+     * hard dot drawn for it would be the client claiming a precision it was never sent. Drawn
+     * tinted rather than filled, so the map under the area - the thing a reader judges where
+     * the node might be against - still shows through it.
      */
     for (uint32_t i = 0; i < view.count; ++i) {
         const uint32_t metres = mesh_ui_settings_precision_metres(view.markers[i].precision_bits);
@@ -1039,10 +1092,9 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
         if (footprint <= radius || footprint > body.w) {
             continue;
         }
-        const struct inkcell_paint paint =
-            inkcell_fb_paint(state, fb_map_marker_family(&view.markers[i]), INKCELL_SLOT_CONTAINER,
-                             INKCELL_STATE_REST);
-        fb_map_disc(state, body.x + placement.x, body.y + placement.y, footprint, paint.fill);
+        const struct inkcell_paint paint = inkcell_fb_paint(
+            state, fb_map_marker_family(&view.markers[i]), INKCELL_SLOT_BASE, INKCELL_STATE_REST);
+        fb_map_footprint(state, body.x + placement.x, body.y + placement.y, footprint, paint.fill);
     }
 
     /*

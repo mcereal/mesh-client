@@ -398,6 +398,45 @@ enum mesh_ui_feature {
  * arrived this connection; `loaded` is any of them. These were read-only first; the same fields are
  * the edit targets now.
  */
+/*
+ * One row of the Maps section: a pack on the card, or one the server offers under a heading.
+ * The app writes them installed first, then the catalog's in its order. Every catalog pack has a
+ * row - the section shows them a group at a time (MESH_UI_SETTINGS_MAPS), so no screen has to
+ * hold them all, and none is left out for want of one.
+ */
+#define MESH_UI_MAPS_ROWS_MAX 128U /* MESH_MAP_PACKS_INSTALLED_MAX + MESH_MAP_PACKS_ENTRIES_MAX */
+#define MESH_UI_MAPS_GROUPS_MAX 32U
+/* A row's `group` for a pack at the top of the catalog's tree - the world base. */
+#define MESH_UI_MAPS_NO_GROUP 0xFFU
+#define MESH_UI_MAPS_ID_MAX 48U
+#define MESH_UI_MAPS_NAME_MAX 32U
+#define MESH_UI_MAPS_MESSAGE_MAX 96U
+
+enum mesh_ui_maps_row_kind {
+    MESH_UI_MAPS_ROW_INSTALLED = 0,
+    MESH_UI_MAPS_ROW_AVAILABLE,
+};
+
+struct mesh_ui_maps_row {
+    char id[MESH_UI_MAPS_ID_MAX];
+    char name[MESH_UI_MAPS_NAME_MAX];
+    /* Which of `maps_groups` an available pack is listed in, or MESH_UI_MAPS_NO_GROUP. */
+    uint8_t group;
+    char cut[9]; /* YYYYMMDD, "" for a pack copied on by hand */
+    uint64_t bytes;
+    uint8_t kind; /* enum mesh_ui_maps_row_kind */
+    /* Installed, and the server has a newer cut of it. */
+    bool update;
+};
+
+/* A heading of the catalog with packs to offer: a row at the top of the section that opens its
+   packs. `count` is how many; `update` is whether one of them is a newer cut of a pack here. */
+struct mesh_ui_maps_group {
+    char name[MESH_UI_MAPS_NAME_MAX];
+    uint8_t count;
+    bool update;
+};
+
 struct mesh_ui_settings {
     /* The client's own facts. Always populated, radio or no radio - the About section is the
        one part of this tab that does not need a connection. */
@@ -926,6 +965,23 @@ struct mesh_ui_settings {
     bool fw_blank_other;
     uint8_t fw_choice_count;
     char fw_choices[MESH_UI_FW_CHOICES_MAX][MESH_UI_FW_BOARD_MAX];
+
+    /*
+     * Maps: the packs on the card and the ones the map server offers, flattened out of
+     * mesh/core/map_packs.h the way the updater's state is, so the settings rows need neither
+     * the module nor its catalog. See MESH_UI_SETTINGS_MAPS.
+     */
+    bool maps_supported; /* this build can fetch */
+    bool maps_catalog;   /* the server's list has arrived this run */
+    bool maps_loading;   /* asking for it */
+    bool maps_downloading;
+    uint16_t maps_progress; /* permille of the download */
+    char maps_message[MESH_UI_MAPS_MESSAGE_MAX];
+    char maps_download_name[MESH_UI_MAPS_NAME_MAX];
+    uint8_t maps_row_count;
+    struct mesh_ui_maps_row maps_rows[MESH_UI_MAPS_ROWS_MAX];
+    uint8_t maps_group_count;
+    struct mesh_ui_maps_group maps_groups[MESH_UI_MAPS_GROUPS_MAX];
 };
 
 #ifdef __cplusplus

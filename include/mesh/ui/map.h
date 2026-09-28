@@ -79,6 +79,15 @@ struct mesh_ui_store;
  */
 #define MESH_UI_MAP_ZOOM_FOCUS 15
 
+/*
+ * The zoom the map opens at on our own radio, when it knows where that is.
+ *
+ * A few towns across rather than the whole mesh: a fit over every node heard reaches as far as
+ * the furthest one, which on a busy mesh is a whole island or a neighbouring country, and a
+ * reader opening the map wants to know what is around them. START is still "show me all of it".
+ */
+#define MESH_UI_MAP_ZOOM_HOME 13
+
 /* MESH_UI_MAP_LABEL_MAX - the longest thing drawn beside a marker - was declared here and now
    lives in mesh/ui/store.h, which this includes: it is the width of a published field, and a
    limit a producer and a consumer both have to agree about belongs beside the record. */

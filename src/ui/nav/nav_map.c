@@ -51,9 +51,8 @@ static void map_view(const struct mesh_ui_store *store, struct mesh_ui_map_view 
 /*
  * Frames everything the map holds.
  *
- * Both the state the map opens in and what START goes back to, which is one idea and therefore
- * one function: "show me all of it". A map that opened on a fit and then offered no way back to
- * one would make the first pan a decision the reader could not undo.
+ * What START goes back to - "show me all of it" - and what the map opens on when it does not
+ * know where our own radio is.
  */
 static bool mesh_ui_nav_map_fit(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
     struct mesh_ui_map_view view;
@@ -66,14 +65,33 @@ static bool mesh_ui_nav_map_fit(struct mesh_ui_nav *nav, const struct mesh_ui_st
     return mesh_map_viewport_fit(&nav->map_viewport, points, (size_t)count, MESH_UI_MAP_FIT_MARGIN);
 }
 
-/* The declared box, a fresh viewport, and a fit - what a map that has never been looked at
-   starts from, and what one whose markers all went away starts from again. */
+/* Our own radio, when it has a position: the map opens where the reader is standing. */
+static bool mesh_ui_nav_map_home(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
+    struct mesh_ui_map_view view;
+    map_view(store, &view);
+    for (uint32_t i = 0; i < view.count; ++i) {
+        if (view.markers[i].kind == MESH_UI_MAP_MARKER_SELF &&
+            mesh_map_viewport_center_on(&nav->map_viewport, view.markers[i].latitude_i,
+                                        view.markers[i].longitude_i)) {
+            nav->map_viewport.zoom = MESH_UI_MAP_ZOOM_HOME;
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The declared box, a fresh viewport, and home - or a fit when our own position is unknown -
+   what a map that has never been looked at starts from, and what one whose markers all went
+   away starts from again. */
 static bool mesh_ui_nav_map_frame(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
     mesh_map_viewport_init(&nav->map_viewport, 0, 0, MESH_MAP_ZOOM_DEFAULT);
     /* The declared box rather than a measured one; see MESH_UI_MAP_FIT_WIDTH for why the nav
        cannot have a measured one and why a small declared box is the safe direction. */
     mesh_map_viewport_resize(&nav->map_viewport, MESH_UI_MAP_FIT_WIDTH, MESH_UI_MAP_FIT_HEIGHT);
-    (void)mesh_ui_nav_map_fit(nav, store);
+    nav->map_settled = mesh_ui_nav_map_home(nav, store);
+    if (!nav->map_settled) {
+        (void)mesh_ui_nav_map_fit(nav, store);
+    }
     nav->map_framed = true;
     return true;
 }
@@ -93,8 +111,8 @@ void mesh_ui_nav_open_map(struct mesh_ui_nav *nav, const struct mesh_ui_store *s
 
     /*
      * Aimed, or framed. A press that named a node is a press about that node, so the map opens
-     * looking at it and close enough to see where it is; a press that named nothing is "show me
-     * the mesh", and that is the fit the frame above already made.
+     * looking at it and close enough to see where it is; a press that named nothing opens where
+     * the frame above put it - on our own radio, or a fit when we do not know where that is.
      */
     struct mesh_ui_map_view view;
     map_view(store, &view);
@@ -105,6 +123,8 @@ void mesh_ui_nav_open_map(struct mesh_ui_nav *nav, const struct mesh_ui_store *s
         (void)mesh_map_viewport_center_on(&nav->map_viewport, view.markers[index].latitude_i,
                                           view.markers[index].longitude_i);
         nav->map_viewport.zoom = MESH_UI_MAP_ZOOM_FOCUS;
+        /* Aimed by the reader, so our own fix arriving later does not take it back home. */
+        nav->map_settled = true;
     }
 }
 
@@ -129,10 +149,15 @@ bool mesh_ui_nav_map_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *
         }
         memset(&nav->map_viewport, 0, sizeof nav->map_viewport);
         nav->map_framed = false;
+        nav->map_settled = false;
         return true;
     }
     if (mesh_ui_nav_map_unframed(nav)) {
         return mesh_ui_nav_map_frame(nav, store);
+    }
+    if (!nav->map_settled && mesh_ui_nav_map_home(nav, store)) {
+        nav->map_settled = true;
+        return true;
     }
     return false;
 }
@@ -276,6 +301,13 @@ bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *st
      */
     if (!mesh_ui_map_has_markers(store) && key != INKCELL_KEY_B) {
         return false;
+    }
+    /* A press that moves the map is the reader choosing where to look; nothing re-aims it
+       after that. */
+    if (key == INKCELL_KEY_UP || key == INKCELL_KEY_DOWN || key == INKCELL_KEY_LEFT ||
+        key == INKCELL_KEY_RIGHT || key == INKCELL_KEY_X || key == INKCELL_KEY_Y ||
+        key == INKCELL_KEY_START) {
+        nav->map_settled = true;
     }
 
     switch (key) {

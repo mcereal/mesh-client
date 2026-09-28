@@ -10,6 +10,7 @@
  */
 
 #include "inkwell/base/env.h"
+#include "inkwell/base/file.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
@@ -23,6 +24,7 @@
 #include "mesh/core/meshcore.h"
 #include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/map/stack.h"
 #include "mesh/proto/ble_profile.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
@@ -40,6 +42,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+
+/* The download manager refuses the region the map would not draw; the two limits are one number
+   seen from the two layers that may not include each other. */
+_Static_assert(MESH_MAP_PACKS_DRAWN_MAX == MESH_MAP_STACK_PACKS_MAX,
+               "the maps a download may install and the maps the map draws must agree");
 
 /* ---- link routing --------------------------------------------------------------------- */
 
@@ -796,7 +803,8 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     /* Derived rather than held: a download that fails lifts this by failing. Pairing it with a
        flag would leave a radio unreachable after a failed install until something remembered to
        clear it. */
-    if (mesh_updater_holds_the_radio(&app->updater)) {
+    if (mesh_updater_holds_the_radio(&app->updater) ||
+        mesh_map_packs_holds_the_antenna(&app->map_packs)) {
         return;
     }
     /*
@@ -1534,6 +1542,40 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     /* Never fatal: a client that cannot update itself is still a working client, and the
        About section says why rather than offering a row that would do nothing. */
     (void)mesh_updater_init(&app->updater, &app->loop);
+    /*
+     * The same directory the map opens its packs from (fb_basemap_open_default()), so what this
+     * downloads is what the map draws: MESHCLIENT_MAP_PACK when it names a directory, the maps
+     * directory under $HOME otherwise. When it names a single file the map draws that file and
+     * nothing else, so there is no directory a download would reach the map through - and the
+     * Maps section says so rather than listing packs the map is not reading. Never fatal either:
+     * with no home there is nowhere to put a pack.
+     */
+    {
+        const char *const named = getenv("MESHCLIENT_MAP_PACK");
+        const char *const home = getenv("HOME");
+        char maps_dir[MESH_MAP_PACKS_PATH_MAX] = "";
+        const bool file_named = named != NULL && named[0] != '\0' && !inkwell_file_is_dir(named);
+        if (named != NULL && named[0] != '\0' && !file_named) {
+            snprintf(maps_dir, sizeof maps_dir, "%s", named);
+        } else if (!file_named && home != NULL && home[0] != '\0') {
+            snprintf(maps_dir, sizeof maps_dir, "%s/.meshclient/maps", home);
+        }
+        (void)mesh_map_packs_init(&app->map_packs, &app->loop, maps_dir);
+        /* The map opens the legacy single pack beside the directory when nothing is named
+           (fb_basemap_open_default()), and it takes a slot of the same stack. */
+        if (named == NULL || named[0] == '\0') {
+            char legacy[MESH_MAP_PACKS_PATH_MAX];
+            if (home != NULL && home[0] != '\0' &&
+                snprintf(legacy, sizeof legacy, "%s/.meshclient/map.mctp", home) <
+                    (int)sizeof legacy) {
+                mesh_map_packs_count_also(&app->map_packs, legacy);
+            }
+        }
+        if (file_named) {
+            snprintf(app->map_packs.message, sizeof app->map_packs.message, "%s",
+                     inkcell_str(MESH_STR_MAP_PACKS_ENV_FILE));
+        }
+    }
     /* After init, which zeroes the struct. A prefs file written before the setting existed
        reads as DEFAULT, so this is a no-op for anyone who has never picked a channel. */
     (void)mesh_updater_set_channel(&app->updater,
@@ -1643,6 +1685,7 @@ void mesh_app_shutdown(struct mesh_app *app) {
        the DISCONNECT is written while there is still a session to write it about. */
     mesh_app_mqtt_shutdown(app);
     mesh_updater_shutdown(&app->updater);
+    mesh_map_packs_shutdown(&app->map_packs);
     mesh_firmware_shutdown(&app->firmware);
     mesh_firmware_update_shutdown(&app->firmware_update);
     /* Before the controller it presses keys on. */
@@ -1775,6 +1818,7 @@ int mesh_app_run(struct mesh_app *app) {
                and resumes a read that gave the loop back early. */
             mesh_updater_tick(&app->updater, inkwell_time_monotonic_ms());
             mesh_firmware_tick(&app->firmware, inkwell_time_monotonic_ms());
+            mesh_map_packs_tick(&app->map_packs, inkwell_time_monotonic_ms());
             /* One antenna: a download and a link cannot both have it, and the link is the one
                that loses - a Meshtastic node ends the connection after a second of silence,
                while a download only takes longer. Derived here rather than done at the install
@@ -1782,6 +1826,11 @@ int mesh_app_run(struct mesh_app *app) {
                guard above so nothing brings it back mid-download. */
             if (mesh_updater_holds_the_radio(&app->updater)) {
                 mesh_app_release_other_link(NULL);
+            }
+            /* And a map pack coming down, which is the same antenna and the same loser - and,
+               like the radio firmware's download, keeps a radio on a cable, which needs none. */
+            if (mesh_map_packs_holds_the_antenna(&app->map_packs)) {
+                mesh_app_release_other_link(mesh_serial_transport());
             }
             /*
              * The same hold, for the same antenna, taken by the other download - and it keeps

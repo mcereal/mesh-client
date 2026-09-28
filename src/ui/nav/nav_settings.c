@@ -396,6 +396,11 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
         action->edit_count = 0U;
         return;
     }
+    if (which == MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
+        action->type = MESH_UI_ACTION_MAPS_DELETE;
+        snprintf(action->identifier, sizeof action->identifier, "%s", nav->maps_pending);
+        return;
+    }
     if (mesh_ui_settings_action_is_forget(which)) {
         action->type = MESH_UI_ACTION_FORGET_NODES;
         action->section = mesh_ui_nav_open_section(nav);
@@ -461,7 +466,8 @@ bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store
      * says "edits kept". A clear confirmed with no link would have erased nothing and thrown away
      * the user's typing anyway.
      */
-    if (confirmed == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL) {
+    if (confirmed == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL ||
+        confirmed == MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
         nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
     }
     return true;
@@ -476,6 +482,11 @@ bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav) {
         return false;
     }
     mesh_ui_nav_edits_clear(nav);
+    if (nav->settings_section == MESH_UI_SETTINGS_MAPS && nav->maps_group != 0U) {
+        nav->maps_group = 0U;
+        nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->maps_group_list_cursor;
+        return true;
+    }
     if (nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
         nav->settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
         nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->settings_channel_list_cursor;

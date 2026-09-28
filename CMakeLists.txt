@@ -97,6 +97,7 @@ add_library(meshclient_core
     src/core/session/store_forward.c
     src/core/firmware/uf2.c
     src/core/update/updater.c
+    src/core/maps/map_packs.c
     src/core/update/version.c
     src/transport/transport_registry.c
     src/transport/stream_link.c

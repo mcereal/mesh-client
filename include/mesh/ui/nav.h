@@ -501,6 +501,10 @@ struct mesh_ui_nav {
        panned to - and so the renderer can tell an empty map from a map looking at empty
        ground. */
     bool map_framed;
+    /* Whether the frame is done with: on our own radio, or moved by the reader. A frame made
+       before our own position was known (a cached roster at start) is a fit, and the first
+       fix of ours to arrive re-aims it - unless the reader has already moved the map. */
+    bool map_settled;
     struct mesh_map_viewport map_viewport;
     /*
      * Radio tab, the Status cards: which verb the cursor is on.
@@ -832,6 +836,15 @@ struct mesh_ui_nav {
      * a link longer than that is one nobody was going to type anyway.
      */
     char channel_url[MESH_UI_DRAFT_MAX];
+    /* The map pack a delete sheet is standing in front of: the row's id, kept from the press
+       that opened the sheet to the one that answers it, since the sheet carries only the verb. */
+    char maps_pending[64];
+    /* The catalog group Maps has open, as its index plus one - 0 is the section's top, which is
+       what a zeroed nav already says. The row the group was opened from is parked in
+       `maps_group_list_cursor`, as a channel's is. Answered through mesh_ui_nav_open_channel(),
+       which is the slot every section row builder is already handed. */
+    uint8_t maps_group;
+    uint32_t maps_group_list_cursor;
     /* A contact link that has been typed and parsed, waiting on the sheet in front of it.
        Its own buffer beside the channel one, for that buffer's reason: the keyboard closes
        before the sheet opens, and closing it is what puts the parked Compose draft back. */
@@ -1070,6 +1083,15 @@ enum mesh_ui_action_type {
      * radio, sends no write, and what it moves is this client's idea of who it is talking to.
      */
     MESH_UI_ACTION_SET_ADMIN_TARGET,
+    /*
+     * Maps: ask the map server for its list, download the pack `identifier` names, stop the
+     * download running, and delete the installed pack `identifier` names. This client's alone,
+     * like the update verbs - none of them reaches the radio.
+     */
+    MESH_UI_ACTION_MAPS_REFRESH,
+    MESH_UI_ACTION_MAPS_DOWNLOAD,
+    MESH_UI_ACTION_MAPS_CANCEL,
+    MESH_UI_ACTION_MAPS_DELETE,
     /* Not a verb: how many there are. It is what pins the dispatch table in
        src/app/app_actions.c to this list - a verb added above and not given a row there is a
        press that reaches the app and does nothing, with nothing to see at the seam. */
@@ -1511,6 +1533,8 @@ bool mesh_ui_nav_disconnect_pending(const struct mesh_ui_nav *nav,
 uint8_t mesh_ui_nav_open_section(const struct mesh_ui_nav *nav);
 /* The section a Radio tab page is built from, or MESH_UI_SETTINGS_NO_SECTION for NONE. */
 uint8_t mesh_ui_nav_radio_page_section(uint8_t page);
+/* The slot the open section's rows are built for: the channel Channels has open, the catalog
+   group Maps has open, or MESH_UI_SETTINGS_NO_CHANNEL at a section's top. */
 uint8_t mesh_ui_nav_open_channel(const struct mesh_ui_nav *nav);
 
 /* Canned replies shown on the Compose tab. Defaults are built in; a file with one message per

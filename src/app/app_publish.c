@@ -1071,7 +1071,8 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     if (app == NULL) {
         return;
     }
-    dst->map_packs_revision = app->map_packs_revision;
+    /* Moves on every install and delete, which is what makes the map reopen its packs. */
+    dst->map_packs_revision = app->map_packs_revision + app->map_packs.installed_revision;
     const char *backend = inkstand_frame_scheduler_backend_name(&app->ui_controller.frames);
     if (backend != NULL) {
         snprintf(dst->backend, sizeof dst->backend, "%s", backend);
@@ -1215,6 +1216,96 @@ const struct inkwell_serial_port_info *mesh_app_firmware_silent_port(struct mesh
  * Not part of the cached half above, because none of it comes out of mesh_radio_settings: a
  * check finishing changes these rows while the radio's own configuration has not moved.
  */
+/*
+ * The Maps section's data: the module's state, the packs on the card, and every catalog pack the
+ * card does not already have at its newest cut - one on the card at an older cut is in the list
+ * too, as an update. The catalog's packs are grouped the way the section shows them: the top of
+ * the tree (the world base) with no group, and each catalog group that has something to offer as
+ * one of `maps_groups`, in the catalog's order.
+ */
+_Static_assert(MESH_UI_MAPS_ROWS_MAX >= MESH_MAP_PACKS_INSTALLED_MAX + MESH_MAP_PACKS_ENTRIES_MAX,
+               "every installed pack and every catalog pack needs a row");
+_Static_assert(MESH_UI_MAPS_GROUPS_MAX >= MESH_MAP_PACKS_GROUPS_MAX,
+               "every catalog group needs a slot");
+
+static void mesh_app_flatten_maps(const struct mesh_app *app, struct mesh_ui_settings *dst) {
+    const struct mesh_map_packs *const packs = &app->map_packs;
+    dst->maps_supported = mesh_map_packs_available(packs);
+    dst->maps_catalog = packs->catalog_valid;
+    dst->maps_loading = packs->state == MESH_MAP_PACKS_LOADING;
+    dst->maps_downloading = packs->state == MESH_MAP_PACKS_DOWNLOADING;
+    uint16_t permille = 0U;
+    dst->maps_progress = mesh_map_packs_progress(packs, &permille) ? permille : 0U;
+    inkwell_str_copy(dst->maps_message, sizeof dst->maps_message, packs->message);
+    inkwell_str_copy(dst->maps_download_name, sizeof dst->maps_download_name,
+                     dst->maps_downloading ? packs->download.entry.name : "");
+    dst->maps_row_count = 0U;
+    dst->maps_group_count = 0U;
+
+    for (size_t i = 0U; i < packs->installed_count && dst->maps_row_count < MESH_UI_MAPS_ROWS_MAX;
+         ++i) {
+        const struct mesh_map_packs_installed *const pack = &packs->installed[i];
+        const struct mesh_map_packs_entry *const entry = mesh_map_packs_find(packs, pack->id);
+        struct mesh_ui_maps_row *const row = &dst->maps_rows[dst->maps_row_count++];
+        memset(row, 0, sizeof *row);
+        row->kind = (uint8_t)MESH_UI_MAPS_ROW_INSTALLED;
+        row->group = MESH_UI_MAPS_NO_GROUP;
+        inkwell_str_copy(row->id, sizeof row->id, pack->id);
+        inkwell_str_copy(row->name, sizeof row->name, entry != NULL ? entry->name : pack->id);
+        inkwell_str_copy(row->cut, sizeof row->cut, pack->cut);
+        row->bytes = pack->bytes;
+        row->update = entry != NULL && strcmp(entry->cut, pack->cut) > 0;
+    }
+    if (!packs->catalog_valid) {
+        return;
+    }
+
+    /* g == 0 is the top of the tree; g > 0 is catalog group g - 1. */
+    for (size_t g = 0U; g <= packs->catalog.group_count; ++g) {
+        const char *const parent = g == 0U ? "" : packs->catalog.groups[g - 1U].id;
+        const uint8_t slot = g == 0U ? MESH_UI_MAPS_NO_GROUP : dst->maps_group_count;
+        struct mesh_ui_maps_group *const group =
+            g == 0U || slot >= MESH_UI_MAPS_GROUPS_MAX ? NULL : &dst->maps_groups[slot];
+        if (g != 0U && group == NULL) {
+            break;
+        }
+        if (group != NULL) {
+            memset(group, 0, sizeof *group);
+            inkwell_str_copy(group->name, sizeof group->name, packs->catalog.groups[g - 1U].name);
+        }
+        for (size_t i = 0U;
+             i < packs->catalog.entry_count && dst->maps_row_count < MESH_UI_MAPS_ROWS_MAX; ++i) {
+            const struct mesh_map_packs_entry *const entry = &packs->catalog.entries[i];
+            if (strcmp(entry->parent, parent) != 0) {
+                continue;
+            }
+            const struct mesh_map_packs_installed *const installed =
+                mesh_map_packs_find_installed(packs, entry->id);
+            const bool update = installed != NULL && strcmp(entry->cut, installed->cut) > 0;
+            if (installed != NULL && !update) {
+                continue;
+            }
+            struct mesh_ui_maps_row *const row = &dst->maps_rows[dst->maps_row_count++];
+            memset(row, 0, sizeof *row);
+            row->kind = (uint8_t)MESH_UI_MAPS_ROW_AVAILABLE;
+            row->group = slot;
+            inkwell_str_copy(row->id, sizeof row->id, entry->id);
+            inkwell_str_copy(row->name, sizeof row->name, entry->name);
+            inkwell_str_copy(row->cut, sizeof row->cut, entry->cut);
+            row->bytes = entry->bytes;
+            row->update = update;
+            if (group != NULL) {
+                group->count = group->count < UINT8_MAX ? (uint8_t)(group->count + 1U) : UINT8_MAX;
+                group->update = group->update || update;
+            }
+        }
+        /* A group with nothing to offer is not a row: it would open onto an empty list. */
+        if (group != NULL && group->count > 0U) {
+            ++dst->maps_group_count;
+        }
+    }
+}
+
 static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_settings *dst) {
     struct mesh_firmware *const firmware = &app->firmware;
     mesh_firmware_set_bus(firmware, mesh_app_firmware_bus(),
@@ -2933,6 +3024,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             (uint16_t)mesh_meshcore_text_max(&app->meshcore, MESH_MESSAGE_BROADCAST_ADDR);
     }
     mesh_app_flatten_firmware(app, &ui_settings);
+    mesh_app_flatten_maps(app, &ui_settings);
     /* MeshCore's DEVICE_INFO is its DeviceMetadata: which firmware, on which board. After the
        firmware's own flatten, which would otherwise have the last word on `fw_board`. */
     if (app->meshcore_bound && app->meshcore.has_device) {

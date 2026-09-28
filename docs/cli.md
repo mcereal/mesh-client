@@ -120,7 +120,10 @@ not inside the pak, because the pak is what self-update replaces and a downloade
 user's file. `MESHCLIENT_MAP_PACK` names another file or directory instead. Up to 16 packs; a
 file that will not open is logged and skipped. Each tile comes from the pack that holds it
 deepest, and on a tie from the one with the shallower cut, so a world base draws the far zooms
-and a region the near ones (`include/mesh/map/stack.h`).
+and a region the near ones (`include/mesh/map/stack.h`). **Settings › Maps** downloads regions
+over Wi-Fi from the catalog at `maps.sailfin.dev` into that directory, a resumable 4 MB piece at a
+time, and deletes them (`include/mesh/core/map_packs.h`). A download holds the antenna, so a
+Bluetooth radio disconnects until it ends; one on USB stays connected.
 
 Packs are built on a host with
 [`devtools/map_pack/map_pack.py`](../devtools/map_pack/map_pack.py) from an MBTiles file or a

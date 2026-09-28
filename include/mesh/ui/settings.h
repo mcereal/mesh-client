@@ -134,6 +134,12 @@ enum mesh_ui_settings_section {
      */
     MESH_UI_SETTINGS_RADIO_DETAILS,
     MESH_UI_SETTINGS_NODE_LISTS,
+    /*
+     * The map packs on this card and the ones the map server offers. This client's, like About:
+     * nothing here reaches the radio, and it opens with nothing connected - which is when a
+     * download is best done, since one holds the antenna the radio's link would use.
+     */
+    MESH_UI_SETTINGS_MAPS,
     MESH_UI_SETTINGS_SECTION_COUNT,
 };
 
@@ -734,6 +740,18 @@ enum mesh_ui_settings_action {
      * neither the app nor the radio, like the two share rows.
      */
     MESH_UI_SETTINGS_ACTION_SHOW_FIRMWARE,
+    /*
+     * Maps: ask the map server what it has, download one of its packs (the row's `text` is the
+     * pack's id), stop the download running, and delete an installed pack (the same, behind a
+     * sheet). None of them reaches the radio.
+     */
+    MESH_UI_SETTINGS_ACTION_MAPS_REFRESH,
+    MESH_UI_SETTINGS_ACTION_MAPS_DOWNLOAD,
+    MESH_UI_SETTINGS_ACTION_MAPS_CANCEL,
+    MESH_UI_SETTINGS_ACTION_MAPS_DELETE,
+    /* One of the catalog's groups, opened to its packs: the row's `text` is the group's index in
+       `maps_groups`. The nav's alone, like the share rows - nothing is asked of the app. */
+    MESH_UI_SETTINGS_ACTION_MAPS_OPEN_GROUP,
     /* Not an action: what the two verb tables below are sized by, so a row added above without
        a symbol or a weight is a hole in an array rather than a row that quietly draws nothing.
        Last, so no existing value moves - nav->confirm.subject carries one in a uint8_t. */

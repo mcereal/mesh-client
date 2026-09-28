@@ -1178,6 +1178,7 @@ MESH_STR_ENTRY(SETTINGS_SECTION_BEACON,                   "Mesh beacon")
 /* The Radio tab's two pages, opened from its Radio and Mesh cards. */
 MESH_STR_ENTRY(SETTINGS_SECTION_RADIO_DETAILS,            "Radio details")
 MESH_STR_ENTRY(SETTINGS_SECTION_NODE_LISTS,               "Node lists")
+MESH_STR_ENTRY(SETTINGS_SECTION_MAPS,                     "Maps")
 
 /* ---- the help screen -------------------------------------------------------------------------- */
 
@@ -1222,6 +1223,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_TELEMETRY,                   "What the radio measur
 MESH_STR_ENTRY(SETTINGS_NOTE_ACTIONS,                     "Things the node being administered does rather than settings it keeps: reboot, shutdown and the resets. Listed only while that node is not your own radio; your own radio's are on the Radio tab.")
 MESH_STR_ENTRY(SETTINGS_NOTE_RADIO_DETAILS,               "What the radio on the link says about itself, the firmware upstream publishes for its board, and the things it can be asked to do. A reboot comes back on its own; the factory resets do not.")
 MESH_STR_ENTRY(SETTINGS_NOTE_NODE_LISTS,                  "Two lists of nodes. The radio's own database is short and trims itself; resetting it empties the radio. This client keeps a longer one, and the forget rows clear only that.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MAPS,                        "The maps under the Map tab, downloaded over Wi-Fi. The world map sits under every region. A download needs the antenna Bluetooth uses, so the radio disconnects until it ends.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MODULES,                     "The optional features this radio's firmware can run. Each row opens that module's own settings, and its value says whether the module is currently enabled.")
 MESH_STR_ENTRY(SETTINGS_NOTE_NEIGHBOR_INFO,               "Reports which nodes this radio hears directly, so the mesh can map its own shape. The firmware floors the interval at four hours because it is a lot of traffic.")
 MESH_STR_ENTRY(SETTINGS_NOTE_RANGE_TEST,                  "Sends numbered packets on a timer so you can walk away and find where reception stops. It transmits to everyone on the channel, so turn it off when you are done.")
@@ -2469,6 +2471,7 @@ MESH_STR_ENTRY(CONFIRM_TITLE_FACTORY_DEV, "Factory reset everything?")
 MESH_STR_ENTRY(CONFIRM_TITLE_BACKUP,      "Back up the configuration?")
 MESH_STR_ENTRY(CONFIRM_TITLE_RESTORE,     "Restore the configuration?")
 MESH_STR_ENTRY(CONFIRM_TITLE_RM_BACKUP,   "Delete the backup?")
+MESH_STR_ENTRY(CONFIRM_TITLE_MAPS_DELETE, "Delete this map?")
 MESH_STR_ENTRY(CONFIRM_TITLE_HAM_MODE,    "Switch to ham mode?")
 MESH_STR_ENTRY(CONFIRM_TITLE_FW_USB,      "Update the radio over USB?")
 MESH_STR_ENTRY(CONFIRM_TITLE_FW_BLE,      "Update the radio over Bluetooth?")
@@ -2491,6 +2494,7 @@ MESH_STR_ENTRY(CONFIRM_ACCEPT_FACTORY_DEV,"Factory reset device")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_BACKUP,     "Back up")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_RESTORE,    "Restore")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_RM_BACKUP,  "Delete backup")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_MAPS_DELETE, "Delete map")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_HAM_MODE,   "Switch to ham mode")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_USB,     "Update over USB")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_BLE,     "Update over Bluetooth")
@@ -2532,6 +2536,7 @@ MESH_STR_ENTRY(CONFIRM_TEXT_FACTORY_DEV,  "Every setting and the node database r
 MESH_STR_ENTRY(CONFIRM_TEXT_BACKUP,       "The radio copies every setting it holds to its own flash, replacing whatever backup was there before. Nothing on the mesh changes.")
 MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE,      "Every setting on the radio goes back to whatever the backup holds, this client's own settings excepted. The radio restarts; without a backup nothing happens.")
 MESH_STR_ENTRY(CONFIRM_TEXT_RM_BACKUP,    "The saved copy is erased from the radio's flash. The settings it is running now are untouched, and there is nothing left to restore from.")
+MESH_STR_ENTRY(CONFIRM_TEXT_MAPS_DELETE,  "The map comes off the card and stops being drawn. It can be downloaded again from this screen.")
 MESH_STR_ENTRY(CONFIRM_TEXT_BLUETOOTH,    "The radio will reboot. Changing the pairing mode or PIN invalidates the Brick's bond: forget the node in Devices (Y) and connect again to pair with the new PIN. Turning Bluetooth off cuts this client off entirely.")
 MESH_STR_ENTRY(CONFIRM_TEXT_CHANNELS,     "The radio will reboot. A new key or name moves this radio to a different channel: every other node needs the same settings to keep talking to it.")
 MESH_STR_ENTRY(CONFIRM_TEXT_LORA,         "The radio will reboot. A region or preset the other nodes do not share takes this radio off the mesh, and a wrong region may be illegal to transmit on. Transmit off makes it receive-only.")
@@ -3113,6 +3118,61 @@ MESH_STR_ENTRY(UPDATE_TLS_UNVERIFIED,     "Could not verify GitHub's certificate
 /* The HTTP status GitHub answered with - 404, 503. */
 MESH_STR_ENTRY(UPDATE_CHECK_HTTP,         "Check failed (HTTP %d)")
 MESH_STR_ENTRY(UPDATE_DOWNLOAD_HTTP,      "Download failed (HTTP %d)")
+
+/* ---- map packs: downloading regions of the map over Wi-Fi --------------------------------- */
+
+/* "The map server" is the service the regions are downloaded from; it has no name to show. */
+MESH_STR_ENTRY(MAP_PACKS_UNREACHABLE,     "Could not reach the map server")
+MESH_STR_ENTRY(MAP_PACKS_BAD_REPLY,       "Unexpected reply from the map server")
+MESH_STR_ENTRY(MAP_PACKS_TIMED_OUT,       "Timed out talking to the map server")
+MESH_STR_ENTRY(MAP_PACKS_TLS_UNVERIFIED,  "Could not verify the map server's certificate")
+MESH_STR_ENTRY(MAP_PACKS_TOO_LARGE,       "The map server sent more than it should have")
+/* The HTTP status the server answered with - 404, 503. */
+MESH_STR_ENTRY(MAP_PACKS_HTTP_STATUS,     "The map server answered HTTP %d")
+MESH_STR_ENTRY(MAP_PACKS_WRITE_FAILED,    "Could not save the map. Is the card full?")
+MESH_STR_ENTRY(MAP_PACKS_BAD_CATALOG,     "The list of maps could not be read")
+MESH_STR_ENTRY(MAP_PACKS_NO_TLS,          "This build cannot download maps")
+/* MESHCLIENT_MAP_PACK is an environment variable's name and is not translated. */
+MESH_STR_ENTRY(MAP_PACKS_ENV_FILE,        "Off: MESHCLIENT_MAP_PACK is set")
+/* The %s is a region's name: "Puerto Rico arrived damaged. Try again." */
+MESH_STR_ENTRY(MAP_PACKS_DAMAGED,         "%s arrived damaged. Try again.")
+MESH_STR_ENTRY(MAP_PACKS_DONE,            "%s is on the map")
+MESH_STR_ENTRY(MAP_PACKS_DELETED,         "%s deleted")
+MESH_STR_ENTRY(MAP_PACKS_DELETE_FAILED,   "%s could not be deleted")
+/* A download the reader stopped. What arrived is kept, and the next press carries on. */
+MESH_STR_ENTRY(MAP_PACKS_STOPPED,         "Stopped; downloading resumes it")
+
+/* The Maps section's rows. A "map" here is one downloadable region: a state, a country, the world. */
+MESH_STR_ENTRY(MAPS_STATUS,               "Status")
+MESH_STR_ENTRY(MAPS_DOWNLOADING,          "Downloading")
+/* The region and how far it has got: "Puerto Rico, 42%". */
+MESH_STR_ENTRY(MAPS_DOWNLOADING_VALUE,    "%s, %u%%")
+MESH_STR_ENTRY(MAPS_STOP,                 "Stop the download")
+MESH_STR_ENTRY(MAPS_LOADING,              "Map list")
+MESH_STR_ENTRY(MAPS_LOADING_VALUE,        "Asking the map server")
+MESH_STR_ENTRY(MAPS_HEAD_INSTALLED,       "On this device")
+MESH_STR_ENTRY(MAPS_GET_LIST,             "See the maps to download")
+MESH_STR_ENTRY(MAPS_REFRESH,              "Check for new maps")
+/* The heading over the maps that are not in any region, which is the whole-world one. */
+MESH_STR_ENTRY(MAPS_HEAD_WORLD,           "Everywhere")
+/* The heading over the groups of maps - "United States", "Europe" - each of which opens a list. */
+MESH_STR_ENTRY(MAPS_HEAD_REGIONS,         "Regions")
+/* How many maps a group offers, beside its name. */
+MESH_STR_PLURAL_ENTRY(MAPS_GROUP_COUNT,   "%u map", "%u maps")
+/* Beside a group's name when one of its maps is a newer version of one on this device. */
+MESH_STR_ENTRY(MAPS_GROUP_UPDATE,         "Update available")
+/* A size in megabytes, whole part and tenths: "22.5 MB". */
+MESH_STR_ENTRY(MAPS_SIZE,                 "%u.%u MB")
+/* An installed map's size and the date its data is from: "22.5 MB, 2026-09-27". The three
+   date parts are year, month and day, in that order in the arguments. */
+MESH_STR_ENTRY(MAPS_INSTALLED_VALUE,      "%s, %.4s-%.2s-%.2s")
+/* A newer version of an installed map, and its size: "Update, 22.5 MB". */
+MESH_STR_ENTRY(MAPS_UPDATE_VALUE,         "Update, %s")
+MESH_STR_ENTRY(TOAST_MAPS_BUSY,           "One download at a time")
+/* The most regions the map draws at once, which is also the most that can be installed. */
+MESH_STR_ENTRY(TOAST_MAPS_FULL,           "The map draws %u maps at most. Delete one first.")
+/* The %s is the C library's own description of an errno and arrives untranslated. */
+MESH_STR_ENTRY(TOAST_MAPS_FAILED,         "Maps: %s")
 
 /* ---- the radio's firmware ------------------------------------------------------------------ */
 

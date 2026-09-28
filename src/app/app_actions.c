@@ -1851,6 +1851,58 @@ static void on_check_update(struct mesh_app *app, const struct mesh_ui_action *a
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
 
+/*
+ * Maps. What each press did is the section's own status row (the module's `message`), so these
+ * say something only when the press did nothing: a toast for a refusal, the row for an outcome.
+ */
+static void maps_refused(struct mesh_app *app, int result) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    if (result == -EBUSY) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_MAPS_BUSY));
+    } else if (result == -ENOSPC) {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_MAPS_FULL,
+                           (unsigned)MESH_MAP_PACKS_DRAWN_MAX);
+    } else if (result == -ENOTSUP) {
+        /* The module's own reason when it has one - no TLS, or MESHCLIENT_MAP_PACK choosing
+           the map - rather than a guess at which it was. */
+        snprintf(toast, sizeof toast, "%s",
+                 app->map_packs.message[0] != '\0' ? app->map_packs.message
+                                                   : inkcell_str(MESH_STR_MAP_PACKS_NO_TLS));
+    } else {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_MAPS_FAILED, strerror(-result));
+    }
+    inkwell_log_warn("maps", "Press refused: %s", strerror(-result));
+    mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+}
+
+static void on_maps_refresh(struct mesh_app *app, const struct mesh_ui_action *action) {
+    (void)action;
+    const int result = mesh_map_packs_refresh(&app->map_packs, inkwell_time_monotonic_ms());
+    if (result < 0) {
+        maps_refused(app, result);
+    }
+}
+
+static void on_maps_download(struct mesh_app *app, const struct mesh_ui_action *action) {
+    const int result =
+        mesh_map_packs_download(&app->map_packs, action->identifier, inkwell_time_monotonic_ms());
+    if (result < 0) {
+        maps_refused(app, result);
+    }
+}
+
+static void on_maps_cancel(struct mesh_app *app, const struct mesh_ui_action *action) {
+    (void)action;
+    mesh_map_packs_cancel(&app->map_packs);
+}
+
+static void on_maps_delete(struct mesh_app *app, const struct mesh_ui_action *action) {
+    const int result = mesh_map_packs_delete(&app->map_packs, action->identifier);
+    if (result < 0) {
+        maps_refused(app, result);
+    }
+}
+
 static void on_cycle_firmware_channel(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
@@ -2562,6 +2614,10 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_IMPORT_CHANNELS, on_import_channels, false},
     {MESH_UI_ACTION_IMPORT_CONTACT, on_import_contact, false},
     {MESH_UI_ACTION_SET_ADMIN_TARGET, on_set_admin_target, false},
+    {MESH_UI_ACTION_MAPS_REFRESH, on_maps_refresh, false},
+    {MESH_UI_ACTION_MAPS_DOWNLOAD, on_maps_download, false},
+    {MESH_UI_ACTION_MAPS_CANCEL, on_maps_cancel, false},
+    {MESH_UI_ACTION_MAPS_DELETE, on_maps_delete, false},
 };
 
 /*

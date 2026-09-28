@@ -11,6 +11,7 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -2365,8 +2366,9 @@ cleanup:
 
 /*
  * The section list's "This app" heading is a row the cursor never stands on: Down from the last
- * radio section lands on About, Up from About lands back on that section, and A on the
- * heading's index opens nothing - which is the whole of why it can be a row at all.
+ * radio section lands on the first of this client's rows (Maps, then About), Up from there lands
+ * back on that section, and A on the heading's index opens nothing - which is the whole of why it
+ * can be a row at all.
  */
 MESH_TEST_CASE(ui_nav_settings_root_steps_over_its_heading, unit) {
     const char *failure = NULL;
@@ -2382,17 +2384,20 @@ MESH_TEST_CASE(ui_nav_settings_root_steps_over_its_heading, unit) {
     (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     uint32_t *const cursor = &store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
     const uint32_t about = mesh_ui_settings_root_count(&store.settings) - 1U;
-    const uint32_t heading = about - 1U;
+    const uint32_t maps = about - 1U;
+    const uint32_t heading = maps - 1U;
     if (*cursor != 0U || mesh_ui_settings_root_is_heading(&store.settings, 0U) ||
         mesh_ui_settings_root_at(&store.settings, about) != MESH_UI_SETTINGS_ABOUT ||
+        mesh_ui_settings_root_at(&store.settings, maps) != MESH_UI_SETTINGS_MAPS ||
         !mesh_ui_settings_root_is_heading(&store.settings, heading)) {
-        failure = "the list should open on a radio section and end with the heading over About";
+        failure = "the list should open on a radio section and end with the heading over the "
+                  "client's two rows";
         goto cleanup;
     }
     *cursor = heading - 1U;
     mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
-    if (*cursor != about) {
-        failure = "Down from the last radio section should step over the heading onto About";
+    if (*cursor != maps) {
+        failure = "Down from the last radio section should step over the heading onto Maps";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
@@ -2481,5 +2486,219 @@ MESH_TEST_CASE(ui_nav_settings_an_edit_to_a_dimmed_row_says_when_it_counts, unit
 cleanup:
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* A Maps section with one pack of each kind: the world base installed and current, Puerto Rico
+   installed at an older cut than the server has, and Washington only on the server - the last
+   two in the catalog's "United States" group. */
+static void maps_settings(struct mesh_ui_settings *settings) {
+    memset(settings, 0, sizeof *settings);
+    settings->maps_supported = true;
+    settings->maps_catalog = true;
+    const struct mesh_ui_maps_row rows[] = {
+        {.id = "world",
+         .name = "World",
+         .cut = "20260927",
+         .bytes = 10220240U,
+         .kind = MESH_UI_MAPS_ROW_INSTALLED,
+         .group = MESH_UI_MAPS_NO_GROUP},
+        {.id = "us-puerto-rico",
+         .name = "Puerto Rico",
+         .cut = "20250101",
+         .bytes = 21000000U,
+         .kind = MESH_UI_MAPS_ROW_INSTALLED,
+         .group = MESH_UI_MAPS_NO_GROUP,
+         .update = true},
+        {.id = "us-puerto-rico",
+         .name = "Puerto Rico",
+         .group = 0U,
+         .cut = "20260927",
+         .bytes = 22481382U,
+         .kind = MESH_UI_MAPS_ROW_AVAILABLE,
+         .update = true},
+        {.id = "us-washington",
+         .name = "Washington",
+         .group = 0U,
+         .cut = "20260927",
+         .bytes = 89375602U,
+         .kind = MESH_UI_MAPS_ROW_AVAILABLE},
+    };
+    memcpy(settings->maps_rows, rows, sizeof rows);
+    settings->maps_row_count = (uint8_t)(sizeof rows / sizeof rows[0]);
+    snprintf(settings->maps_groups[0].name, sizeof settings->maps_groups[0].name, "%s",
+             "United States");
+    settings->maps_groups[0].count = 2U;
+    settings->maps_groups[0].update = true;
+    settings->maps_group_count = 1U;
+}
+
+/*
+ * Maps lists what is on the card, then one row per catalog group, which opens that group's
+ * packs - so no screen holds the whole catalog, and every pack in it is reachable. Every pack's
+ * row hands its id back with the press: a download straight away, a delete only once the sheet
+ * in front of it is answered - and with the id of the row that opened the sheet, which the sheet
+ * itself does not carry. B from a group comes back to the row it was opened from.
+ */
+MESH_TEST_CASE(ui_nav_settings_maps_rows_carry_their_pack, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    maps_settings(&settings);
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_settings_item item;
+    const bool installed_row =
+        mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_MAPS,
+                              MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) &&
+        strcmp(item.label, "World") == 0 && strcmp(item.value, "10.2 MB, 2026-09-27") == 0 &&
+        item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_MAPS_DELETE;
+    const bool group_row =
+        mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_MAPS,
+                              MESH_UI_SETTINGS_NO_CHANNEL, 5U, &item) &&
+        strcmp(item.label, "United States") == 0 && strcmp(item.value, "Update available") == 0 &&
+        item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_MAPS_OPEN_GROUP;
+    const bool update_row = mesh_ui_settings_item(&store.settings, NULL, NULL, 0U,
+                                                  MESH_UI_SETTINGS_MAPS, 0U, 1U, &item) &&
+                            strcmp(item.value, "Update, 22.5 MB") == 0 &&
+                            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_MAPS_DOWNLOAD;
+    if (!installed_row || !group_row || !update_row) {
+        failure = "the top should be the card's packs and a row per group, the group its packs";
+        goto cleanup;
+    }
+
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    const uint32_t maps_row = mesh_ui_settings_root_count(&store.settings) - 2U;
+    if (!mesh_test_settings_cursor_to(&store, maps_row)) {
+        failure = "the walk should reach Maps";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_MAPS) {
+        failure = "A should open Maps with no radio connected";
+        goto cleanup;
+    }
+
+    if (!mesh_test_settings_cursor_to(&store, 5U)) {
+        failure = "the walk should reach the United States";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_NONE || mesh_ui_nav_open_channel(&store.nav) != 0U ||
+        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 0U) {
+        failure = "A on a group should open it, at its top, asking nothing of the app";
+        goto cleanup;
+    }
+    if (!mesh_test_settings_cursor_to(&store, 2U)) {
+        failure = "the walk should reach Washington";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_MAPS_DOWNLOAD ||
+        strcmp(action.identifier, "us-washington") != 0) {
+        failure = "A on a server's pack should download that pack";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_MAPS ||
+        mesh_ui_nav_open_channel(&store.nav) != MESH_UI_SETTINGS_NO_CHANNEL ||
+        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 5U) {
+        failure = "B from a group should come back to its row";
+        goto cleanup;
+    }
+
+    if (!mesh_test_settings_cursor_to(&store, 3U)) {
+        failure = "the walk should reach the installed Puerto Rico";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.confirm.open || action.type != MESH_UI_ACTION_NONE ||
+        store.nav.confirm.subject != (uint8_t)MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
+        failure = "A on an installed pack should ask first";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (store.nav.confirm.open || action.type != MESH_UI_ACTION_MAPS_DELETE ||
+        strcmp(action.identifier, "us-puerto-rico") != 0) {
+        failure = "confirming should delete the pack whose row opened the sheet";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A group of more packs than a section could list alongside everything else is still whole
+ * when opened: the section shows it a group at a time for exactly this. Fifty-two - every state,
+ * the District and Puerto Rico - is the largest group the catalog is built to have.
+ */
+MESH_TEST_CASE(ui_nav_settings_maps_a_big_group_is_all_there, unit) {
+    struct mesh_ui_settings *settings = calloc(1U, sizeof *settings);
+    MESH_TEST_FAIL_IF(settings == NULL, "settings memory");
+    settings->maps_supported = true;
+    settings->maps_catalog = true;
+    for (uint8_t i = 0U; i < 52U; ++i) {
+        struct mesh_ui_maps_row *const row = &settings->maps_rows[i];
+        snprintf(row->id, sizeof row->id, "us-%02u", (unsigned)i);
+        snprintf(row->name, sizeof row->name, "State %02u", (unsigned)i);
+        row->kind = MESH_UI_MAPS_ROW_AVAILABLE;
+        row->group = 0U;
+        row->bytes = 1000000U;
+    }
+    settings->maps_row_count = 52U;
+    snprintf(settings->maps_groups[0].name, sizeof settings->maps_groups[0].name, "%s", "US");
+    settings->maps_groups[0].count = 52U;
+    settings->maps_group_count = 1U;
+
+    const uint32_t top = mesh_ui_settings_item_count(settings, NULL, MESH_UI_SETTINGS_MAPS,
+                                                     MESH_UI_SETTINGS_NO_CHANNEL);
+    const uint32_t opened = mesh_ui_settings_item_count(settings, NULL, MESH_UI_SETTINGS_MAPS, 0U);
+    struct mesh_ui_settings_item item;
+    const bool last =
+        mesh_ui_settings_item(settings, NULL, NULL, 0U, MESH_UI_SETTINGS_MAPS, 0U, 52U, &item) &&
+        strcmp(item.text, "us-51") == 0;
+    free(settings);
+    MESH_TEST_FAIL_IF(top != 3U, "the top is the verb, the heading and the group's one row");
+    MESH_TEST_FAIL_IF(opened != 53U || !last, "and the group opens onto every one of its packs");
+    record_success(test_name);
+}
+
+/* While a download runs, the way to stop it and its bar lead the section, and nothing else is
+   offered to download: one at a time is the module's rule. */
+MESH_TEST_CASE(ui_nav_settings_maps_a_download_is_the_only_offer, unit) {
+    struct mesh_ui_settings *settings = calloc(1U, sizeof *settings);
+    MESH_TEST_FAIL_IF(settings == NULL, "settings memory");
+    maps_settings(settings);
+    settings->maps_downloading = true;
+    settings->maps_progress = 420U;
+    snprintf(settings->maps_download_name, sizeof settings->maps_download_name, "Washington");
+
+    struct mesh_ui_settings_item item;
+    const bool bar = mesh_ui_settings_item(settings, NULL, NULL, 0U, MESH_UI_SETTINGS_MAPS,
+                                           MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) &&
+                     item.kind == INKSTAND_FORM_METER && item.number == 420U &&
+                     strcmp(item.value, "Washington, 42%") == 0;
+    const bool stop = mesh_ui_settings_item(settings, NULL, NULL, 0U, MESH_UI_SETTINGS_MAPS,
+                                            MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) &&
+                      item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_MAPS_CANCEL;
+    bool offered = false;
+    for (uint32_t row = 0U; row < MESH_UI_SETTINGS_ITEMS_MAX; ++row) {
+        if (!mesh_ui_settings_item(settings, NULL, NULL, 0U, MESH_UI_SETTINGS_MAPS,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+            break;
+        }
+        offered = offered || item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_MAPS_DOWNLOAD;
+    }
+    free(settings);
+    MESH_TEST_FAIL_IF(!stop, "the way to stop the download comes first");
+    MESH_TEST_FAIL_IF(!bar, "then its bar, with how far it has got");
+    MESH_TEST_FAIL_IF(offered, "and no second download is offered");
     record_success(test_name);
 }
