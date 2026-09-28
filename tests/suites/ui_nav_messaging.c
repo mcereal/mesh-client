@@ -1463,11 +1463,50 @@ MESH_TEST_CASE(ui_nav_resend_repeats_a_failed_message, unit) {
         failure = "the test needs the cursor on our own failed message";
         goto cleanup;
     }
-    const struct mesh_ui_message *failed =
-        mesh_ui_nav_resendable(&store.nav, mesh_ui_message_list_view(&store.messages));
+    const struct mesh_ui_message *failed = mesh_ui_nav_resendable(
+        &store.nav, &store.settings, &store.handshake, mesh_ui_message_list_view(&store.messages));
     if (failed == NULL || failed->packet_id != 13U) {
         failure = "the failed bubble under the cursor should be the one offered";
         goto cleanup;
+    }
+
+    /* The same bubble in a MeshCore repeater's thread was a command, which may have run with
+       only its reply lost: it is not offered again, and START does not send it again. */
+    {
+        struct mesh_ui_handshake_state roster = store.handshake;
+        struct mesh_ui_node_summary *peer =
+            (struct mesh_ui_node_summary *)mesh_ui_node_detail_find(&roster, store.nav.target_node);
+        if (peer == NULL) {
+            if (roster.node_count >= MESH_UI_MAX_HANDSHAKE_NODES) {
+                failure = "the test needs room on the roster for BRVO";
+                goto cleanup;
+            }
+            peer = &roster.nodes[roster.node_count++];
+            memset(peer, 0, sizeof *peer);
+            peer->node_id = store.nav.target_node;
+        }
+        peer->role = 4U;
+        struct mesh_ui_settings meshcore = store.settings;
+        meshcore.protocol_lacks = MESH_UI_FEATURES_ALL & ~(uint32_t)MESH_UI_FEATURE_NODE_COMMANDS;
+        if (mesh_ui_nav_resendable(&store.nav, &meshcore, &roster,
+                                   mesh_ui_message_list_view(&store.messages)) != NULL) {
+            failure = "a repeater's failed command should not be offered again";
+            goto cleanup;
+        }
+        const struct mesh_ui_handshake_state kept_roster = store.handshake;
+        const struct mesh_ui_settings kept_settings = store.settings;
+        store.handshake = roster;
+        store.settings = meshcore;
+        memset(&action, 0, sizeof action);
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_START, &action);
+        store.handshake = kept_roster;
+        store.settings = kept_settings;
+        store.nav.compose_open = false;
+        store.nav.resend_spent = false;
+        if (action.type == MESH_UI_ACTION_RESEND) {
+            failure = "START should not send a repeater's failed command again";
+            goto cleanup;
+        }
     }
 
     memset(&action, 0, sizeof action);
@@ -1506,7 +1545,8 @@ MESH_TEST_CASE(ui_nav_resend_repeats_a_failed_message, unit) {
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
     if (store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 0U ||
-        mesh_ui_nav_resendable(&store.nav, mesh_ui_message_list_view(&store.messages)) != NULL) {
+        mesh_ui_nav_resendable(&store.nav, &store.settings, &store.handshake,
+                               mesh_ui_message_list_view(&store.messages)) != NULL) {
         failure = "a message we received is not one this client can send again";
         goto cleanup;
     }
@@ -1530,7 +1570,8 @@ MESH_TEST_CASE(ui_nav_resend_repeats_a_failed_message, unit) {
         goto cleanup;
     }
     store.nav.cursor[MESH_UI_SCREEN_MESSAGES] = 2U;
-    if (mesh_ui_nav_resendable(&store.nav, mesh_ui_message_list_view(&store.messages)) != NULL) {
+    if (mesh_ui_nav_resendable(&store.nav, &store.settings, &store.handshake,
+                               mesh_ui_message_list_view(&store.messages)) != NULL) {
         failure = "all traffic should offer no retry";
         goto cleanup;
     }
@@ -1601,7 +1642,8 @@ MESH_TEST_CASE(ui_nav_resend_is_one_press_one_send, unit) {
         failure = "a held START should not send the same message twice";
         goto cleanup;
     }
-    if (mesh_ui_nav_resendable(&store.nav, mesh_ui_message_list_view(&store.messages)) != NULL) {
+    if (mesh_ui_nav_resendable(&store.nav, &store.settings, &store.handshake,
+                               mesh_ui_message_list_view(&store.messages)) != NULL) {
         failure = "the bar should stop naming a press that is spent";
         goto cleanup;
     }

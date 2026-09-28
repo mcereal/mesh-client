@@ -172,7 +172,8 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
      * The nav is asked rather than the ack re-read here, so the press and the word naming it
      * come from one answer; on any row where this is absent, START goes on standing in for A.
      */
-    if (mesh_ui_nav_resendable(nav, mesh_ui_snapshot_message_view(snapshot)) != NULL) {
+    if (mesh_ui_nav_resendable(nav, &snapshot->settings, &snapshot->handshake,
+                               mesh_ui_snapshot_message_view(snapshot)) != NULL) {
         command_add(bar, MESH_UI_COMMAND_RESEND, MESH_STR_ACTION_RESEND, INKCELL_BUTTON_START);
     }
     commands_add_help(snapshot, bar);

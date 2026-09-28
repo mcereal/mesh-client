@@ -673,8 +673,16 @@ static bool mesh_ui_nav_thread_jump(struct mesh_ui_nav *nav, const struct mesh_u
 }
 
 const struct mesh_ui_message *mesh_ui_nav_resendable(const struct mesh_ui_nav *nav,
+                                                     const struct mesh_ui_settings *settings,
+                                                     const struct mesh_ui_handshake_state *roster,
                                                      struct mesh_ui_message_view messages) {
     if (nav == NULL || messages.entries == NULL || !nav->thread_open) {
+        return NULL;
+    }
+    /* A repeater's failed message is a command it may have run with only the reply lost. The
+       conversation never retries one by itself, and "reboot" twice is no better for a press
+       having asked for it: it is typed again, or picked again from the commands, on purpose. */
+    if (mesh_ui_nav_compose_commands(nav, settings, roster)) {
         return NULL;
     }
     /* Already spent on this press - see the field. Answered here rather than at the two call
@@ -3028,8 +3036,8 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             if (nav->resend_spent) {
                 return changed;
             }
-            const struct mesh_ui_message *failed =
-                mesh_ui_nav_resendable(nav, mesh_ui_store_message_view(store, nav));
+            const struct mesh_ui_message *failed = mesh_ui_nav_resendable(
+                nav, &store->settings, &store->handshake, mesh_ui_store_message_view(store, nav));
             if (failed != NULL) {
                 mesh_ui_nav_fill_resend(out_action, failed);
                 nav->resend_spent = true;

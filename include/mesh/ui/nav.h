@@ -1251,9 +1251,13 @@ const struct mesh_ui_message *mesh_ui_nav_message_at_cursor(const struct mesh_ui
  *
  * Takes the message list rather than the whole store because the action bar has only a
  * snapshot, and building a store view to ask one question would be a snapshot-sized copy per
- * frame for a pointer comparison.
+ * frame for a pointer comparison. The settings and the roster are for the one thread where a
+ * failed message is not offered again: a MeshCore repeater's, where it was a command that may
+ * have run with only its reply lost (mesh_ui_nav_compose_commands()).
  */
 const struct mesh_ui_message *mesh_ui_nav_resendable(const struct mesh_ui_nav *nav,
+                                                     const struct mesh_ui_settings *settings,
+                                                     const struct mesh_ui_handshake_state *roster,
                                                      struct mesh_ui_message_view messages);
 
 /*
