@@ -3114,6 +3114,26 @@ MESH_STR_ENTRY(UPDATE_TLS_UNVERIFIED,     "Could not verify GitHub's certificate
 MESH_STR_ENTRY(UPDATE_CHECK_HTTP,         "Check failed (HTTP %d)")
 MESH_STR_ENTRY(UPDATE_DOWNLOAD_HTTP,      "Download failed (HTTP %d)")
 
+/* ---- map packs: downloading regions of the map over Wi-Fi --------------------------------- */
+
+/* "The map server" is the service the regions are downloaded from; it has no name to show. */
+MESH_STR_ENTRY(MAP_PACKS_UNREACHABLE,     "Could not reach the map server")
+MESH_STR_ENTRY(MAP_PACKS_BAD_REPLY,       "Unexpected reply from the map server")
+MESH_STR_ENTRY(MAP_PACKS_TIMED_OUT,       "Timed out talking to the map server")
+MESH_STR_ENTRY(MAP_PACKS_TLS_UNVERIFIED,  "Could not verify the map server's certificate")
+MESH_STR_ENTRY(MAP_PACKS_TOO_LARGE,       "The map server sent more than it should have")
+/* The HTTP status the server answered with - 404, 503. */
+MESH_STR_ENTRY(MAP_PACKS_HTTP_STATUS,     "The map server answered HTTP %d")
+MESH_STR_ENTRY(MAP_PACKS_WRITE_FAILED,    "Could not save the map. Is the card full?")
+MESH_STR_ENTRY(MAP_PACKS_BAD_CATALOG,     "The list of maps could not be read")
+MESH_STR_ENTRY(MAP_PACKS_NO_TLS,          "This build cannot download maps")
+/* The %s is a region's name: "Puerto Rico arrived damaged. Try again." */
+MESH_STR_ENTRY(MAP_PACKS_DAMAGED,         "%s arrived damaged. Try again.")
+MESH_STR_ENTRY(MAP_PACKS_DONE,            "%s is on the map")
+MESH_STR_ENTRY(MAP_PACKS_DELETED,         "%s deleted")
+/* A download the reader stopped. What arrived is kept, and the next press carries on. */
+MESH_STR_ENTRY(MAP_PACKS_STOPPED,         "Stopped. Downloading again picks up where it left off.")
+
 /* ---- the radio's firmware ------------------------------------------------------------------ */
 
 /*
