@@ -30,8 +30,9 @@
  *             pulled battery costs at most that window.
  *   `seen`    the SET: one line each time a node gains a fact (heard at all, heard over the
  *             air, is one of our radios). Appended as it happens, since it happens rarely, and
- *             never rewritten. Read back into a sorted array at launch; a torn last line is
- *             skipped, and a line read twice changes nothing.
+ *             never rewritten; an append that fails is retried by the next flush. Read back
+ *             into a sorted array at launch; a torn last line is skipped, and a line read twice
+ *             changes nothing.
  *
  * **A node is its 32-bit number.** Meshtastic takes it from the radio's hardware and MeshCore
  * from the front of a public key, so the two protocols share one set; two nodes landing on one
@@ -97,6 +98,8 @@ struct mesh_lifetime {
     uint32_t ids[MESH_LIFETIME_NODES_MAX];
     uint8_t facts[MESH_LIFETIME_NODES_MAX];
     uint32_t id_count;
+    /* Nodes with a fact the seen file does not hold yet, because its append failed. */
+    uint32_t pending;
     bool full;
     char foreign_keys[MESH_LIFETIME_FOREIGN_MAX][MESH_LIFETIME_FOREIGN_KEY];
     char foreign_values[MESH_LIFETIME_FOREIGN_MAX][MESH_LIFETIME_FOREIGN_VALUE];
@@ -118,7 +121,9 @@ int mesh_lifetime_init(struct mesh_lifetime *lifetime, const char *dir);
 void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
                            const struct mesh_session_event *event);
 
-/* A radio this client has been attached to. Idempotent; 0 is ignored. */
+/* A radio this client has been attached to. Idempotent; 0 is ignored. The observer calls it
+   for the session's RADIO event, which is how a run that never publishes a frame still counts
+   the radio it talked to. */
 void mesh_lifetime_note_radio(struct mesh_lifetime *lifetime, uint32_t node_num);
 
 uint64_t mesh_lifetime_value(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat);
@@ -132,7 +137,8 @@ bool mesh_lifetime_complete(const struct mesh_lifetime *lifetime);
 /* Whether `totals` has something the card does not. */
 bool mesh_lifetime_dirty(const struct mesh_lifetime *lifetime);
 
-/* Writes `totals` if it is dirty. 0 or a negative errno; a failed write stays dirty. */
+/* Writes `totals` if it is dirty, and retries any node fact whose append failed. 0 or a
+   negative errno; whatever failed stays dirty and is tried again at the next flush. */
 int mesh_lifetime_flush(struct mesh_lifetime *lifetime);
 
 /* Starts again from nothing: both files go, and every value is 0. 0 or a negative errno. */

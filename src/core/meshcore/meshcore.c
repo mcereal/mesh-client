@@ -826,7 +826,6 @@ static void mesh_meshcore_store_telemetry(struct mesh_meshcore *meshcore,
     if (now > node->last_heard) {
         node->last_heard = now;
     }
-    mesh_meshcore_note_heard(meshcore, node, false, 0U);
     if (telemetry->has_battery) {
         node->metrics.valid = true;
         node->metrics.time = now;
@@ -876,6 +875,8 @@ static void mesh_meshcore_store_telemetry(struct mesh_meshcore *meshcore,
         node->position.altitude = telemetry->altitude_m;
         node->position.received = now;
     }
+    /* Announced last, so a listener reads the fix this answer carried. */
+    mesh_meshcore_note_heard(meshcore, node, false, 0U);
 }
 
 /* A repeater's or room server's status: its counters on `relay`, its battery where every
@@ -887,7 +888,6 @@ static void mesh_meshcore_store_status(struct mesh_meshcore *meshcore,
     if (now > node->last_heard) {
         node->last_heard = now;
     }
-    mesh_meshcore_note_heard(meshcore, node, false, 0U);
     if (status->battery_mv != 0U) {
         node->metrics.valid = true;
         node->metrics.time = now;
@@ -920,6 +920,7 @@ static void mesh_meshcore_store_status(struct mesh_meshcore *meshcore,
     relay->has_posts = status->has_posts;
     relay->posted = status->posted;
     relay->post_pushes = status->post_pushes;
+    mesh_meshcore_note_heard(meshcore, node, false, 0U);
 }
 
 /* ---------------------------------------------------------------------------- receiving */

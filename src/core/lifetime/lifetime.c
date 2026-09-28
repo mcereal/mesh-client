@@ -27,6 +27,11 @@ enum {
     SEEN_RADIO = 1U << 2, /* one of our own radios */
 };
 
+/* The same facts, learned but not yet on the card: an append that failed. Kept beside the fact
+   rather than instead of it, so the count is right now and the next flush writes it down. */
+#define SEEN_PENDING_SHIFT 4U
+#define SEEN_PENDING(facts) ((uint8_t)((facts) >> SEEN_PENDING_SHIFT))
+
 static const struct {
     uint8_t fact;
     const char *key;
@@ -128,8 +133,21 @@ static void lifetime_write_seen(FILE *file, bool resumed, void *context) {
     }
 }
 
-/* Learns and, when that taught the set anything, writes it down at once: a new node is rare, and
-   one that reached the card only at the next flush would be lost to a SIGKILL. */
+static int lifetime_append_seen(struct mesh_lifetime *lifetime, uint32_t id, uint8_t facts) {
+    struct lifetime_seen_line line = {.id = id, .facts = facts};
+    return inkstand_journal_append(&lifetime->journal, LIFETIME_SEEN, lifetime_write_seen, &line,
+                                   NULL);
+}
+
+/*
+ * Learns and, when that taught the set anything, writes it down at once: a new node is rare, and
+ * one that reached the card only at the next flush would be lost to a SIGKILL.
+ *
+ * An append that fails leaves the fact pending rather than forgotten. The set already holds it,
+ * so the next hearing of the node would find nothing fresh and never write it - and the SET
+ * values are not in the totals, so a fact that never reached the seen file is lost at the next
+ * launch. The flush retries it, and marking the stats dirty is what gets a flush scheduled.
+ */
 static void lifetime_record(struct mesh_lifetime *lifetime, uint32_t id, uint8_t facts) {
     if (id == 0U || id == MESH_MESSAGE_BROADCAST_ADDR) {
         return;
@@ -139,12 +157,37 @@ static void lifetime_record(struct mesh_lifetime *lifetime, uint32_t id, uint8_t
         return;
     }
     lifetime_changed(lifetime);
-    struct lifetime_seen_line line = {.id = id, .facts = fresh};
-    const int result = inkstand_journal_append(&lifetime->journal, LIFETIME_SEEN,
-                                               lifetime_write_seen, &line, NULL);
+    const int result = lifetime_append_seen(lifetime, id, fresh);
     if (result < 0) {
         inkwell_log_debug("lifetime", "Could not write a node to the seen file: %d", result);
+        const uint32_t at = lifetime_find(lifetime, id);
+        if (SEEN_PENDING(lifetime->facts[at]) == 0U) {
+            lifetime->pending++;
+        }
+        lifetime->facts[at] |= (uint8_t)(fresh << SEEN_PENDING_SHIFT);
+        lifetime->dirty = true;
     }
+}
+
+/* Writes every pending fact down. 0, or the first failure; what failed stays pending. */
+static int lifetime_retry_seen(struct mesh_lifetime *lifetime) {
+    int first_error = 0;
+    for (uint32_t i = 0; i < lifetime->id_count && lifetime->pending > 0U; ++i) {
+        const uint8_t pending = SEEN_PENDING(lifetime->facts[i]);
+        if (pending == 0U) {
+            continue;
+        }
+        const int result = lifetime_append_seen(lifetime, lifetime->ids[i], pending);
+        if (result < 0) {
+            if (first_error == 0) {
+                first_error = result;
+            }
+            continue;
+        }
+        lifetime->facts[i] &= (uint8_t)((1U << SEEN_PENDING_SHIFT) - 1U);
+        lifetime->pending--;
+    }
+    return first_error;
 }
 
 static void lifetime_read_seen(void *context, const char *key, char *value) {
@@ -314,6 +357,10 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
     }
     lifetime_note_since(lifetime);
 
+    if (event->kind == MESH_SESSION_EVENT_RADIO) {
+        mesh_lifetime_note_radio(lifetime, event->radio);
+        return;
+    }
     if (event->kind == MESH_SESSION_EVENT_MESSAGE) {
         if (event->message != NULL) {
             lifetime_observe_message(lifetime, event->message);
@@ -370,12 +417,13 @@ int mesh_lifetime_flush(struct mesh_lifetime *lifetime) {
     if (!lifetime->dirty) {
         return 0;
     }
+    const int seen = lifetime_retry_seen(lifetime);
     const int result = inkstand_journal_replace(&lifetime->journal, LIFETIME_TOTALS,
                                                 lifetime_write_totals, lifetime);
-    if (result == 0) {
+    if (result == 0 && seen == 0) {
         lifetime->dirty = false;
     }
-    return result;
+    return result < 0 ? result : seen;
 }
 
 int mesh_lifetime_reset(struct mesh_lifetime *lifetime) {

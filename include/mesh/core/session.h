@@ -612,6 +612,11 @@ typedef void (*mesh_session_mqtt_fn)(void *ctx, const char *topic, const uint8_t
  *   NODE_LISTED  the radio's own database named `node`. The radio heard it at some point, but
  *                perhaps while this client was not running; a record the radio has no heard
  *                time for at all - a contact typed in from a link - is not announced.
+ *   RADIO        the radio we are attached to said which node it is (`radio`). Once per
+ *                handshake, so a listener hears it on a connection that never publishes a frame.
+ *
+ * A node is announced only once its record holds everything the packet carried: its position,
+ * its telemetry, its hop count.
  *
  * Our own radio is never announced as a node.
  */
@@ -619,6 +624,7 @@ enum mesh_session_event_kind {
     MESH_SESSION_EVENT_MESSAGE = 0,
     MESH_SESSION_EVENT_NODE_HEARD,
     MESH_SESSION_EVENT_NODE_LISTED,
+    MESH_SESSION_EVENT_RADIO,
 };
 
 struct mesh_session_event {
@@ -631,6 +637,8 @@ struct mesh_session_event {
     bool via_mqtt;
     bool has_hops;
     uint8_t hops;
+    /* RADIO: the attached radio's node number. */
+    uint32_t radio;
 };
 
 struct mesh_session;

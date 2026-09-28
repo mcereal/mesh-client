@@ -14,6 +14,8 @@
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
 
+#include <pb_encode.h>
+
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/portnums.pb.h"
 
@@ -37,6 +39,8 @@ static void ev_open(struct mesh_session *session, struct mesh_test_trace_capture
     my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
     my_info.my_info.my_node_num = EV_US;
     (void)mesh_test_session_feed_from_radio(session, &my_info);
+    /* The radio saying who it is is announced too; each case starts after it. */
+    memset(record, 0, sizeof *record);
 }
 
 static meshtastic_FromRadio ev_text(uint32_t from, uint32_t id, const char *text) {
@@ -177,5 +181,54 @@ MESH_TEST_CASE(session_events_the_nodedb_lists_what_the_radio_heard, unit) {
     meshtastic_FromRadio packet = ev_text(EV_PEER, 0x200U, "quiet");
     MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &packet), "encode failed");
     MESH_TEST_FAIL_IF(record.count != 1U, "a cleared observer is not called");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(session_events_the_radio_says_who_it_is, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    mesh_session_set_observer(&session, mesh_test_event_record_fn, &record);
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = EV_US;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info), "encode failed");
+    MESH_TEST_FAIL_IF(record.count != 1U || record.events[0].kind != MESH_SESSION_EVENT_RADIO ||
+                          record.events[0].radio != EV_US,
+                      "MyNodeInfo announces the attached radio, with no frame drawn");
+
+    /* A protocol that fills the model says the same through the model call. */
+    mesh_session_model_adopt_radio(&session, EV_OTHER);
+    MESH_TEST_FAIL_IF(record.count != 2U || record.events[1].kind != MESH_SESSION_EVENT_RADIO ||
+                          record.events[1].radio != EV_OTHER,
+                      "adopting a radio announces it too");
+    record_success(test_name);
+}
+
+/* A hearing is announced after the packet's payload is on the record, so a node's first fix is
+   there to be measured from the packet that carried it. */
+MESH_TEST_CASE(session_events_a_position_is_on_the_record_when_announced, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    struct mesh_test_event_record record;
+    ev_open(&session, &capture, &record);
+
+    meshtastic_Position position = meshtastic_Position_init_default;
+    position.has_latitude_i = true;
+    position.latitude_i = 516000000;
+    position.has_longitude_i = true;
+    position.longitude_i = 0;
+    uint8_t payload[64];
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Position_fields, &position) ||
+                          !mesh_test_session_feed_app_packet(&session, EV_PEER,
+                                                             meshtastic_PortNum_POSITION_APP,
+                                                             payload, stream.bytes_written),
+                      "encode POSITION_APP failed");
+    MESH_TEST_FAIL_IF(record.count != 1U ||
+                          record.events[0].kind != MESH_SESSION_EVENT_NODE_HEARD ||
+                          !record.events[0].has_position,
+                      "the first fix is on the record the hearing names");
     record_success(test_name);
 }

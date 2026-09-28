@@ -86,7 +86,9 @@ void mesh_test_event_record_fn(void *ctx, const struct mesh_session *session,
     }
     if (event->node != NULL) {
         out->node_id = event->node->node_id;
+        out->has_position = event->node->position.valid;
     }
+    out->radio = event->radio;
     out->via_mqtt = event->via_mqtt;
     out->has_hops = event->has_hops;
     out->hops = event->hops;

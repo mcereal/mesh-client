@@ -2902,9 +2902,6 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
        readings this publish brought are worth writing whatever else moved, and opening a node's
        detail is a press that changes no reading at all. */
     mesh_app_publish_trends(app);
-    /* The one fact the lifetime stats need that no session event carries. A set, so saying it
-       on every publish costs a lookup and writes only the first time. */
-    mesh_lifetime_note_radio(&app->lifetime, mesh_session_roster_owner(&app->session));
     /* The names on a waypoint row come out of the roster, so a NodeInfo arriving changes what
        this publishes even when the book itself has not moved - which is why the handshake is
        part of the test and not just the book. */

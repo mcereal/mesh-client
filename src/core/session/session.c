@@ -134,6 +134,12 @@ static void mesh_session_emit_message(struct mesh_session *session,
     mesh_session_emit(session, &event);
 }
 
+/* The radio we are attached to said who it is. */
+static void mesh_session_announce_radio(struct mesh_session *session, uint32_t node_num) {
+    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_RADIO, .radio = node_num};
+    mesh_session_emit(session, &event);
+}
+
 /* The newest record in the log, which is the one an append that just succeeded made. */
 static const struct mesh_message *mesh_session_newest_message(const struct mesh_session *session) {
     const struct mesh_message_log *log = &session->messages;
@@ -813,6 +819,7 @@ void mesh_session_model_adopt_radio(struct mesh_session *session, uint32_t node_
     session->roster_node = node_num;
     session->handshake.has_my_info = true;
     session->handshake.my_info.my_node_num = node_num;
+    mesh_session_announce_radio(session, node_num);
 }
 
 static struct mesh_node_summary *mesh_session_find_node(struct mesh_session *session,
@@ -971,7 +978,26 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
     summary->has_route = true;
     summary->relay_node = (uint8_t)packet->relay_node;
     summary->next_hop = (uint8_t)packet->next_hop;
+}
 
+/*
+ * Tells the observer the packet's sender was heard. Its own step rather than the end of the
+ * touch above, because a listener reads the record and the record is not finished until the
+ * packet's payload has been applied too: a position packet announced before its fix landed
+ * would be measured from where the node was, or not at all for its first fix. So a caller that
+ * applies the payload announces after it.
+ */
+static void mesh_session_announce_heard(struct mesh_session *session,
+                                        const meshtastic_MeshPacket *packet) {
+    const struct mesh_handshake_status *handshake = &session->handshake;
+    if (packet->from == 0U || packet->from == MESH_MESSAGE_BROADCAST_ADDR ||
+        (handshake->has_my_info && packet->from == handshake->my_info.my_node_num)) {
+        return;
+    }
+    const struct mesh_node_summary *summary = mesh_session_find_node(session, packet->from);
+    if (summary == NULL) {
+        return;
+    }
     const bool has_hops = packet->hop_start != 0U && packet->hop_start >= packet->hop_limit;
     const struct mesh_session_event event = {
         .kind = MESH_SESSION_EVENT_NODE_HEARD,
@@ -1173,6 +1199,7 @@ static void mesh_session_handle_store_forward(struct mesh_session *session,
          * roster at all: a heartbeat is often the only packet one ever sends.
          */
         mesh_session_touch_node_from_packet(session, packet);
+        mesh_session_announce_heard(session, packet);
         return;
     }
     /*
@@ -1587,6 +1614,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         handshake->my_info = message.my_info;
         inkwell_log_info("session", "MyNodeInfo: node=%u, node_count=%u",
                          message.my_info.my_node_num, message.my_info.nodedb_count);
+        mesh_session_announce_radio(session, message.my_info.my_node_num);
         break;
     case meshtastic_FromRadio_node_info_tag:
         mesh_session_store_node_summary(session, &message.node_info);
@@ -1657,6 +1685,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         if (message.packet.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
             message.packet.decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP) {
             mesh_session_touch_node_from_packet(session, &message.packet);
+            mesh_session_announce_heard(session, &message.packet);
             (void)mesh_session_handle_traceroute(session, &message.packet);
             break;
         }
@@ -1672,6 +1701,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         }
         mesh_session_touch_node_from_packet(session, &message.packet);
         mesh_session_apply_packet_details(session, &message.packet);
+        mesh_session_announce_heard(session, &message.packet);
         mesh_session_handle_waypoint(session, &message.packet);
         /* 1 is a record appended; the radio echoing one of ours back refreshes the record the
            send made, which was announced then, and adds nothing. */

@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define LT_US 0x1111U
@@ -259,6 +260,43 @@ MESH_TEST_CASE(lifetime_records_take_only_what_arrived_over_the_air, unit) {
     record_success(test_name);
 }
 
+/*
+ * A fact whose append failed is still counted, and is written by the next flush that can: the
+ * set values are not in the totals, so a fact that never reached the seen file would be gone at
+ * the next launch, and a node already in the set is never fresh enough to be written again.
+ */
+MESH_TEST_CASE(lifetime_a_failed_append_is_retried, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the first flush failed");
+    lt_session(0, 0);
+    /* The card goes away under the stats. */
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "could not take the directory away");
+
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_RF) != 1U,
+                      "the node counts now");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_dirty(&g_lifetime) || g_lifetime.pending != 1U,
+                      "and is waiting for a flush that can write it");
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) >= 0 || !mesh_lifetime_dirty(&g_lifetime),
+                      "a flush with nowhere to write fails and stays dirty");
+
+    /* It comes back. */
+    MESH_TEST_FAIL_IF(mkdir(dir, 0700) != 0, "could not restore the directory");
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0 || mesh_lifetime_dirty(&g_lifetime) ||
+                          g_lifetime.pending != 0U,
+                      "the next flush writes what was pending");
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "heard") != 1U || lt_seen_lines(dir, "rf") != 1U,
+                      "once each");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0 ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_RF) != 1U,
+                      "and the node survives a restart");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
 /* A card moved back to an older build keeps what the newer one counted. */
 MESH_TEST_CASE(lifetime_keeps_keys_it_does_not_know, unit) {
     char dir[64];
@@ -414,6 +452,8 @@ MESH_TEST_CASE(lifetime_counts_what_the_session_announces, unit) {
                       "one message each way, the echo counted by nobody");
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_RF) != 1U,
                       "one node heard, and not our own");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_RADIOS) != 1U,
+                      "and the radio counted from its MyNodeInfo, with nothing published");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }
