@@ -682,6 +682,15 @@ MESH_TEST_CASE(ui_click_a_wide_window_opens_another_row_from_the_list_beside_a_d
     const uint32_t first_node = store.nav.target_node;
     const uint8_t first_channel = store.nav.target_channel;
 
+    /* The open conversation's own row is the selection: a click there leaves the thread where
+       the reader had it, and is no change at all. */
+    (void)click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + 2U, &action) ||
+            !store.nav.thread_open || store.nav.target_node != first_node,
+        click_close(&store, capture),
+        "a click on the open conversation's own row should do nothing");
+
     const struct inkcell_focus_map *map = click_render(&store, capture);
     struct inkcell_focus_rect row;
     struct inkcell_focus_rect bubble;
@@ -832,6 +841,17 @@ MESH_TEST_CASE(ui_click_the_list_beside_a_section_with_edits_asks_first, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.settings_edit_count != 1U, click_close(&store, capture),
                               "A on a toggle should record an edit");
+
+    /* LoRa's own row is the selection, and clicking it asks for nothing - not even the question. */
+    uint32_t lora = 0U;
+    while (mesh_ui_settings_root_at(&store.settings, lora) != MESH_UI_SETTINGS_LORA) {
+        ++lora;
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + lora, &action) ||
+            store.nav.settings_section != MESH_UI_SETTINGS_LORA ||
+            store.nav.settings_discard_armed || store.nav.settings_edit_count != 1U,
+        click_close(&store, capture), "a click on the open section's own row should do nothing");
 
     uint32_t device = 0U;
     while (mesh_ui_settings_root_at(&store.settings, device) != MESH_UI_SETTINGS_DEVICE) {

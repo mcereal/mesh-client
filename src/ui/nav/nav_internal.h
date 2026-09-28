@@ -251,4 +251,10 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
                                       enum mesh_ui_settings_action which,
                                       struct mesh_ui_action *action);
 
+/* The node on row `cursor` of the Nodes list as it is filtered and sorted now, or NULL for the
+   chip bar and past the end. A click on the list beside a node's detail asks it too. */
+const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct mesh_ui_nav *nav,
+                                                           const struct mesh_ui_store *store,
+                                                           uint32_t cursor);
+
 #endif /* MESH_UI_NAV_INTERNAL_H */

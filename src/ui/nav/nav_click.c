@@ -31,6 +31,7 @@
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/route.h"
+#include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
 
@@ -229,10 +230,38 @@ static bool mesh_ui_nav_click_detail_open(const struct mesh_ui_nav *nav) {
  * field is put down first by the same key, with its draft kept. Only then is the row the list's
  * cursor and A, which is the ordinary row click.
  */
+/* Whether row `index` of the list beside the detail is the one that detail is showing - found
+   by what the row is, as the list pane finds the row it lights. */
+static bool mesh_ui_nav_click_is_open_row(const struct mesh_ui_nav *nav,
+                                          const struct mesh_ui_store *store, uint32_t index) {
+    switch (nav->screen) {
+    case MESH_UI_SCREEN_MESSAGES:
+        return mesh_ui_nav_open_conversation_row(nav, store) == index;
+    case MESH_UI_SCREEN_NODES: {
+        const struct mesh_ui_node_summary *node = mesh_ui_nav_node_at_row(nav, store, index);
+        return node != NULL && node->node_id == nav->node_detail_node;
+    }
+    case MESH_UI_SCREEN_SETTINGS: {
+        const uint8_t top = nav->settings_parent != MESH_UI_SETTINGS_NO_SECTION
+                                ? nav->settings_parent
+                                : nav->settings_section;
+        return index < mesh_ui_settings_root_count(&store->settings) &&
+               (uint8_t)mesh_ui_settings_root_at(&store->settings, index) == top;
+    }
+    default:
+        return false;
+    }
+}
+
 static bool mesh_ui_nav_click_pane_row(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                        uint32_t index, struct mesh_ui_action *out_action) {
     if (!mesh_ui_nav_click_detail_open(nav)) {
         return false; /* drawn on a frame whose detail has since closed */
+    }
+    /* The selected row is what is already open: nothing is asked for, so nothing is left - no
+       discard question, and the detail keeps its place. */
+    if (mesh_ui_nav_click_is_open_row(nav, store, index)) {
+        return false;
     }
     bool changed = false;
     for (int i = 0; i < 8 && mesh_ui_nav_click_detail_open(nav); ++i) {
