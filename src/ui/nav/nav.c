@@ -905,31 +905,33 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
 }
 
 bool mesh_ui_nav_compose_commands(const struct mesh_ui_nav *nav,
-                                  const struct mesh_ui_store *store) {
-    if (nav == NULL || store == NULL ||
-        (store->settings.protocol_lacks & MESH_UI_FEATURE_NODE_COMMANDS) != 0U ||
+                                  const struct mesh_ui_settings *settings,
+                                  const struct mesh_ui_handshake_state *roster) {
+    if (nav == NULL || settings == NULL || roster == NULL ||
+        (settings->protocol_lacks & MESH_UI_FEATURE_NODE_COMMANDS) != 0U ||
         nav->target_node == 0U || nav->target_node == MESH_MESSAGE_BROADCAST_ADDR) {
         return false;
     }
     /* A MeshCore repeater's advert reads as Meshtastic's REPEATER role, 4 - the same test the
        node sheet's login row makes. */
-    const struct mesh_ui_node_summary *node =
-        mesh_ui_node_detail_find(&store->handshake, nav->target_node);
+    const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(roster, nav->target_node);
     return node != NULL && node->role == 4U;
 }
 
 uint32_t mesh_ui_nav_compose_row_count(const struct mesh_ui_nav *nav,
-                                       const struct mesh_ui_store *store) {
-    const uint32_t lines = mesh_ui_nav_compose_commands(nav, store)
+                                       const struct mesh_ui_settings *settings,
+                                       const struct mesh_ui_handshake_state *roster) {
+    const uint32_t lines = mesh_ui_nav_compose_commands(nav, settings, roster)
                                ? (uint32_t)mesh_ui_repeater_command_count()
                                : (uint32_t)mesh_ui_canned_count();
     return lines > 0U ? MESH_UI_COMPOSE_FIRST_CANNED + lines : MESH_UI_COMPOSE_ROW_DRAFT + 1U;
 }
 
 const char *mesh_ui_nav_compose_line(const struct mesh_ui_nav *nav,
-                                     const struct mesh_ui_store *store, size_t index) {
-    return mesh_ui_nav_compose_commands(nav, store) ? mesh_ui_repeater_command(index)
-                                                    : mesh_ui_canned_text(index);
+                                     const struct mesh_ui_settings *settings,
+                                     const struct mesh_ui_handshake_state *roster, size_t index) {
+    return mesh_ui_nav_compose_commands(nav, settings, roster) ? mesh_ui_repeater_command(index)
+                                                               : mesh_ui_canned_text(index);
 }
 
 /*
@@ -1154,7 +1156,8 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
     }
 
     /* The compose overlay's own cursor: the canned list is replaceable at runtime. */
-    const uint32_t compose_rows = mesh_ui_nav_compose_row_count(nav, store);
+    const uint32_t compose_rows =
+        mesh_ui_nav_compose_row_count(nav, &store->settings, &store->handshake);
     if (nav->compose_cursor >= compose_rows) {
         nav->compose_cursor = compose_rows > 0U ? compose_rows - 1U : 0U;
         moved = moved || nav->compose_open;
@@ -1549,7 +1552,7 @@ bool mesh_ui_nav_cursor_group(struct mesh_ui_nav *nav, const struct mesh_ui_stor
 /* Sends one canned reply - or, in a repeater's thread, one command - to the open thread. */
 static bool mesh_ui_nav_send_canned(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                     struct mesh_ui_action *action, size_t index) {
-    const char *text = mesh_ui_nav_compose_line(nav, store, index);
+    const char *text = mesh_ui_nav_compose_line(nav, &store->settings, &store->handshake, index);
     if (text[0] == '\0') {
         return false;
     }
@@ -1711,7 +1714,7 @@ static bool mesh_ui_nav_reaction_key(struct mesh_ui_nav *nav, enum inkcell_key k
 
 static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                     enum inkcell_key key, struct mesh_ui_action *action) {
-    const uint32_t rows = mesh_ui_nav_compose_row_count(nav, store);
+    const uint32_t rows = mesh_ui_nav_compose_row_count(nav, &store->settings, &store->handshake);
     if (nav->compose_cursor >= rows && rows > 0U) {
         nav->compose_cursor = rows - 1U;
     }
@@ -1756,7 +1759,8 @@ static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, const struct mesh_u
            with a draft the list would take - and the draft stays, since keeping a line is not
            the same as sending it. Not over a repeater's commands, which are not that list. */
         if (nav->compose_cursor != MESH_UI_COMPOSE_ROW_DRAFT ||
-            mesh_ui_nav_compose_commands(nav, store) || !mesh_ui_canned_accepts(nav->draft)) {
+            mesh_ui_nav_compose_commands(nav, &store->settings, &store->handshake) ||
+            !mesh_ui_canned_accepts(nav->draft)) {
             return false;
         }
         if (action != NULL) {
@@ -2196,7 +2200,8 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         /* A repeater's thread is its console: A is its commands, on any row and on none - the
            first command goes into an empty thread - and answers no bubble, since a command is
            not a reply to anything. */
-        if (nav->thread_open && !nav->inbox && mesh_ui_nav_compose_commands(nav, store)) {
+        if (nav->thread_open && !nav->inbox &&
+            mesh_ui_nav_compose_commands(nav, &store->settings, &store->handshake)) {
             nav->reply_to = 0U;
             mesh_ui_nav_open_compose(nav);
             return true;

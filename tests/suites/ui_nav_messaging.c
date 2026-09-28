@@ -2904,7 +2904,7 @@ MESH_TEST_CASE(ui_nav_compose_steps_over_the_quick_replies_heading, unit) {
     mesh_test_nav_populate(&store);
     struct mesh_ui_action action;
 
-    if (mesh_ui_nav_compose_row_count(&store.nav, &store) !=
+    if (mesh_ui_nav_compose_row_count(&store.nav, &store.settings, &store.handshake) !=
         MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)mesh_ui_canned_count()) {
         failure = "the sheet is the draft, the heading and one row per quick reply";
         goto cleanup;
@@ -2978,15 +2978,15 @@ MESH_TEST_CASE(ui_nav_compose_lists_a_repeaters_commands, unit) {
     /* What the publish sets for a Meshtastic link, or for none. */
     const struct mesh_protocol none = {NULL, NULL};
     mesh_ui_protocol_features(&none, NULL, &store.settings.protocol_lacks);
-    if (mesh_ui_nav_compose_commands(&store.nav, &store) ||
-        mesh_ui_nav_compose_row_count(&store.nav, &store) !=
+    if (mesh_ui_nav_compose_commands(&store.nav, &store.settings, &store.handshake) ||
+        mesh_ui_nav_compose_row_count(&store.nav, &store.settings, &store.handshake) !=
             MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)mesh_ui_canned_count()) {
         failure = "under Meshtastic a repeater's thread keeps the quick replies";
         goto cleanup;
     }
     store.settings.protocol_lacks = MESH_UI_FEATURES_ALL & ~(uint32_t)MESH_UI_FEATURE_NODE_COMMANDS;
-    if (!mesh_ui_nav_compose_commands(&store.nav, &store) ||
-        mesh_ui_nav_compose_row_count(&store.nav, &store) !=
+    if (!mesh_ui_nav_compose_commands(&store.nav, &store.settings, &store.handshake) ||
+        mesh_ui_nav_compose_row_count(&store.nav, &store.settings, &store.handshake) !=
             MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)mesh_ui_repeater_command_count()) {
         failure = "under MeshCore it lists the repeater's commands";
         goto cleanup;

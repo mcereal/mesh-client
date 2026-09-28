@@ -243,10 +243,10 @@ void fb_render_compose(struct inkcell_draw_state *state, const struct mesh_ui_sn
      * The heading is a row of the nav's model (MESH_UI_COMPOSE_ROW_HEADING), so the indices here
      * are the cursor's and a click lands on the row it was aimed at; the nav steps over it.
      */
-    struct mesh_ui_store view;
-    mesh_ui_store_view(snapshot, &view);
-    const bool commands = mesh_ui_nav_compose_commands(nav, &view);
-    const uint32_t count = mesh_ui_nav_compose_row_count(nav, &view);
+    const bool commands =
+        mesh_ui_nav_compose_commands(nav, &snapshot->settings, &snapshot->handshake);
+    const uint32_t count =
+        mesh_ui_nav_compose_row_count(nav, &snapshot->settings, &snapshot->handshake);
     uint8_t cards[MESH_UI_COMPOSE_FIRST_CANNED + MESH_UI_CANNED_MAX];
     const uint32_t carded = count < (uint32_t)sizeof cards ? count : (uint32_t)sizeof cards;
     for (uint32_t r = 0; r < carded; ++r) {
@@ -298,7 +298,8 @@ void fb_render_compose(struct inkcell_draw_state *state, const struct mesh_ui_sn
         }
         const struct inkcell_fb_list_item row = {
             .leading = slot,
-            .text = mesh_ui_nav_compose_line(nav, &view, i - MESH_UI_COMPOSE_FIRST_CANNED),
+            .text = mesh_ui_nav_compose_line(nav, &snapshot->settings, &snapshot->handshake,
+                                             i - MESH_UI_COMPOSE_FIRST_CANNED),
             .divider = true,
         };
         inkcell_fb_list_item(state, &list, i, &row);

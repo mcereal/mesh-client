@@ -151,9 +151,7 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
     /* Three verbs about three different things, which is why they are three keys: A answers
        the bubble under the cursor, X puts an emoji on it, and Y writes to the conversation. In
        a repeater's thread A is its commands instead, bubble or not - the nav's same question. */
-    struct mesh_ui_store view;
-    mesh_ui_store_view(snapshot, &view);
-    if (mesh_ui_nav_compose_commands(nav, &view)) {
+    if (mesh_ui_nav_compose_commands(nav, &snapshot->settings, &snapshot->handshake)) {
         command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_COMMANDS, INKCELL_BUTTON_A);
     } else if (has_bubble) {
         command_add(bar, MESH_UI_COMMAND_REPLY, MESH_STR_ACTION_REPLY, INKCELL_BUTTON_A);
@@ -1050,9 +1048,8 @@ static void commands_for_route(const struct mesh_ui_snapshot *snapshot,
             /* Offered only for a draft the list would take, so the key is never a press that
                comes back refused - see mesh_ui_canned_accepts() - and never over a repeater's
                commands, which are not that list. */
-            struct mesh_ui_store view;
-            mesh_ui_store_view(snapshot, &view);
-            if (!mesh_ui_nav_compose_commands(nav, &view) && mesh_ui_canned_accepts(nav->draft)) {
+            if (!mesh_ui_nav_compose_commands(nav, &snapshot->settings, &snapshot->handshake) &&
+                mesh_ui_canned_accepts(nav->draft)) {
                 command_add(out, MESH_UI_COMMAND_SAVE_REPLY, MESH_STR_ACTION_SAVE_REPLY,
                             INKCELL_BUTTON_X);
             }

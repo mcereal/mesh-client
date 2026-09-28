@@ -19,6 +19,8 @@ extern "C" {
 #endif
 
 struct mesh_ui_store;
+struct mesh_ui_settings;
+struct mesh_ui_handshake_state;
 
 /* Logical buttons moved to inkcell (inkcell/ui/key.h): which physical button reports which
    press is a fact about a piece of plastic, and the navigation model never sees a keycode
@@ -1434,13 +1436,20 @@ void mesh_ui_nav_target_avatar(const struct mesh_ui_store *store, uint32_t node,
  * canned replies: the thread is a MeshCore repeater's, where a message is a command it runs and
  * a canned "On my way" would be one it does not know (mesh/ui/repeater_commands.h). The heading
  * over the rows says which it is.
+ *
+ * It takes the two records it reads rather than a store, because the renderer and the action
+ * bar hold a snapshot, and a store view of one is some 290 KB on a stack that is 1 MB on Windows.
  */
-bool mesh_ui_nav_compose_commands(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
+bool mesh_ui_nav_compose_commands(const struct mesh_ui_nav *nav,
+                                  const struct mesh_ui_settings *settings,
+                                  const struct mesh_ui_handshake_state *roster);
 uint32_t mesh_ui_nav_compose_row_count(const struct mesh_ui_nav *nav,
-                                       const struct mesh_ui_store *store);
+                                       const struct mesh_ui_settings *settings,
+                                       const struct mesh_ui_handshake_state *roster);
 /* The text of the `index`th row under the heading - a canned reply or a command - or "". */
 const char *mesh_ui_nav_compose_line(const struct mesh_ui_nav *nav,
-                                     const struct mesh_ui_store *store, size_t index);
+                                     const struct mesh_ui_settings *settings,
+                                     const struct mesh_ui_handshake_state *roster, size_t index);
 
 /*
  * Places on the bubble sheet: one per emoji in the fixed set (include/mesh/ui/reactions.h), plus
