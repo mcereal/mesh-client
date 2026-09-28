@@ -123,6 +123,8 @@ void mesh_ui_nav_open_map(struct mesh_ui_nav *nav, const struct mesh_ui_store *s
         (void)mesh_map_viewport_center_on(&nav->map_viewport, view.markers[index].latitude_i,
                                           view.markers[index].longitude_i);
         nav->map_viewport.zoom = MESH_UI_MAP_ZOOM_FOCUS;
+        /* Aimed by the reader, so our own fix arriving later does not take it back home. */
+        nav->map_settled = true;
     }
 }
 

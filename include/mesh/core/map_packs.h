@@ -50,6 +50,9 @@ struct inkwell_loop;
 /* What this client reads. A catalog of another format is refused rather than guessed at. */
 #define MESH_MAP_PACKS_FORMAT 1U
 
+/* The one style the map draws. A catalog lists an id once per style; the others are skipped. */
+#define MESH_MAP_PACKS_STYLE "light"
+
 /* One piece of a download: a Range request's worth. Small enough that appending it is a pause
    the loop does not notice, large enough that the request overhead is noise. */
 #define MESH_MAP_PACKS_CHUNK_BYTES (4U * 1024U * 1024U)
@@ -106,6 +109,7 @@ struct mesh_map_packs_entry {
     char name[MESH_MAP_PACKS_NAME_MAX];
     char parent[MESH_MAP_PACKS_ID_MAX]; /* a group id, or "" for the top (the world base) */
     char cut[MESH_MAP_PACKS_CUT_MAX];
+    char style[16]; /* MESH_MAP_PACKS_STYLE, or "" from a catalog that names none */
     char sha256[65];
     char url[MESH_MAP_PACKS_URL_MAX]; /* relative to the catalog's directory */
     uint64_t bytes;
@@ -153,6 +157,9 @@ struct mesh_map_packs {
     /* Every `*.mctp` the map would open, including one whose name is too long to list here -
        what a new region is counted against. */
     size_t on_card;
+    /* A pack the map opens beside the directory (the legacy ~/.meshclient/map.mctp), counted in
+       `on_card` when it is readable; "" for none. See mesh_map_packs_count_also(). */
+    char also[MESH_MAP_PACKS_PATH_MAX];
     struct mesh_map_packs_download download;
     char message[MESH_MAP_PACKS_MESSAGE_MAX];
     /* Changes whenever anything a screen shows does. */
@@ -169,6 +176,13 @@ struct mesh_map_packs {
  * fetch - a build with no TLS behaves the same way. 0, or -errno.
  */
 int mesh_map_packs_init(struct mesh_map_packs *packs, struct inkwell_loop *loop, const char *dir);
+
+/*
+ * One more file the map opens alongside the directory, which a new region is counted against
+ * too: the map's stack holds MESH_MAP_PACKS_DRAWN_MAX packs in all, and a download that filled
+ * it from the directory would push that file off. Rescans. NULL or "" for none.
+ */
+void mesh_map_packs_count_also(struct mesh_map_packs *packs, const char *path);
 
 /* Abandons a download in flight (its .part stays, for a resume) and releases everything. */
 void mesh_map_packs_shutdown(struct mesh_map_packs *packs);

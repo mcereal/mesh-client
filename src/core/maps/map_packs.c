@@ -156,6 +156,8 @@ static bool packs_read_entry(struct inkwell_json *json, struct mesh_map_packs_en
             read = inkwell_json_read_string(json, entry->parent, sizeof entry->parent);
         } else if (strcmp(key, "cut") == 0) {
             read = inkwell_json_read_string(json, entry->cut, sizeof entry->cut);
+        } else if (strcmp(key, "style") == 0) {
+            read = inkwell_json_read_string(json, entry->style, sizeof entry->style);
         } else if (strcmp(key, "sha256") == 0) {
             read = inkwell_json_read_string(json, entry->sha256, sizeof entry->sha256);
         } else if (strcmp(key, "url") == 0) {
@@ -221,7 +223,9 @@ bool mesh_map_packs_catalog_parse(const char *text, size_t len,
                 if (!packs_read_entry(&json, &entry)) {
                     return false;
                 }
-                const bool usable = packs_id_ok(entry.id) && entry.name[0] != '\0' &&
+                const bool style_ok =
+                    entry.style[0] == '\0' || strcmp(entry.style, MESH_MAP_PACKS_STYLE) == 0;
+                const bool usable = style_ok && packs_id_ok(entry.id) && entry.name[0] != '\0' &&
                                     packs_cut_ok(entry.cut) && packs_sha_ok(entry.sha256) &&
                                     packs_url_ok(entry.url) && entry.bytes > 0U;
                 bool seen = false;
@@ -331,6 +335,9 @@ void mesh_map_packs_rescan(struct mesh_map_packs *packs) {
     if (packs->dir[0] != '\0' && inkwell_file_is_dir(packs->dir)) {
         (void)inkwell_file_list(packs->dir, packs_scan_visit, &scan);
     }
+    if (packs->also[0] != '\0' && packs_file_size(packs->also, NULL) > 0U) {
+        ++packs->on_card;
+    }
     qsort(packs->installed, packs->installed_count, sizeof packs->installed[0],
           packs_compare_installed);
     packs_changed(packs);
@@ -369,6 +376,14 @@ int mesh_map_packs_init(struct mesh_map_packs *packs, struct inkwell_loop *loop,
     }
     mesh_map_packs_rescan(packs);
     return ready;
+}
+
+void mesh_map_packs_count_also(struct mesh_map_packs *packs, const char *path) {
+    if (packs == NULL) {
+        return;
+    }
+    snprintf(packs->also, sizeof packs->also, "%s", path != NULL ? path : "");
+    mesh_map_packs_rescan(packs);
 }
 
 void mesh_map_packs_shutdown(struct mesh_map_packs *packs) {

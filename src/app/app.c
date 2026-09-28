@@ -1561,6 +1561,16 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
             snprintf(maps_dir, sizeof maps_dir, "%s/.meshclient/maps", home);
         }
         (void)mesh_map_packs_init(&app->map_packs, &app->loop, maps_dir);
+        /* The map opens the legacy single pack beside the directory when nothing is named
+           (fb_basemap_open_default()), and it takes a slot of the same stack. */
+        if (named == NULL || named[0] == '\0') {
+            char legacy[MESH_MAP_PACKS_PATH_MAX];
+            if (home != NULL && home[0] != '\0' &&
+                snprintf(legacy, sizeof legacy, "%s/.meshclient/map.mctp", home) <
+                    (int)sizeof legacy) {
+                mesh_map_packs_count_also(&app->map_packs, legacy);
+            }
+        }
         if (file_named) {
             snprintf(app->map_packs.message, sizeof app->map_packs.message, "%s",
                      inkcell_str(MESH_STR_MAP_PACKS_ENV_FILE));

@@ -1362,6 +1362,49 @@ MESH_TEST_CASE(map_show_on_map_goes_back_to_the_nodes_tab, unit) {
     record_success(test_name);
 }
 
+/* A map a reader aimed with Show on map stays aimed when our own fix arrives after it. */
+MESH_TEST_CASE(map_show_on_map_is_not_taken_home_by_a_late_fix, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+    struct mesh_ui_handshake_state handshake = store.handshake;
+    handshake.nodes[0].position.valid = false; /* not ours yet */
+    mesh_ui_store_set_handshake(&store, &handshake);
+    map_test_publish(&store);
+
+    const struct mesh_ui_node_summary *alfa = &store.handshake.nodes[1];
+    struct mesh_ui_node_item items[MESH_UI_NODE_ACTIONS_MAX];
+    const uint32_t count =
+        mesh_ui_node_actions_build(alfa, false, NULL, false, 0U, items, MESH_UI_NODE_ACTIONS_MAX);
+    uint32_t show = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].action == MESH_UI_NODE_ACTION_SHOW_ON_MAP) {
+            show = i;
+        }
+    }
+    MESH_TEST_FAIL_IF(show >= count, "a node with a fix offers Show on map");
+
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
+    store.nav.node_detail_open = true;
+    store.nav.node_detail_node = alfa->node_id;
+    store.nav.node_actions_open = true;
+    store.nav.node_actions_cursor = show;
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    const int32_t alfa_latitude = alfa->position.latitude_i;
+
+    handshake = store.handshake;
+    handshake.nodes[0].position.valid = true;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    map_test_publish(&store);
+    MESH_TEST_FAIL_IF(!map_near(store.nav.map_viewport.center_latitude_i, alfa_latitude, 200) ||
+                          store.nav.map_viewport.zoom != MESH_UI_MAP_ZOOM_FOCUS,
+                      "the map stays on the node it was aimed at");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 /* The same guard, reached the other way: a place opened from the map is over it, and the first B
    there closes the place and leaves the map where it was. */
 MESH_TEST_CASE(map_hands_the_keys_over_when_a_place_opens, unit) {

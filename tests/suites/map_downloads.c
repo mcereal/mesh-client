@@ -34,6 +34,10 @@ static const char k_catalog[] =
     "   \"tiles\": 5461, \"bytes\": 10220240, \"sha256\": \"" DOWNLOADS_SHA_A "\",\n"
     "   \"url\": \"packs/world/20260927-light.mctp\"},\n"
     "  {\"id\": \"us-puerto-rico\", \"name\": \"Puerto Rico\", \"parent\": \"us\",\n"
+    "   \"style\": \"dark\", \"cut\": \"20260927\", \"max_zoom\": 14, \"bytes\": 1,\n"
+    "   \"sha256\": \"" DOWNLOADS_SHA_A
+    "\", \"url\": \"packs/us-puerto-rico/20260927-dark.mctp\"},\n"
+    "  {\"id\": \"us-puerto-rico\", \"name\": \"Puerto Rico\", \"parent\": \"us\",\n"
     "   \"style\": \"light\", \"cut\": \"20260927\", \"max_zoom\": 14, \"tiles\": 10285,\n"
     "   \"bytes\": 22481382, \"sha256\": \"" DOWNLOADS_SHA_A "\",\n"
     "   \"url\": \"packs/us-puerto-rico/20260927-light.mctp\", \"new_field\": {\"a\": [1, 2]}},\n"
@@ -51,7 +55,9 @@ static const char k_catalog[] =
  * The three dropped entries are the three ways a catalog could turn into a file this client
  * writes somewhere it should not, or a download it could never verify: an id that is a path, a
  * URL that leaves the catalog's directory, a digest that is not one. A field it does not know
- * (`new_field`) is stepped over, because the document will grow.
+ * (`new_field`) is stepped over, because the document will grow. A style the map does not draw
+ * is skipped before it can take the id, so the light Puerto Rico listed after the dark one is
+ * the one kept.
  */
 MESH_TEST_CASE(map_downloads_catalog_keeps_what_it_can_trust, unit) {
     struct mesh_map_packs_catalog *catalog = calloc(1U, sizeof *catalog);
@@ -157,6 +163,37 @@ MESH_TEST_CASE(map_downloads_the_card_says_what_is_installed, unit) {
     MESH_TEST_FAIL_IF(again != -ENOENT, "a region deleted twice is not there the second time");
     MESH_TEST_FAIL_IF(by_hand != 0 || !hand_gone, "a pack copied on by hand deletes by its name");
     MESH_TEST_FAIL_IF(!no_fetch, "with no loop there is nothing to fetch with");
+    record_success(test_name);
+}
+
+/*
+ * The legacy single pack the map opens beside the directory takes a slot of the same stack, so
+ * it counts against what a new region may fill - and only while it is there.
+ */
+MESH_TEST_CASE(map_downloads_count_the_pack_beside_the_directory, unit) {
+    char dir[] = "/tmp/meshclient_packs_XXXXXX";
+    MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "a scratch directory");
+    char maps[64];
+    snprintf(maps, sizeof maps, "%s/maps", dir);
+    char legacy[64];
+    snprintf(legacy, sizeof legacy, "%s/map.mctp", dir);
+    const bool laid_out = mkdir(maps, 0700) == 0 && downloads_touch(maps, "us.20260927.mctp", 10U);
+
+    struct mesh_map_packs *packs = calloc(1U, sizeof *packs);
+    MESH_TEST_FAIL_IF_CLEANUP(packs == NULL, downloads_clear(dir), "module memory");
+    (void)mesh_map_packs_init(packs, NULL, maps);
+    mesh_map_packs_count_also(packs, legacy);
+    const bool absent = packs->on_card == 1U;
+    const bool legacy_laid = downloads_touch(dir, "map.mctp", 10U);
+    mesh_map_packs_rescan(packs);
+    const bool present = packs->on_card == 2U && packs->installed_count == 1U;
+    mesh_map_packs_shutdown(packs);
+    free(packs);
+    downloads_clear(dir);
+
+    MESH_TEST_FAIL_IF(!laid_out || !legacy_laid, "the card is laid out");
+    MESH_TEST_FAIL_IF(!absent, "a legacy pack that is not there counts nothing");
+    MESH_TEST_FAIL_IF(!present, "one that is there counts, and is not listed as a region");
     record_success(test_name);
 }
 
