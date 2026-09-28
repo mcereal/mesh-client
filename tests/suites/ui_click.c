@@ -899,6 +899,21 @@ MESH_TEST_CASE(ui_click_the_list_beside_a_section_with_edits_asks_first, unit) {
             store.nav.settings_discard_armed || store.nav.settings_edit_count != 1U,
         click_close(&store, capture), "a click on the open section's own row should do nothing");
 
+    /* A heading on that list is a label, and a click on it leaves nothing. */
+    uint32_t heading = 0U;
+    while (heading < mesh_ui_settings_root_count(&store.settings) &&
+           !mesh_ui_settings_root_is_heading(&store.settings, heading)) {
+        ++heading;
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(heading >= mesh_ui_settings_root_count(&store.settings),
+                              click_close(&store, capture),
+                              "the section list should have a heading");
+    (void)click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + heading, &action) ||
+            store.nav.settings_section != MESH_UI_SETTINGS_LORA || store.nav.settings_discard_armed,
+        click_close(&store, capture), "a click on a heading beside the section should do nothing");
+
     uint32_t device = 0U;
     while (mesh_ui_settings_root_at(&store.settings, device) != MESH_UI_SETTINGS_DEVICE) {
         ++device;
