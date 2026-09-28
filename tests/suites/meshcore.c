@@ -325,7 +325,8 @@ MESH_TEST_CASE(meshcore_decodes_every_message_shape, unit) {
 MESH_TEST_CASE(meshcore_encodes_commands_to_layout, unit) {
     uint8_t out[MESH_MESHCORE_MAX_FRAME];
     const uint8_t prefix[6] = {1, 2, 3, 4, 5, 6};
-    const int len = mesh_meshcore_encode_text(prefix, 1U, 0x01020304U, "hey", out, sizeof out);
+    const int len = mesh_meshcore_encode_text(prefix, MESH_MESHCORE_TXT_PLAIN, 1U, 0x01020304U,
+                                              "hey", out, sizeof out);
     MESH_TEST_FAIL_IF(len != 16, "code, type, attempt, timestamp, prefix, text");
     MESH_TEST_FAIL_IF(out[0] != MESH_MESHCORE_CMD_SEND_TXT_MSG || out[1] != 0U || out[2] != 1U ||
                           out[3] != 0x04 || out[6] != 0x01 || out[7] != 1U || out[12] != 6U ||
@@ -1952,6 +1953,148 @@ MESH_TEST_CASE(meshcore_path_discovery_is_the_traceroute, unit) {
     MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_SILENT ||
                           trace->state != MESH_TRACEROUTE_TIMEOUT,
                       "nothing by the deadline times the trace out");
+    record_success(test_name);
+}
+
+/* A message to a repeater is a command: CLI_DATA rather than text, with no ack to wait for.
+   The repeater's reply is the answer - it settles the command and lands in the conversation -
+   and a command nobody answered is failed without being sent again, since it may have run. */
+MESH_TEST_CASE(meshcore_a_repeater_is_sent_commands, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const uint32_t alice = 0x40414243U;
+    struct mesh_node_summary *node = mesh_session_model_node(g_meshcore.model, alice, false);
+    MESH_TEST_FAIL_IF(node == NULL, "Alice is on the roster");
+
+    uint32_t packet_id = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_is_command_peer(&g_meshcore, alice) ||
+                          mesh_meshcore_send_text(&g_meshcore, alice, 0U, "hi", &packet_id) != 0 ||
+                          wire.frames[wire.count - 1U][1] != MESH_MESHCORE_TXT_PLAIN,
+                      "a companion is sent text");
+    node->role = 4U; /* a repeater's advert */
+    MESH_TEST_FAIL_IF(!mesh_meshcore_is_command_peer(&g_meshcore, alice) ||
+                          mesh_meshcore_is_command_peer(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR),
+                      "a repeater is sent commands; a channel never is");
+    feed_code(&protocol, MESH_MESHCORE_RESP_ERR); /* the message above, out of the way */
+
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, alice, 0U, "get radio", &packet_id) != 0,
+                      "a command goes out");
+    const uint8_t *frame = wire.frames[wire.count - 1U];
+    MESH_TEST_FAIL_IF(frame[0] != MESH_MESHCORE_CMD_SEND_TXT_MSG ||
+                          frame[1] != MESH_MESHCORE_TXT_CLI_DATA || frame[2] != 0U ||
+                          frame[7] != 0x40 || memcmp(frame + 13, "get radio", 9U) != 0,
+                      "as CLI data, to Alice's prefix");
+    uint8_t sent[10] = {MESH_MESHCORE_RESP_SENT, 0};
+    put_u32(sent + 6, 1000U); /* no ack: the four bytes stay zero */
+    feed(&protocol, sent, sizeof sent);
+    uint8_t confirmed[5] = {MESH_MESHCORE_PUSH_SEND_CONFIRMED};
+    feed(&protocol, confirmed, sizeof confirmed);
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&g_model.messages, packet_id)->ack !=
+                          MESH_MESSAGE_ACK_PENDING,
+                      "the zero a command's SENT named is not an ack to match");
+
+    const uint8_t reply[] = {16, 20, 0,   0,   0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0xFF, 1,   0,  0,
+                             0,  0,  '>', ' ', '8',  '6',  '9',  '.',  '5',  ',',  '2',  '5', '0'};
+    feed_code(&protocol, MESH_MESHCORE_PUSH_MSG_WAITING); /* the reply waits in the radio */
+    feed(&protocol, reply, sizeof reply);
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&g_model.messages, packet_id)->ack !=
+                          MESH_MESSAGE_ACK_DELIVERED,
+                      "the repeater's reply settles the command");
+    const struct mesh_message *answer = newest_message();
+    MESH_TEST_FAIL_IF(answer == NULL || answer->from != alice ||
+                          answer->direction != MESH_MESSAGE_INBOUND ||
+                          strcmp(answer->text, "> 869.5,250") != 0,
+                      "and is the answer in her conversation");
+
+    feed_code(&protocol, MESH_MESHCORE_RESP_NO_MORE_MESSAGES);
+
+    /* One nobody answers: failed at its deadline, said, and not written again. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, alice, 0U, "reboot", &packet_id) != 0,
+                      "a second command goes out");
+    feed(&protocol, sent, sizeof sent);
+    const size_t written = wire.count;
+    const uint32_t notices = g_meshcore.notices;
+    mesh_protocol_tick(&protocol, g_meshcore.now_ms + 60000U);
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&g_model.messages, packet_id)->ack !=
+                          MESH_MESSAGE_ACK_FAILED,
+                      "unanswered, it failed");
+    MESH_TEST_FAIL_IF(wire.count != written, "and was not sent again");
+    MESH_TEST_FAIL_IF(g_meshcore.notices != notices + 1U ||
+                          g_meshcore.notice.cmd != MESH_MESHCORE_CMD_SEND_TXT_MSG ||
+                          g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_SILENT ||
+                          g_meshcore.notice.node_id != alice,
+                      "and the silence is said, naming her");
+    record_success(test_name);
+}
+
+/* A repeater's neighbours are SEND_BINARY_REQ by key under the one lock every request shares,
+   answered by a push that names no node - only the tag the SENT carried. The list lands on the
+   record Meshtastic's NeighborInfo fills, each neighbour by its key's first four bytes. */
+MESH_TEST_CASE(meshcore_neighbours_land_on_the_repeater, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const uint32_t alice = 0x40414243U;
+    struct mesh_node_summary *node = mesh_session_model_node(g_meshcore.model, alice, false);
+    MESH_TEST_FAIL_IF(node == NULL, "Alice is on the roster");
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_neighbours(&g_meshcore, alice) != -EINVAL,
+                      "a companion keeps no list to ask for");
+    node->role = 4U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_neighbours(&g_meshcore, 0x12345678U) != -ENOENT,
+                      "a node the radio does not carry is not asked");
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_neighbours(&g_meshcore, alice) != 0, "Alice is asked");
+    const uint8_t *frame = wire.frames[0];
+    MESH_TEST_FAIL_IF(
+        wire.lens[0] != 44U || frame[0] != MESH_MESHCORE_CMD_SEND_BINARY_REQ || frame[1] != 0x40 ||
+            frame[32] != 0x40 + 31 || frame[33] != MESH_MESHCORE_REQ_GET_NEIGHBOURS ||
+            frame[34] != 0U || frame[35] != MESH_MESHCORE_NEIGHBOURS_MAX || frame[36] != 0U ||
+            frame[37] != 0U || frame[38] != 0U || frame[39] != MESH_MESHCORE_NEIGHBOUR_PREFIX_LEN,
+        "by her whole key: the first ten, newest first, four bytes of each key");
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_status(&g_meshcore, alice) != -EBUSY,
+                      "a status waits behind it");
+
+    uint8_t push[2U + 4U + 4U + 2U * 9U] = {MESH_MESHCORE_PUSH_BINARY_RESPONSE, 0};
+    put_u32(push + 2, 0x11223344U);
+    push[6] = 5; /* five held, two sent */
+    push[8] = 2;
+    const uint8_t k_entries[] = {0x0A, 0x0B, 0x0C, 0x0D, 30, 0, 0, 0, 20,
+                                 0x50, 0x51, 0x52, 0x53, 90, 0, 0, 0, (uint8_t)-10};
+    memcpy(push + 10, k_entries, sizeof k_entries);
+    const uint32_t notices = g_meshcore.notices;
+    feed(&protocol, push, sizeof push);
+    MESH_TEST_FAIL_IF(g_meshcore.notices != notices || node->neighbors.valid,
+                      "an answer before the SENT that tags it is nobody's");
+
+    uint8_t sent[10] = {MESH_MESHCORE_RESP_SENT, 0};
+    put_u32(sent + 2, 0x11223344U);
+    put_u32(sent + 6, 3000U);
+    feed(&protocol, sent, sizeof sent);
+    put_u32(push + 2, 0x99999999U);
+    feed(&protocol, push, sizeof push);
+    MESH_TEST_FAIL_IF(g_meshcore.notices != notices, "another tag is another request's");
+
+    put_u32(push + 2, 0x11223344U);
+    feed(&protocol, push, sizeof push);
+    MESH_TEST_FAIL_IF(g_meshcore.notices != notices + 1U ||
+                          g_meshcore.notice.cmd != MESH_MESHCORE_CMD_SEND_BINARY_REQ ||
+                          g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_NEIGHBOURS ||
+                          g_meshcore.request_cmd != 0U,
+                      "its own tag ends the request");
+    const struct mesh_node_neighbors *neighbors = &node->neighbors;
+    MESH_TEST_FAIL_IF(
+        !neighbors->valid || neighbors->count != 2U ||
+            neighbors->entries[0].node_id != 0x0A0B0C0DU || neighbors->entries[0].snr != 5.0f ||
+            neighbors->entries[1].node_id != 0x50515253U || neighbors->entries[1].snr != -2.5f,
+        "and the two it sent land on her record, by the roster's numbers");
+
+    /* An answer shorter than the entries it counts is not read, and is still the answer. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_request_neighbours(&g_meshcore, alice) != 0, "asked again");
+    feed(&protocol, sent, sizeof sent);
+    feed(&protocol, push, sizeof push - 1U);
+    MESH_TEST_FAIL_IF(g_meshcore.notices != notices + 2U || neighbors->count != 2U,
+                      "a short one ends the request and leaves the last list");
     record_success(test_name);
 }
 

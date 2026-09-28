@@ -72,6 +72,9 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_SET_DEVICE_PIN = 37,
     MESH_MESHCORE_CMD_SET_OTHER_PARAMS = 38,
     MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ = 39,
+    /* The key, then a request the node itself reads - its first byte is enum
+       mesh_meshcore_req_type. Answered by a BINARY_RESPONSE carrying the tag SENT named. */
+    MESH_MESHCORE_CMD_SEND_BINARY_REQ = 50,
     MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ = 52,
 };
 
@@ -107,6 +110,7 @@ enum mesh_meshcore_push {
     MESH_MESHCORE_PUSH_LOG_RX_DATA = 0x88,
     MESH_MESHCORE_PUSH_NEW_ADVERT = 0x8A,
     MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE = 0x8B,
+    MESH_MESHCORE_PUSH_BINARY_RESPONSE = 0x8C,
     MESH_MESHCORE_PUSH_PATH_DISCOVERY_RESPONSE = 0x8D,
     MESH_MESHCORE_PUSH_CONTACT_DELETED = 0x8F,
     MESH_MESHCORE_PUSH_CONTACTS_FULL = 0x90,
@@ -135,6 +139,11 @@ enum mesh_meshcore_txt_type {
     MESH_MESHCORE_TXT_CLI_DATA = 1,
     /* A room server's relay of somebody's post: a 4-byte author prefix precedes the text. */
     MESH_MESHCORE_TXT_SIGNED_PLAIN = 2,
+};
+
+/* What a SEND_BINARY_REQ asks a repeater for: the first byte of the request it reads. */
+enum mesh_meshcore_req_type {
+    MESH_MESHCORE_REQ_GET_NEIGHBOURS = 0x06,
 };
 
 /* A path length with no path: the packet came direct, or no route is known yet. Otherwise the
@@ -279,6 +288,28 @@ struct mesh_meshcore_sent {
     uint32_t timeout_ms;
 };
 
+/*
+ * A repeater's answer to REQ_GET_NEIGHBOURS: the nodes it hears straight off the air, as many as
+ * it had room for, each named by as many bytes of its key as the request asked for (four here -
+ * the roster's number for a node), with how long ago it was last heard and the SNR of that.
+ * `total` is how many the repeater holds, which can be more than `count`: its answer is one
+ * packet, and a request asks for a page.
+ */
+#define MESH_MESHCORE_NEIGHBOURS_MAX 10U
+#define MESH_MESHCORE_NEIGHBOUR_PREFIX_LEN 4U
+
+struct mesh_meshcore_neighbour {
+    uint8_t prefix[MESH_MESHCORE_NEIGHBOUR_PREFIX_LEN];
+    uint32_t heard_secs_ago;
+    int8_t snr_q4; /* SNR in quarter decibels */
+};
+
+struct mesh_meshcore_neighbours {
+    uint16_t total;
+    uint8_t count;
+    struct mesh_meshcore_neighbour entries[MESH_MESHCORE_NEIGHBOURS_MAX];
+};
+
 /* RESP_CODE_CHANNEL_INFO. An unused slot has an empty name and an all-zero secret. */
 struct mesh_meshcore_channel {
     uint8_t index;
@@ -309,8 +340,11 @@ int mesh_meshcore_encode_u32(uint8_t cmd, uint32_t value, uint8_t *out, size_t o
 int mesh_meshcore_encode_byte(uint8_t cmd, uint8_t value, uint8_t *out, size_t out_len);
 int mesh_meshcore_encode_key(uint8_t cmd, const uint8_t key[MESH_MESHCORE_PUBKEY_LEN], uint8_t *out,
                              size_t out_len);
-int mesh_meshcore_encode_text(const uint8_t prefix[MESH_MESHCORE_PREFIX_LEN], uint8_t attempt,
-                              uint32_t timestamp, const char *text, uint8_t *out, size_t out_len);
+/* SEND_TXT_MSG: `txt_type` is enum mesh_meshcore_txt_type - PLAIN for a message, CLI_DATA for a
+   command to a repeater, which the radio sends with no ack to wait for. */
+int mesh_meshcore_encode_text(const uint8_t prefix[MESH_MESHCORE_PREFIX_LEN], uint8_t txt_type,
+                              uint8_t attempt, uint32_t timestamp, const char *text, uint8_t *out,
+                              size_t out_len);
 int mesh_meshcore_encode_channel_text(uint8_t channel, uint32_t timestamp, const char *text,
                                       uint8_t *out, size_t out_len);
 /* SET_ADVERT_NAME: the name, unterminated; the firmware keeps at most MESH_MESHCORE_NAME_LEN
@@ -347,6 +381,21 @@ int mesh_meshcore_decode_lpp(const uint8_t *lpp, size_t len, struct mesh_meshcor
  */
 int mesh_meshcore_decode_status(const uint8_t *stats, size_t len, uint8_t adv_type,
                                 struct mesh_meshcore_status *out);
+/*
+ * SEND_BINARY_REQ for a repeater's neighbours: its whole key, then REQ_GET_NEIGHBOURS asking for
+ * the first `count` of them newest first, each named by MESH_MESHCORE_NEIGHBOUR_PREFIX_LEN bytes
+ * of its key. `nonce` fills the four bytes the firmware leaves for making each request a
+ * different packet, so a repeated one is not taken for a replay.
+ */
+int mesh_meshcore_encode_neighbours_req(const uint8_t key[MESH_MESHCORE_PUBKEY_LEN], uint8_t count,
+                                        uint32_t nonce, uint8_t *out, size_t out_len);
+/*
+ * A neighbours answer, from after a BINARY_RESPONSE's tag: the total, the count and the entries.
+ * Keeps at most MESH_MESHCORE_NEIGHBOURS_MAX; 0, or -EBADMSG for an answer shorter than the
+ * entries it counts.
+ */
+int mesh_meshcore_decode_neighbours(const uint8_t *data, size_t len,
+                                    struct mesh_meshcore_neighbours *out);
 /* REBOOT carries the word, so a stray byte cannot reboot a radio. */
 int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len);
 
@@ -407,6 +456,10 @@ struct mesh_meshcore_pending {
     uint64_t deadline_ms; /* 0 while the SENT reply is still to come */
     uint32_t timestamp;
     uint8_t attempt;
+    /* A command to a repeater rather than a message: sent once and never acked, it is answered
+       by the repeater's reply instead, and is not tried again - a retry of "reboot" would be a
+       second reboot. */
+    bool command;
     /* Whole, not a prefix: the last attempt resets the route, which names the contact by key. */
     uint8_t key[MESH_MESHCORE_PUBKEY_LEN];
     char text[MESH_MESHCORE_TEXT_MAX + 1U];
@@ -422,11 +475,14 @@ enum mesh_meshcore_answer {
     MESH_MESHCORE_ANSWER_UNSENT,       /* the radio would not send it */
     MESH_MESHCORE_ANSWER_STATUS,       /* its status arrived */
     MESH_MESHCORE_ANSWER_ROUTE,        /* the routes to it and back arrived */
+    MESH_MESHCORE_ANSWER_NEIGHBOURS,   /* the nodes it hears arrived */
 };
 
 struct mesh_meshcore_notice {
     uint32_t node_id;
-    uint8_t cmd;    /* the request: a login, a status, readings or a path discovery */
+    /* The request: a login, a status, readings, a path discovery or a neighbours request - or
+       SEND_TXT_MSG for a command to a repeater that got no reply. */
+    uint8_t cmd;
     uint8_t answer; /* enum mesh_meshcore_answer */
 };
 
@@ -465,6 +521,8 @@ struct mesh_meshcore {
     uint8_t request_cmd;                              /* which of them */
     uint32_t request_node;                            /* asked of whom */
     uint8_t request_prefix[MESH_MESHCORE_PREFIX_LEN]; /* whose answer frees it */
+    /* A binary request's answer names no node, only the tag its SENT carried: 0 until then. */
+    uint32_t request_tag;
     /* How the last of them ended, and a count that moves each time one does. */
     uint32_t notices;
     struct mesh_meshcore_notice notice;
@@ -612,6 +670,20 @@ int mesh_meshcore_request_status(struct mesh_meshcore *meshcore, uint32_t node_i
  * mesh_meshcore_request_telemetry(), and the same returns.
  */
 int mesh_meshcore_discover_path(struct mesh_meshcore *meshcore, uint32_t node_id);
+/*
+ * Asks a repeater among the radio's contacts which nodes it hears: SEND_BINARY_REQ with
+ * REQ_GET_NEIGHBOURS, answered by a BINARY_RESPONSE whose list lands on the node's `neighbors` -
+ * the record Meshtastic's NeighborInfo fills - so the node's screen, and every other node's
+ * "heard by", read it unchanged. Like a status, a repeater answers only a client on its access
+ * list. The same one request as mesh_meshcore_request_telemetry(), and the same returns.
+ */
+int mesh_meshcore_request_neighbours(struct mesh_meshcore *meshcore, uint32_t node_id);
+/*
+ * Whether a direct message to `node_id` goes as a command: the node is a repeater, which takes
+ * text only from its admin and only as a command to run. mesh_meshcore_send_text() sends it so,
+ * with no retries, and the repeater's reply lands in the conversation as its answer.
+ */
+bool mesh_meshcore_is_command_peer(const struct mesh_meshcore *meshcore, uint32_t node_id);
 /*
  * Asks the radio to make a contact of a node known only from a link: its whole key, its name and
  * the kind of node it is (enum mesh_meshcore_adv_type), with no route and no advert stamp, so the

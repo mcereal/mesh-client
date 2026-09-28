@@ -84,6 +84,8 @@ static void mesh_meshcore_settle_write(struct mesh_meshcore *meshcore, int32_t e
 static bool mesh_meshcore_is_remote(uint8_t cmd);
 static uint8_t mesh_meshcore_adv_type(uint32_t role);
 static void mesh_meshcore_request_ended(struct mesh_meshcore *meshcore, uint8_t answer);
+static void mesh_meshcore_notify(struct mesh_meshcore *meshcore, uint32_t node_id, uint8_t cmd,
+                                 uint8_t answer);
 
 /* Writes the head of the queue when nothing is outstanding. A write that fails is dropped and
    the next one tried, so one refused frame cannot wedge the queue behind it - and a settings
@@ -170,7 +172,17 @@ static bool mesh_meshcore_queued(const struct mesh_meshcore *meshcore, uint8_t c
 static bool mesh_meshcore_is_remote(uint8_t cmd) {
     return cmd == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ || cmd == MESH_MESHCORE_CMD_SEND_LOGIN ||
            cmd == MESH_MESHCORE_CMD_SEND_STATUS_REQ ||
-           cmd == MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ;
+           cmd == MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ ||
+           cmd == MESH_MESHCORE_CMD_SEND_BINARY_REQ;
+}
+
+/* Says how something asked of another node ended, for the publish to put into words. */
+static void mesh_meshcore_notify(struct mesh_meshcore *meshcore, uint32_t node_id, uint8_t cmd,
+                                 uint8_t answer) {
+    meshcore->notice.node_id = node_id;
+    meshcore->notice.cmd = cmd;
+    meshcore->notice.answer = answer;
+    meshcore->notices += 1U;
 }
 
 /* The request is over: the lock is free, and `notice` says how it went. */
@@ -185,12 +197,10 @@ static void mesh_meshcore_request_ended(struct mesh_meshcore *meshcore, uint8_t 
         trace->target == meshcore->request_node) {
         trace->state = MESH_TRACEROUTE_TIMEOUT;
     }
-    meshcore->notice.node_id = meshcore->request_node;
-    meshcore->notice.cmd = meshcore->request_cmd;
-    meshcore->notice.answer = answer;
-    meshcore->notices += 1U;
+    mesh_meshcore_notify(meshcore, meshcore->request_node, meshcore->request_cmd, answer);
     meshcore->request_cmd = 0U;
     meshcore->request_until_ms = 0U;
+    meshcore->request_tag = 0U;
 }
 
 /* Its deadline passed with nothing heard. */
@@ -770,8 +780,9 @@ static struct mesh_meshcore_pending *mesh_meshcore_pending_for(struct mesh_meshc
 static int mesh_meshcore_send_attempt(struct mesh_meshcore *meshcore,
                                       struct mesh_meshcore_pending *pending) {
     uint8_t frame[MESH_MESHCORE_MAX_FRAME];
-    const int len = mesh_meshcore_encode_text(pending->key, pending->attempt, pending->timestamp,
-                                              pending->text, frame, sizeof frame);
+    const int len = mesh_meshcore_encode_text(
+        pending->key, pending->command ? MESH_MESHCORE_TXT_CLI_DATA : MESH_MESHCORE_TXT_PLAIN,
+        pending->attempt, pending->timestamp, pending->text, frame, sizeof frame);
     pending->deadline_ms = 0U;
     return mesh_meshcore_enqueue(meshcore, frame, len, pending->packet_id);
 }
@@ -783,10 +794,39 @@ static void mesh_meshcore_pending_done(struct mesh_meshcore *meshcore,
     memset(pending, 0, sizeof *pending);
 }
 
+/* A repeater replied to a command: the oldest one to it still waiting is the one answered. The
+   reply names its sender by a six-byte prefix, and a command is held by the whole key. */
+static void mesh_meshcore_command_answered(struct mesh_meshcore *meshcore,
+                                           const uint8_t prefix[MESH_MESHCORE_PREFIX_LEN]) {
+    struct mesh_meshcore_pending *oldest = NULL;
+    for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
+        struct mesh_meshcore_pending *pending = &meshcore->pending[i];
+        if (pending->packet_id != 0U && pending->command &&
+            memcmp(pending->key, prefix, MESH_MESHCORE_PREFIX_LEN) == 0 &&
+            (oldest == NULL || pending->packet_id < oldest->packet_id)) {
+            oldest = pending;
+        }
+    }
+    if (oldest != NULL) {
+        mesh_meshcore_pending_done(meshcore, oldest, MESH_MESSAGE_ACK_DELIVERED);
+    }
+}
+
 /* A direct message whose ack did not come. Try again - the last time with the route reset, so
    the firmware floods it rather than trusting a path that has just failed twice. */
 static void mesh_meshcore_retry(struct mesh_meshcore *meshcore,
                                 struct mesh_meshcore_pending *pending) {
+    /* A command the repeater did not answer is not sent again: it may have run and only the
+       reply been lost, and "reboot" twice is not what anybody asked for. Silence from a
+       repeater is usually a login that did not make us its admin, which is worth saying. */
+    if (pending->command) {
+        inkwell_log_info("meshcore", "Command %u: no reply", pending->packet_id);
+        mesh_meshcore_notify(meshcore,
+                             mesh_meshcore_node_id(pending->key, MESH_MESHCORE_PUBKEY_LEN),
+                             MESH_MESHCORE_CMD_SEND_TXT_MSG, MESH_MESHCORE_ANSWER_SILENT);
+        mesh_meshcore_pending_done(meshcore, pending, MESH_MESSAGE_ACK_FAILED);
+        return;
+    }
     if (pending->attempt + 1U >= MESH_MESHCORE_SEND_ATTEMPTS) {
         inkwell_log_info("meshcore", "Message %u: no ack after %u attempts", pending->packet_id,
                          (unsigned)MESH_MESHCORE_SEND_ATTEMPTS);
@@ -936,7 +976,42 @@ static void mesh_meshcore_store_status(struct mesh_meshcore *meshcore,
     mesh_meshcore_note_heard(meshcore, node, false, 0U);
 }
 
+/*
+ * A repeater's neighbours, onto the record Meshtastic's NeighborInfo fills: each by the roster's
+ * number for its key's first four bytes, which is exactly what the request asked for, so a
+ * neighbour the roster holds is named and one it does not is its "!hex". Each answer is the
+ * whole list as far as it goes; how long ago each was heard is the repeater's to judge, and it
+ * already drops the ones it has not heard for long.
+ */
+static void mesh_meshcore_store_neighbours(struct mesh_meshcore *meshcore,
+                                           struct mesh_node_summary *node,
+                                           const struct mesh_meshcore_neighbours *neighbours) {
+    _Static_assert(MESH_MESHCORE_NEIGHBOURS_MAX <= MESH_NODE_MAX_NEIGHBORS,
+                   "a neighbours answer fits the node's record");
+    const uint32_t now = mesh_meshcore_clock_now(meshcore);
+    if (now > node->last_heard) {
+        node->last_heard = now;
+    }
+    struct mesh_node_neighbors *record = &node->neighbors;
+    memset(record, 0, sizeof *record);
+    record->valid = true;
+    record->time = now;
+    for (uint8_t n = 0; n < neighbours->count; ++n) {
+        const struct mesh_meshcore_neighbour *entry = &neighbours->entries[n];
+        record->entries[record->count].node_id =
+            mesh_meshcore_node_id(entry->prefix, MESH_MESHCORE_NEIGHBOUR_PREFIX_LEN);
+        record->entries[record->count].snr = (float)entry->snr_q4 / 4.0f;
+        record->count += 1U;
+    }
+    mesh_meshcore_note_heard(meshcore, node, false, 0U);
+}
+
 /* ---------------------------------------------------------------------------- receiving */
+
+static uint32_t mesh_meshcore_u32_at(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8U) | ((uint32_t)p[2] << 16U) |
+           ((uint32_t)p[3] << 24U);
+}
 
 static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t *frame,
                                   size_t len) {
@@ -954,7 +1029,8 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
                 expected[1] = (uint8_t)((pending->expected_ack >> 8U) & 0xFFU);
                 expected[2] = (uint8_t)((pending->expected_ack >> 16U) & 0xFFU);
                 expected[3] = (uint8_t)((pending->expected_ack >> 24U) & 0xFFU);
-                if (pending->packet_id != 0U && pending->deadline_ms != 0U &&
+                /* A command is never acked; the zero its SENT named is not an ack to match. */
+                if (pending->packet_id != 0U && pending->deadline_ms != 0U && !pending->command &&
                     memcmp(expected, frame + 1, 4U) == 0) {
                     mesh_meshcore_pending_done(meshcore, pending, MESH_MESSAGE_ACK_DELIVERED);
                     break;
@@ -1080,6 +1156,23 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
             }
         }
         break;
+    case MESH_MESHCORE_PUSH_BINARY_RESPONSE:
+        /* 0x00, then the tag the request's SENT carried, then whatever the node answered. */
+        if (len >= 6U && meshcore->request_cmd == MESH_MESHCORE_CMD_SEND_BINARY_REQ &&
+            meshcore->request_tag != 0U &&
+            mesh_meshcore_u32_at(frame + 2) == meshcore->request_tag) {
+            const uint32_t id = meshcore->request_node;
+            struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, id, false);
+            struct mesh_meshcore_neighbours neighbours;
+            if (node != NULL &&
+                mesh_meshcore_decode_neighbours(frame + 6, len - 6U, &neighbours) == 0) {
+                mesh_meshcore_store_neighbours(meshcore, node, &neighbours);
+                inkwell_log_info("meshcore", "Neighbours from 0x%08x: %u of %u", id,
+                                 (unsigned)neighbours.count, (unsigned)neighbours.total);
+            }
+            mesh_meshcore_request_ended(meshcore, MESH_MESHCORE_ANSWER_NEIGHBOURS);
+        }
+        break;
     case MESH_MESHCORE_PUSH_CONTACT_DELETED:
         if (len >= 1U + MESH_MESHCORE_PUBKEY_LEN) {
             const uint32_t id = mesh_meshcore_node_id(frame + 1, MESH_MESHCORE_PUBKEY_LEN);
@@ -1104,11 +1197,6 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
  * otherwise carry the old values of every row it did not touch and undo this one - and a
  * read-back the link drops would leave the screens on the old values until a refresh.
  */
-static uint32_t mesh_meshcore_u32_at(const uint8_t *p) {
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8U) | ((uint32_t)p[2] << 16U) |
-           ((uint32_t)p[3] << 24U);
-}
-
 static void mesh_meshcore_apply_write(struct mesh_meshcore *meshcore, const uint8_t *frame,
                                       size_t len) {
     struct mesh_meshcore_self_info *self = &meshcore->self;
@@ -1297,8 +1385,12 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
     case MESH_MESHCORE_RESP_CONTACT_MSG_RECV_V3:
     case MESH_MESHCORE_RESP_CHANNEL_MSG_RECV_V3: {
         struct mesh_meshcore_message message;
-        if (mesh_meshcore_decode_message(frame, len, &message) == 0 &&
-            message.txt_type != MESH_MESHCORE_TXT_CLI_DATA) {
+        if (mesh_meshcore_decode_message(frame, len, &message) == 0) {
+            /* A repeater's reply to a command: the answer that settles it, and a message in
+               the conversation the command was typed into. */
+            if (message.txt_type == MESH_MESHCORE_TXT_CLI_DATA && !message.channel) {
+                mesh_meshcore_command_answered(meshcore, message.sender_prefix);
+            }
             mesh_meshcore_store_message(meshcore, &message);
         }
         mesh_meshcore_request_sync(meshcore);
@@ -1317,14 +1409,21 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             mesh_meshcore_decode_sent(frame, len, &sent) == 0) {
             const uint32_t wait = sent.timeout_ms > 0U ? sent.timeout_ms : 10000U;
             meshcore->request_until_ms = inkwell_time_monotonic_ms() + (uint64_t)wait + 2000U;
+            /* The one answer that names no node: it carries this tag instead. */
+            if (cmd == MESH_MESHCORE_CMD_SEND_BINARY_REQ) {
+                meshcore->request_tag = sent.expected_ack;
+            }
         }
         struct mesh_meshcore_pending *pending = mesh_meshcore_pending_for(meshcore, packet_id);
         if (pending != NULL && mesh_meshcore_decode_sent(frame, len, &sent) == 0) {
             meshcore->now_ms = inkwell_time_monotonic_ms();
             pending->expected_ack = sent.expected_ack;
-            /* The firmware's estimate, with room for the ack to come back the same way. */
+            /* The firmware's estimate, with room for the ack to come back the same way. A
+               command's answer is a whole message rather than an ack: the repeater waits before
+               it replies, and the reply reaches us only through the radio's message queue. */
             const uint32_t wait = sent.timeout_ms > 0U ? sent.timeout_ms : 10000U;
-            pending->deadline_ms = meshcore->now_ms + (uint64_t)wait + 2000U;
+            pending->deadline_ms =
+                meshcore->now_ms + (uint64_t)wait + (pending->command ? 5000U : 2000U);
         }
         break;
     }
@@ -1756,6 +1855,7 @@ int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8
         memset(pending, 0, sizeof *pending);
         pending->packet_id = message.packet_id;
         pending->timestamp = timestamp;
+        pending->command = mesh_meshcore_is_command_peer(meshcore, dest);
         memcpy(pending->key, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
         snprintf(pending->text, sizeof pending->text, "%s", text);
         message.ack = MESH_MESSAGE_ACK_PENDING;
@@ -1903,7 +2003,8 @@ static int mesh_meshcore_ask(struct mesh_meshcore *meshcore, const uint8_t *fram
     if (mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ) ||
         mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_LOGIN) ||
         mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_STATUS_REQ) ||
-        mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ)) {
+        mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ) ||
+        mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_BINARY_REQ)) {
         return -EBUSY;
     }
     const uint64_t now_ms = inkwell_time_monotonic_ms();
@@ -1917,6 +2018,7 @@ static int mesh_meshcore_ask(struct mesh_meshcore *meshcore, const uint8_t *fram
     }
     meshcore->request_cmd = frame[0];
     meshcore->request_node = node_id;
+    meshcore->request_tag = 0U;
     memcpy(meshcore->request_prefix, key, MESH_MESHCORE_PREFIX_LEN);
     return 0;
 }
@@ -1983,6 +2085,34 @@ int mesh_meshcore_discover_path(struct mesh_meshcore *meshcore, uint32_t node_id
         trace->sent_ms = inkwell_time_monotonic_ms();
     }
     return result;
+}
+
+int mesh_meshcore_request_neighbours(struct mesh_meshcore *meshcore, uint32_t node_id) {
+    const struct mesh_node_summary *node = NULL;
+    const int whom = mesh_meshcore_ask_whom(meshcore, node_id, &node);
+    if (whom < 0) {
+        return whom;
+    }
+    /* Only a repeater keeps a list of what it hears; anything else would not answer. */
+    if (mesh_meshcore_adv_type(node->role) != MESH_MESHCORE_ADV_REPEATER) {
+        return -EINVAL;
+    }
+    uint8_t frame[MESH_MESHCORE_MAX_FRAME];
+    const int len = mesh_meshcore_encode_neighbours_req(
+        node->public_key, (uint8_t)MESH_MESHCORE_NEIGHBOURS_MAX,
+        (uint32_t)inkwell_time_monotonic_ms(), frame, sizeof frame);
+    if (len < 0) {
+        return len;
+    }
+    return mesh_meshcore_ask(meshcore, frame, (size_t)len, node_id, node->public_key);
+}
+
+bool mesh_meshcore_is_command_peer(const struct mesh_meshcore *meshcore, uint32_t node_id) {
+    if (meshcore == NULL || node_id == 0U || node_id == MESH_MESSAGE_BROADCAST_ADDR) {
+        return false;
+    }
+    const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, node_id);
+    return node != NULL && mesh_meshcore_adv_type(node->role) == MESH_MESHCORE_ADV_REPEATER;
 }
 
 int mesh_meshcore_login(struct mesh_meshcore *meshcore, uint32_t node_id, const char *password) {
