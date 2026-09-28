@@ -245,12 +245,17 @@ static const struct mesh_node_summary *ev_node(const struct mesh_session *sessio
     return NULL;
 }
 
-static bool ev_feed_node_info(struct mesh_session *session, uint32_t num) {
+static bool ev_feed_node_info_heard(struct mesh_session *session, uint32_t num,
+                                    uint32_t last_heard) {
     meshtastic_FromRadio info = meshtastic_FromRadio_init_default;
     info.which_payload_variant = meshtastic_FromRadio_node_info_tag;
     info.node_info.num = num;
-    info.node_info.last_heard = 1750000000U;
+    info.node_info.last_heard = last_heard;
     return mesh_test_session_feed_from_radio(session, &info);
+}
+
+static bool ev_feed_node_info(struct mesh_session *session, uint32_t num) {
+    return ev_feed_node_info_heard(session, num, 1750000000U);
 }
 
 static bool ev_complete_sync(struct mesh_session *session) {
@@ -325,6 +330,41 @@ MESH_TEST_CASE(session_nodes_a_resync_discovers_what_the_radio_heard_meanwhile, 
     MESH_TEST_FAIL_IF(ev_node(&session, EV_OTHER)->discovered != 1U,
                       "and it carries its place in the count");
     MESH_TEST_FAIL_IF(ev_node(&session, EV_US)->discovered != 0U, "our own record is never news");
+    record_success(test_name);
+}
+
+/*
+ * A replay is the radio's list rather than the air, so a node in it is news only when the radio
+ * heard it after the newest thing the roster had heard. The card keeps the ranked 128 of a roster
+ * of 256, so on a large mesh every restart replays nodes the roster simply was not handed back -
+ * heard before, while we were listening. And a contact another client typed into the radio has
+ * never been heard at all.
+ */
+MESH_TEST_CASE(session_nodes_a_replay_is_news_only_when_heard_since, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    struct mesh_test_event_record record;
+    ev_open(&session, &capture, &record);
+
+    struct mesh_node_summary cached;
+    memset(&cached, 0, sizeof cached);
+    cached.node_id = EV_PEER;
+    cached.last_heard = 1740000000U;
+    mesh_session_seed_node(&session, &cached);
+
+    MESH_TEST_FAIL_IF(mesh_session_begin_handshake(&session) != 0, "the handshake did not start");
+    MESH_TEST_FAIL_IF(!ev_feed_node_info_heard(&session, 0x4444U, 1730000000U) ||
+                          !ev_feed_node_info_heard(&session, 0x5555U, 0U) ||
+                          !ev_feed_node_info_heard(&session, EV_OTHER, 1750000000U) ||
+                          !ev_complete_sync(&session),
+                      "encode failed");
+    MESH_TEST_FAIL_IF(ev_node(&session, 0x4444U)->discovered != 0U,
+                      "a node heard before the roster's newest was left off the card, not found");
+    MESH_TEST_FAIL_IF(ev_node(&session, 0x5555U)->discovered != 0U,
+                      "a record the radio never heard is a contact, not a discovery");
+    MESH_TEST_FAIL_IF(mesh_session_nodes_discovered(&session) != 1U ||
+                          ev_node(&session, EV_OTHER)->discovered != 1U,
+                      "a node heard since is the one discovery");
     record_success(test_name);
 }
 

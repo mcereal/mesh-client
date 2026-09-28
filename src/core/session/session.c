@@ -120,6 +120,28 @@ static void mesh_session_clear_nodes(struct mesh_session *session) {
     session->roster_first_sync = true;
 }
 
+/* Takes the replay's heard floor as a sync begins, unless an earlier sync that never completed
+   already holds one; see `sync_heard_floor`. */
+static void mesh_session_hold_heard_floor(struct mesh_session *session) {
+    if (session->sync_floor_held) {
+        return;
+    }
+    const struct mesh_handshake_status *handshake = &session->handshake;
+    uint32_t newest = 0U;
+    for (size_t i = 0; i < handshake->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (handshake->nodes[i].last_heard > newest) {
+            newest = handshake->nodes[i].last_heard;
+        }
+    }
+    session->sync_heard_floor = newest;
+    session->sync_floor_held = true;
+}
+
+/* Whether a record a replay lists is news: heard at all, and after the floor. */
+static bool mesh_session_listed_is_news(const struct mesh_session *session, uint32_t last_heard) {
+    return last_heard != 0U && last_heard > session->sync_heard_floor;
+}
+
 /* Whether the roster holds nothing a sync's nodes could be new against: empty, or only our own
    record. Read as a sync begins; see mesh_session_nodes_discovered(). Before the radio has said
    who it is on this run, "our own" is the owner the cache handed back - a restart whose card held
@@ -261,6 +283,7 @@ int mesh_session_begin_handshake(struct mesh_session *session) {
        dropped halfway through leaves half the database behind, and the retry would otherwise
        read that half as a roster to be new against and announce the other half. */
     session->roster_first_sync = session->roster_first_sync || mesh_session_roster_bare(session);
+    mesh_session_hold_heard_floor(session);
     session->handshake.request_in_flight = true;
     session->handshake.request_id = request_id;
 
@@ -748,7 +771,9 @@ static void mesh_session_apply_local_stats(struct mesh_session *session,
 
 static void mesh_session_store_node_summary(struct mesh_session *session,
                                             const meshtastic_NodeInfo *info) {
-    struct mesh_node_summary *summary = mesh_session_node_slot(session, info->num);
+    /* The replay is the radio's list, not the air: news only when heard after we last were. */
+    struct mesh_node_summary *summary = mesh_session_node_slot_from(
+        session, info->num, mesh_session_listed_is_news(session, info->last_heard));
     if (summary == NULL) {
         return;
     }
@@ -848,6 +873,7 @@ void mesh_session_model_sync_begin(struct mesh_session *session) {
        dropped halfway through leaves half the database behind, and the retry would otherwise
        read that half as a roster to be new against and announce the other half. */
     session->roster_first_sync = session->roster_first_sync || mesh_session_roster_bare(session);
+    mesh_session_hold_heard_floor(session);
     session->handshake.request_in_flight = true;
     session->handshake.request_id = session->sync_epoch;
 }
@@ -879,6 +905,19 @@ struct mesh_node_summary *mesh_session_model_node(struct mesh_session *session, 
     }
     struct mesh_node_summary *slot = mesh_session_node_slot(session, node_id);
     if (slot != NULL && synced) {
+        slot->sync_epoch = session->sync_epoch;
+    }
+    return slot;
+}
+
+struct mesh_node_summary *mesh_session_model_listed(struct mesh_session *session, uint32_t node_id,
+                                                    uint32_t last_heard) {
+    if (session == NULL || node_id == 0U || node_id == MESH_MESSAGE_BROADCAST_ADDR) {
+        return NULL;
+    }
+    struct mesh_node_summary *slot = mesh_session_node_slot_from(
+        session, node_id, mesh_session_listed_is_news(session, last_heard));
+    if (slot != NULL) {
         slot->sync_epoch = session->sync_epoch;
     }
     return slot;
@@ -963,6 +1002,7 @@ void mesh_session_model_sync_complete(struct mesh_session *session) {
     handshake->config_complete = true;
     handshake->config_complete_id = handshake->request_id;
     session->roster_first_sync = false;
+    session->sync_floor_held = false;
     mesh_session_resolve_nodedb_membership(session);
 }
 
@@ -1723,6 +1763,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
             handshake->request_in_flight = false;
             handshake->config_complete = true;
             session->roster_first_sync = false;
+            session->sync_floor_held = false;
             mesh_session_resolve_nodedb_membership(session);
             inkwell_log_info("session", "Config sync complete for request %u",
                              message.config_complete_id);

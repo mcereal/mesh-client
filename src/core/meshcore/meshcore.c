@@ -327,17 +327,20 @@ static void mesh_meshcore_store_contact(struct mesh_meshcore *meshcore,
                                         const struct mesh_meshcore_contact *contact, bool synced,
                                         bool imported) {
     const uint32_t id = mesh_meshcore_node_id(contact->public_key, MESH_MESHCORE_PUBKEY_LEN);
-    struct mesh_node_summary *node = imported
-                                         ? mesh_session_model_contact(meshcore->model, id)
-                                         : mesh_session_model_node(meshcore->model, id, synced);
+    /* lastmod is the radio's clock, which we set; the advert's own stamp is the sender's. */
+    const uint32_t heard = contact->lastmod != 0U ? contact->lastmod : contact->last_advert;
+    /* The contact list is the radio's list, as a Meshtastic replay is: news only when heard
+       after the roster's newest (mesh_session_model_listed()). */
+    struct mesh_node_summary *node = imported ? mesh_session_model_contact(meshcore->model, id)
+                                     : synced
+                                         ? mesh_session_model_listed(meshcore->model, id, heard)
+                                         : mesh_session_model_node(meshcore->model, id, false);
     if (node == NULL) {
         return;
     }
     mesh_meshcore_name_node(node, contact->public_key, contact->name, contact->type);
     node->in_nodedb = true;
     node->is_favorite = (contact->flags & MESH_MESHCORE_CONTACT_FAVORITE) != 0U;
-    /* lastmod is the radio's clock, which we set; the advert's own stamp is the sender's. */
-    const uint32_t heard = contact->lastmod != 0U ? contact->lastmod : contact->last_advert;
     if (heard > node->last_heard) {
         node->last_heard = heard;
     }

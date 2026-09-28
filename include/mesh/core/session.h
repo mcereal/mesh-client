@@ -733,6 +733,16 @@ struct mesh_session {
        swap drops the roster mid-sync, and lowered only when a sync completes - so a first sync
        interrupted and retried is still a first sync. */
     bool roster_first_sync;
+    /*
+     * The newest `last_heard` the roster held when the running sync began, and whether that sync
+     * has taken it yet. A node a replay brings is a discovery only when the radio heard it after
+     * this: anything older was heard while we were listening too, and is missing from the roster
+     * only because the card keeps the ranked 128 of a roster that holds 256 - or, at 0, is a
+     * contact another client typed into the radio and nobody has heard at all. Held, like the
+     * flag above, until a sync completes, so a retry does not raise it with its own half.
+     */
+    uint32_t sync_heard_floor;
+    bool sync_floor_held;
     bool node_cache_warned;
     bool admin_probe_queued; /* the post-handshake probe has been queued this connection */
 };
@@ -838,6 +848,11 @@ struct mesh_node_summary *mesh_session_model_node(struct mesh_session *session, 
    a discovery (mesh_session_nodes_discovered()): telling them about it repeats what they did. */
 struct mesh_node_summary *mesh_session_model_contact(struct mesh_session *session,
                                                      uint32_t node_id);
+/* model_node() for a record the radio's own list replays, with the time the radio last heard it
+   (0 for never). It is a discovery only when heard after the roster's newest at the sync's start -
+   see `sync_heard_floor` - and is stamped into the running sync as model_node(synced) is. */
+struct mesh_node_summary *mesh_session_model_listed(struct mesh_session *session, uint32_t node_id,
+                                                    uint32_t last_heard);
 /* Takes a node out of the roster: the radio no longer carries it. -ENOENT when it was not in. */
 int mesh_session_model_drop_node(struct mesh_session *session, uint32_t node_id);
 /* Stores `channel` at its own index; one beyond MESH_SESSION_MAX_CHANNELS is refused. */
