@@ -501,6 +501,22 @@ void mesh_ui_node_row_facts(const struct mesh_ui_handshake_state *handshake,
     }
 }
 
+void mesh_ui_node_title(const struct mesh_ui_node_summary *node, uint32_t node_id, char *out,
+                        size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    const char *name = node == NULL                  ? NULL
+                       : node->long_name[0] != '\0'  ? node->long_name
+                       : node->short_name[0] != '\0' ? node->short_name
+                                                     : NULL;
+    if (name != NULL) {
+        snprintf(out, out_len, "%s", name);
+        return;
+    }
+    inkcell_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, node_id);
+}
+
 void mesh_ui_channel_name(const struct mesh_ui_handshake_state *handshake, uint8_t index, char *out,
                           size_t out_len) {
     if (out == NULL || out_len == 0U) {

@@ -761,11 +761,14 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
 
     char convo[MESH_UI_NAV_TARGET_NAME_MAX];
     mesh_ui_nav_conversation_name(nav, convo, sizeof convo);
+    char heading[MESH_UI_NAV_TARGET_NAME_MAX];
+    mesh_ui_nav_conversation_title(nav, snapshot->handshake_valid ? &snapshot->handshake : NULL,
+                                   heading, sizeof heading);
     char title[96];
     /* The view's own count of what is behind the top of it, not the transport ring's: a
        conversation drawn from the card has the messages the ring evicted, and saying "+30 older"
        over thirty messages the reader can scroll to is the opposite of what the line is for. */
-    mesh_ui_chrome_list_title(title, sizeof title, convo, count, count, messages.dropped);
+    mesh_ui_chrome_list_title(title, sizeof title, heading, count, count, messages.dropped);
     /*
      * No overline, and the kind of conversation is the badge rather than a word in the title.
      * A channel's name already starts with a '#' and every bubble under it is tagged, so a trail
