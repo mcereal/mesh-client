@@ -115,6 +115,48 @@ static void mesh_session_forget_radio(struct mesh_session *session) {
 static void mesh_session_clear_nodes(struct mesh_session *session) {
     session->handshake.node_count = 0U;
     memset(session->handshake.nodes, 0, sizeof session->handshake.nodes);
+    /* Always mid-sync - it is the radio's own my_info that tells us it changed - so the rest of
+       this replay is the new radio's database arriving whole, not news. */
+    session->roster_first_sync = true;
+    session->roster_baseline = false;
+}
+
+/* Takes the replay's heard floor as a sync begins, unless an earlier sync that never completed
+   already holds one; see `sync_heard_floor`. */
+static void mesh_session_hold_heard_floor(struct mesh_session *session) {
+    if (session->sync_floor_held) {
+        return;
+    }
+    const struct mesh_handshake_status *handshake = &session->handshake;
+    uint32_t newest = 0U;
+    for (size_t i = 0; i < handshake->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (handshake->nodes[i].last_heard > newest) {
+            newest = handshake->nodes[i].last_heard;
+        }
+    }
+    session->sync_heard_floor = newest;
+    session->sync_floor_held = true;
+}
+
+/* Whether a record a replay lists is news: heard at all, and after the floor. */
+static bool mesh_session_listed_is_news(const struct mesh_session *session, uint32_t last_heard) {
+    return last_heard != 0U && last_heard > session->sync_heard_floor;
+}
+
+/* Whether the roster holds nothing a sync's nodes could be new against: empty, or only our own
+   record. Read as a sync begins; see mesh_session_nodes_discovered(). Before the radio has said
+   who it is on this run, "our own" is the owner the cache handed back - a restart whose card held
+   only our record is as bare as a fresh install. */
+static bool mesh_session_roster_bare(const struct mesh_session *session) {
+    const struct mesh_handshake_status *handshake = &session->handshake;
+    const uint32_t my_node =
+        handshake->has_my_info ? handshake->my_info.my_node_num : session->roster_node;
+    for (size_t i = 0; i < handshake->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (my_node == 0U || handshake->nodes[i].node_id != my_node) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static void mesh_session_emit(struct mesh_session *session,
@@ -238,6 +280,12 @@ int mesh_session_begin_handshake(struct mesh_session *session) {
     if (++session->sync_epoch == 0U) {
         session->sync_epoch = 1U;
     }
+    /* Kept rather than re-derived when the last sync never completed: a first sync the link
+       dropped halfway through leaves half the database behind, and the retry would otherwise
+       read that half as a roster to be new against and announce the other half. */
+    session->roster_first_sync = session->roster_first_sync ||
+                                 (!session->roster_baseline && mesh_session_roster_bare(session));
+    mesh_session_hold_heard_floor(session);
     session->handshake.request_in_flight = true;
     session->handshake.request_id = request_id;
 
@@ -351,9 +399,11 @@ static struct mesh_node_summary *mesh_session_evict_candidate(struct mesh_sessio
 }
 
 /* The node's entry in the roster, adding it if it is new. NULL only when every slot holds a
-   node worth more than this one. */
-static struct mesh_node_summary *mesh_session_node_slot(struct mesh_session *session,
-                                                        uint32_t node_id) {
+   node worth more than this one. `news` is whether a node added here was told to us by the mesh
+   - false for the card and a contact link, which the user already had - and is only the first
+   half of whether it counts as discovered; see mesh_session_nodes_discovered(). */
+static struct mesh_node_summary *mesh_session_node_slot_from(struct mesh_session *session,
+                                                             uint32_t node_id, bool news) {
     struct mesh_handshake_status *handshake = &session->handshake;
     if (handshake->node_count > MESH_SESSION_MAX_NODES) {
         handshake->node_count = MESH_SESSION_MAX_NODES;
@@ -387,7 +437,23 @@ static struct mesh_node_summary *mesh_session_node_slot(struct mesh_session *ses
     memset(summary, 0, sizeof *summary);
     summary->node_id = node_id;
     mesh_session_default_identity(summary);
+    const bool self = handshake->has_my_info && node_id == handshake->my_info.my_node_num;
+    if (news && !self && !session->roster_first_sync) {
+        if (++session->nodes_discovered == 0U) {
+            session->nodes_discovered = 1U; /* 0 is "not a discovery" on every node */
+        }
+        summary->discovered = session->nodes_discovered;
+    }
     return summary;
+}
+
+static struct mesh_node_summary *mesh_session_node_slot(struct mesh_session *session,
+                                                        uint32_t node_id) {
+    return mesh_session_node_slot_from(session, node_id, true);
+}
+
+uint32_t mesh_session_nodes_discovered(const struct mesh_session *session) {
+    return session != NULL ? session->nodes_discovered : 0U;
 }
 
 uint32_t mesh_session_roster_owner(const struct mesh_session *session) {
@@ -434,11 +500,13 @@ void mesh_session_seed_node(struct mesh_session *session, const struct mesh_node
     if (mesh_session_node_known(session, node->node_id)) {
         return;
     }
-    struct mesh_node_summary *slot = mesh_session_node_slot(session, node->node_id);
+    struct mesh_node_summary *slot = mesh_session_node_slot_from(session, node->node_id, false);
     if (slot == NULL) {
         return;
     }
     *slot = *node;
+    /* Its place in another run's count, if the record carries one at all - meaningless here. */
+    slot->discovered = 0U;
     /* Restored, not replayed: no sync of ours has carried it, so the first one to complete
        decides whether the radio still knows it. */
     slot->sync_epoch = 0U;
@@ -705,7 +773,9 @@ static void mesh_session_apply_local_stats(struct mesh_session *session,
 
 static void mesh_session_store_node_summary(struct mesh_session *session,
                                             const meshtastic_NodeInfo *info) {
-    struct mesh_node_summary *summary = mesh_session_node_slot(session, info->num);
+    /* The replay is the radio's list, not the air: news only when heard after we last were. */
+    struct mesh_node_summary *summary = mesh_session_node_slot_from(
+        session, info->num, mesh_session_listed_is_news(session, info->last_heard));
     if (summary == NULL) {
         return;
     }
@@ -801,6 +871,12 @@ void mesh_session_model_sync_begin(struct mesh_session *session) {
     if (++session->sync_epoch == 0U) {
         session->sync_epoch = 1U;
     }
+    /* Kept rather than re-derived when the last sync never completed: a first sync the link
+       dropped halfway through leaves half the database behind, and the retry would otherwise
+       read that half as a roster to be new against and announce the other half. */
+    session->roster_first_sync = session->roster_first_sync ||
+                                 (!session->roster_baseline && mesh_session_roster_bare(session));
+    mesh_session_hold_heard_floor(session);
     session->handshake.request_in_flight = true;
     session->handshake.request_id = session->sync_epoch;
 }
@@ -835,6 +911,27 @@ struct mesh_node_summary *mesh_session_model_node(struct mesh_session *session, 
         slot->sync_epoch = session->sync_epoch;
     }
     return slot;
+}
+
+struct mesh_node_summary *mesh_session_model_listed(struct mesh_session *session, uint32_t node_id,
+                                                    uint32_t last_heard) {
+    if (session == NULL || node_id == 0U || node_id == MESH_MESSAGE_BROADCAST_ADDR) {
+        return NULL;
+    }
+    struct mesh_node_summary *slot = mesh_session_node_slot_from(
+        session, node_id, mesh_session_listed_is_news(session, last_heard));
+    if (slot != NULL) {
+        slot->sync_epoch = session->sync_epoch;
+    }
+    return slot;
+}
+
+struct mesh_node_summary *mesh_session_model_contact(struct mesh_session *session,
+                                                     uint32_t node_id) {
+    if (session == NULL || node_id == 0U || node_id == MESH_MESSAGE_BROADCAST_ADDR) {
+        return NULL;
+    }
+    return mesh_session_node_slot_from(session, node_id, false);
 }
 
 struct mesh_message *mesh_session_model_log_message(struct mesh_session *session,
@@ -907,6 +1004,9 @@ void mesh_session_model_sync_complete(struct mesh_session *session) {
     handshake->request_in_flight = false;
     handshake->config_complete = true;
     handshake->config_complete_id = handshake->request_id;
+    session->roster_first_sync = false;
+    session->roster_baseline = true;
+    session->sync_floor_held = false;
     mesh_session_resolve_nodedb_membership(session);
 }
 
@@ -1666,6 +1766,9 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         if (handshake->request_in_flight && message.config_complete_id == handshake->request_id) {
             handshake->request_in_flight = false;
             handshake->config_complete = true;
+            session->roster_first_sync = false;
+            session->roster_baseline = true;
+            session->sync_floor_held = false;
             mesh_session_resolve_nodedb_membership(session);
             inkwell_log_info("session", "Config sync complete for request %u",
                              message.config_complete_id);
@@ -2469,7 +2572,10 @@ int mesh_session_import_channels(struct mesh_session *session, const meshtastic_
  */
 static void mesh_session_seed_contact_node(struct mesh_session *session,
                                            const meshtastic_SharedContact *contact) {
-    struct mesh_node_summary *summary = mesh_session_node_slot(session, contact->node_num);
+    /* Not a discovery: the user typed this node in, so telling them about it would be the
+       client repeating what they just did. */
+    struct mesh_node_summary *summary =
+        mesh_session_node_slot_from(session, contact->node_num, false);
     if (summary == NULL) {
         return; /* the roster is full and nothing was evictable; the radio still gets the write */
     }
@@ -2956,6 +3062,11 @@ int mesh_session_forget_nodes(struct mesh_session *session, bool only_off_nodedb
     handshake->node_count = kept;
     /* The roster has room again, so the next node that does not fit is worth saying so about. */
     session->node_cache_warned = false;
+    /* Forgetting all of it is starting over: the next replay is the radio's database arriving
+       whole, as on a fresh install, rather than news (mesh_session_nodes_discovered()). */
+    if (!only_off_nodedb) {
+        session->roster_baseline = false;
+    }
     inkwell_log_info(
         "session", "Forgot %zu cached node%s (%s); %zu kept", dropped, dropped == 1U ? "" : "s",
         only_off_nodedb ? "not in the radio's NodeDB" : "all but ourselves and pins", kept);

@@ -403,6 +403,23 @@ static void node_fact_append(char *out, size_t out_len, const char *fact) {
     (void)inkwell_str_copy(out + used, out_len - used, fact);
 }
 
+bool mesh_ui_node_is_new(const struct mesh_ui_node_summary *node, uint32_t after) {
+    return node != NULL && node->discovered != 0U && node->discovered > after;
+}
+
+uint32_t mesh_ui_nodes_new_count(const struct mesh_ui_handshake_state *handshake, uint32_t after) {
+    if (handshake == NULL) {
+        return 0U;
+    }
+    uint32_t count = 0U;
+    for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        if (mesh_ui_node_is_new(&handshake->nodes[i], after)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 void mesh_ui_node_row_facts(const struct mesh_ui_handshake_state *handshake,
                             const struct mesh_ui_node_summary *node, bool imperial, char *out,
                             size_t out_len) {

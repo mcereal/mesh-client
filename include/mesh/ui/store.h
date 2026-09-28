@@ -211,6 +211,10 @@ struct mesh_ui_store {
      * that has not adopted this, walk their own indices as they always did.
      */
     const struct inkcell_focus_map *focus;
+    /* Whether the reader was on the Nodes tab at the last consume_updates() - list or a node
+       opened from it - so the one that finds them there and this false is the arrival that
+       captures `nav.nodes_new_after`. */
+    bool nodes_on_screen;
     struct inkwell_wake event_wake;
     mesh_ui_update_flags pending_flags;
 };

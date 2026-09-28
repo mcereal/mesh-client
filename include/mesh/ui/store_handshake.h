@@ -159,6 +159,12 @@ struct mesh_ui_handshake_state {
      */
     uint32_t nodes_forgettable_off_radio;
     uint32_t nodes_forgettable_all;
+    /*
+     * The newest discovery stamp the session has handed out - mesh_session_nodes_discovered() -
+     * so the Nodes tab can mark everything up to it seen even when the newest node was ranked out
+     * of the 128 rows below. 0 on a handshake nobody published: a cache, a fixture.
+     */
+    uint32_t nodes_discovered;
     char primary_channel[33];
     char my_short_name[6];
     struct mesh_ui_node_summary nodes[MESH_UI_MAX_HANDSHAKE_NODES];

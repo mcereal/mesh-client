@@ -1,0 +1,30 @@
+# Somebody new on the mesh, seen from wherever the reader happens to be.
+#
+# The Nodes tab's badge counts the nodes discovered since the reader last stood on the tab, and
+# going there is what clears it - the rule a tab badge is held to. On the tab, the new rows say
+# "new" first on their quiet line and stand out in strong ink until the reader leaves and comes
+# back. The notice is the app's; there is no app behind the harness, so it is raised here in the
+# words the app would use.
+
+scene demo
+tab messages
+hold 900
+
+discover RDGE Ridge Relay
+toast New node: RDGE
+hold 1800
+
+discover HUT2 Upper Hut
+discover LKOT Lookout Tower
+toast 2 new nodes
+hold 1800
+
+# Going there clears the badge, and the three rows say which they are.
+tab nodes
+hold 2200
+
+# Away and back: they have been seen.
+tab messages
+hold 700
+tab nodes
+hold 1600

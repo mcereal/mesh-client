@@ -371,6 +371,14 @@ struct mesh_app {
     uint32_t ui_message_announced_id;
     bool ui_message_announce_primed;
     /*
+     * The newest node discovery already announced - a place in mesh_session_nodes_discovered()'s
+     * count. The Nodes tab's badge says there is somebody new; this says who, once, wherever the
+     * user is, which is the question the badge alone leaves them walking to the tab to answer.
+     * No priming like the direct messages' above: the count starts at 0 with the run and nothing
+     * restored from the card is ever in it.
+     */
+    uint32_t ui_nodes_announced;
+    /*
      * One MQTT broker connection, held on behalf of whichever radio is attached and asking for
      * it. Everything about it - whether to be connected, to what, with which subscriptions - is
      * derived from the radio's own MQTTConfig every loop turn; see src/app/app_mqtt.c.

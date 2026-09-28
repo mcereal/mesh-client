@@ -73,6 +73,8 @@
  *                          waiting|show|enter|compare, or off to take it away
  *   offradio NAME|all      mark that node (or every node but ours) as one the radio's NodeDB
  *                          no longer carries - what a NodeDB reset leaves behind
+ *   discover SHRT LONG...  a node heard for the first time - the Nodes tab's badge from
+ *                          elsewhere, and "new" on its row once the tab is up
  *   pin NAME               pin that node, which is what X on the Nodes tab does on a device -
  *                          the star in a row's marker gutter
  *   mute NAME|#CHANNEL     mute that conversation, which is what START on the Messages list
@@ -1515,6 +1517,45 @@ static int verb_offradio(struct inkstand_scene *scene, char *rest, void *userdat
     return 0;
 }
 
+/*
+ * A node the mesh has just told us about for the first time: `discover SHRT Long name`. It takes
+ * the next place in the discovery count and is heard now - which is what ranks it into the list
+ * where a real one would land. The notice is the app's to raise and there is no app here, so a
+ * scene that wants it says `toast` after, in the words the app would use.
+ */
+static int verb_discover(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *short_name = inkstand_scene_word(&rest);
+    const char *long_name = inkstand_scene_tail(rest);
+    if (short_name == NULL || long_name == NULL || long_name[0] == '\0') {
+        return inkstand_scene_fail(scene, "'discover' needs a short name and a long name");
+    }
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    if (handshake.node_count >= MESH_UI_MAX_HANDSHAKE_NODES) {
+        return inkstand_scene_fail(scene, "the roster is full");
+    }
+    /* Newest-heard first, as the app ranks a node nothing else has promoted - after our own. */
+    const uint32_t at = (handshake.node_count > 0U) ? 1U : 0U;
+    memmove(&handshake.nodes[at + 1U], &handshake.nodes[at],
+            (handshake.node_count - at) * sizeof handshake.nodes[0]);
+    struct mesh_ui_node_summary *node = &handshake.nodes[at];
+    memset(node, 0, sizeof *node);
+    node->node_id = 0x9A000000U + handshake.nodes_discovered + 1U;
+    inkwell_str_copy(node->short_name, sizeof node->short_name, short_name);
+    inkwell_str_copy(node->long_name, sizeof node->long_name, long_name);
+    snprintf(node->user_id, sizeof node->user_id, "!%08x", node->node_id);
+    node->has_user = true;
+    node->in_nodedb = true;
+    node->last_heard = (uint32_t)time(NULL);
+    node->has_hops_away = true;
+    node->hops_away = 2U;
+    node->discovered = ++handshake.nodes_discovered;
+    ++handshake.node_count;
+    ++handshake.nodes_known;
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    return 0;
+}
+
 static int verb_notice(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
     char *level = inkstand_scene_word(&rest);
@@ -2767,6 +2808,7 @@ static const struct inkstand_scene_verb uicap_verbs[] = {
     {"signal", 0U, verb_signal},
     {"nofix", 0U, verb_nofix},
     {"offradio", 0U, verb_offradio},
+    {"discover", 0U, verb_discover},
     {"notice", 0U, verb_notice},
     {"config", 0U, verb_config},
     {"queue", 0U, verb_queue},

@@ -896,8 +896,24 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
            down this column in order. */
         char name[48];
         fb_node_title(node, name, sizeof name);
+        /*
+         * A node discovered since the reader last came to the tab says so first on its quiet
+         * line, and the row is drawn strong - the conversation list's unread row, for the same
+         * reason: it is the row the eye should land on. Measured against the mark as it stood
+         * when the reader arrived (nav.nodes_new_after), so the word stays until they have left
+         * and come back rather than going the frame the tab opens.
+         */
+        const bool is_new = mesh_ui_node_is_new(node, nav->nodes_new_after);
         char facts[96];
         mesh_ui_node_row_facts(hs, node, imperial, facts, sizeof facts);
+        if (is_new) {
+            /* Joined here rather than inside the facts, which are about the node: this is about
+               the reader. The separator only when there is something to join it to. */
+            char line[sizeof facts + 16U];
+            snprintf(line, sizeof line, "%s%s%s", inkcell_str(MESH_STR_NODES_ROW_NEW),
+                     facts[0] != '\0' ? inkcell_str(MESH_STR_NODES_ROW_SEPARATOR) : "", facts);
+            inkwell_str_copy(facts, sizeof facts, line);
+        }
 
         /*
          * The disc carries the node's initials and is tinted by node number, both answered by
@@ -934,6 +950,8 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
         enum inkcell_tone tone = INKCELL_TONE_NORMAL;
         if (node->node_id == nav->target_node) {
             tone = INKCELL_TONE_PRIMARY;
+        } else if (is_new) {
+            tone = INKCELL_TONE_STRONG;
         } else if (!node->in_nodedb) {
             tone = INKCELL_TONE_DIM;
         }
@@ -948,6 +966,9 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
                 },
             .text = name,
             .supporting = facts[0] != '\0' ? facts : NULL,
+            /* The accent on the line that opens with "new", because strong ink alone is a step
+               most themes barely draw: the word is what says it, the colour is what finds it. */
+            .supporting_tone = is_new ? INKCELL_TONE_PRIMARY : INKCELL_TONE_NORMAL,
             .supporting_quiet = true,
             .marker_icon = (node->is_favorite && !is_me) ? INKCELL_ICON_PINNED : INKCELL_ICON_NONE,
             .marker_slot = true,

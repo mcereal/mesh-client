@@ -482,6 +482,18 @@ struct mesh_node_summary {
     bool is_ignored;
     bool is_muted;
     uint8_t channel; /* the channel index the radio last heard this node on */
+    /*
+     * Which discovery this node was - its place in mesh_session_nodes_discovered()'s count - or
+     * 0 when its arrival was not news.
+     *
+     * Stamped once, when the node first takes a slot, and never moved: a node is discovered
+     * the once, however often it is heard after. 0 covers every way a node reaches the roster
+     * without the mesh having told us anything new - restored from the card, typed in from a
+     * contact link, our own record, and every node of a sync that began with nothing to compare
+     * against (see mesh_session_nodes_discovered()). Not cached: the count it is a place in
+     * starts again with the process.
+     */
+    uint32_t discovered;
     struct mesh_node_position position;
     struct mesh_node_metrics metrics;
     struct mesh_node_environment environment;
@@ -712,6 +724,30 @@ struct mesh_session {
     /* The radio the roster describes. Nodes survive a reconnect to the same radio; a different
        radio is a different NodeDB and a different view of the mesh, so the roster is dropped. */
     uint32_t roster_node;
+    /* How many nodes this run has discovered; see mesh_session_nodes_discovered(). Not part of
+       the handshake, which is cleared and replaced, because a count that went backwards would
+       hand a second node a number the first still carries. */
+    uint32_t nodes_discovered;
+    /* The sync running now began with a roster holding nothing but ourselves, so there is
+       nothing its nodes could be new *against*. Raised when a sync begins that way or a radio
+       swap drops the roster mid-sync, and lowered only when a sync completes - so a first sync
+       interrupted and retried is still a first sync. */
+    bool roster_first_sync;
+    /* A sync has completed against this roster during this run, so a bare roster at the next
+       sync is a mesh that really is empty rather than one we have not looked at yet - and a first
+       neighbour arriving in that sync is news. Cleared by what makes the roster a stranger's again:
+       a radio swap, or forgetting the whole of it. */
+    bool roster_baseline;
+    /*
+     * The newest `last_heard` the roster held when the running sync began, and whether that sync
+     * has taken it yet. A node a replay brings is a discovery only when the radio heard it after
+     * this: anything older was heard while we were listening too, and is missing from the roster
+     * only because the card keeps the ranked 128 of a roster that holds 256 - or, at 0, is a
+     * contact another client typed into the radio and nobody has heard at all. Held, like the
+     * flag above, until a sync completes, so a retry does not raise it with its own half.
+     */
+    uint32_t sync_heard_floor;
+    bool sync_floor_held;
     bool node_cache_warned;
     bool admin_probe_queued; /* the post-handshake probe has been queued this connection */
 };
@@ -772,6 +808,29 @@ void mesh_session_set_roster_owner(struct mesh_session *session, uint32_t node_n
 void mesh_session_seed_node(struct mesh_session *session, const struct mesh_node_summary *node);
 
 /*
+ * How many nodes this run has *discovered*: taken into the roster because the mesh told us about
+ * a node we had never heard of. Each one carries its place in the count as
+ * `mesh_node_summary.discovered`, so "which nodes are new since I last looked" is a comparison
+ * against a number rather than a set of ids somebody has to keep.
+ *
+ * A count rather than the roster's size, because the size answers a different question: it
+ * moves when a node is forgotten or evicted to make room, and a roster that lost one node and
+ * gained another in the same minute is the same size with a stranger in it.
+ *
+ * What does not count is anything the user already had or put there themselves - a node
+ * restored from the card, a contact typed in from a link, our own record - and every node of a
+ * sync that began with an empty roster. That last is the first connect of a fresh install, or
+ * the first after a swap to another radio or a forget of the whole roster: the replay is the
+ * radio's database arriving all at once, and "80 new nodes" would be true of every one of them
+ * and useful about none. A sync against a roster that already holds nodes is different - a node
+ * in *that* replay is one the radio heard while this client was not running, which is exactly
+ * what somebody coming back to it wants to be told.
+ *
+ * Starts at 0 with the process and only goes up.
+ */
+uint32_t mesh_session_nodes_discovered(const struct mesh_session *session);
+
+/*
  * The session as a *model* another protocol fills.
  *
  * The roster, the channel table and the message log are what every screen reads, and nothing
@@ -790,6 +849,15 @@ void mesh_session_model_sync_begin(struct mesh_session *session);
 void mesh_session_model_adopt_radio(struct mesh_session *session, uint32_t node_num);
 struct mesh_node_summary *mesh_session_model_node(struct mesh_session *session, uint32_t node_id,
                                                   bool synced);
+/* model_node() for a node the *user* put there - a contact imported from a link - which is never
+   a discovery (mesh_session_nodes_discovered()): telling them about it repeats what they did. */
+struct mesh_node_summary *mesh_session_model_contact(struct mesh_session *session,
+                                                     uint32_t node_id);
+/* model_node() for a record the radio's own list replays, with the time the radio last heard it
+   (0 for never). It is a discovery only when heard after the roster's newest at the sync's start -
+   see `sync_heard_floor` - and is stamped into the running sync as model_node(synced) is. */
+struct mesh_node_summary *mesh_session_model_listed(struct mesh_session *session, uint32_t node_id,
+                                                    uint32_t last_heard);
 /* Takes a node out of the roster: the radio no longer carries it. -ENOENT when it was not in. */
 int mesh_session_model_drop_node(struct mesh_session *session, uint32_t node_id);
 /* Stores `channel` at its own index; one beyond MESH_SESSION_MAX_CHANNELS is refused. */

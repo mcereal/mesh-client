@@ -1191,6 +1191,7 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `syncing on\|off` | put the config handshake back in flight |
 | `link up\|down` | attach or drop the radio, leaving the roster and config alone |
 | `offradio NAME\|all` | mark nodes the radio's NodeDB no longer carries |
+| `discover SHORT LONG...` | a node heard for the first time: the Nodes tab's badge, and "new" on its row |
 | `battery NAME PCT`, `environment NAME C [HUM]` | one telemetry report each, one reading at a time |
 | `signal NAME SNR [RSSI]` | one packet heard straight off the air: dB, dBm, and the clock moved half-way to now |
 | `nofix` | take our own radio's fix away |

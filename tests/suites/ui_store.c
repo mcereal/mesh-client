@@ -12,6 +12,7 @@
 #include "mesh/core/session.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/store_keys.h"
 
@@ -2157,5 +2158,102 @@ MESH_TEST_CASE(ui_store_cache_truncated_roster_has_no_holes, unit) {
     MESH_TEST_FAIL_IF(loaded != 0, "load failed");
     MESH_TEST_FAIL_IF(count != 2U, "the roster kept the header's count over the rows it had");
     MESH_TEST_FAIL_IF(holes != 0U, "the roster came back with blank rows in it");
+    record_success(test_name);
+}
+
+/*
+ * The Nodes tab's badge and its rows, which are measured against two marks.
+ *
+ * The badge is what is new since the reader last stood on the tab, and standing there clears it
+ * - the rule a tab badge is held to. The rows are measured against where the mark was when they
+ * arrived, so "new" stays on them for the whole visit and not only the frame before the mark
+ * caught up.
+ */
+MESH_TEST_CASE(ui_store_nodes_badge_clears_by_going_there, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    struct mesh_ui_snapshot snapshot;
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.node_count = 3U;
+    handshake.nodes[0].node_id = 0x10U; /* restored from the card: not news */
+    handshake.nodes[1].node_id = 0x11U;
+    handshake.nodes[1].discovered = 1U;
+    handshake.nodes[2].node_id = 0x12U;
+    handshake.nodes[2].discovered = 2U;
+    handshake.nodes_discovered = 2U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_nodes_new_count(&snapshot.handshake, snapshot.nav.nodes_seen) != 2U,
+        mesh_ui_store_shutdown(&store), "two nodes discovered elsewhere should badge the tab");
+
+    /* A node opened from the map is the Nodes screen without the list: not a visit. */
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    store.nav.node_detail_from_map = true;
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(snapshot.nav.nodes_seen != 0U, mesh_ui_store_shutdown(&store),
+                              "a node opened from the map should leave the list's badge standing");
+    store.nav.screen = MESH_UI_SCREEN_MAP; /* B, back to the map */
+    store.nav.node_detail_from_map = false;
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_nodes_new_count(&snapshot.handshake, snapshot.nav.nodes_seen) != 0U,
+        mesh_ui_store_shutdown(&store), "standing on the tab should clear its badge");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_ui_node_is_new(&snapshot.handshake.nodes[1], snapshot.nav.nodes_new_after) ||
+            !mesh_ui_node_is_new(&snapshot.handshake.nodes[2], snapshot.nav.nodes_new_after) ||
+            mesh_ui_node_is_new(&snapshot.handshake.nodes[0], snapshot.nav.nodes_new_after),
+        mesh_ui_store_shutdown(&store), "while the rows still say which of them are the new ones");
+
+    /* One more, discovered while the reader is here and ranked out of the published rows. */
+    handshake.nodes_discovered = 3U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(snapshot.nav.nodes_seen != 3U || snapshot.nav.nodes_new_after != 0U,
+                              mesh_ui_store_shutdown(&store),
+                              "the badge's mark follows the session while the rows' stays put");
+
+    /*
+     * A node opened from the list covers it on a one-pane panel: a discovery while it is up is
+     * not seen, and coming back to the list is the same visit, so the rows keep their mark.
+     */
+    store.nav.node_detail_open = true;
+    handshake.nodes_discovered = 4U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(snapshot.nav.nodes_seen != 3U, mesh_ui_store_shutdown(&store),
+                              "a discovery behind an open node should not be marked seen");
+    store.nav.node_detail_open = false;
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(snapshot.nav.nodes_seen != 4U || snapshot.nav.nodes_new_after != 0U,
+                              mesh_ui_store_shutdown(&store),
+                              "back on the list it is seen, and the rows' mark has not moved");
+
+    /* Away and back: nothing is new any more, on the rows or the badge. */
+    store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_nodes_new_count(&snapshot.handshake, snapshot.nav.nodes_seen) != 0U,
+        mesh_ui_store_shutdown(&store), "a node ranked out of the rows cannot hold the badge up");
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_node_is_new(&snapshot.handshake.nodes[2], snapshot.nav.nodes_new_after),
+        mesh_ui_store_shutdown(&store), "a node seen on the last visit is not new on this one");
+
+    mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }

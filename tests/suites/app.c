@@ -32,6 +32,7 @@
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
@@ -3896,6 +3897,178 @@ MESH_TEST_CASE(app_direct_message_notice, unit) {
 cleanup:
     /* The publish cache is lazily allocated by the first publish, exactly as it is on a device,
        and this app was never through mesh_app_shutdown() to have it released. */
+    free(app->publish_cache);
+    mesh_ui_store_shutdown(&app->ui_store);
+    inkwell_ble_mock_disable();
+    free(app);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A node the mesh tells us about for the first time is announced once, by name - and the three
+ * moments it must hold its tongue: a sync still landing, a burst that is one situation, and the
+ * Nodes tab already on screen.
+ */
+static struct mesh_node_summary *app_discover(struct mesh_app *app, uint32_t id, const char *name) {
+    struct mesh_node_summary *node = mesh_session_model_node(&app->session, id, false);
+    if (node != NULL) {
+        snprintf(node->short_name, sizeof node->short_name, "%s", name);
+    }
+    return node;
+}
+
+MESH_TEST_CASE(app_new_node_notice, unit) {
+    struct mesh_app *app = calloc(1U, sizeof *app);
+    if (app == NULL) {
+        record_failure(test_name, "out of memory");
+        return;
+    }
+    if (mesh_ui_store_init(&app->ui_store) != 0) {
+        free(app);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    struct inkwell_ble_mock_config mock = {0};
+    inkwell_ble_mock_enable(&mock);
+    const char *failure = NULL;
+
+    app->config.run_mode = MESH_APP_RUN_FOREGROUND;
+    app->ui_store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+    struct mesh_handshake_status *handshake = &app->session.handshake;
+    handshake->has_my_info = true;
+    handshake->my_info.my_node_num = 1U;
+    handshake->config_complete = true;
+    handshake->node_count = 1U;
+    handshake->nodes[0].node_id = 1U;
+
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.nav.toast.text[0] != '\0') {
+        failure = "a roster with nobody new in it should say nothing";
+        goto cleanup;
+    }
+
+    if (app_discover(app, 2U, "ALFA") == NULL) {
+        failure = "the roster refused a node";
+        goto cleanup;
+    }
+    mesh_app_publish_ui_state(app);
+    if (strstr(app->ui_store.nav.toast.text, "ALFA") == NULL) {
+        failure = "one new node should be announced by name";
+        goto cleanup;
+    }
+    if (mesh_ui_nodes_new_count(&app->ui_store.handshake, app->ui_store.nav.nodes_seen) != 1U) {
+        failure = "and should badge the Nodes tab";
+        goto cleanup;
+    }
+
+    /* Two together are one notice with the number in it, not the second name over the first. */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    (void)app_discover(app, 3U, "BRVO");
+    (void)app_discover(app, 4U, "CHRL");
+    mesh_app_publish_ui_state(app);
+    if (strstr(app->ui_store.nav.toast.text, "2") == NULL ||
+        strstr(app->ui_store.nav.toast.text, "CHRL") != NULL) {
+        failure = "a burst should be counted, not named";
+        goto cleanup;
+    }
+
+    /*
+     * A sync still landing is held until it is through, and then said once - including across a
+     * link that drops mid-sync, which clears the request without completing anything: the half
+     * that landed waits for the retry's other half rather than going out as a batch of its own.
+     */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    handshake->config_complete = false;
+    handshake->request_in_flight = true;
+    (void)app_discover(app, 5U, "DLTA");
+    mesh_app_publish_ui_state(app);
+    handshake->request_in_flight = false; /* the link dropped */
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.nav.toast.text[0] != '\0') {
+        failure = "a node from a sync that has not completed should wait for one that does";
+        goto cleanup;
+    }
+    handshake->request_in_flight = true; /* the retry */
+    (void)app_discover(app, 7U, "FXTR");
+    handshake->request_in_flight = false;
+    handshake->config_complete = true;
+    mesh_app_publish_ui_state(app);
+    if (strstr(app->ui_store.nav.toast.text, "2") == NULL) {
+        failure = "and both halves be one notice when the retry completes";
+        goto cleanup;
+    }
+
+    /*
+     * A stranger's first direct message discovers them too. The words are the better notice,
+     * so the discovery queues behind them rather than replacing them.
+     */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    struct mesh_message hello = {0};
+    hello.from = 8U;
+    hello.to = 1U;
+    hello.direction = MESH_MESSAGE_INBOUND;
+    hello.packet_id = 200U;
+    snprintf(hello.text, sizeof hello.text, "%s", "hello from the pass");
+    mesh_app_publish_ui_state(app); /* adopt an empty log, as a launch does */
+    (void)app_discover(app, 8U, "GOLF");
+    mesh_message_log_append(&app->session.messages, &hello);
+    mesh_app_publish_ui_state(app);
+    if (strstr(app->ui_store.nav.toast.text, "hello from the pass") == NULL) {
+        failure = "the discovery should not replace the message that made it";
+        goto cleanup;
+    }
+
+    /* A node opened from the map is the Nodes screen without the list: the notice still speaks. */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    app->ui_store.nav.screen = MESH_UI_SCREEN_NODES;
+    app->ui_store.nav.node_detail_from_map = true;
+    (void)app_discover(app, 9U, "HOTL");
+    mesh_app_publish_ui_state(app);
+    app->ui_store.nav.node_detail_from_map = false;
+    if (strstr(app->ui_store.nav.toast.text, "HOTL") == NULL) {
+        failure = "a detail opened from the map shows no list, so it should not swallow the notice";
+        goto cleanup;
+    }
+
+    /* A node opened from the list covers it on the Brick: the notice still speaks. */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    app->ui_store.nav.screen = MESH_UI_SCREEN_NODES;
+    app->ui_store.nav.node_detail_open = true;
+    (void)app_discover(app, 11U, "JULT");
+    mesh_app_publish_ui_state(app);
+    app->ui_store.nav.node_detail_open = false;
+    app->ui_store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+    if (strstr(app->ui_store.nav.toast.text, "JULT") == NULL) {
+        failure = "a node detail hides the list, so it should not swallow the notice";
+        goto cleanup;
+    }
+
+    /* Seen on the list while a sync was still landing is not news when the sync completes. */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    handshake->config_complete = false;
+    app->ui_store.nav.screen = MESH_UI_SCREEN_NODES;
+    (void)app_discover(app, 10U, "INDA");
+    mesh_app_publish_ui_state(app);
+    app->ui_store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+    handshake->config_complete = true;
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.nav.toast.text[0] != '\0') {
+        failure = "a node the reader watched arrive on the list should not be announced after";
+        goto cleanup;
+    }
+
+    /* On the Nodes tab the rows are saying it already. */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    app->ui_store.nav.screen = MESH_UI_SCREEN_NODES;
+    (void)app_discover(app, 6U, "ECHO");
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.nav.toast.text[0] != '\0') {
+        failure = "a notice over the list that is marking the node is the client talking to itself";
+        goto cleanup;
+    }
+
+cleanup:
     free(app->publish_cache);
     mesh_ui_store_shutdown(&app->ui_store);
     inkwell_ble_mock_disable();
