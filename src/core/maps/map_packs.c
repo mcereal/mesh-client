@@ -562,10 +562,13 @@ int mesh_map_packs_refresh(struct mesh_map_packs *packs, uint64_t now_ms) {
 
 /* ---- downloading ---------------------------------------------------------------------------- */
 
-static void packs_download_path(const struct mesh_map_packs *packs, const char *suffix, char *out,
+/* False when the directory is long enough that the name would not fit - a path cut short names
+   some other file, so it is refused rather than used. */
+static bool packs_download_path(const struct mesh_map_packs *packs, const char *suffix, char *out,
                                 size_t out_len) {
-    snprintf(out, out_len, "%s/%s.%s%s", packs->dir, packs->download.entry.id,
-             packs->download.entry.cut, suffix);
+    const int written = snprintf(out, out_len, "%s/%s.%s%s", packs->dir, packs->download.entry.id,
+                                 packs->download.entry.cut, suffix);
+    return written >= 0 && (size_t)written < out_len;
 }
 
 static void packs_save_hash(const struct mesh_map_packs_download *download) {
@@ -640,8 +643,8 @@ static void packs_finish(struct mesh_map_packs *packs) {
         return;
     }
     char final_path[MESH_MAP_PACKS_PATH_MAX];
-    packs_download_path(packs, PACKS_SUFFIX, final_path, sizeof final_path);
-    if (inkwell_file_replace(download->part_path, final_path) != 0) {
+    if (!packs_download_path(packs, PACKS_SUFFIX, final_path, sizeof final_path) ||
+        inkwell_file_replace(download->part_path, final_path) != 0) {
         packs_download_failed(packs, inkcell_str(MESH_STR_MAP_PACKS_WRITE_FAILED));
         return;
     }
@@ -771,11 +774,14 @@ int mesh_map_packs_download(struct mesh_map_packs *packs, const char *id, uint64
     struct mesh_map_packs_download *const download = &packs->download;
     memset(download, 0, sizeof *download);
     download->entry = *entry;
-    packs_download_path(packs, PACKS_PART_SUFFIX, download->part_path, sizeof download->part_path);
-    packs_download_path(packs, PACKS_PIECE_SUFFIX, download->chunk_path,
-                        sizeof download->chunk_path);
-    packs_download_path(packs, PACKS_HASH_SUFFIX, download->state_path,
-                        sizeof download->state_path);
+    if (!packs_download_path(packs, PACKS_PART_SUFFIX, download->part_path,
+                             sizeof download->part_path) ||
+        !packs_download_path(packs, PACKS_PIECE_SUFFIX, download->chunk_path,
+                             sizeof download->chunk_path) ||
+        !packs_download_path(packs, PACKS_HASH_SUFFIX, download->state_path,
+                             sizeof download->state_path)) {
+        return -ENAMETOOLONG;
+    }
     /* The catalog's URLs are relative to the directory the catalog is in. */
     const char *const slash = strrchr(packs->catalog_url, '/');
     const int base = slash != NULL ? (int)(slash - packs->catalog_url + 1) : 0;
