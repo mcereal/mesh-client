@@ -1410,6 +1410,20 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         } else {
             inkwell_log_warn("app", "Trend log path truncated; disabling node trends");
         }
+
+        /* And the lifetime stats, on the same shrug: without a directory they count this run
+           and write nothing. */
+        char lifetime_dir[sizeof app->ui_preferences_path + 16];
+        const int lifetime_written =
+            snprintf(lifetime_dir, sizeof lifetime_dir, "%s.lifetime", app->ui_preferences_path);
+        if (lifetime_written > 0 && lifetime_written < (int)sizeof lifetime_dir) {
+            const int lifetime_result = mesh_lifetime_init(&app->lifetime, lifetime_dir);
+            if (lifetime_result < 0) {
+                inkwell_log_warn("app", "Lifetime stats unavailable: %d", lifetime_result);
+            }
+        } else {
+            inkwell_log_warn("app", "Lifetime stats path truncated; not keeping them");
+        }
     }
 
     result = mesh_ui_store_init(&app->ui_store);
@@ -1590,6 +1604,9 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
 
     /* One conversation for both links, so switching between them keeps the message log. */
     mesh_session_init(&app->session);
+    /* Before the seed below, which is silent anyway: a node handed back from the card was
+       counted by the run that heard it. */
+    mesh_session_set_observer(&app->session, mesh_lifetime_observe, &app->lifetime);
     /* The roster goes back into the session, which owns it: the first publish after a connect
        replaces the store's copy wholesale, so anything left only in the store would be lost.
        After mesh_session_init, which clears the session it is seeding. */
@@ -1636,6 +1653,7 @@ void mesh_app_shutdown(struct mesh_app *app) {
         app->ui_handshake_cache_dirty = false;
     }
     mesh_ui_store_shutdown(&app->ui_store);
+    (void)mesh_lifetime_flush(&app->lifetime);
     if (app->ui_preferences_dirty && app->ui_preferences_path[0] != '\0') {
         mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path);
         app->ui_preferences_dirty = false;

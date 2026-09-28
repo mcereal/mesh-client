@@ -1,0 +1,36 @@
+/*
+ * Every lifetime stat, one row each: what it is called in code, what it is called on the card,
+ * and how it moves.
+ *
+ * Included more than once with the macro defined differently each time - once for
+ * `enum mesh_lifetime_stat`, once for the tables lifetime.c reads and writes through - so the
+ * enum and the file format cannot drift apart. Like the other .def files it has no include
+ * guard, it is not a .h, and `make format` leaves it alone.
+ *
+ *   MESH_LIFETIME_STAT(ID, "key", KIND)
+ *
+ * KIND is how a value moves, and it decides where a value may be fed from (mesh/core/lifetime.h
+ * says why):
+ *
+ *   COUNT   one more each time it happens      - x += 1
+ *   MAX     the largest seen                   - x = max(x, v)
+ *   SET     how many distinct things           - set.size, off the seen file; never written
+ *
+ * Rules for a good row:
+ *
+ *   - A key is forever. The file outlives the build that wrote it; a renamed key silently
+ *     starts that stat again from zero on every card that already had the old spelling.
+ *   - Rows are appended. The enum's order is not on the card, but it is what a screen lists in.
+ */
+
+MESH_LIFETIME_STAT(MESSAGES_SENT, "messages_sent", COUNT)
+MESH_LIFETIME_STAT(MESSAGES_RECEIVED, "messages_received", COUNT)
+MESH_LIFETIME_STAT(DIRECT_SENT, "direct_sent", COUNT)
+MESH_LIFETIME_STAT(DIRECT_RECEIVED, "direct_received", COUNT)
+MESH_LIFETIME_STAT(REACTIONS_SENT, "reactions_sent", COUNT)
+MESH_LIFETIME_STAT(REACTIONS_RECEIVED, "reactions_received", COUNT)
+MESH_LIFETIME_STAT(NODES_HEARD, "nodes_heard", SET)
+MESH_LIFETIME_STAT(NODES_HEARD_RF, "nodes_heard_rf", SET)
+MESH_LIFETIME_STAT(RADIOS, "radios", SET)
+MESH_LIFETIME_STAT(MOST_HOPS, "most_hops", MAX)
+MESH_LIFETIME_STAT(FARTHEST_DIRECT_M, "farthest_direct_m", MAX)

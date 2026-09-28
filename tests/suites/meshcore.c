@@ -8,6 +8,7 @@
  */
 
 #include "framework/mesh_test.h"
+#include "support/session_fixture.h"
 
 #include "inkwell/base/time.h"
 #include "mesh/core/meshcore.h"
@@ -1127,6 +1128,60 @@ MESH_TEST_CASE(meshcore_heard_adverts_keep_the_newest, unit) {
     for (size_t i = 0; i < MESH_MESHCORE_HEARD_ADVERTS; ++i) {
         MESH_TEST_FAIL_IF(g_meshcore.heard_age[i] != 0U, "and no advert is kept from before");
     }
+    record_success(test_name);
+}
+
+/*
+ * MeshCore fills the model through the session, so its listener hears it exactly as it hears
+ * Meshtastic: the contact list as a listing, an advert and a direct message as hearings, and
+ * every message in either direction once.
+ */
+MESH_TEST_CASE(meshcore_announces_what_it_writes_into_the_model, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    static struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    /* The handshake initialises the model, so the observer goes on after it and the contact is
+       fed again as a later listing would carry it. */
+    mesh_session_set_observer(&g_model, mesh_test_event_record_fn, &record);
+    uint8_t frame[160];
+    feed(&protocol, frame,
+         build_contact(frame, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice", MESH_MESHCORE_ADV_CHAT, 2U,
+                       1700000000U));
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_NODE_LISTED, 0x40414243U) !=
+                          1U,
+                      "a contact the radio heard is listed");
+    MESH_TEST_FAIL_IF(record.events[0].hops != 2U || !record.events[0].has_hops,
+                      "with the path the radio holds for it");
+
+    const size_t len = build_contact(frame, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x90U, "Node",
+                                     MESH_MESHCORE_ADV_CHAT, 0U, 1700001000U);
+    feed(&protocol, frame, len);
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_NODE_HEARD, 0x90919293U) !=
+                          1U,
+                      "an advert is a hearing");
+
+    feed_code(&protocol, MESH_MESHCORE_PUSH_MSG_WAITING);
+    const uint8_t direct[] = {16,   0x14, 0, 0, 0x40, 0x41, 0x42, 0x43, 0x44,
+                              0x45, 0xFF, 0, 0, 0,    0,    0,    'y',  'o'};
+    feed(&protocol, direct, sizeof direct);
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_NODE_HEARD, 0x40414243U) !=
+                          1U,
+                      "a direct message is a hearing of its sender");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_MESSAGE, 0x40414243U) != 1U,
+                      "and a message");
+    feed_code(&protocol, MESH_MESHCORE_RESP_NO_MORE_MESSAGES);
+
+    const size_t heard = mesh_test_event_count(&record, MESH_SESSION_EVENT_NODE_HEARD, 0U);
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_send_text(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR, 0U, "hi", NULL) != 0,
+        "the channel send failed");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_MESSAGE, 0U) != 2U ||
+                          record.events[record.count - 1U].direction != MESH_MESSAGE_OUTBOUND,
+                      "a send is announced going out");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_NODE_HEARD, 0U) != heard,
+                      "and hears nobody");
     record_success(test_name);
 }
 

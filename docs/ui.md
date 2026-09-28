@@ -56,7 +56,9 @@ buys is the other kind of reader — `trust.h` wants a node, `devices.h` wants a
 
 ## What the client remembers
 
-There are three files on the card and they answer different questions.
+There are three files on the card that the UI store keeps, and they answer different questions.
+A fourth, the lifetime stats, is below them and is not the store's at all: see
+[The lifetime stats](#the-lifetime-stats).
 
 | | `…prefs.handshake` | `…prefs.messages/` | `…prefs.trends/` |
 |---|---|---|---|
@@ -201,6 +203,32 @@ detail came to describe itself with the first node's trace.
   position fix is kept on.
 - **Every path starts at us**, so a radio swap drops the log and the slot with it, exactly as it
   drops the trends above.
+
+### The lifetime stats
+
+`…prefs.lifetime/` is what the client has seen over its whole life - messages and direct
+messages each way, reactions, distinct nodes heard, radios attached, the most hops and the
+farthest direct distance a packet has come. It is `mesh_lifetime` in `src/core/lifetime/`, a
+core module rather than a store file, because nothing about it is a screen's: the reasoning is in
+`include/mesh/core/lifetime.h`, and the stat list is `include/mesh/core/lifetime.def`.
+
+It differs from the three files above in the one way that matters: **it is fed from events, never
+from state.** Everything above is a window, rewritten, capped and reloaded at launch, and a count
+read off a window drifts - the ring evicts before a publish sees a message, and a roster seeded
+from the card would be counted again every launch. So the session announces a record once, at the
+moment it makes it (`struct mesh_session_event`, `mesh_session_set_observer()`), and the stats are
+that observer. A seeded node, the radio echoing a send, and a Store & Forward replay's author are
+never announced as news; MeshCore writes the model through `mesh_session_model_log_message()` and
+`mesh_session_model_note_node()`, so both protocols count alike.
+
+| | `totals.stats` | `seen.stats` |
+|---|---|---|
+| What | the counts and the records, and the first credible wall-clock second (`since`) | one line each time a node gains a fact: heard, heard over the air, one of our radios |
+| Written | rewritten whole on the cache's two-second window, when changed | appended at once, since a new node is rare |
+| Read | at launch | at launch, into a sorted array of node numbers |
+
+Unlike the trend log it does **not** start again on a radio swap: a second radio adds to the
+same numbers, and a radio that has ever been attached is left out of the node counts.
 
 ## Input
 

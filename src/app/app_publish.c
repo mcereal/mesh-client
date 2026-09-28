@@ -45,7 +45,8 @@
 #include <unistd.h>
 
 /* A fixed two-second batching window, not a sliding debounce: a busy radio must still
-   reach disk. A failed save stays dirty and is retried in the next window. */
+   reach disk. A failed save stays dirty and is retried in the next window. The lifetime totals
+   ride the same window: a count per packet would otherwise be a write per packet. */
 void mesh_app_flush_ui_cache(struct mesh_app *app) {
     if (app->ui_handshake_cache_dirty && app->ui_handshake_cache_path[0] != '\0') {
         const int result = mesh_ui_store_save(&app->ui_store, app->ui_handshake_cache_path);
@@ -54,6 +55,10 @@ void mesh_app_flush_ui_cache(struct mesh_app *app) {
         } else {
             inkwell_log_debug("app", "Failed to persist handshake cache: %d", result);
         }
+    }
+    const int lifetime = mesh_lifetime_flush(&app->lifetime);
+    if (lifetime < 0) {
+        inkwell_log_debug("app", "Failed to persist the lifetime stats: %d", lifetime);
     }
 }
 
@@ -81,8 +86,8 @@ static int mesh_app_ui_cache_timer(int fd, uint32_t events, void *userdata) {
 }
 
 static void mesh_app_schedule_ui_cache(struct mesh_app *app) {
-    if (!app->ui_handshake_cache_dirty || app->ui_handshake_cache_path[0] == '\0' ||
-        app->ui_cache_timer_armed) {
+    const bool cache = app->ui_handshake_cache_dirty && app->ui_handshake_cache_path[0] != '\0';
+    if ((!cache && !mesh_lifetime_dirty(&app->lifetime)) || app->ui_cache_timer_armed) {
         return;
     }
     const int fd = inkwell_timer_open();

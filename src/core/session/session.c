@@ -117,6 +117,35 @@ static void mesh_session_clear_nodes(struct mesh_session *session) {
     memset(session->handshake.nodes, 0, sizeof session->handshake.nodes);
 }
 
+static void mesh_session_emit(struct mesh_session *session,
+                              const struct mesh_session_event *event) {
+    if (session->observer != NULL) {
+        session->observer(session->observer_ctx, session, event);
+    }
+}
+
+static void mesh_session_emit_message(struct mesh_session *session,
+                                      const struct mesh_message *message) {
+    if (message == NULL) {
+        return;
+    }
+    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_MESSAGE,
+                                             .message = message};
+    mesh_session_emit(session, &event);
+}
+
+/* The radio we are attached to said who it is. */
+static void mesh_session_announce_radio(struct mesh_session *session, uint32_t node_num) {
+    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_RADIO, .radio = node_num};
+    mesh_session_emit(session, &event);
+}
+
+/* The newest record in the log, which is the one an append that just succeeded made. */
+static const struct mesh_message *mesh_session_newest_message(const struct mesh_session *session) {
+    const struct mesh_message_log *log = &session->messages;
+    return log->count > 0U ? mesh_message_log_at(log, log->count - 1U) : NULL;
+}
+
 void mesh_session_init(struct mesh_session *session) {
     if (session == NULL) {
         return;
@@ -727,6 +756,19 @@ static void mesh_session_store_node_summary(struct mesh_session *session,
     inkwell_log_debug("session", "Cached node %u (%s) last_heard=%u%s", summary->node_id,
                       summary->has_user ? summary->short_name : "unnamed", summary->last_heard,
                       summary->via_mqtt ? " via_mqtt" : "");
+
+    /* The radio's database names our own node too, and a record with no heard time is one the
+       radio was told about rather than heard - a contact added from a link. */
+    const bool self =
+        session->handshake.has_my_info && info->num == session->handshake.my_info.my_node_num;
+    if (!self && info->last_heard != 0U) {
+        const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_NODE_LISTED,
+                                                 .node = summary,
+                                                 .via_mqtt = info->via_mqtt,
+                                                 .has_hops = info->has_hops_away,
+                                                 .hops = (uint8_t)info->hops_away};
+        mesh_session_emit(session, &event);
+    }
 }
 
 /*
@@ -777,6 +819,7 @@ void mesh_session_model_adopt_radio(struct mesh_session *session, uint32_t node_
     session->roster_node = node_num;
     session->handshake.has_my_info = true;
     session->handshake.my_info.my_node_num = node_num;
+    mesh_session_announce_radio(session, node_num);
 }
 
 static struct mesh_node_summary *mesh_session_find_node(struct mesh_session *session,
@@ -792,6 +835,29 @@ struct mesh_node_summary *mesh_session_model_node(struct mesh_session *session, 
         slot->sync_epoch = session->sync_epoch;
     }
     return slot;
+}
+
+struct mesh_message *mesh_session_model_log_message(struct mesh_session *session,
+                                                    const struct mesh_message *message) {
+    if (session == NULL || message == NULL) {
+        return NULL;
+    }
+    struct mesh_message *appended = mesh_message_log_append(&session->messages, message);
+    mesh_session_emit_message(session, appended);
+    return appended;
+}
+
+void mesh_session_model_note_node(struct mesh_session *session,
+                                  const struct mesh_session_event *event) {
+    if (session == NULL || event == NULL || event->node == NULL ||
+        event->kind == MESH_SESSION_EVENT_MESSAGE) {
+        return;
+    }
+    if (session->handshake.has_my_info &&
+        event->node->node_id == session->handshake.my_info.my_node_num) {
+        return;
+    }
+    mesh_session_emit(session, event);
 }
 
 int mesh_session_model_drop_node(struct mesh_session *session, uint32_t node_id) {
@@ -912,6 +978,34 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
     summary->has_route = true;
     summary->relay_node = (uint8_t)packet->relay_node;
     summary->next_hop = (uint8_t)packet->next_hop;
+}
+
+/*
+ * Tells the observer the packet's sender was heard. Its own step rather than the end of the
+ * touch above, because a listener reads the record and the record is not finished until the
+ * packet's payload has been applied too: a position packet announced before its fix landed
+ * would be measured from where the node was, or not at all for its first fix. So a caller that
+ * applies the payload announces after it.
+ */
+static void mesh_session_announce_heard(struct mesh_session *session,
+                                        const meshtastic_MeshPacket *packet) {
+    const struct mesh_handshake_status *handshake = &session->handshake;
+    if (packet->from == 0U || packet->from == MESH_MESSAGE_BROADCAST_ADDR ||
+        (handshake->has_my_info && packet->from == handshake->my_info.my_node_num)) {
+        return;
+    }
+    const struct mesh_node_summary *summary = mesh_session_find_node(session, packet->from);
+    if (summary == NULL) {
+        return;
+    }
+    const bool has_hops = packet->hop_start != 0U && packet->hop_start >= packet->hop_limit;
+    const struct mesh_session_event event = {
+        .kind = MESH_SESSION_EVENT_NODE_HEARD,
+        .node = summary,
+        .via_mqtt = packet->via_mqtt,
+        .has_hops = has_hops,
+        .hops = has_hops ? (uint8_t)(packet->hop_start - packet->hop_limit) : 0U};
+    mesh_session_emit(session, &event);
 }
 
 /*
@@ -1105,6 +1199,7 @@ static void mesh_session_handle_store_forward(struct mesh_session *session,
          * roster at all: a heartbeat is often the only packet one ever sends.
          */
         mesh_session_touch_node_from_packet(session, packet);
+        mesh_session_announce_heard(session, packet);
         return;
     }
     /*
@@ -1119,9 +1214,11 @@ static void mesh_session_handle_store_forward(struct mesh_session *session,
         inkwell_log_debug("session", "Store & Forward replayed a message we already had");
         return;
     }
-    if (mesh_message_log_append(&session->messages, &replayed) == NULL) {
+    const struct mesh_message *appended = mesh_message_log_append(&session->messages, &replayed);
+    if (appended == NULL) {
         return;
     }
+    mesh_session_emit_message(session, appended);
     mesh_store_forward_stored(&session->store_forward);
     inkwell_log_info("session", "Store & Forward replayed a message from 0x%08x on channel %u",
                      replayed.from, (unsigned)replayed.channel);
@@ -1517,6 +1614,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         handshake->my_info = message.my_info;
         inkwell_log_info("session", "MyNodeInfo: node=%u, node_count=%u",
                          message.my_info.my_node_num, message.my_info.nodedb_count);
+        mesh_session_announce_radio(session, message.my_info.my_node_num);
         break;
     case meshtastic_FromRadio_node_info_tag:
         mesh_session_store_node_summary(session, &message.node_info);
@@ -1587,6 +1685,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         if (message.packet.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
             message.packet.decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP) {
             mesh_session_touch_node_from_packet(session, &message.packet);
+            mesh_session_announce_heard(session, &message.packet);
             (void)mesh_session_handle_traceroute(session, &message.packet);
             break;
         }
@@ -1602,9 +1701,15 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         }
         mesh_session_touch_node_from_packet(session, &message.packet);
         mesh_session_apply_packet_details(session, &message.packet);
+        mesh_session_announce_heard(session, &message.packet);
         mesh_session_handle_waypoint(session, &message.packet);
-        mesh_message_ingest(&session->messages, &message.packet,
-                            handshake->has_my_info ? handshake->my_info.my_node_num : 0U);
+        /* 1 is a record appended; the radio echoing one of ours back refreshes the record the
+           send made, which was announced then, and adds nothing. */
+        if (mesh_message_ingest(&session->messages, &message.packet,
+                                handshake->has_my_info ? handshake->my_info.my_node_num : 0U) ==
+            1) {
+            mesh_session_emit_message(session, mesh_session_newest_message(session));
+        }
         break;
     case meshtastic_FromRadio_log_record_tag:
         mesh_session_handle_log_record(&message.log_record);
@@ -1646,6 +1751,15 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
                           (uint32_t)message.which_payload_variant);
         break;
     }
+}
+
+void mesh_session_set_observer(struct mesh_session *session, mesh_session_observer_fn observer,
+                               void *ctx) {
+    if (session == NULL) {
+        return;
+    }
+    session->observer = observer;
+    session->observer_ctx = ctx;
 }
 
 void mesh_session_set_mqtt_handler(struct mesh_session *session, mesh_session_mqtt_fn handler,
@@ -2194,7 +2308,7 @@ static int mesh_session_send_text_packet(struct mesh_session *session, uint32_t 
     record.reply_id = reply_id;
     record.is_reaction = is_reaction;
     snprintf(record.text, sizeof record.text, "%s", text);
-    mesh_message_log_append(&session->messages, &record);
+    mesh_session_emit_message(session, mesh_message_log_append(&session->messages, &record));
 
     int result = mesh_session_send_raw(session, payload, written, request.packet_id);
     if (result < 0) {

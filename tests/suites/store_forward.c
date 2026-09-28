@@ -714,6 +714,30 @@ MESH_TEST_CASE(store_forward_replay_does_not_touch_the_sender, unit) {
     record_success(test_name);
 }
 
+/* The same line, as the session announces it: a replay is a message this client did not have,
+   so it is news, but it is not a hearing of the node that wrote it. */
+MESH_TEST_CASE(store_forward_replay_is_a_message_not_a_hearing, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    sf_open_session(&session, &capture);
+    struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    mesh_session_set_observer(&session, mesh_test_event_record_fn, &record);
+
+    meshtastic_StoreAndForward text = sf_text("said a day ago", true);
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &text, SF_TALKER, 0U, SF_WHEN), "encode replay failed");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_MESSAGE, SF_TALKER) != 1U,
+                      "the replayed message is announced");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_NODE_HEARD, 0U) != 0U,
+                      "and nobody was heard");
+
+    /* The same message again is already held, and so is not news twice. */
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &text, SF_TALKER, 0U, SF_WHEN), "encode replay failed");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_MESSAGE, 0U) != 1U,
+                      "a replay of what we hold is not announced");
+    record_success(test_name);
+}
+
 /* ---- the silences -------------------------------------------------------------------------- */
 
 MESH_TEST_CASE(store_forward_timeouts_tell_the_two_silences_apart, unit) {

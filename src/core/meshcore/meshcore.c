@@ -345,6 +345,25 @@ static void mesh_meshcore_store_contact(struct mesh_meshcore *meshcore,
         node->position.latitude_i = contact->latitude_e6 * 10;
         node->position.longitude_i = contact->longitude_e6 * 10;
     }
+    /* A contact with no stamp at all is one typed in from a link, never heard. */
+    if (heard != 0U) {
+        const bool has_hops = contact->out_path_len != MESH_MESHCORE_PATH_NONE;
+        const struct mesh_session_event event = {
+            .kind = MESH_SESSION_EVENT_NODE_LISTED,
+            .node = node,
+            .has_hops = has_hops,
+            .hops = has_hops ? (uint8_t)MESH_MESHCORE_PATH_HOPS(contact->out_path_len) : 0U};
+        mesh_session_model_note_node(meshcore->model, &event);
+    }
+}
+
+/* A packet from `node` arrived just now, over the air: MeshCore has no MQTT leg. */
+static void mesh_meshcore_note_heard(struct mesh_meshcore *meshcore,
+                                     const struct mesh_node_summary *node, bool has_hops,
+                                     uint8_t hops) {
+    const struct mesh_session_event event = {
+        .kind = MESH_SESSION_EVENT_NODE_HEARD, .node = node, .has_hops = has_hops, .hops = hops};
+    mesh_session_model_note_node(meshcore->model, &event);
 }
 
 static void mesh_meshcore_store_self(struct mesh_meshcore *meshcore) {
@@ -657,10 +676,11 @@ static void mesh_meshcore_store_message(struct mesh_meshcore *meshcore,
                 node->snr = message.rx_snr;
                 node->snr_time = now;
             }
+            mesh_meshcore_note_heard(meshcore, node, message.has_hops_away, message.hops_away);
         }
     }
     snprintf(message.text, sizeof message.text, "%s", body);
-    (void)mesh_message_log_append(&meshcore->model->messages, &message);
+    (void)mesh_session_model_log_message(meshcore->model, &message);
 }
 
 /* ------------------------------------------------------------------------- the handshake */
@@ -855,6 +875,8 @@ static void mesh_meshcore_store_telemetry(struct mesh_meshcore *meshcore,
         node->position.altitude = telemetry->altitude_m;
         node->position.received = now;
     }
+    /* Announced last, so a listener reads the fix this answer carried. */
+    mesh_meshcore_note_heard(meshcore, node, false, 0U);
 }
 
 /* A repeater's or room server's status: its counters on `relay`, its battery where every
@@ -898,6 +920,7 @@ static void mesh_meshcore_store_status(struct mesh_meshcore *meshcore,
     relay->has_posts = status->has_posts;
     relay->posted = status->posted;
     relay->post_pushes = status->post_pushes;
+    mesh_meshcore_note_heard(meshcore, node, false, 0U);
 }
 
 /* ---------------------------------------------------------------------------- receiving */
@@ -949,6 +972,10 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
             struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, id, false);
             if (node != NULL) {
                 node->in_nodedb = false;
+                const bool has_hops = contact.out_path_len != MESH_MESHCORE_PATH_NONE;
+                mesh_meshcore_note_heard(
+                    meshcore, node, has_hops,
+                    has_hops ? (uint8_t)MESH_MESHCORE_PATH_HOPS(contact.out_path_len) : 0U);
             }
         }
         break;
@@ -1693,7 +1720,7 @@ int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8
             return len;
         }
         message.ack = MESH_MESSAGE_ACK_PENDING;
-        (void)mesh_message_log_append(&meshcore->model->messages, &message);
+        (void)mesh_session_model_log_message(meshcore->model, &message);
         result = mesh_meshcore_enqueue(meshcore, frame, len, message.packet_id);
     } else {
         const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, dest);
@@ -1717,7 +1744,7 @@ int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8
         snprintf(pending->text, sizeof pending->text, "%s", text);
         message.ack = MESH_MESSAGE_ACK_PENDING;
         message.pki_encrypted = true;
-        (void)mesh_message_log_append(&meshcore->model->messages, &message);
+        (void)mesh_session_model_log_message(meshcore->model, &message);
         result = mesh_meshcore_send_attempt(meshcore, pending);
         if (result < 0) {
             memset(pending, 0, sizeof *pending);
