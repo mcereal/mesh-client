@@ -2471,14 +2471,19 @@ static void mesh_app_report_new_nodes(struct mesh_app *app) {
     if (latest == app->ui_nodes_announced) {
         return;
     }
+    /* Seen on the list is announced, sync or no sync: a reader who watched the rows arrive during
+       a long replay and then walked away must not be told about them when it completes. */
+    if (mesh_ui_nav_nodes_list_up(&app->ui_store.nav)) {
+        app->ui_nodes_announced = latest;
+        return;
+    }
     const struct mesh_handshake_status *status = mesh_session_handshake(&app->session);
     if (status == NULL || !status->config_complete) {
         return;
     }
     const uint32_t fresh = latest - app->ui_nodes_announced;
     app->ui_nodes_announced = latest;
-    if (app->config.run_mode != MESH_APP_RUN_FOREGROUND ||
-        mesh_ui_nav_nodes_list_up(&app->ui_store.nav)) {
+    if (app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
         return;
     }
 
