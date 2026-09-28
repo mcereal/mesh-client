@@ -13,6 +13,7 @@
 #include "mesh/core/config.h"
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
+#include "mesh/core/lifetime.h"
 #include "mesh/core/meshcore.h"
 #include "mesh/core/protocol.h"
 #include "mesh/core/session.h"
@@ -229,6 +230,12 @@ struct mesh_app {
      * which node's detail the reader has open.
      */
     struct mesh_ui_trends ui_trends;
+    /*
+     * What this client has seen over its whole life (mesh/core/lifetime.h), beside the other
+     * files on the card. The session tells it what happens; the app's part is the radio it is
+     * attached to, which no event carries, and the write on the cache's two-second window.
+     */
+    struct mesh_lifetime lifetime;
     /* The node whose trend was last read off the card, so the read happens when the reader moves
        rather than on every publish. 0 when no detail screen is open. */
     uint32_t ui_trend_node;
