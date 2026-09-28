@@ -2318,8 +2318,8 @@ MESH_TEST_CASE(fb_emoji_box_draws_past_the_column_map, unit) {
 /*
  * A sprite fills the room it is given, up to inkcell's cap.
  *
- * inkcell resamples an emoji smoothly to any size, so there is no grid of whole source pixels
- * for a box to snap to: a keycap centring a sprite centres exactly the box it asked for, and only
+ * inkcell draws an emoji from its outline at any size, so there is no grid of whole source pixels
+ * for a box to snap to: a keycap centring one centres exactly the box it asked for, and only
  * a box past INKCELL_FB_EMOJI_BOX_MAX - larger than any key on this panel - is drawn smaller.
  */
 MESH_TEST_CASE(fb_emoji_box_fit_fills_the_box, unit) {

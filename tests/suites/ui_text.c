@@ -184,21 +184,19 @@ MESH_TEST_CASE(ui_text_cell_kinds, unit) {
                           cases[i].label);
     }
 
-    /* Every sprite id a match hands back has to be in range and decode to something. */
+    /* Every glyph id a match hands back has to be in range and draw something. */
     uint16_t sprite = 0;
     const uint32_t tree[] = {0x1F332U};
     MESH_TEST_FAIL_IF(inkcell_emoji_match(tree, 1U, &sprite) != 1U, "the evergreen should match");
-    uint8_t pixels[INKCELL_EMOJI_SIZE * INKCELL_EMOJI_SIZE];
-    inkcell_emoji_decode(sprite, pixels);
+    static uint8_t pixels[20 * 20][4];
+    MESH_TEST_FAIL_IF(inkcell_emoji_render(sprite, 20, 0, 20, pixels) != 0,
+                      "the evergreen should render");
     bool opaque = false;
-    for (size_t i = 0; i < sizeof pixels; ++i) {
-        uint8_t rgb[3];
-        if (inkcell_emoji_color(pixels[i], rgb)) {
-            opaque = true;
-        }
+    for (size_t i = 0; i < 20U * 20U; ++i) {
+        opaque = opaque || pixels[i][3] == 255U;
     }
     if (!opaque) {
-        record_failure(test_name, "a decoded sprite should have opaque pixels");
+        record_failure(test_name, "a rendered emoji should have opaque pixels");
         return;
     }
 
@@ -223,9 +221,8 @@ MESH_TEST_CASE(ui_text_cell_kinds, unit) {
     record_success(test_name);
 }
 
-/* Every sprite the tables point at has to decode inside its bounds. A generated table that
-   went out of sync with the runtime would otherwise read past the run array on some rare
-   emoji nobody tests by hand. */
+/* The pack holds entries in the order the match relies on. A generated pack that went out of
+   sync with the runtime would otherwise misdraw some rare emoji nobody tests by hand. */
 /*
  * The precondition behind the ASCII fast path in inkcell_text_cell_next().
  *
@@ -236,27 +233,17 @@ MESH_TEST_CASE(ui_text_cell_kinds, unit) {
  * character whose successor byte is ASCII).
  *
  * Both are properties of generated data. inkcell's scripts/gen-emoji.py is run by hand against
- * whatever Noto ships, so a future Unicode version could add a sequence led by some other ASCII
+ * whatever Twemoji ships, so a future Unicode version could add a sequence led by some other ASCII
  * character and the fast path would silently stop drawing it. Fail here instead.
  */
 MESH_TEST_CASE(emoji_ascii_fast_path_precondition, unit) {
-    const struct inkcell_emoji_table *table = &inkcell_emoji_table;
-
-    for (uint32_t cp = 0x20U; cp <= 0x7EU; ++cp) {
+    uint32_t codepoints[INKCELL_EMOJI_LONGEST];
+    for (uint32_t i = 0; inkcell_emoji_entry(i, codepoints, NULL) > 0U; ++i) {
+        const uint32_t cp = codepoints[0];
         const bool keycap_lead = (cp >= (uint32_t)'0' && cp <= (uint32_t)'9') ||
                                  cp == (uint32_t)'#' || cp == (uint32_t)'*';
-        if (keycap_lead) {
-            continue;
-        }
-
-        for (uint32_t i = 0; i < table->single_count; ++i) {
-            MESH_TEST_FAIL_IF(table->singles[i].codepoint == cp,
-                              "an emoji single is led by ASCII the fast path skips");
-        }
-        for (uint32_t i = 0; i < table->sequence_count; ++i) {
-            MESH_TEST_FAIL_IF(table->sequences[i].first == cp,
-                              "an emoji sequence is led by ASCII the fast path skips");
-        }
+        MESH_TEST_FAIL_IF(cp >= 0x20U && cp <= 0x7EU && !keycap_lead,
+                          "an emoji is led by ASCII the fast path skips");
     }
 
     /* A combining mark, selector, ZWJ or skin tone in ASCII would let a second cell attach to
@@ -284,35 +271,31 @@ MESH_TEST_CASE(emoji_ascii_fast_path_precondition, unit) {
 }
 
 MESH_TEST_CASE(emoji_table_integrity, unit) {
-    const struct inkcell_emoji_table *table = &inkcell_emoji_table;
+    struct inkcell_emoji_summary summary;
+    MESH_TEST_FAIL_IF(inkcell_emoji_summary(&summary) != 0, "there should be a pack in use");
+    MESH_TEST_FAIL_IF(summary.singles == 0U || summary.sequences == 0U, "the emoji table is empty");
 
-    MESH_TEST_FAIL_IF(table->single_count == 0U || table->sequence_count == 0U,
-                      "the emoji table is empty");
-
-    for (uint32_t i = 1; i < table->single_count; ++i) {
-        MESH_TEST_FAIL_IF(table->singles[i - 1U].codepoint >= table->singles[i].codepoint,
-                          "singles are not sorted, so bisecting them is wrong");
-    }
-
-    for (uint32_t i = 1; i < table->sequence_count; ++i) {
-        const struct inkcell_emoji_sequence *previous = &table->sequences[i - 1U];
-        const struct inkcell_emoji_sequence *current = &table->sequences[i];
-        MESH_TEST_FAIL_IF(previous->first > current->first,
-                          "sequences are not sorted by their first codepoint");
-        /* Longest first within a leading codepoint is what makes the match greedy. */
-        MESH_TEST_FAIL_IF(previous->first == current->first && previous->length < current->length,
-                          "sequences are not ordered longest first");
-    }
-
-    uint8_t pixels[INKCELL_EMOJI_SIZE * INKCELL_EMOJI_SIZE];
-    for (uint32_t i = 0; i < table->single_count; ++i) {
-        inkcell_emoji_decode(table->singles[i].sprite, pixels);
-    }
-    for (uint32_t i = 0; i < table->sequence_count; ++i) {
-        const struct inkcell_emoji_sequence *entry = &table->sequences[i];
-        MESH_TEST_FAIL_IF(entry->length < 2U || entry->length > EMOJI_TEST_MAX_SEQUENCE,
-                          "a sequence has an implausible length");
-        inkcell_emoji_decode(entry->sprite, pixels);
+    uint32_t previous[INKCELL_EMOJI_LONGEST] = {0};
+    size_t previous_length = 0U;
+    uint32_t codepoints[INKCELL_EMOJI_LONGEST];
+    uint16_t sprite = 0;
+    uint32_t i = 0;
+    for (size_t length; (length = inkcell_emoji_entry(i, codepoints, &sprite)) > 0U; ++i) {
+        MESH_TEST_FAIL_IF(sprite >= summary.glyphs, "an entry names a glyph past the pack");
+        if (i < summary.singles) {
+            MESH_TEST_FAIL_IF(i > 0U && previous[0] >= codepoints[0],
+                              "singles are not sorted, so bisecting them is wrong");
+        } else {
+            MESH_TEST_FAIL_IF(length < 2U || length > EMOJI_TEST_MAX_SEQUENCE,
+                              "a sequence has an implausible length");
+            /* Longest first within a leading codepoint is what makes the match greedy. */
+            MESH_TEST_FAIL_IF(i > summary.singles &&
+                                  (previous[0] > codepoints[0] ||
+                                   (previous[0] == codepoints[0] && previous_length < length)),
+                              "sequences are not ordered for a greedy match");
+        }
+        memcpy(previous, codepoints, sizeof previous);
+        previous_length = length;
     }
 
     record_success(test_name);
