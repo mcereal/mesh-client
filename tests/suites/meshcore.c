@@ -2076,10 +2076,78 @@ MESH_TEST_CASE(meshcore_a_repeater_is_sent_commands, unit) {
 
     /* Past the grace, an unanswered command gives its place up: the next reply is the newer's. */
     mesh_protocol_tick(&protocol, g_meshcore.now_ms + 60000U);
+    for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
+        MESH_TEST_FAIL_IF(g_meshcore.pending[i].packet_id != 0U,
+                          "a command given up on frees its send slot at once");
+    }
     mesh_protocol_tick(&protocol, g_meshcore.now_ms + MESH_MESHCORE_COMMAND_LATE_MS + 1U);
     for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
-        MESH_TEST_FAIL_IF(g_meshcore.pending[i].packet_id != 0U, "every slot is free again");
+        MESH_TEST_FAIL_IF(g_meshcore.late[i].packet_id != 0U, "and its place in line after");
     }
+    record_success(test_name);
+}
+
+/* A contact on the roster by a key starting at `lead`, of the kind `role` reads as. */
+static struct mesh_node_summary *add_contact(uint32_t id, uint8_t lead, uint32_t role) {
+    struct mesh_node_summary *node = mesh_session_model_node(&g_model, id, true);
+    if (node != NULL) {
+        node->in_nodedb = true;
+        node->role = role;
+        node->public_key_len = MESH_MESHCORE_PUBKEY_LEN;
+        for (size_t k = 0; k < MESH_MESHCORE_PUBKEY_LEN; ++k) {
+            node->public_key[k] = (uint8_t)(lead + k);
+        }
+    }
+    return node;
+}
+
+/* Every command waiting on two quiet repeaters times out in one tick. Each is said - the
+   publish reads them all, not just the last - and none of them keeps a send slot, so a message
+   to somebody else still goes while they wait out their grace for a late reply. */
+MESH_TEST_CASE(meshcore_quiet_repeaters_neither_hold_slots_nor_lose_notices, unit) {
+    struct mesh_protocol protocol;
+    static struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const uint32_t alice = 0x40414243U;
+    const uint32_t carol = 0x60616263U;
+    const uint32_t bob = 0x50515253U;
+    mesh_session_model_node(&g_model, alice, false)->role = 4U;
+    MESH_TEST_FAIL_IF(add_contact(carol, 0x60, 4U) == NULL || add_contact(bob, 0x50, 0U) == NULL,
+                      "Carol, a repeater, and Bob, a companion, are contacts");
+
+    uint8_t sent[10] = {MESH_MESHCORE_RESP_SENT, 0};
+    put_u32(sent + 6, 1000U);
+    uint32_t id = 0U;
+    for (unsigned i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
+        MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, i % 2U == 0U ? alice : carol, 0U,
+                                                  "clock", &id) != 0,
+                          "every slot takes a command");
+        feed(&protocol, sent, sizeof sent);
+    }
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, bob, 0U, "hi", &id) != -ENOBUFS,
+                      "while they wait, the slots are full");
+
+    const uint32_t notices = g_meshcore.notices;
+    mesh_protocol_tick(&protocol, g_meshcore.now_ms + 60000U);
+    MESH_TEST_FAIL_IF(g_meshcore.notices != notices + MESH_MESHCORE_PENDING_SENDS,
+                      "each one that timed out is a notice");
+    unsigned said_alice = 0U;
+    unsigned said_carol = 0U;
+    for (uint32_t n = notices; n != g_meshcore.notices; ++n) {
+        const struct mesh_meshcore_notice *notice =
+            &g_meshcore.notice_log[n % MESH_MESHCORE_NOTICES_KEPT];
+        MESH_TEST_FAIL_IF(notice->cmd != MESH_MESHCORE_CMD_SEND_TXT_MSG ||
+                              notice->answer != MESH_MESHCORE_ANSWER_SILENT,
+                          "each says a command went unanswered");
+        said_alice += notice->node_id == alice ? 1U : 0U;
+        said_carol += notice->node_id == carol ? 1U : 0U;
+    }
+    MESH_TEST_FAIL_IF(said_alice != MESH_MESHCORE_PENDING_SENDS / 2U ||
+                          said_carol != MESH_MESHCORE_PENDING_SENDS / 2U,
+                      "and every one is kept for the publish, both repeaters' alike");
+
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, bob, 0U, "hi", &id) != 0,
+                      "a message to Bob goes while theirs wait out the grace");
     record_success(test_name);
 }
 

@@ -182,6 +182,7 @@ static void mesh_meshcore_notify(struct mesh_meshcore *meshcore, uint32_t node_i
     meshcore->notice.node_id = node_id;
     meshcore->notice.cmd = cmd;
     meshcore->notice.answer = answer;
+    meshcore->notice_log[meshcore->notices % MESH_MESHCORE_NOTICES_KEPT] = meshcore->notice;
     meshcore->notices += 1U;
 }
 
@@ -809,9 +810,42 @@ static void mesh_meshcore_command_answered(struct mesh_meshcore *meshcore,
             oldest = pending;
         }
     }
-    if (oldest != NULL) {
+    struct mesh_meshcore_late_command *late = NULL;
+    for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
+        struct mesh_meshcore_late_command *entry = &meshcore->late[i];
+        if (entry->packet_id != 0U &&
+            memcmp(entry->prefix, prefix, MESH_MESHCORE_PREFIX_LEN) == 0 &&
+            (late == NULL || (int32_t)(entry->sequence - late->sequence) < 0)) {
+            late = entry;
+        }
+    }
+    if (late != NULL && (oldest == NULL || (int32_t)(late->sequence - oldest->sequence) < 0)) {
+        mesh_meshcore_mark(meshcore, late->packet_id, MESH_MESSAGE_ACK_DELIVERED);
+        memset(late, 0, sizeof *late);
+    } else if (oldest != NULL) {
         mesh_meshcore_pending_done(meshcore, oldest, MESH_MESSAGE_ACK_DELIVERED);
     }
+}
+
+/* Puts a command given up on in line for a late reply, and frees its send slot. With every
+   entry taken, the one that has waited longest gives its place up first. */
+static void mesh_meshcore_command_late(struct mesh_meshcore *meshcore,
+                                       const struct mesh_meshcore_pending *pending) {
+    struct mesh_meshcore_late_command *slot = &meshcore->late[0];
+    for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
+        struct mesh_meshcore_late_command *entry = &meshcore->late[i];
+        if (entry->packet_id == 0U) {
+            slot = entry;
+            break;
+        }
+        if (entry->until_ms < slot->until_ms) {
+            slot = entry;
+        }
+    }
+    slot->packet_id = pending->packet_id;
+    slot->sequence = pending->sequence;
+    slot->until_ms = meshcore->now_ms + MESH_MESHCORE_COMMAND_LATE_MS;
+    memcpy(slot->prefix, pending->key, MESH_MESHCORE_PREFIX_LEN);
 }
 
 /* A direct message whose ack did not come. Try again - the last time with the route reset, so
@@ -821,19 +855,15 @@ static void mesh_meshcore_retry(struct mesh_meshcore *meshcore,
     /* A command the repeater did not answer is not sent again: it may have run and only the
        reply been lost, and "reboot" twice is not what anybody asked for. Silence from a
        repeater is usually a login that did not make us its admin, which is worth saying. It
-       keeps its place in line a while longer (MESH_MESHCORE_COMMAND_LATE_MS), then goes. */
+       keeps its place in line a while longer (MESH_MESHCORE_COMMAND_LATE_MS), though not its
+       send slot. */
     if (pending->command) {
-        if (pending->expired) {
-            memset(pending, 0, sizeof *pending);
-            return;
-        }
         inkwell_log_info("meshcore", "Command %u: no reply", pending->packet_id);
         mesh_meshcore_notify(meshcore,
                              mesh_meshcore_node_id(pending->key, MESH_MESHCORE_PUBKEY_LEN),
                              MESH_MESHCORE_CMD_SEND_TXT_MSG, MESH_MESHCORE_ANSWER_SILENT);
-        mesh_meshcore_mark(meshcore, pending->packet_id, MESH_MESSAGE_ACK_FAILED);
-        pending->expired = true;
-        pending->deadline_ms = meshcore->now_ms + MESH_MESHCORE_COMMAND_LATE_MS;
+        mesh_meshcore_command_late(meshcore, pending);
+        mesh_meshcore_pending_done(meshcore, pending, MESH_MESSAGE_ACK_FAILED);
         return;
     }
     if (pending->attempt + 1U >= MESH_MESHCORE_SEND_ATTEMPTS) {
@@ -1591,6 +1621,7 @@ static void mesh_meshcore_attach(void *self, mesh_protocol_send_fn send, void *s
 
 static void mesh_meshcore_detach(void *self) {
     struct mesh_meshcore *meshcore = self;
+    memset(meshcore->late, 0, sizeof meshcore->late);
     for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
         if (meshcore->pending[i].packet_id != 0U) {
             mesh_meshcore_pending_done(meshcore, &meshcore->pending[i], MESH_MESSAGE_ACK_FAILED);
@@ -1735,6 +1766,11 @@ static void mesh_meshcore_tick(void *self, uint64_t now_ms) {
         if (pending->packet_id != 0U && pending->deadline_ms != 0U &&
             now_ms >= pending->deadline_ms) {
             mesh_meshcore_retry(meshcore, pending);
+        }
+    }
+    for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
+        if (meshcore->late[i].packet_id != 0U && now_ms >= meshcore->late[i].until_ms) {
+            memset(&meshcore->late[i], 0, sizeof meshcore->late[i]);
         }
     }
     mesh_meshcore_request_expire(meshcore, now_ms);

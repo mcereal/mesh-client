@@ -2121,15 +2121,11 @@ static void mesh_app_report_radio_notices(struct mesh_app *app) {
 /*
  * How a request to a MeshCore node ended: a login's answer, or silence. Readings that arrived
  * say so on the node's screen and need no toast; readings that did not are worth one, since
- * nothing else would ever say the press came to nothing.
+ * nothing else would ever say the press came to nothing. Each is a toast naming the node,
+ * queued behind any still showing.
  */
-static void mesh_app_report_meshcore_answers(struct mesh_app *app) {
-    const uint32_t notices = app->meshcore.notices;
-    if (notices == app->ui_meshcore_notices_seen) {
-        return;
-    }
-    app->ui_meshcore_notices_seen = notices;
-    const struct mesh_meshcore_notice *notice = &app->meshcore.notice;
+static void mesh_app_report_meshcore_notice(struct mesh_app *app,
+                                            const struct mesh_meshcore_notice *notice) {
     inkcell_str_id what;
     switch (notice->answer) {
     case MESH_MESHCORE_ANSWER_GUEST:
@@ -2173,7 +2169,23 @@ static void mesh_app_report_meshcore_answers(struct mesh_app *app) {
                               sizeof name);
     char toast[MESH_UI_NAV_TOAST_MAX];
     inkcell_str_format(toast, sizeof toast, what, name);
-    mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+    mesh_ui_store_post_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+}
+
+/* Every one that ended since the last publish, oldest first: several commands can time out in
+   one tick, and the one said last is not the only one worth saying. Past what the conversation
+   keeps, the oldest are gone. */
+static void mesh_app_report_meshcore_answers(struct mesh_app *app) {
+    const uint32_t notices = app->meshcore.notices;
+    uint32_t seen = app->ui_meshcore_notices_seen;
+    if (notices - seen > MESH_MESHCORE_NOTICES_KEPT) {
+        seen = notices - MESH_MESHCORE_NOTICES_KEPT;
+    }
+    app->ui_meshcore_notices_seen = notices;
+    for (; seen != notices; ++seen) {
+        mesh_app_report_meshcore_notice(
+            app, &app->meshcore.notice_log[seen % MESH_MESHCORE_NOTICES_KEPT]);
+    }
 }
 
 /*

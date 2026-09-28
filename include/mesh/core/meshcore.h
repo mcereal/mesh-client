@@ -467,9 +467,6 @@ struct mesh_meshcore_pending {
     /* When it was sent, as a count: a repeater's replies come back in the order its commands
        went, and the packet id is a xorshift, not a clock. */
     uint32_t sequence;
-    /* A command past its deadline, already marked failed and said so, held until
-       `deadline_ms` in case its reply is only late. */
-    bool expired;
     /* Whole, not a prefix: the last attempt resets the route, which names the contact by key. */
     uint8_t key[MESH_MESHCORE_PUBKEY_LEN];
     char text[MESH_MESHCORE_TEXT_MAX + 1U];
@@ -487,6 +484,23 @@ enum mesh_meshcore_answer {
     MESH_MESHCORE_ANSWER_ROUTE,        /* the routes to it and back arrived */
     MESH_MESHCORE_ANSWER_NEIGHBOURS,   /* the nodes it hears arrived */
 };
+
+/*
+ * A command given up on, still in line for its reply: marked failed and said so, its send slot
+ * already free for the next message. A reply from its repeater before `until_ms` is its answer,
+ * not the next command's. Kept apart from the send slots so that a repeater gone quiet cannot
+ * hold every one of them - and every direct message behind them - for the length of the wait.
+ */
+struct mesh_meshcore_late_command {
+    uint32_t packet_id; /* 0 for a free entry */
+    uint32_t sequence;
+    uint64_t until_ms;
+    uint8_t prefix[MESH_MESHCORE_PREFIX_LEN];
+};
+
+/* How many of the notices below are kept for the publish to read: several commands can time
+   out in one tick, and each is worth saying. */
+#define MESH_MESHCORE_NOTICES_KEPT 8U
 
 struct mesh_meshcore_notice {
     uint32_t node_id;
@@ -533,9 +547,11 @@ struct mesh_meshcore {
     uint8_t request_prefix[MESH_MESHCORE_PREFIX_LEN]; /* whose answer frees it */
     /* A binary request's answer names no node, only the tag its SENT carried: 0 until then. */
     uint32_t request_tag;
-    /* How the last of them ended, and a count that moves each time one does. */
+    /* How the last of them ended, and a count that moves each time one does. `notice_log`
+       holds the last MESH_MESHCORE_NOTICES_KEPT, notice n at n % that - `notice` is the newest. */
     uint32_t notices;
     struct mesh_meshcore_notice notice;
+    struct mesh_meshcore_notice notice_log[MESH_MESHCORE_NOTICES_KEPT];
     bool battery_valid;
     uint16_t battery_mv;
     /*
@@ -551,6 +567,7 @@ struct mesh_meshcore {
 
     struct mesh_meshcore_pending pending[MESH_MESHCORE_PENDING_SENDS];
     uint32_t pending_sequence; /* the last `sequence` handed out */
+    struct mesh_meshcore_late_command late[MESH_MESHCORE_PENDING_SENDS];
     uint32_t next_packet_id;
 
     /* A settings save in flight: how many of its commands are still unanswered, and the first
