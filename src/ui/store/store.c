@@ -1454,9 +1454,13 @@ bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store) {
  * The session's newest stamp rather than the newest among the rows, so a node ranked out of the
  * published 128 cannot hold the badge up after the reader has been to the tab: it was not on
  * the list, and a badge that no visit clears is the badge this mark exists to prevent.
+ *
+ * A node opened from the map is the Nodes screen without the list: B takes it back to the map,
+ * and the split frame leaves the roster out for the same reason (fb_frame_split()). The reader
+ * has seen one node there, not the list, so it neither clears the badge nor counts as arriving.
  */
 static void mesh_ui_store_mark_nodes_seen(struct mesh_ui_store *store) {
-    const bool up = store->nav.screen == MESH_UI_SCREEN_NODES;
+    const bool up = store->nav.screen == MESH_UI_SCREEN_NODES && !store->nav.node_detail_from_map;
     if (up && !store->nodes_on_screen) {
         store->nav.nodes_new_after = store->nav.nodes_seen;
     }

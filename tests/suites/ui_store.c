@@ -2191,6 +2191,18 @@ MESH_TEST_CASE(ui_store_nodes_badge_clears_by_going_there, unit) {
         mesh_ui_nodes_new_count(&snapshot.handshake, snapshot.nav.nodes_seen) != 2U,
         mesh_ui_store_shutdown(&store), "two nodes discovered elsewhere should badge the tab");
 
+    /* A node opened from the map is the Nodes screen without the list: not a visit. */
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    store.nav.node_detail_from_map = true;
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(snapshot.nav.nodes_seen != 0U, mesh_ui_store_shutdown(&store),
+                              "a node opened from the map should leave the list's badge standing");
+    store.nav.screen = MESH_UI_SCREEN_MAP; /* B, back to the map */
+    store.nav.node_detail_from_map = false;
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+
     store.nav.screen = MESH_UI_SCREEN_NODES;
     mesh_ui_store_request_refresh(&store);
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
