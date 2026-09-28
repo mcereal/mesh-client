@@ -2009,6 +2009,25 @@ MESH_TEST_CASE(meshcore_a_repeater_is_sent_commands, unit) {
 
     feed_code(&protocol, MESH_MESHCORE_RESP_NO_MORE_MESSAGES);
 
+    /* A command queued behind a sync is not answered by an older reply the sync brings out of
+       the radio's queue: it has not been sent yet. */
+    feed_code(&protocol, MESH_MESHCORE_PUSH_MSG_WAITING);
+    uint32_t queued_id = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, alice, 0U, "clock", &queued_id) != 0,
+                      "a command queues behind the sync");
+    feed(&protocol, reply, sizeof reply);
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&g_model.messages, queued_id)->ack !=
+                          MESH_MESSAGE_ACK_PENDING,
+                      "an older reply does not settle a command not yet sent");
+    feed(&protocol, sent, sizeof sent); /* the command goes, then the sync asked after it */
+    feed_code(&protocol, MESH_MESHCORE_RESP_NO_MORE_MESSAGES);
+    feed_code(&protocol, MESH_MESHCORE_PUSH_MSG_WAITING);
+    feed(&protocol, reply, sizeof reply);
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&g_model.messages, queued_id)->ack !=
+                          MESH_MESSAGE_ACK_DELIVERED,
+                      "its own reply, once it was sent, does");
+    feed_code(&protocol, MESH_MESHCORE_RESP_NO_MORE_MESSAGES);
+
     /* Two waiting on one repeater: its first reply answers the first sent. Packet ids are a
        xorshift, so the generator is seeded where the first id is the larger - the order the
        ids alone would get backwards. */

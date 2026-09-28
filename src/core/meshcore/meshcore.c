@@ -804,7 +804,10 @@ static void mesh_meshcore_command_answered(struct mesh_meshcore *meshcore,
     struct mesh_meshcore_pending *oldest = NULL;
     for (size_t i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
         struct mesh_meshcore_pending *pending = &meshcore->pending[i];
-        if (pending->packet_id != 0U && pending->command &&
+        /* Only one the radio has said it sent: a command still queued - behind the sync that
+           brought this reply, say - cannot have been answered yet, and an older reply waiting
+           in the radio's queue would otherwise settle it before it went. */
+        if (pending->packet_id != 0U && pending->command && pending->deadline_ms != 0U &&
             memcmp(pending->key, prefix, MESH_MESHCORE_PREFIX_LEN) == 0 &&
             (oldest == NULL || (int32_t)(pending->sequence - oldest->sequence) < 0)) {
             oldest = pending;
