@@ -404,7 +404,7 @@ enum mesh_ui_feature {
  * row - the section shows them a group at a time (MESH_UI_SETTINGS_MAPS), so no screen has to
  * hold them all, and none is left out for want of one.
  */
-#define MESH_UI_MAPS_ROWS_MAX 128U /* MESH_MAP_PACKS_INSTALLED_MAX + MESH_MAP_PACKS_ENTRIES_MAX */
+#define MESH_UI_MAPS_ROWS_MAX 544U /* MESH_MAP_PACKS_INSTALLED_MAX + MESH_MAP_PACKS_ENTRIES_MAX */
 #define MESH_UI_MAPS_GROUPS_MAX 32U
 /* A row's `group` for a pack at the top of the catalog's tree - the world base. */
 #define MESH_UI_MAPS_NO_GROUP 0xFFU
@@ -978,7 +978,7 @@ struct mesh_ui_settings {
     uint16_t maps_progress; /* permille of the download */
     char maps_message[MESH_UI_MAPS_MESSAGE_MAX];
     char maps_download_name[MESH_UI_MAPS_NAME_MAX];
-    uint8_t maps_row_count;
+    uint16_t maps_row_count;
     struct mesh_ui_maps_row maps_rows[MESH_UI_MAPS_ROWS_MAX];
     uint8_t maps_group_count;
     struct mesh_ui_maps_group maps_groups[MESH_UI_MAPS_GROUPS_MAX];
