@@ -136,6 +136,10 @@ struct mesh_ui_client_info {
      */
     uint16_t update_progress;
     bool update_progress_known;
+    /* Changes when the installed map packs do; the backend reopens them when it sees a new
+       one. 0 is "no opinion", which leaves whatever the backend has open alone - see
+       `map_packs_revision` on struct mesh_app. */
+    uint32_t map_packs_revision;
     /*
      * The crash report a *previous* run left behind, if there is one: where it is, and whether
      * to say so.

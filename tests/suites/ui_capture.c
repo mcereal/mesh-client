@@ -38,6 +38,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /*
@@ -5985,6 +5986,110 @@ MESH_TEST_CASE(fb_keyboard_grid_is_left_out_of_a_window, unit) {
 cleanup:
     inkcell_capture_close(capture);
     free(snapshot);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* Renders until the map stops asking for frames, as the device's loop would. */
+static void settle_map(struct inkcell_capture *capture, const struct mesh_ui_snapshot *snapshot) {
+    for (unsigned frame = 0U; frame < 200U; ++frame) {
+        inkcell_capture_render(capture, snapshot);
+        if (!inkcell_capture_animating(capture)) {
+            break;
+        }
+        inkcell_capture_advance(capture, 33U);
+    }
+}
+
+/*
+ * The running client's snapshot is what opens the packs installed in the maps directory.
+ *
+ * Nothing else does: inkcell starts the backend, and no call up into this client has the draw
+ * state before the first frame. The call that used to open them went with the old backend, and
+ * for as long as nothing noticed, a pack copied onto the card drew nothing at all. A capture's
+ * snapshot carries 0 and must leave the directory alone; the client's carries a revision, and
+ * the first one opens what is there.
+ */
+MESH_TEST_CASE(ui_capture_map_opens_the_installed_packs_the_snapshot_names, unit) {
+    const int32_t latitude_i = 476180000;
+    const int32_t longitude_i = -1223320000;
+    const uint8_t zoom = 15U;
+
+    char home[] = "/tmp/meshclient_home_XXXXXX";
+    char dirs[2][160];
+    char installed[192];
+    struct mesh_map_tile_key keys[35];
+    const size_t tiles = mesh_test_map_keys_around(latitude_i, longitude_i, zoom, 7, 5, keys,
+                                                   sizeof keys / sizeof keys[0]);
+    struct mesh_test_map_pack pack;
+    memset(&pack, 0, sizeof pack);
+    MESH_TEST_FAIL_IF(mkdtemp(home) == NULL, "a scratch home");
+    snprintf(dirs[0], sizeof dirs[0], "%s/.meshclient", home);
+    snprintf(dirs[1], sizeof dirs[1], "%s/.meshclient/maps", home);
+    snprintf(installed, sizeof installed, "%s/one.mctp", dirs[1]);
+    const bool laid_out = tiles > 0U && mkdir(dirs[0], 0700) == 0 && mkdir(dirs[1], 0700) == 0 &&
+                          mesh_test_map_pack_write(&pack, keys, tiles, 3U, "One", "") == 0 &&
+                          rename(pack.path, installed) == 0;
+
+    const char *const saved_home = getenv("HOME");
+    char *const home_before = saved_home != NULL ? strdup(saved_home) : NULL;
+    const char *const saved_pack = getenv("MESHCLIENT_MAP_PACK");
+    char *const pack_before = saved_pack != NULL ? strdup(saved_pack) : NULL;
+    setenv("HOME", home, 1);
+    unsetenv("MESHCLIENT_MAP_PACK");
+
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    struct inkcell_capture *capture = NULL;
+    const char *failure = !laid_out ? "the maps directory could not be laid out" : NULL;
+    if (failure == NULL && snapshot == NULL) {
+        failure = "snapshot allocation failed";
+    }
+    if (failure == NULL && mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH,
+                                                INKCELL_CAPTURE_HEIGHT, INKCELL_SCALE(4)) != 0) {
+        failure = "capture open failed";
+    }
+    if (failure == NULL) {
+        snapshot->nav.screen = MESH_UI_SCREEN_MAP;
+        snapshot->nav.map_framed = true;
+        snapshot->handshake_valid = true;
+        mesh_map_viewport_init(&snapshot->nav.map_viewport, latitude_i, longitude_i, zoom);
+        inkcell_capture_set_theme(capture, inkcell_theme_at(0));
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+        const uint8_t *pixels = inkcell_capture_pixels(capture, &width, &height, &stride);
+
+        settle_map(capture, snapshot);
+        if (count_pack_tiles(pixels, width, height, stride, tiles, 3U) != 0U) {
+            failure = "a capture's snapshot opened the installed packs";
+        } else {
+            snapshot->settings.client.map_packs_revision = 1U;
+            settle_map(capture, snapshot);
+            if (count_pack_tiles(pixels, width, height, stride, tiles, 3U) == 0U) {
+                failure = "the client's snapshot did not open the installed packs";
+            }
+        }
+    }
+
+    if (capture != NULL) {
+        inkcell_capture_close(capture);
+    }
+    free(snapshot);
+    if (home_before != NULL) {
+        setenv("HOME", home_before, 1);
+    } else {
+        unsetenv("HOME");
+    }
+    if (pack_before != NULL) {
+        setenv("MESHCLIENT_MAP_PACK", pack_before, 1);
+    }
+    free(home_before);
+    free(pack_before);
+    unlink(installed);
+    mesh_test_map_pack_remove(&pack);
+    rmdir(dirs[1]);
+    rmdir(dirs[0]);
+    rmdir(home);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
