@@ -17,6 +17,7 @@
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
+#include "mesh/core/message.h"
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/commands.h"
 #include "mesh/ui/focus.h"
@@ -933,6 +934,78 @@ MESH_TEST_CASE(ui_click_a_window_writes_in_the_field_at_the_foot_of_the_thread, 
                                   store.nav.keyboard_open || !store.nav.thread_open,
                               click_close(&store, capture),
                               "a click on the transcript should put the field down");
+    click_close(&store, capture);
+    record_success(test_name);
+}
+
+/*
+ * A reply typed in a window's field lights the bubble it answers, found by its packet rather than
+ * by the cursor: the cursor follows a message arriving at the tail, and the draft still answers
+ * the one before it.
+ */
+MESH_TEST_CASE(ui_click_a_window_reply_rings_the_bubble_it_answers, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    /* Three messages in one direct conversation, so there is a bubble to answer that the
+       cursor is not on. */
+    struct mesh_ui_message_list messages;
+    memset(&messages, 0, sizeof messages);
+    messages.count = 3U;
+    for (uint32_t i = 0U; i < messages.count; ++i) {
+        messages.entries[i].packet_id = 21U + i;
+        messages.entries[i].peer = 0x3000U;
+        messages.entries[i].direction = MESH_MESSAGE_INBOUND;
+        snprintf(messages.entries[i].peer_name, sizeof messages.entries[i].peer_name, "%s", "BRVO");
+        snprintf(messages.entries[i].text, sizeof messages.entries[i].text, "message %u",
+                 (unsigned)i);
+    }
+    mesh_ui_store_set_messages(&store, &messages);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    struct mesh_ui_action action;
+
+    /* The first conversation the field can write in with more than one bubble in it. */
+    struct mesh_ui_message_view view = {0};
+    uint32_t order[MESH_UI_MAX_THREAD_MESSAGES];
+    uint32_t shown = 0U;
+    for (uint32_t row = 1U; row < 6U && shown < 2U; ++row) {
+        store.nav.thread_open = false;
+        if (!click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + row, &action) ||
+            !store.nav.thread_open || store.nav.inbox) {
+            continue;
+        }
+        view = mesh_ui_store_message_view(&store, &store.nav);
+        shown = mesh_ui_nav_filter_messages(&store.nav, view, order, MESH_UI_MAX_THREAD_MESSAGES);
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(shown < 2U, click_close(&store, capture),
+                              "a conversation should hold more than one bubble");
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_nav_kb_writes_thread(&store.nav),
+                              click_close(&store, capture),
+                              "Y should open the keyboard on the thread");
+
+    const uint32_t cursor = store.nav.cursor[MESH_UI_SCREEN_MESSAGES];
+    const uint32_t target = cursor > 0U ? cursor - 1U : cursor + 1U;
+    store.nav.reply_to = view.entries[order[target]].packet_id;
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.reply_to == 0U, click_close(&store, capture),
+                              "the bubble answered should have an id");
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect answered;
+    struct inkcell_focus_rect under_cursor;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + target, &answered) ||
+            !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + cursor, &under_cursor),
+        click_close(&store, capture), "both bubbles should be drawn");
+    MESH_TEST_FAIL_IF_CLEANUP(!click_box_has_color(capture, answered, INKCELL_COLOR_PRIMARY),
+                              click_close(&store, capture),
+                              "a reply should ring the bubble it answers");
+    MESH_TEST_FAIL_IF_CLEANUP(click_box_has_color(capture, under_cursor, INKCELL_COLOR_PRIMARY),
+                              click_close(&store, capture),
+                              "and not the bubble the cursor has moved on to");
+
     click_close(&store, capture);
     record_success(test_name);
 }
