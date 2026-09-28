@@ -227,6 +227,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [INKCELL_STR_LIST_TITLE_COUNT_OLDER] = "%s (%u, +%u anteriores)",
     [MESH_STR_COMPOSE_TO] = "Para: %s",
     [MESH_STR_COMPOSE_TO_KIND] = "Para: %s%s",
+    [MESH_STR_COMPOSE_FIELD] = "Mensaje a %s",
     [MESH_STR_COMPOSE_SUFFIX_CHANNEL] = "  (canal)",
     [MESH_STR_COMPOSE_SUFFIX_DIRECT] = "  (directo)",
     [MESH_STR_COMPOSE_DRAFT] = "Borrador: %s",

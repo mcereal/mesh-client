@@ -55,6 +55,11 @@ enum mesh_ui_focus_id {
        because the list under a sheet is still on the frame and still registered, and a click
        has to say which of the two it landed on. */
     MESH_UI_FOCUS_SHEET_ROWS = 0x2000,
+    /* The rows of the list a split frame keeps beside the detail it opened, `base + index` in
+       that list's own numbering - the index its cursor holds with the detail closed. Pointer
+       targets only (inkcell_fb_list_targets()): the detail has the d-pad, and the rows block is
+       its. A click on one leaves the detail and opens that row - see src/ui/nav/nav_click.c. */
+    MESH_UI_FOCUS_PANE_ROWS = 0x3000,
 };
 
 /* How many ids one block holds: a list longer than this registers only its first rows. */

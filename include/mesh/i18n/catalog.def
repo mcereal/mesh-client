@@ -523,6 +523,7 @@ MESH_STR_ENTRY(NODES_ROW_NEW,             "new")
 /* Who a message is being written to, and whether that is a channel or one node. */
 MESH_STR_ENTRY(COMPOSE_TO,                "To: %s")
 MESH_STR_ENTRY(COMPOSE_TO_KIND,           "To: %s%s")
+MESH_STR_ENTRY(COMPOSE_FIELD,             "Message %s")
 MESH_STR_ENTRY(COMPOSE_SUFFIX_CHANNEL,    "  (channel)")
 MESH_STR_ENTRY(COMPOSE_SUFFIX_DIRECT,     "  (direct)")
 MESH_STR_ENTRY(COMPOSE_DRAFT,             "Draft: %s")

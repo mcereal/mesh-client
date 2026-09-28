@@ -1487,6 +1487,14 @@ const char *mesh_ui_nav_kb_shown(const struct mesh_ui_nav *nav, char *out, size_
 bool mesh_ui_nav_kb_node_search(const struct mesh_ui_nav *nav);
 
 /*
+ * The keyboard is writing a message into the thread that is open under it - Y in a conversation,
+ * with nothing between: not a setting, a prompt, a place, a link, a login or a find, and not
+ * raised from the compose sheet or over the picker. A window types that into a field at the foot
+ * of the transcript rather than on a screen of its own (src/ui/backends/fb_screens_messages.c).
+ */
+bool mesh_ui_nav_kb_writes_thread(const struct mesh_ui_nav *nav);
+
+/*
  * The most bytes the draft may hold, whichever job the keyboard is doing: the message limit, a
  * settings field's own cap, a waypoint's name, a passkey's six digits, or a network address.
  *

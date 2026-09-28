@@ -184,6 +184,22 @@ bool fb_render_split_pair(const struct inkcell_draw_state *state, const struct m
                           const struct mesh_ui_route *to);
 
 /*
+ * A message being written into the open thread, in a window: the field at the foot of the
+ * transcript has the keyboard, and the thread is still the screen - see
+ * mesh_ui_nav_kb_writes_thread(). Never on a panel, whose keyboard is a screen of its own.
+ */
+bool fb_thread_field_writing(const struct inkcell_draw_state *state, const struct mesh_ui_nav *nav);
+
+/*
+ * The place this frame draws: the route under the layers, and in a window not the keyboard either
+ * while it is writing into the thread's field. What is drawn over a screen is not a move, and a
+ * field that took the keyboard is no more a place than a dialog is - so neither slides the body
+ * nor unseats the list beside the thread.
+ */
+void fb_body_route(const struct inkcell_draw_state *state, const struct mesh_ui_nav *nav,
+                   struct mesh_ui_route *out);
+
+/*
  * A screen's heading. Every screen - the map included - draws its app bar through this rather than
  * inkcell's call, and says only what it always said - its title, its trail, its badge.
  *

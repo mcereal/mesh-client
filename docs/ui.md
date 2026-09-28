@@ -379,6 +379,27 @@ goes nowhere. The wheel is Up and Down, a hint in the action bar is its key, and
 back button is B (inkcell's `inkcell/ui/pointer.h`). `tests/suites/ui_click.c` clicks the
 real frame.
 
+The cursor is a keyboard's cue, and a window shows it only while the keys are in use: a click
+or a scroll hides the ring and the lifted row, and the next arrow or face key brings them back
+where the cursor already is (inkcell's `inkcell_fb_cursor_shown()`). Nothing moves the cursor
+itself - it is still where the next key lands. What stays lit is a *selection*: the row of the
+list a split frame keeps beside the detail it opened. Under the pointer, whatever a click would
+press takes the hover layer, found in the last frame's map exactly as the hand cursor is.
+
+That list stays a sidebar to the pointer. Its rows are registered as targets in a block of their
+own (`MESH_UI_FOCUS_PANE_ROWS`) - never d-pad stops, since the detail has the keys - and a click
+on one leaves the detail by B and opens that row, so a section with unsaved edits still asks its
+question first. `ui_click_a_wide_window_opens_another_row_from_the_list_beside_a_detail` holds
+it.
+
+A conversation in a window ends in a field: "Message #LongFast", pressed as Y. The keyboard it
+opens types there, at the foot of the transcript with the list still beside it, rather than on a
+screen of its own - the route under it stays the thread (`fb_body_route()`), so nothing slides.
+The field grows a line at a time with the draft, Return sends, Escape or a click anywhere else
+puts it down with the draft kept. Only the plain write does this; a reply raised from a bubble
+and every other keyboard job still take the body.
+`ui_click_a_window_writes_in_the_field_at_the_foot_of_the_thread` holds it.
+
 A window puts the screen's verbs in its heading rather than as keycaps at the foot (inkcell's
 `inkcell_draw_state.pointer`), and draws no foot at all; the link's state that the foot ended in
 moves up with them as the heading's status mark. The verbs are the same command set the keycaps
@@ -1174,6 +1195,8 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `clock YYYY-MM-DD HH:MM` | pin the wall clock, as local time. Setup only |
 | `tab NAME`, `key NAME [COUNT]` | walk Left/Right to a tab; press a key (`a`…`y`, `l1`/`r1`, `l2`/`r2`, `start`, `select`, directions) |
 | `hold MS` | lengthen the frame just emitted, and move the clock on |
+| `pointer`, `click row N`, `context row N`, `hover row N\|none` | a window's frame; a left or right click on the screen list's row N, or the pointer resting on it |
+| `cursor hidden\|shown`, `type TEXT` | whether the reader is on the pointer or the keys; text a window's keyboard commits into the open keyboard |
 | `frame` | emit the current screen again |
 | `config` | a radio that has answered the config handshake |
 | `stats` | the radio's own LocalStats report |
