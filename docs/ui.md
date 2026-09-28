@@ -469,7 +469,9 @@ the first - stands the two side by side. Three screens do so:
   included, with the list keeping the top-level row (Modules, Channels) they are under. The share
   and contact sheets a row raises still take the body, as on the Brick.
 
-With nothing open, the detail pane holds a note saying what will appear there. The nav is the
+With nothing open, the detail pane holds a note saying what will appear there, in the middle of
+the pane (inkcell's `inkcell_fb_draw_placeholder()`). The action bar runs under both panes, its
+keycaps leading at the list's edge and the link's state trailing at the detail's. The nav is the
 one-pane nav, unchanged: A opens, every press is the detail's while it is open, and B closes it.
 What the width buys is that the list stays put, with the row the detail came from still under its
 cursor (found by what that row is, since the list re-ranks under an open detail), and the back
