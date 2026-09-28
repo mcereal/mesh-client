@@ -1126,6 +1126,13 @@ MESH_TEST_CASE(actions_quit_is_a_keycap_while_nothing_is_attached, unit) {
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != MESH_STR_ACTION_QUIT,
                       "with no radio, the Nodes bar should say how to quit");
 
+    /* An overlay returns early from the table, and must still say it. */
+    snapshot.nav.help_open = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != MESH_STR_ACTION_QUIT,
+                      "with no radio, an overlay's bar should say how to quit too");
+    snapshot.nav.help_open = false;
+
     actions_add_device(&snapshot, "F4:12:FA:00:0A:22", MESH_UI_DEVICE_BLE)->connected = true;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != INKCELL_STR_NONE,
@@ -1172,10 +1179,23 @@ MESH_TEST_CASE(actions_thread_jump_names_where_l2_lands, unit) {
                           MESH_STR_ACTION_THREAD_JUMP_OLDEST,
                       "with nothing unread, L2 goes to the oldest");
 
+    /* Two bubbles, the second unread, with the cursor on the newest below the line. */
+    actions_add_message(&snapshot, 0x3000U);
+    snapshot.messages.entries[1].packet_id = 13U;
+    actions_add_message(&snapshot, 0x3000U);
+    snapshot.messages.entries[2].packet_id = 14U;
     snapshot.nav.thread_unread_from = 12U;
+    snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] = 2U;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_TRIGGERS) !=
                           MESH_STR_ACTION_THREAD_JUMP,
-                      "with something unread, L2 goes to it");
+                      "with something unread below the cursor's line, L2 goes to it");
+
+    /* On the unread line itself, the next L2 goes the rest of the way. */
+    snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] = 1U;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_TRIGGERS) !=
+                          MESH_STR_ACTION_THREAD_JUMP_OLDEST,
+                      "at the unread line, L2 goes to the oldest");
     record_success(test_name);
 }

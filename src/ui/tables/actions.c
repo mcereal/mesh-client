@@ -171,14 +171,16 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
     }
     commands_add_help(snapshot, bar);
     /* The triggers walk the transcript's two landmarks: the first unread bubble (then the
-       oldest), and the newest. See mesh_ui_nav_thread_jump(). Named for where L2 lands, which
-       is the oldest once nothing is unread. After help, so a narrow panel drops this before
-       the screen that explains it. */
+       oldest), and the newest. See mesh_ui_nav_thread_jump(). Named for where L2 lands from
+       here - the oldest once nothing is unread or the cursor is already at the unread line.
+       After help, so a narrow panel drops this before the screen that explains it. */
     if (has_bubble) {
-        command_add(bar, MESH_UI_COMMAND_THREAD_JUMP,
-                    nav->thread_unread_from != 0U ? MESH_STR_ACTION_THREAD_JUMP
-                                                  : MESH_STR_ACTION_THREAD_JUMP_OLDEST,
-                    INKCELL_BUTTON_TRIGGERS);
+        command_add(
+            bar, MESH_UI_COMMAND_THREAD_JUMP,
+            mesh_ui_nav_thread_back_lands_on_unread(nav, mesh_ui_snapshot_message_view(snapshot))
+                ? MESH_STR_ACTION_THREAD_JUMP
+                : MESH_STR_ACTION_THREAD_JUMP_OLDEST,
+            INKCELL_BUTTON_TRIGGERS);
     }
     commands_add_tabs(bar);
 }
@@ -871,16 +873,8 @@ static void actions_status(const struct mesh_ui_snapshot *snapshot,
     commands_add_tabs(bar);
 }
 
-void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
-                          struct mesh_ui_command_set *out) {
-    if (out == NULL) {
-        return;
-    }
-    memset(out, 0, sizeof *out);
-    if (snapshot == NULL) {
-        return;
-    }
-
+static void commands_for_route(const struct mesh_ui_snapshot *snapshot,
+                               struct mesh_ui_command_set *out) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     struct mesh_ui_route active;
     mesh_ui_route_of(nav, &active);
@@ -1094,12 +1088,24 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
         }
         break;
     }
+}
+
+void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
+                          struct mesh_ui_command_set *out) {
+    if (out == NULL) {
+        return;
+    }
+    memset(out, 0, sizeof *out);
+    if (snapshot == NULL) {
+        return;
+    }
+    commands_for_route(snapshot, out);
     /*
-     * With no radio, every screen says how to get out, as a keycap like every other press. It
-     * was a sentence on the line beside the transport state ("scanning | Press MENU to quit"),
-     * the one instruction on the frame that was not in the bar. Status says it whether or not a
-     * radio is attached, so it is not said twice there. Last, so a narrow panel drops it before
-     * any of the screen's own presses.
+     * With no radio, every screen and overlay says how to get out, as a keycap like every other
+     * press. It was a sentence on the line beside the transport state ("scanning | Press MENU to
+     * quit"), the one instruction on the frame that was not in the bar. Status says it whether
+     * or not a radio is attached, so it is not said twice there. Last, so a narrow panel drops
+     * it before any of the screen's own presses.
      */
     if (mesh_ui_snapshot_connected_device(snapshot) == NULL &&
         mesh_ui_commands_find(out, MESH_UI_COMMAND_QUIT) == NULL) {

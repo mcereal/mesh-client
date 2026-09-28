@@ -541,6 +541,41 @@ const struct mesh_ui_message *mesh_ui_nav_message_at_cursor(const struct mesh_ui
  * first (the first bubble after `thread_unread_from`) and at the oldest bubble on a second
  * press, which is the order a reader wants them in: what they missed, then everything.
  */
+/* The row a jump in `direction` lands on, given the `count` rows `indices` lists. Shared by the
+   press and by the keycap that names where L2 goes, so the two cannot disagree. */
+static uint32_t mesh_ui_nav_thread_jump_target(const struct mesh_ui_nav *nav,
+                                               struct mesh_ui_message_view view,
+                                               const uint32_t *indices, uint32_t count,
+                                               int direction) {
+    if (direction > 0) {
+        return count - 1U;
+    }
+    if (nav->thread_unread_from != 0U) {
+        const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
+        for (uint32_t row = 1U; row < count; ++row) {
+            if (view.entries[indices[row - 1U]].packet_id == nav->thread_unread_from) {
+                /* Already there or above it: the second press goes the rest of the way. */
+                return (cursor > row) ? row : 0U;
+            }
+        }
+    }
+    return 0U;
+}
+
+bool mesh_ui_nav_thread_back_lands_on_unread(const struct mesh_ui_nav *nav,
+                                             struct mesh_ui_message_view messages) {
+    if (nav == NULL || !nav->thread_open || messages.entries == NULL) {
+        return false;
+    }
+    uint32_t indices[MESH_UI_MAX_THREAD_MESSAGES];
+    const uint32_t count =
+        mesh_ui_nav_filter_messages(nav, messages, indices, MESH_UI_MAX_THREAD_MESSAGES);
+    if (count == 0U) {
+        return false;
+    }
+    return mesh_ui_nav_thread_jump_target(nav, messages, indices, count, -1) != 0U;
+}
+
 static bool mesh_ui_nav_thread_jump(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                     int direction) {
     const struct mesh_ui_message_view view = mesh_ui_store_message_view(store, nav);
@@ -554,18 +589,7 @@ static bool mesh_ui_nav_thread_jump(struct mesh_ui_nav *nav, const struct mesh_u
         return false;
     }
     uint32_t *cursor = &nav->cursor[MESH_UI_SCREEN_MESSAGES];
-    uint32_t target = 0U;
-    if (direction > 0) {
-        target = count - 1U;
-    } else if (nav->thread_unread_from != 0U) {
-        for (uint32_t row = 1U; row < count; ++row) {
-            if (view.entries[indices[row - 1U]].packet_id == nav->thread_unread_from) {
-                /* Already there or above it: the second press goes the rest of the way. */
-                target = (*cursor > row) ? row : 0U;
-                break;
-            }
-        }
-    }
+    const uint32_t target = mesh_ui_nav_thread_jump_target(nav, view, indices, count, direction);
     if (*cursor == target) {
         return false;
     }
