@@ -43,12 +43,12 @@ chmod +x "${OUTPUT_DIR}/launch.sh"
 # installed on the device. scripts/release-build.sh stamps both from the release tag.
 cp pak.json "${OUTPUT_DIR}/pak.json"
 
-# The licences for the third-party data compiled into the binary. Three fonts are rasterised
-# into it and none of them ships as a file: Material Symbols behind the icon set (Apache 2.0),
-# Noto Color Emoji behind the emoji sprites and JetBrains Mono behind the text (both SIL OFL
-# 1.1). Bitmaps rasterised from an outline are a derived work of it, and both licences ask that
-# a copy travel with every redistribution - so the pak a device installs is exactly where they
-# have to be, since it is the only thing an end user receives.
+# The licences for the third-party data compiled into the binary, none of which ships as a file:
+# Material Symbols behind the icon set (Apache 2.0), JetBrains Mono behind the text (SIL OFL
+# 1.1) and Twemoji behind the emoji (CC-BY 4.0, as outlines converted from its SVGs). What is
+# rasterised or converted from them is a derived work, and each licence asks that a copy or an
+# attribution travel with every redistribution - so the pak a device installs is exactly where
+# they have to be, since it is the only thing an end user receives.
 mkdir -p "${OUTPUT_DIR}/licenses"
 cp licenses/*.txt "${OUTPUT_DIR}/licenses/"
 

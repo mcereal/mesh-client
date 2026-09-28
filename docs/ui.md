@@ -282,7 +282,7 @@ is this client asking it of these pages.
 **A keycap that is one emoji is drawn at the key's size, not at the text scale.** It went through
 `inkcell_fb_draw_text()` at first, which sizes an emoji like the letter beside it - correct in a node's
 name and wrong on a key five times that across, where forty 20 px thumbnails a panel could not be
-told apart. The button's `emoji_face` is the rule: a label that is a single sprite and nothing
+told apart. The button's `emoji_face` is the rule: a label that is a single emoji and nothing
 else becomes the key's face, centred and sized to the box. It is ignored over a letter, a word or
 an icon, so the four layers are still one grid described once (`fb_emoji_keycap_fills_its_key`).
 
@@ -962,7 +962,7 @@ and tinted at draw time, so changing a colour does not regenerate them.
 |---|---|
 | inkcell's `src/theme/font_ui.c` | `"ui"`, JetBrains Mono, the default face — generated |
 | inkcell's `src/theme/font5x7.c` | `"5x7"`, the pixel face. ASCII plus composed accented Latin |
-| inkcell's `src/theme/emoji.c` + `src/generated/emoji_glyphs.c` | emoji, generated |
+| inkcell's `src/theme/emoji.c` + `src/generated/emoji_pack.c` | emoji: Twemoji as outlines, drawn at the size asked for - generated |
 | inkcell's `src/theme/icon.c` + `src/generated/icon_glyphs.c` | the icon set; `icons.def` is the table |
 
 `scripts/gen-{emoji,icons,font,locale}.py` are **not part of the build** — run them by hand and
