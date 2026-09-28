@@ -1272,6 +1272,18 @@ bool mesh_ui_nav_thread_back_lands_on_unread(const struct mesh_ui_nav *nav,
    conversation list is showing. */
 void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, size_t out_len);
 
+/*
+ * What the open thread's heading says: the conversation's name, except that a direct thread is
+ * headed by the peer's long name ("Bravo Creek") rather than the four-letter callsign
+ * mesh_ui_nav_conversation_name() gives. The callsign stays everywhere space is tight - the
+ * toast, the compose sheet, a bubble's sender - and the heading is the one place with room for
+ * what a person chose to be called, and the one the Nodes tab already uses for the same radio.
+ * `handshake` may be NULL (no roster yet), and the answer falls back to the conversation name.
+ */
+void mesh_ui_nav_conversation_title(const struct mesh_ui_nav *nav,
+                                    const struct mesh_ui_handshake_state *handshake, char *out,
+                                    size_t out_len);
+
 /* What a row of the Messages tab's conversation list is. */
 enum mesh_ui_conversation_kind {
     MESH_UI_CONVERSATION_ALL = 0, /* every message, whatever it belongs to */

@@ -3076,3 +3076,56 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/* A direct conversation is headed by the name a person chose, and the callsign stays where space
+   is tight: the avatar's letters, the toast and the compose sheet still say BRVO. */
+MESH_TEST_CASE(ui_nav_direct_conversation_is_headed_by_the_long_name, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_handshake_state handshake = store.handshake;
+    snprintf(handshake.nodes[2].long_name, sizeof handshake.nodes[2].long_name, "%s",
+             "Bravo Creek");
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    struct mesh_ui_action action;
+    struct mesh_ui_conversation conversation;
+    char title[MESH_UI_NAV_TARGET_NAME_MAX];
+    if (!mesh_ui_nav_conversation_at(&store, 2U, &conversation) ||
+        conversation.kind != MESH_UI_CONVERSATION_DIRECT ||
+        strcmp(conversation.name, "Bravo Creek") != 0 || strcmp(conversation.initials, "BR") != 0) {
+        failure = "the row should read Bravo Creek under BRVO's own initials";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    mesh_ui_nav_conversation_title(&store.nav, &store.handshake, title, sizeof title);
+    if (!store.nav.thread_open || store.nav.target_node != 0x3000U ||
+        strcmp(title, "Bravo Creek") != 0 || strcmp(store.nav.target_name, "BRVO") != 0) {
+        failure = "the thread should be headed Bravo Creek and still aimed at BRVO";
+        goto cleanup;
+    }
+    /* No roster to ask: the name the thread was opened under still beats a bare number. */
+    mesh_ui_nav_conversation_title(&store.nav, NULL, title, sizeof title);
+    if (strcmp(title, "BRVO") != 0) {
+        failure = "without a roster the heading should fall back to the callsign";
+        goto cleanup;
+    }
+
+    /* A peer that sent only a short name keeps it, on the row and over the thread. */
+    handshake.nodes[2].long_name[0] = '\0';
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_nav_conversation_title(&store.nav, &store.handshake, title, sizeof title);
+    if (!mesh_ui_nav_conversation_at(&store, 2U, &conversation) ||
+        strcmp(conversation.name, "BRVO") != 0 || strcmp(title, "BRVO") != 0) {
+        failure = "a node with no long name should be headed by its short one";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

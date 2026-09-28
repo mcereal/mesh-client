@@ -39,22 +39,12 @@
  * only thing on the screen A does anything to.
  */
 /*
- * What a node is called on a screen about it: its long name, its short name, or the "!0a1b2c3d"
- * form the phone apps fall back to when a node has sent no User at all.
- *
- * Asked by the detail's app bar and by the sheet's trail. One answer rather than two, because
- * the trail names the screen the sheet is *inside* and a second spelling of it would be a
- * breadcrumb that disagreed with the bar it leads back to.
+ * The detail's app bar and the sheet's trail both ask mesh_ui_node_title(). One answer rather than
+ * two, because the trail names the screen the sheet is *inside* and a second spelling of it would
+ * be a breadcrumb that disagreed with the bar it leads back to.
  */
 static void fb_node_title(const struct mesh_ui_node_summary *node, char *out, size_t out_len) {
-    const char *name = node->long_name[0] != '\0'    ? node->long_name
-                       : node->short_name[0] != '\0' ? node->short_name
-                                                     : NULL;
-    if (name != NULL) {
-        inkwell_str_copy(out, out_len, name);
-        return;
-    }
-    inkcell_str_format(out, out_len, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
+    mesh_ui_node_title(node, node->node_id, out, out_len);
 }
 
 /*

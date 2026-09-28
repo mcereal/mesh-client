@@ -50,6 +50,40 @@ void mesh_ui_nav_node_name(const struct mesh_ui_store *store, uint32_t node_id, 
     snprintf(out, out_len, "!%08x", node_id);
 }
 
+static const struct mesh_ui_node_summary *
+mesh_ui_nav_find_node(const struct mesh_ui_handshake_state *handshake, uint32_t node_id) {
+    if (handshake == NULL) {
+        return NULL;
+    }
+    for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        if (handshake->nodes[i].node_id == node_id) {
+            return &handshake->nodes[i];
+        }
+    }
+    return NULL;
+}
+
+void mesh_ui_nav_conversation_title(const struct mesh_ui_nav *nav,
+                                    const struct mesh_ui_handshake_state *handshake, char *out,
+                                    size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    if (nav == NULL || !nav->thread_open || nav->inbox ||
+        nav->target_node == MESH_MESSAGE_BROADCAST_ADDR) {
+        mesh_ui_nav_conversation_name(nav, out, out_len);
+        return;
+    }
+    const struct mesh_ui_node_summary *node = mesh_ui_nav_find_node(handshake, nav->target_node);
+    if (node == NULL || (node->long_name[0] == '\0' && node->short_name[0] == '\0')) {
+        /* A peer the roster cannot name: whatever the thread was opened under - a name the
+           message carried - still beats the bare number. */
+        mesh_ui_nav_conversation_name(nav, out, out_len);
+        return;
+    }
+    mesh_ui_node_title(node, nav->target_node, out, out_len);
+}
+
 /* ---- send-to picker ----------------------------------------------------------------------- */
 
 static uint32_t mesh_ui_nav_enabled_channels(const struct mesh_ui_store *store, uint8_t *slots,
@@ -565,9 +599,16 @@ bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t ind
     if (index < 1U + channels + directs) {
         out->kind = MESH_UI_CONVERSATION_DIRECT;
         out->node = peers[index - 1U - channels];
+        /* The avatar wears the short name's letters, as the node's row on the Nodes tab does;
+           the row is headed by the long name, as that row is too. */
         mesh_ui_nav_node_name(store, out->node, out->name, sizeof out->name);
         mesh_ui_nav_conversation_summarise(store, out);
         mesh_ui_nav_conversation_avatar(out);
+        const struct mesh_ui_node_summary *node =
+            mesh_ui_nav_find_node(store->handshake_valid ? &store->handshake : NULL, out->node);
+        if (node != NULL && (node->long_name[0] != '\0' || node->short_name[0] != '\0')) {
+            mesh_ui_node_title(node, out->node, out->name, sizeof out->name);
+        }
         return true;
     }
     if (index == 1U + channels + directs) {

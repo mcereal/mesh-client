@@ -318,6 +318,19 @@ bool mesh_ui_node_is_new(const struct mesh_ui_node_summary *node, uint32_t after
 uint32_t mesh_ui_nodes_new_count(const struct mesh_ui_handshake_state *handshake, uint32_t after);
 
 /*
+ * What a node is called at the head of something about it - a detail screen, a conversation, a
+ * row that leads with a name: its long name, its short name, or the "!0a1b2c3d" form the phone
+ * apps fall back to when a node has sent no User at all.
+ *
+ * The long name leads because it is what a person chose to be called; the four-letter short name
+ * is a callsign sized for a radio's own screen, and is what goes in the tight places - a bubble's
+ * sender, an avatar, a toast. `node` may be NULL (a peer the roster has not heard of), and the
+ * answer is the "!" form of `node_id`.
+ */
+void mesh_ui_node_title(const struct mesh_ui_node_summary *node, uint32_t node_id, char *out,
+                        size_t out_len);
+
+/*
  * A channel slot as a reader knows it: "#LongFast" when the radio's table names it, "#Primary"
  * for an unnamed slot 0 (the firmware shows the modem preset there, which is not tracked), and
  * "#Ch2" otherwise. `handshake` may be NULL - no table yet - and the answer is still a name.
