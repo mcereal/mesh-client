@@ -16,6 +16,7 @@
 
 #include "inkcell/ui/latency.h"
 #include "inkcell/ui/widgets.h"
+#include "inkwell/base/array.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 
@@ -997,13 +998,35 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
      * The names, over the markers and around each other.
      *
      * Greedy and in build order, so what survives a crowded corner is what the roster already
-     * ranked highest - our own radio first, then the nodes in the order the list shows them. A
-     * label that would collide is dropped rather than shortened: two overlapping names are less
-     * readable than one name and a bare dot, and a truncated one is a name the reader cannot
-     * match against the list they came from.
+     * ranked highest - our own radio first, then the nodes in the order the list shows them.
+     *
+     * A name tries four places before it gives up: beside its marker to the right, then the
+     * left, then above and below. One place was the whole of it once, and the marker that lost
+     * was our own radio: it is first in the order, but every *marker* claims its box before any
+     * name does, so a node standing a few pixels to its right took the only spot "HOME" had and
+     * the map drew the one position the reader most wants to find without a name.
+     *
+     * A name that fits nowhere is not shortened - a truncated name is one the reader cannot
+     * match against the list they came from - and it is not dropped silently either. It is
+     * counted onto the nearest name that did find room, as "FXTR +1": a cluster the reader can
+     * see is several positions, where a bare dot beside one name read as a map that had lost
+     * track of the rest. The count is added only where it fits too; a count that would cover a
+     * neighbour is the collision this pass exists to avoid.
      */
-    size_t labels_drawn = 0U;
-    for (uint32_t i = 0; i < view.count && labels_drawn < FB_MAP_LABELS_MAX; ++i) {
+    struct fb_map_placed {
+        struct fb_map_box box;
+        const struct mesh_ui_map_marker *marker;
+        int cx;
+        int cy;
+        uint32_t more;
+    };
+    struct fb_map_placed placed[FB_MAP_LABELS_MAX];
+    size_t placed_count = 0U;
+    struct fb_map_box crowded[FB_MAP_BOXES_MAX]; /* where a name had no room: its marker's centre */
+    size_t crowded_count = 0U;
+    const int text_h = inkcell_scale_px((int)inkcell_fb_font(state)->height, scale);
+    const int label_gap = inkcell_fb_space_at(state, INKCELL_SPACE_XS, scale);
+    for (uint32_t i = 0; i < view.count && placed_count < FB_MAP_LABELS_MAX; ++i) {
         const struct mesh_ui_map_marker *marker = &view.markers[i];
         if (marker->label[0] == '\0') {
             continue;
@@ -1024,35 +1047,94 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
          * reserving a rectangle a line above where it landed - collisions tested against nothing,
          * and once there was a halo to draw, a halo in the wrong place.
          */
-        const int text_h = inkcell_scale_px((int)inkcell_fb_font(state)->height, scale);
-        const struct fb_map_box label = {
-            .x = cx + radius + inkcell_fb_space_at(state, INKCELL_SPACE_XS, scale),
-            .y = cy - text_h / 2,
-            /* Measured: this width is what the bounds check below drops the label on, and what
-               the plate behind it is sized to. */
-            .w = inkcell_fb_text_width(state, marker->label, scale),
-            .h = text_h,
+        /* Measured: this width is what the bounds check drops the label on, and what the plate
+           behind it is sized to. */
+        const int w = inkcell_fb_text_width(state, marker->label, scale);
+        const struct fb_map_box candidates[] = {
+            {.x = cx + radius + label_gap, .y = cy - text_h / 2, .w = w, .h = text_h},
+            {.x = cx - radius - label_gap - w, .y = cy - text_h / 2, .w = w, .h = text_h},
+            {.x = cx - w / 2, .y = cy - radius - label_gap - text_h, .w = w, .h = text_h},
+            {.x = cx - w / 2, .y = cy + radius + label_gap, .w = w, .h = text_h},
         };
-        if (label.x + label.w >= body.x + body.w) {
-            continue;
-        }
-        bool clear = true;
-        for (size_t j = 0; j < taken_count; ++j) {
-            if (fb_map_boxes_overlap(&label, &taken[j])) {
-                clear = false;
-                break;
+        const struct fb_map_box *chosen = NULL;
+        for (size_t c = 0; c < INKWELL_ARRAY_LEN(candidates) && chosen == NULL; ++c) {
+            const struct fb_map_box *label = &candidates[c];
+            if (label->x < body.x || label->x + label->w >= body.x + body.w || label->y < body.y ||
+                label->y + label->h >= body.y + body.h) {
+                continue;
+            }
+            bool clear = true;
+            for (size_t j = 0; j < taken_count && clear; ++j) {
+                clear = !fb_map_boxes_overlap(label, &taken[j]);
+            }
+            if (clear) {
+                chosen = label;
             }
         }
-        if (!clear) {
+        if (chosen == NULL) {
+            if (crowded_count < FB_MAP_BOXES_MAX) {
+                crowded[crowded_count++] = (struct fb_map_box){.x = cx, .y = cy};
+            }
             continue;
         }
         if (taken_count < FB_MAP_BOXES_MAX) {
-            taken[taken_count++] = label;
+            taken[taken_count++] = *chosen;
         }
-        ++labels_drawn;
-        const struct inkcell_paint paint = inkcell_fb_paint(state, fb_map_marker_family(marker),
-                                                            INKCELL_SLOT_BASE, INKCELL_STATE_REST);
-        fb_map_text(state, label.x, label.y, marker->label, scale, paint.fill, ground, basemap);
+        placed[placed_count++] =
+            (struct fb_map_placed){.box = *chosen, .marker = marker, .cx = cx, .cy = cy};
+    }
+
+    /* Each crowded-out name goes to the nearest name that was placed, if one is near enough to
+       read as the same cluster: a few lines of text in any direction. Farther than that, a count
+       would be claiming a group the reader cannot see. */
+    const int64_t cluster_reach = (int64_t)text_h * 3;
+    for (size_t k = 0; k < crowded_count; ++k) {
+        size_t nearest = placed_count;
+        int64_t best = cluster_reach * cluster_reach + 1;
+        for (size_t p = 0; p < placed_count; ++p) {
+            const int64_t dx = (int64_t)placed[p].cx - crowded[k].x;
+            const int64_t dy = (int64_t)placed[p].cy - crowded[k].y;
+            if (dx * dx + dy * dy < best) {
+                best = dx * dx + dy * dy;
+                nearest = p;
+            }
+        }
+        if (nearest < placed_count) {
+            placed[nearest].more += 1U;
+        }
+    }
+
+    for (size_t p = 0; p < placed_count; ++p) {
+        const struct fb_map_placed *label = &placed[p];
+        char text[MESH_UI_MAP_LABEL_MAX + 16];
+        inkwell_str_copy(text, sizeof text, label->marker->label);
+        int x = label->box.x;
+        if (label->more > 0U) {
+            char counted[sizeof text];
+            inkcell_str_format(counted, sizeof counted, MESH_STR_MAP_LABEL_MORE,
+                               label->marker->label, (unsigned)label->more);
+            /* Grown away from its marker, so a name to the left of its dot keeps its right edge
+               against the dot. */
+            struct fb_map_box grown = label->box;
+            grown.w = inkcell_fb_text_width(state, counted, scale);
+            if (label->box.x + label->box.w <= label->cx) {
+                grown.x = label->box.x + label->box.w - grown.w;
+            }
+            bool clear = grown.x >= body.x && grown.x + grown.w < body.x + body.w;
+            for (size_t j = 0; j < taken_count && clear; ++j) {
+                const struct fb_map_box *other = &taken[j];
+                const bool own = other->x == label->box.x && other->y == label->box.y &&
+                                 other->w == label->box.w && other->h == label->box.h;
+                clear = own || !fb_map_boxes_overlap(&grown, other);
+            }
+            if (clear) {
+                inkwell_str_copy(text, sizeof text, counted);
+                x = grown.x;
+            }
+        }
+        const struct inkcell_paint paint = inkcell_fb_paint(
+            state, fb_map_marker_family(label->marker), INKCELL_SLOT_BASE, INKCELL_STATE_REST);
+        fb_map_text(state, x, label->box.y, text, scale, paint.fill, ground, basemap);
     }
 
     uint32_t selected = 0U;

@@ -33,6 +33,7 @@ hold 1200
 # rule that keeps the update banner out of About, and the app bar's overline from repeating the
 # tab name underneath it.
 tab settings
+key r2 3
 key a
 hold 1600
 

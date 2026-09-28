@@ -362,6 +362,12 @@ enum inkcell_icon mesh_ui_settings_item_marker(const struct mesh_ui_settings_ite
     if (item->field == MESH_UI_FIELD_NONE) {
         return INKCELL_ICON_NONE;
     }
+    /* Nor is an inactive row: a manual LoRa number while a preset stands in for it is drawn
+       dim and a press on it explains why rather than stepping, so the stepper there promised a
+       Left and Right that do not move it. The dim value says what the mark would have. */
+    if (item->inactive) {
+        return INKCELL_ICON_NONE;
+    }
     switch (item->kind) {
     /* A key row steps its presets on Left and Right as well, and still takes the pencil: typing
        one in is the thing it can do that no other row can, and the four presets are a shortcut
@@ -457,21 +463,16 @@ bool mesh_ui_settings_section_icons_rows(enum mesh_ui_settings_section section) 
 /*
  * The two lists, as tables.
  *
- * k_root is the top level in the order it is read, which is roughly "this client, then what
- * the radio is, then how it talks, then everything optional, then the things that are not
- * settings at all". It is thirteen rows, which fits the Brick's screen without scrolling -
- * that is the point of Modules being one row rather than seventeen.
+ * k_root is the top level in the order it is read, which is roughly "what the radio is, then how
+ * it talks, then everything optional, then the things that are not settings at all, then this
+ * client". It is thirteen rows, which fits the Brick's screen without scrolling - that is the
+ * point of Modules being one row rather than seventeen.
  */
-/* Not a section: the heading row that opens the radio's card. See
+/* Not a section: the heading row that opens this client's card. See
  * mesh_ui_settings_root_is_heading(). */
 #define ROOT_HEADING MESH_UI_SETTINGS_SECTION_COUNT
 
 static const enum mesh_ui_settings_section k_root[] = {
-    MESH_UI_SETTINGS_ABOUT,
-    /* Everything above this is the client and everything below it is the radio. They shared one
-       column until the heading, and the client's own theme and text size read as one more radio
-       setting there. About stays the unnamed card at the top, so row 0 is still a section. */
-    ROOT_HEADING,
     MESH_UI_SETTINGS_RADIO,
     MESH_UI_SETTINGS_USER,
     MESH_UI_SETTINGS_DEVICE,
@@ -488,6 +489,18 @@ static const enum mesh_ui_settings_section k_root[] = {
     MESH_UI_SETTINGS_SECURITY,
     MESH_UI_SETTINGS_MODULES,
     MESH_UI_SETTINGS_ACTIONS,
+    /*
+     * Everything above this is the radio and everything below it is this client. They shared
+     * one column until the heading, and the client's own theme and text size read as one more
+     * radio setting there.
+     *
+     * About goes last, which is where every settings list puts it: it is read once, and at the
+     * top it was the row the tab opened on and the first thing stepped over on the way to the
+     * radio. The heading is above About rather than above the radio because the list opens on
+     * row 0 from several places, and a heading there is a row the cursor may not stand on.
+     */
+    ROOT_HEADING,
+    MESH_UI_SETTINGS_ABOUT,
 };
 
 /* Every ModuleConfig variant this client keeps. Grows by one row per module as the phases
@@ -2779,15 +2792,27 @@ uint32_t mesh_ui_settings_number_step(enum mesh_ui_setting_field field, uint32_t
  *
  * What is this client's is which lists are scales and which stand their 0 aside. LoRa's transmit
  * power reads 0 as "as much as this radio has", and the first version of the slider drew it with
- * the handle hard left. And two lists start above zero because the thing at the other end
- * refuses anything below - the public map drops a report under an hour, the firmware floors
- * neighbour info at four - while a radio nobody has configured still reports 0 for both.
+ * the handle hard left; it is drawn full now, below. And two lists start above zero because the
+ * thing at the other end refuses anything below - the public map drops a report under an hour, the
+ * firmware floors neighbour info at four - while a radio nobody has configured still reports 0 for
+ * both.
  */
 bool mesh_ui_settings_number_track(enum mesh_ui_setting_field field, uint32_t value,
                                    struct mesh_ui_settings_track *out) {
     struct inkstand_form_track track;
     if (!inkstand_form_number_track(&mesh_ui_settings_form, form_id(field), value, &track)) {
         return false;
+    }
+    /*
+     * Transmit power's word is the one that has a place after all: "as much as this radio has"
+     * is the top of the scale, whatever that radio's top turns out to be. Stood off the track
+     * it drew an empty bar beside "max", and an empty power bar reads as no power at all. The
+     * other leading words - "default", "the firmware decides" - name a value nobody here
+     * knows, and stay off.
+     */
+    if (field == MESH_UI_FIELD_LORA_TX_POWER && value == 0U) {
+        track.position = INKCELL_ANIM_ONE;
+        track.unplaced = false;
     }
     if (out != NULL) {
         *out = (struct mesh_ui_settings_track){

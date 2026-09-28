@@ -1036,6 +1036,9 @@ bool mesh_ui_settings_item_is_fact(const struct mesh_ui_settings_item *item);
  *   anything else      nothing. A fact, a heading, a meter, a verb - none is changed in place,
  *                      and the verbs carry a tonal disc and a chevron of their own.
  *
+ * An `inactive` row takes nothing whatever its kind: it is drawn dim, a press on it says why it
+ * cannot be changed, and a stepper beside it offered a Left and Right that do not move it.
+ *
  * `cycle` sits with the kinds and answers before them: the swap rune, because A moves that row's
  * value where the d-pad moves a field's, and the gutter is where that difference is stated.
  *

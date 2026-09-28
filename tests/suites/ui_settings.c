@@ -1735,12 +1735,15 @@ MESH_TEST_CASE(ui_settings_about, unit) {
 
     struct mesh_ui_action action;
     (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
-    /* About is the first row, so the cursor is already on it. */
+    /* About is the last row, under the client's own heading. */
+    const uint32_t about_row = mesh_ui_settings_root_count(&store.settings) - 1U;
     if (store.nav.screen != MESH_UI_SCREEN_SETTINGS ||
-        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != MESH_UI_SETTINGS_ABOUT) {
-        failure = "Settings should open with the cursor on About";
+        mesh_ui_settings_root_at(&store.settings, about_row) != MESH_UI_SETTINGS_ABOUT ||
+        !mesh_ui_settings_root_is_heading(&store.settings, about_row - 1U)) {
+        failure = "Settings should end with the client's heading and About under it";
         goto cleanup;
     }
+    store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = about_row;
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (store.nav.settings_section != MESH_UI_SETTINGS_ABOUT) {
         failure = "A should open About";
@@ -3259,6 +3262,10 @@ MESH_TEST_CASE(ui_settings_a_marker_says_how_the_row_is_changed, unit) {
                    switches arrive as read-only toggles and must not offer a press. */
                 expected = INKCELL_ICON_NONE;
                 counter = &quiet;
+            } else if (item.inactive) {
+                /* Shown dim and not changed here: a press explains why, so no mark offers one. */
+                expected = INKCELL_ICON_NONE;
+                counter = &quiet;
             } else if (item.kind == INKSTAND_FORM_TEXT || item.kind == INKSTAND_FORM_KEY) {
                 expected = INKCELL_ICON_EDIT;
                 counter = &typed;
@@ -3487,15 +3494,18 @@ MESH_TEST_CASE(ui_settings_number_track_places_a_value, unit) {
  * empty end of its own bar. Every "default" is the same mistake more quietly, because a value
  * the firmware picks is not the shortest interval, it is an interval nobody here knows. And two
  * lists reach it without any word at all, simply by starting above zero.
+ *
+ * Transmit power's own 0 is the exception, and is held here beside the rule: "max" is the top of
+ * a power scale, so it is drawn full. Off the track it was an empty bar, which reads as none.
  */
 MESH_TEST_CASE(ui_settings_number_track_refuses_what_it_cannot_place, unit) {
     struct mesh_ui_settings_track track;
 
     MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_LORA_TX_POWER, 0U, &track),
                       "transmit power is a scale; the row still draws one");
-    MESH_TEST_FAIL_IF(!track.unplaced, "\"max\" is not a point on a power scale");
-    MESH_TEST_FAIL_IF(track.stops == 0U,
-                      "an unplaced value still has a track to draw its stops on");
+    MESH_TEST_FAIL_IF(track.unplaced || track.position != 1000,
+                      "\"max\" is the top of a power scale, not an empty bar");
+    MESH_TEST_FAIL_IF(track.stops == 0U, "a full track still has its stops to draw");
 
     /* And the rest of the same list is a scale: 2 dBm is its bottom, 30 its top. */
     MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_LORA_TX_POWER, 2U, &track),
@@ -3571,7 +3581,11 @@ MESH_TEST_CASE(ui_settings_number_scales_are_well_formed, unit) {
                 record_failure(test_name, "a field stopped being a scale mid-walk");
                 return;
             }
-            if (track.unplaced) {
+            if (value == 0U && field == MESH_UI_FIELD_LORA_TX_POWER) {
+                /* Transmit power's own "max": the one leading word that is drawn at the top of
+                   its track rather than off it. It is still the first thing the walk sees, so
+                   the climb it is held to starts after it. */
+            } else if (track.unplaced) {
                 /* At most one, and it must be the first thing the walk sees. Two would mean a
                    list marked SCALE_PRESETS_AFTER_ZERO() that does not in fact start at 0, which
                    silently drops its first real choice off the bottom of the track. */
