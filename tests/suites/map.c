@@ -1166,6 +1166,41 @@ MESH_TEST_CASE(map_keys_belong_to_the_screen_the_map_is_on, unit) {
 }
 
 /*
+ * A marker opens its node at the top of that node's detail, whatever another node left open on
+ * the Nodes tab behind a shoulder press - a chart, or the sheet of verbs with its cursor on a row
+ * the next A would run against the new node.
+ */
+MESH_TEST_CASE(map_marker_opens_a_node_without_the_last_ones_levels, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
+    store.nav.node_detail_open = true;
+    store.nav.node_detail_node = store.handshake.nodes[2].node_id; /* BRVO */
+    store.nav.node_actions_open = true;
+    store.nav.node_actions_cursor = 3U;
+    store.nav.node_trend = 1U;
+
+    map_test_open(&store);
+    const uint32_t alfa = store.handshake.nodes[1].node_id;
+    (void)mesh_map_viewport_center_on(&store.nav.map_viewport,
+                                      store.handshake.nodes[1].position.latitude_i,
+                                      store.handshake.nodes[1].position.longitude_i);
+    store.nav.map_viewport.zoom = 16U;
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.node_detail_open || store.nav.node_detail_node != alfa,
+                      "A opened the marker's node");
+    MESH_TEST_FAIL_IF(store.nav.node_actions_open || store.nav.node_actions_cursor != 0U,
+                      "without the last node's sheet of verbs over it");
+    MESH_TEST_FAIL_IF(store.nav.node_trend != 0U, "or the last node's chart");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
  * The Map tab's triggers turn it between its two faces, and neither face has a B: each is the
  * tab's own bottom, reached sideways rather than by going in.
  */

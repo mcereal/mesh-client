@@ -240,6 +240,13 @@ static bool mesh_ui_nav_map_confirm(struct mesh_ui_nav *nav, const struct mesh_u
     nav->node_detail_from_map = true;
     nav->map_from_node = false;
     nav->node_remove_armed = false;
+    /* A detail left open on the Nodes tab behind a shoulder press keeps its chart and its sheet
+       of verbs; they are levels of *that* node, and the one being opened starts at its own
+       top. Left set, the next A could run the last node's verb on this one. */
+    nav->node_actions_open = false;
+    nav->node_actions_cursor = 0U;
+    nav->node_trend = MESH_UI_HISTORY_NONE;
+    nav->trend_scroll = 0U;
     /* The same landing the Nodes list's own A gets, asked for rather than written as 0: the
        detail's row 0 is the actions group's heading, and a heading is not a row the cursor may
        stand on. A marker that opened the detail on its title would be this press arriving at a
