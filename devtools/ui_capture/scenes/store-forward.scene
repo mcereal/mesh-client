@@ -16,7 +16,7 @@ config
 tab settings
 hold 400
 # Down to Modules, into it, and down to Store & Forward.
-key down 12
+key down 11
 hold 500
 key a
 hold 700

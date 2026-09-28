@@ -2914,9 +2914,17 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
          ++guard) {
         mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_R1);
     }
+    /* About is the last row, under the client's heading: Down until the cursor stops. */
+    for (uint32_t guard = 0U; guard < 64U; ++guard) {
+        const uint32_t before = app.ui_store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
+        mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_DOWN);
+        if (app.ui_store.nav.cursor[MESH_UI_SCREEN_SETTINGS] == before) {
+            break;
+        }
+    }
     mesh_ui_controller_handle_key(&app.ui_controller, INKCELL_KEY_A);
     if (app.ui_store.nav.settings_section != MESH_UI_SETTINGS_ABOUT) {
-        failure = "A on the first Settings row should open About";
+        failure = "A on the last Settings row should open About";
         goto cleanup;
     }
 

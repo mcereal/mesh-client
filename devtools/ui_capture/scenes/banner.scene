@@ -42,6 +42,7 @@ hold 1000
 # pointing at a section is noise on that section - the same rule that keeps the app bar's
 # overline from repeating the tab name.
 tab settings
+key r2 3
 key a
 hold 1400
 key b

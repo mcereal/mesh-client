@@ -293,9 +293,10 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
         }
     } else if (!section_open) {
         /*
-         * The section list is two subjects: About is this client, and every row under the
-         * heading changes the radio. The heading is a row of the model (mesh_ui_settings_root_at())
-         * so the nav skips it as it skips a section's own; here it only breaks the cards.
+         * The section list is two subjects: every row above the heading changes the radio, and
+         * About under it is this client. The heading is a row of the model
+         * (mesh_ui_settings_root_at()) so the nav skips it as it skips a section's own; here it
+         * only breaks the cards.
          */
         uint8_t card = 0U;
         any_cards = true;
@@ -441,7 +442,8 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
              * chevron every row that opens something ends in, on the trailing edge rather than
              * in the gutter.
              */
-            const enum inkcell_icon marker = mesh_ui_settings_item_marker(&item);
+            const enum inkcell_icon marker =
+                mesh_ui_settings_item_marker_at(&item, !beside && i == cursor);
             /*
              * Whether that mark stands down for a control drawn beside the value, which is this
              * backend's own decision and taken twice below: a small enum becomes a segmented
@@ -795,7 +797,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
         } else {
             if (mesh_ui_settings_root_is_heading(settings, i)) {
                 inkcell_fb_list_subheader_icon(
-                    state, &list, i, inkcell_str(MESH_STR_SETTINGS_GROUP_RADIO),
+                    state, &list, i, inkcell_str(MESH_STR_SETTINGS_GROUP_CLIENT),
                     (struct inkcell_fb_leading){.kind = INKCELL_FB_LEADING_ICON,
                                                 .icon = INKCELL_ICON_NONE});
                 continue;

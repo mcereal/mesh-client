@@ -238,8 +238,8 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
                                 MESH_STR_STATUS_MY_NODE, hs->my_short_name, hs->my_info.node_num);
         }
         if (hs->primary_channel[0] != '\0') {
-            inkcell_fb_card_row_text(&card, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_CHANNEL,
-                                     hs->primary_channel);
+            inkcell_fb_card_row(&card, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_CHANNEL,
+                                MESH_STR_STATUS_CHANNEL_NAME, hs->primary_channel);
         }
     } else {
         inkcell_fb_card_row_text(&card, INKCELL_TONE_DIM, MESH_STR_STATUS_LABEL_SYNC,

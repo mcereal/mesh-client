@@ -109,22 +109,28 @@ void fb_render_help(struct inkcell_draw_state *state, const struct mesh_ui_snaps
     }
 
     /*
-     * The heading, drawn large at the top of the body and shrunk into the bar once the body has
-     * moved - a continuous function of the offset, which is the one piece of chrome a row-index
-     * window could not have had.
+     * The heading, on the one line every other screen with a way back puts it on: the arrow,
+     * then "Help", and the screen it explains above them as a trail.
      *
-     * The screen it explains goes in `detail` rather than on a trail. This is the one place a
-     * trail earned a level the navigation bar was not already carrying: the strip says
-     * "Settings" and this screen's own title says "Help", so without the section name between
-     * them the frame never says *what* is being explained. It comes off the topic rather than
-     * out of the nav, because reading nav->settings_section here was this renderer knowing that
-     * help is about settings - which stopped being true the moment a tab acquired a topic.
+     * It was a large title - the name on a line of its own that collapses into the bar as the
+     * body scrolls - and that shape is a tab's root, which has nowhere to go back to. On a
+     * screen that does, the arrow stayed in the bar and the title went down a line, so help was
+     * the one heading on the client whose back arrow stood alone above its name.
+     *
+     * The screen it explains is the trail rather than a detail beside the title. This is the
+     * one place a trail earned a level the navigation bar was not already carrying: the strip
+     * says "Settings" and this screen's own title says "Help", so without the section name
+     * between them the frame never says *what* is being explained. It comes off the topic
+     * rather than out of the nav, because reading nav->settings_section here was this renderer
+     * knowing that help is about settings - which stopped being true the moment a tab acquired
+     * a topic.
      */
-    const struct inkcell_fb_large_title bar = {
-        .title = inkcell_str(MESH_STR_HELP_TITLE),
-        .detail = topic.subject != INKCELL_STR_NONE ? inkcell_str(topic.subject) : NULL,
-    };
-    inkcell_fb_draw_large_title(state, layout, &bar, inkcell_scroll_offset(scroll, state->now_ms));
+    struct inkcell_fb_app_bar bar = {.title = inkcell_str(MESH_STR_HELP_TITLE)};
+    if (topic.subject != INKCELL_STR_NONE) {
+        bar.trail[0] = inkcell_str(topic.subject);
+        bar.trail_count = 1U;
+    }
+    (void)fb_draw_app_bar(state, layout, &bar);
 
     const struct inkcell_fb_rect body = {
         .x = inkcell_fb_region(state).x,

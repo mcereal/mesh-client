@@ -38,7 +38,6 @@ hold 500
 
 # Into the User section: the four fields that are this radio's owner record, and then the two
 # contact rows under their heading.
-key down 1
 key a
 hold 1400
 key down 4

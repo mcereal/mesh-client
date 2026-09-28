@@ -74,7 +74,7 @@ hold 1200
 # holding open and the labels line up down the card.
 tab settings
 hold 800
-key down 7
+key down 6
 key a
 hold 900
 key down 40
