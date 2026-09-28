@@ -417,31 +417,20 @@ MESH_STR_ENTRY(NODES_EMPTY_DISCONNECTED,  "Connect to a radio to see the mesh.")
 MESH_STR_ENTRY(NODES_GONE,                "That node is no longer in the list.")
 MESH_STR_ENTRY(NODES_PICK,                "Open a node to see it here.")
 MESH_STR_ENTRY(NODES_DETAIL_EMPTY,        "Nothing reported for this node yet.")
-/* The filter chips on the list's first row - see include/mesh/ui/nodes.h for why there are
-   three of them and why there is not a fourth. One word each: they are chips in a strip that
-   has to fit across the panel beside two others, and the strip drops the words before it drops
-   the pills. "Direct" is nodes heard with no relay between us and them; "Pinned" is the word X
-   is already called, so it must match ACTION_PIN in whatever language this is. */
-/* The name of the question the segments answer, in the label column the sort row below it
-   shares. The two rows are one control group and are drawn as the Settings tab draws a field -
-   a label, the pencil that says Left and Right edit it, and where it currently stands - so the
-   label is a noun naming the axis rather than a sentence about what to press. */
-MESH_STR_ENTRY(NODES_FILTER_ROW,          "Filter")
+/* The filter chips on the list's chip bar - see include/mesh/ui/nodes.h for why there are
+   three of them and why there is not a fourth. One word each: they share one row across the
+   panel with the search and the sort. "Direct" is nodes heard with no relay between us and
+   them; "Pinned" is the word X is already called, so it must match ACTION_PIN in whatever
+   language this is. */
 MESH_STR_ENTRY(NODES_FILTER_ALL,          "All")
 MESH_STR_ENTRY(NODES_FILTER_DIRECT,       "Direct")
 MESH_STR_ENTRY(NODES_FILTER_PINNED,       "Pinned")
-/* What the filtered list says when the chip the reader has landed on keeps nothing. The row
-   stays and says why rather than the list going blank - the map row's rule, and the Waypoints
-   tab's before it: a screen that empties explains nothing to the reader wondering what they
-   just pressed. */
+/* What the filtered list says when the chip the reader has chosen keeps nothing. The row says
+   why rather than the list going blank: a screen that empties explains nothing to the reader
+   wondering what they just pressed. */
 MESH_STR_ENTRY(NODES_FILTER_NONE,         "No nodes match this filter")
-/* The order the list is in, on the row under the chips - see include/mesh/ui/nodes.h for why an
-   order is a second axis rather than a fourth filter, and the renderer for why five of these are
-   a label and a word rather than a second strip. "Default" is the order the list has always been
-   in - ourselves, then pins, then the people you talk to - and it is deliberately not named
-   after any one of those, because it is all of them. */
-/* The row under the sort: a piece of a name, typed, narrowing what the filter kept. The value
-   is what was typed. */
+/* The search chip, first on the bar: its word while nothing is typed, and what was typed once
+   something is. */
 MESH_STR_ENTRY(NODES_FIND_ROW,            "Find")
 MESH_STR_ENTRY(NODES_FIND_PROMPT,         "Find a node")
 MESH_STR_ENTRY(NODES_FIND_NONE,           "No node matches what you typed")
@@ -449,15 +438,22 @@ MESH_STR_ENTRY(NODES_FIND_NONE,           "No node matches what you typed")
    typed so far keeps, counted through the filter the list is on, so it is the number the list
    will show once the keyboard is done. A badge, so keep it short. */
 MESH_STR_PLURAL_ENTRY(NODES_FIND_MATCHES, "%u match", "%u matches")
-MESH_STR_ENTRY(NODES_SORT_ROW,            "Sort")
+/* The order the list is in, on the last chip of the bar and on the sheet that chip raises - see
+   include/mesh/ui/nodes.h for why an order is a second axis rather than a fourth filter.
+   "Default" is the order the list has always been in - ourselves, then pins, then the people
+   you talk to - and it is deliberately not named after any one of those, because it is all of
+   them. The chip says the axis and the order, so it reads as a sort rather than a fourth
+   filter; the sheet's title is the question its rows answer. */
+MESH_STR_ENTRY(NODES_SORT_CHIP,           "Sort: %s")
+MESH_STR_ENTRY(NODES_SORT_TITLE,          "Sort by")
 MESH_STR_ENTRY(NODES_SORT_DEFAULT,        "Default")
 MESH_STR_ENTRY(NODES_SORT_HEARD,          "Recent")
 MESH_STR_ENTRY(NODES_SORT_NAME,           "Name")
 MESH_STR_ENTRY(NODES_SORT_DISTANCE,       "Distance")
 MESH_STR_ENTRY(NODES_SORT_HOPS,           "Hops")
 /* The chosen order when it has nothing to measure with, which is the distance sort on a radio
-   with no fix of its own. The order's own word, then why the rows did not move - said in the
-   column that already answers "what is this set to", because that is where the reader just
+   with no fix of its own. The order's own word, then why the rows did not move - said on the
+   chip that already answers "what is this set to", because that is where the reader just
    pressed and it costs the list no row. "Fix" is the word the node detail uses for the same
    thing. */
 MESH_STR_ENTRY(NODES_SORT_NO_FIX,         "%s (no fix)")
@@ -1537,13 +1533,13 @@ MESH_STR_ENTRY(HELP_NOTE_REACTION_SEND,   "One small packet, sent without asking
 MESH_STR_ENTRY(HELP_NOTE_REACTION_DELETE, "The button under the faces throws the message away, in two presses. It removes your copy only - the mesh cannot recall a message, so everyone who heard it still has it. Tapbacks on it go with it.")
 
 /* Nodes. */
-MESH_STR_ENTRY(HELP_LABEL_NODES_FILTER,   "The filter row")
-MESH_STR_ENTRY(HELP_LABEL_NODES_SORT,     "The sort row")
+MESH_STR_ENTRY(HELP_LABEL_NODES_FILTER,   "The filter chips")
+MESH_STR_ENTRY(HELP_LABEL_NODES_SORT,     "The sort chip")
 MESH_STR_ENTRY(HELP_LABEL_NODES_PIN,      "Pinned nodes")
 MESH_STR_ENTRY(HELP_LABEL_NODES_CACHED,   "Nodes the radio has forgotten")
 MESH_STR_ENTRY(HELP_NOTE_NODES,           "Everyone this client has heard of. A node that has never said what it is called is listed by its node number, exactly as the phone apps list it.")
-MESH_STR_ENTRY(HELP_NOTE_NODES_FILTER,    "The first row decides what is under it: all of the roster, the nodes heard with no relay in the way, or the ones you pinned. Left and Right move between them, and the heading counts what is shown.")
-MESH_STR_ENTRY(HELP_NOTE_NODES_SORT,      "The second row is the order. Default puts this radio, pinned nodes, your other radios and anyone you have messaged first, then the rest by last heard. Distance needs a fix of your own.")
+MESH_STR_ENTRY(HELP_NOTE_NODES_FILTER,    "The chips under the heading decide what is listed: all of it, the nodes heard with no relay in the way, or the ones you pinned. Left and Right walk the chips and A picks one.")
+MESH_STR_ENTRY(HELP_NOTE_NODES_SORT,      "The last chip is the order, and A shows all five. Default puts this radio, pinned nodes, your other radios and anyone you have messaged first. Distance needs a fix of your own.")
 MESH_STR_ENTRY(HELP_NOTE_NODES_PIN,       "X pins a node to the top of the list and keeps it there. Pins are this client's own and are kept across a restart; they change nothing on the radio.")
 MESH_STR_ENTRY(HELP_NOTE_NODES_CACHED,    "The radio holds about eighty nodes and drops the oldest, so this list is deliberately longer than its NodeDB and marks what the radio no longer carries. Radio > Mesh > nodes clears them.")
 

@@ -362,13 +362,12 @@ static bool mesh_ui_nav_close_node_detail(struct mesh_ui_nav *nav) {
 /*
  * The node a Nodes-list row is about, or NULL when the row is not about a node.
  *
- * One place that knows the list has lead rows on the front of it, and a filter and a sort over
+ * One place that knows the list has a chip bar on the front of it, and a filter and a sort over
  * the rest, so the four presses the list offers - A, X, Y and the detail's own opening - cannot
- * disagree about which node row 4 is. Every one of them went through mesh_ui_node_detail_at()
- * with the raw cursor before the map row existed, and every one of them would have been off by
- * one after it; the filter was the same mistake waiting a second time and the sort a third, and
- * both are worse than the off-by-one, because a wrong answer there is a *plausible* node rather
- * than an obviously shifted one.
+ * disagree about which node row 4 is. Every one of them once went through
+ * mesh_ui_node_detail_at() with the raw cursor, and every one of them was off by one the day a
+ * row arrived in front of the nodes; the filter and the sort are worse than an off-by-one,
+ * because a wrong answer there is a *plausible* node rather than an obviously shifted one.
  *
  * The view is built here and thrown away, which is a sort of the roster per press. That is the
  * right side of the trade: a press is not a frame, and the alternative is a view cached on the
@@ -387,42 +386,94 @@ static const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct m
     return mesh_ui_node_view_at(&store->handshake, &view, cursor - MESH_UI_NODES_LEAD_ROWS);
 }
 
+_Static_assert((unsigned)MESH_UI_NODES_CHIP_SORT ==
+                   (unsigned)MESH_UI_NODES_CHIP_FILTER_FIRST + (unsigned)MESH_UI_NODE_FILTER_COUNT,
+               "the chip bar has one filter chip per filter, between the search and the sort");
+
 /*
- * The two control rows at the top of the Nodes list, stepped by one.
+ * Left and Right on the chip bar: the next chip that way, stopping at either end.
  *
- * Left and Right, which is the Settings tab's rule arriving on the only other screen in this
- * client that has a field row. mesh_ui_nav_settings_edit_key() reads Left as -1 and everything
- * else as +1; this reads it the same way, from the same shaped call, so A still steps forward
- * and the two screens cannot drift into meaning different things by the same press.
- *
- * It used to be A and nothing else, and the strip it stepped carried no mark saying so. That is
- * the whole of what made this screen hard to start using: the pencil in a row's gutter is how
- * everything else in the client says "this is set here", the action bar's keycap is how it names
- * the press, and a filter that used neither was a control a reader had to find by trying every
- * button on the case.
- *
- * The shoulders are deliberately not taken. L1/R1 still walk the tabs, which is the whole reason
- * the d-pad's axis could be spent here - the same split the map, the trend chart and the node
- * detail already make, and the reason the action bar can go on saying "L/R tabs" and meaning it.
- *
- * The cursor stays where it is on both rows, and that is the property that makes the press safe
- * rather than a convention: they are the only two rows of this list that what they change cannot
- * re-number.
+ * Stopping rather than wrapping or falling through to the tab switch, because the bar is a row
+ * of controls and the d-pad's axis is the bar's while the cursor is on it - the Settings tab's
+ * field rows make the same split. A press past the end is spent, so a reader holding Right to
+ * reach the sort does not overshoot into the next tab. The shoulders still walk the tabs from
+ * here, as they do from the map.
  */
-static bool mesh_ui_nav_nodes_control_step(struct mesh_ui_nav *nav, uint32_t cursor,
-                                           enum inkcell_key key) {
-    const int delta = (key == INKCELL_KEY_LEFT) ? -1 : +1;
-    if (cursor == MESH_UI_NODES_FILTER_ROW) {
-        nav->node_filter =
-            (uint8_t)mesh_ui_node_filter_step((enum mesh_ui_node_filter)nav->node_filter, delta);
+static bool mesh_ui_nav_nodes_chip_walk(struct mesh_ui_nav *nav, enum inkcell_key key) {
+    uint8_t chip = nav->node_chip < (uint8_t)MESH_UI_NODES_CHIP_COUNT
+                       ? nav->node_chip
+                       : (uint8_t)MESH_UI_NODES_CHIP_FILTER_FIRST;
+    if (key == INKCELL_KEY_LEFT && chip > 0U) {
+        chip--;
+    } else if (key == INKCELL_KEY_RIGHT && chip + 1U < (uint8_t)MESH_UI_NODES_CHIP_COUNT) {
+        chip++;
+    }
+    const bool moved = chip != nav->node_chip;
+    nav->node_chip = chip;
+    return moved;
+}
+
+/*
+ * A on the chip bar: whatever the chip under the cursor is for.
+ *
+ * A filter chip is chosen outright rather than stepped - the chips are the set, so the one the
+ * reader is on is the one they mean. The search opens the keyboard, and the sort raises its
+ * sheet, where all five orders are on the panel at once instead of arriving one per press.
+ */
+static bool mesh_ui_nav_nodes_chip_press(struct mesh_ui_nav *nav) {
+    const uint8_t chip = nav->node_chip;
+    if (chip == (uint8_t)MESH_UI_NODES_CHIP_FIND) {
+        mesh_ui_nav_open_node_query_keyboard(nav);
         return true;
     }
-    if (cursor == MESH_UI_NODES_SORT_ROW) {
-        nav->node_sort =
-            (uint8_t)mesh_ui_node_sort_step((enum mesh_ui_node_sort)nav->node_sort, delta);
+    if (chip == (uint8_t)MESH_UI_NODES_CHIP_SORT) {
+        nav->node_sort_open = true;
+        nav->node_sort_cursor =
+            nav->node_sort < (uint8_t)MESH_UI_NODE_SORT_COUNT ? (uint32_t)nav->node_sort : 0U;
         return true;
+    }
+    if (chip >= (uint8_t)MESH_UI_NODES_CHIP_FILTER_FIRST &&
+        chip < (uint8_t)MESH_UI_NODES_CHIP_SORT) {
+        const uint8_t filter = (uint8_t)(chip - (uint8_t)MESH_UI_NODES_CHIP_FILTER_FIRST);
+        const bool changed = nav->node_filter != filter;
+        nav->node_filter = filter;
+        return changed;
     }
     return false;
+}
+
+/*
+ * The sort sheet's own presses: Up and Down walk the orders, A takes the one the cursor is on
+ * and puts the sheet down, B puts it down unchanged.
+ *
+ * Only the presses the sheet owns - the node verbs' sheet's rule and its reason. The shoulders
+ * still change tab and SELECT still opens this screen's help, so the bar can go on naming both.
+ */
+static bool mesh_ui_nav_node_sort_key(struct mesh_ui_nav *nav, enum inkcell_key key) {
+    const uint32_t last = (uint32_t)MESH_UI_NODE_SORT_COUNT - 1U;
+    switch (key) {
+    case INKCELL_KEY_UP:
+        if (nav->node_sort_cursor == 0U) {
+            return false;
+        }
+        nav->node_sort_cursor--;
+        return true;
+    case INKCELL_KEY_DOWN:
+        if (nav->node_sort_cursor >= last) {
+            return false;
+        }
+        nav->node_sort_cursor++;
+        return true;
+    case INKCELL_KEY_A:
+        nav->node_sort = nav->node_sort_cursor <= last ? (uint8_t)nav->node_sort_cursor : 0U;
+        nav->node_sort_open = false;
+        return true;
+    case INKCELL_KEY_B:
+        nav->node_sort_open = false;
+        return true;
+    default:
+        return false;
+    }
 }
 
 /*
@@ -434,7 +485,7 @@ static bool mesh_ui_nav_nodes_control_step(struct mesh_ui_nav *nav, uint32_t cur
  *
  * And the row count is checked, which is the half that is not about overlays at all. A roster
  * with nothing in it answers 0 rows and the screen draws inkcell_fb_draw_empty() - no filter, no
- * sort, no list - so row 0 is not the filter row there, it is a row that does not exist. Left and
+ * sort, no list - so row 0 is not the chip bar there, it is a row that does not exist. Left and
  * Right have to stay the tab switch on that screen, because it is the first one a client with
  * no radio attached shows and stepping a control nobody can see is the d-pad going dead on
  * exactly the screen a reader is trying to leave. It is the guard mesh_ui_nav_confirm() already
@@ -481,6 +532,9 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
     /* Not zero, which is the narrowest span: a chart opens on everything it has, which is what
        it drew before there was a picker - see `trend_span`. */
     nav->trend_span = (uint8_t)INKCELL_TREND_SPAN_ALL;
+    /* The chip bar starts on the filter the list is showing, All: the chip that is already lit
+       is the one a reader arriving on the bar expects to be standing on. */
+    nav->node_chip = (uint8_t)MESH_UI_NODES_CHIP_FILTER_FIRST;
 }
 
 /* ---- message filter ----------------------------------------------------------------------- */
@@ -764,11 +818,9 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
                                    : store->handshake.node_count;
         if (nav == NULL || !nav->node_detail_open) {
             /*
-             * The filter row, the sort row, the map row, and then whichever nodes the filter
-             * keeps. A roster with nothing in it draws an empty state instead of a list, so none
-             * of the lead rows is offered: the screen the map row would open is the same nothing
-             * one level in, and a filter or a sort over an empty roster is a control with
-             * nothing to do.
+             * The chip bar, and then whichever nodes the filter keeps. A roster with nothing in
+             * it draws an empty state instead of a list, so the bar is not offered: a filter or
+             * a sort over an empty roster is a control with nothing to do.
              *
              * The sort is absent from this arithmetic on purpose, and that is a claim worth
              * stating: it permutes the rows the filter kept and never selects among them, so
@@ -777,7 +829,7 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
              * show up here as a cursor that walks off the end.
              *
              * A filter that keeps *none* of a roster that has something in it is the opposite
-             * case and the list stays: the lead rows are how the reader gets back out, and a
+             * case and the list stays: the chip bar is how the reader gets back out, and a
              * screen that emptied itself would have taken the chip that emptied it away with the
              * rows. The renderer says so in words on the row where the nodes would be.
              */
@@ -1796,7 +1848,7 @@ static bool mesh_ui_nav_node_action_run(struct mesh_ui_nav *nav, const struct me
          * detail closes behind us onto the Settings tab, which is the thing that has just
          * changed meaning.
          *
-         * Opened *under* the detail for the reason the map row gives - leaving the card up
+         * Opened *under* the detail for the reason "Show on map" gives - leaving the card up
          * over its own consequence would make B land back on the row that was pressed. The
          * tab lands on its section list rather than in a section, because which section
          * somebody wants of a radio they have just reached is not a guess this row can make.
@@ -2128,22 +2180,9 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return false;
         }
         if (!nav->node_detail_open) {
-            /*
-             * The filter and the sort, stepped forward.
-             *
-             * A as well as Left and Right, and in that order of importance: the d-pad is what
-             * the row's pencil and the action bar both name, and A is here because it is what
-             * steps an enum on a Settings field too (mesh_ui_nav_settings_edit_key), so a
-             * reader who has learned either screen has learned both. One helper answers all
-             * three keys, which is what keeps the forward step and the backward one from
-             * becoming two opinions about the same two rows.
-             */
-            if (mesh_ui_nav_nodes_control_step(nav, cursor, INKCELL_KEY_A)) {
-                return true;
-            }
-            if (cursor == MESH_UI_NODES_FIND_ROW) {
-                mesh_ui_nav_open_node_query_keyboard(nav);
-                return true;
+            /* The chip bar: whatever the chip under the cursor is for. */
+            if (cursor == MESH_UI_NODES_CHIP_ROW) {
+                return mesh_ui_nav_nodes_chip_press(nav);
             }
             /* A on a contact opens what we know about it, the way tapping one in the phone
                app does. Writing to it is the first row inside, and Y still goes straight
@@ -2615,6 +2654,13 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
          key == INKCELL_KEY_RIGHT || key == INKCELL_KEY_A || key == INKCELL_KEY_B)) {
         return mesh_ui_nav_node_actions_key(nav, store, key, out_action) || changed;
     }
+    /* The sort sheet, on the same terms: the d-pad and the two buttons that answer it are its
+       own, Left and Right included so they cannot walk the chips underneath. */
+    if (nav->node_sort_open && nav->screen == MESH_UI_SCREEN_NODES && !nav->node_detail_open &&
+        (key == INKCELL_KEY_UP || key == INKCELL_KEY_DOWN || key == INKCELL_KEY_LEFT ||
+         key == INKCELL_KEY_RIGHT || key == INKCELL_KEY_A || key == INKCELL_KEY_B)) {
+        return mesh_ui_nav_node_sort_key(nav, key) || changed;
+    }
 
     /* The retry, which is the opposite arrangement: the thing a second press of the same key
        must not do is happen again. Anything else re-arms it, including the cursor move that
@@ -2789,20 +2835,19 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     }
 
     /*
-     * The Nodes list's two control rows, before the routing below turns Left and Right into a
-     * change of tab - the map's placement and the map's reason, one screen along.
+     * The Nodes list's chip bar, before the routing below turns Left and Right into a change of
+     * tab - the map's placement and the map's reason, one screen along.
      *
-     * Only these two rows take the axis. On every node row under them Left and Right are still
-     * the tab switch, which is the objection this arrangement has to answer: a d-pad that means
-     * two things on one screen. It is answered the way the Settings tab answers it, because that
-     * screen has had exactly this shape since it was written - a field row edits, a row with no
-     * field walks the tabs, and the pencil in the gutter is what tells the two apart before the
-     * press. The rows that edit here wear the same pencil for the same reason.
+     * Only the bar takes the axis. On every node row under it Left and Right are still the tab
+     * switch, which is the objection this arrangement has to answer: a d-pad that means two
+     * things on one screen. It is answered the way the Settings tab answers it - a row of
+     * controls edits, a row with none walks the tabs - and the ring on the chip is what tells
+     * the two apart before the press.
      */
     if (mesh_ui_nav_nodes_list_showing(nav, store) &&
-        (key == INKCELL_KEY_LEFT || key == INKCELL_KEY_RIGHT) &&
-        mesh_ui_nav_nodes_control_step(nav, nav->cursor[MESH_UI_SCREEN_NODES], key)) {
-        return true;
+        nav->cursor[MESH_UI_SCREEN_NODES] == MESH_UI_NODES_CHIP_ROW &&
+        (key == INKCELL_KEY_LEFT || key == INKCELL_KEY_RIGHT)) {
+        return mesh_ui_nav_nodes_chip_walk(nav, key) || changed;
     }
 
     if (mesh_ui_nav_open_section(nav) != MESH_UI_SETTINGS_NO_SECTION) {
@@ -2989,10 +3034,11 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             return true;
         }
         if (nav->screen == MESH_UI_SCREEN_NODES && !mesh_ui_nav_waypoints_showing(nav) &&
-            !nav->node_detail_open && nav->cursor[nav->screen] == MESH_UI_NODES_FIND_ROW) {
-            /* The Find row's X is its clear, and only while there is something to clear: the
-               bar names it then and not otherwise. The cursor stays on the row - it is above
-               every row a query renumbers. */
+            !nav->node_detail_open && nav->cursor[nav->screen] == MESH_UI_NODES_CHIP_ROW &&
+            nav->node_chip == (uint8_t)MESH_UI_NODES_CHIP_FIND) {
+            /* The search chip's X is its clear, and only while there is something to clear: the
+               bar names it then and not otherwise. The cursor stays on the chip bar - it is
+               above every row a query renumbers. */
             if (nav->node_query[0] == '\0') {
                 return changed;
             }

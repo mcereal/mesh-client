@@ -69,9 +69,8 @@ static void fb_devices_network_row(struct inkcell_draw_state *state, struct inkc
            discovery publishes for a live network link: a host has no advertisement coming, so
            what it is reachable at is what it is called. */
         .text = configured ? entry->host : inkcell_str(MESH_STR_DEVICES_NETWORK_ROW),
-        /* Dim while there is nothing to connect to, for the reason the Nodes tab's map row is
-           dim with no markers on it: it is a button among things, and one that does not yet
-           lead anywhere. */
+        /* Dim while there is nothing to connect to: it is a button among things, and one that
+           does not yet lead anywhere. */
         .tone = configured ? INKCELL_TONE_NORMAL : INKCELL_TONE_DIM,
         .trailing = {.kind = INKCELL_FB_TRAILING_TEXT,
                      .text = configured ? inkcell_str(MESH_STR_DEVICES_TRAILING_NETWORK) : ""},

@@ -24,6 +24,17 @@ struct mesh_ui_store;
    press is a fact about a piece of plastic, and the navigation model never sees a keycode
    either way. The names are INKCELL_KEY_*. */
 
+/* The chips on the Nodes list's chip bar, in the order Left and Right walk them: the search,
+   then one per filter in enum mesh_ui_node_filter's order, then the sort. */
+enum mesh_ui_nodes_chip {
+    MESH_UI_NODES_CHIP_FIND = 0,
+    MESH_UI_NODES_CHIP_FILTER_FIRST = 1,
+    /* Past the filters: 1 + MESH_UI_NODE_FILTER_COUNT, which nodes.h owns. nav.c holds the two
+       to each other with a static assertion, since this header cannot see the filter enum. */
+    MESH_UI_NODES_CHIP_SORT = 4,
+    MESH_UI_NODES_CHIP_COUNT = 5,
+};
+
 /* Tabs, in the order LEFT/RIGHT (and L1/R1) walk them. Compose is not one: it is an overlay
    over the open conversation, so it can never be reached with a stale destination. */
 enum mesh_ui_screen {
@@ -62,27 +73,32 @@ enum mesh_ui_screen {
 };
 
 /*
- * The rows on the front of the Nodes list that are not nodes.
+ * The row on the front of the Nodes list that is not a node: the chip bar.
  *
- * The filter row is the control that says which of the roster is below it
- * (include/mesh/ui/nodes.h); the sort and the find rows sit under it. They are at the *front*
- * of the list for the reason the conversation list's "New message" row is at the back of its
- * own: this list can be a hundred and twenty-eight rows long, and a control at the bottom of
- * that is a control that is not there.
+ * Search, the filter and the sort, as one row of chips under the heading - [Find] [All] [Direct]
+ * [Pinned] [Sort]. They were three field rows once, and with the map and the places two more,
+ * which was five rows of controls pushed in front of the first node on the one list in this
+ * client that runs to a hundred and twenty-eight rows. A chip bar is the shape every phone gives
+ * the same three questions, and it says what the list is showing at a glance: the filter that
+ * is on is the filled chip, the search is the words on the first one, the order is the words on
+ * the last.
+ *
+ * The bar is the list's row 0 so the d-pad reaches it the way it reaches everything else - Up
+ * from the first node - and `node_chip` is which chip the d-pad is on while it is there. Left
+ * and Right walk the chips, which mesh_ui_nav_handle_key() takes before the tab switch, and A
+ * presses the one the cursor is on. The chip bar is drawn fixed under the heading rather than
+ * scrolled with the rows, so the state of the list is on the panel however far down the reader
+ * has gone.
  *
  * mesh_ui_nav_node_at_row() is the one place that knows how many rows to subtract, so the
  * presses this list offers cannot disagree about which node row 7 is about.
  */
-#define MESH_UI_NODES_FILTER_ROW 0U
-#define MESH_UI_NODES_SORT_ROW 1U
-/* Find: a piece of a name, typed. A opens the keyboard on it and X clears it; Left and Right
-   are the tabs here, since the row edits nothing in place - see `node_query`. */
-#define MESH_UI_NODES_FIND_ROW 2U
-/* The Find text's buffer, NUL included: longer than any short name and most long ones. */
-#define MESH_UI_NODE_QUERY_MAX 24U
+#define MESH_UI_NODES_CHIP_ROW 0U
 /* Rows before the first node. Written once so a new one cannot be added to only some of the
    arithmetic - which is exactly how the map row's own arrival went wrong before it was. */
-#define MESH_UI_NODES_LEAD_ROWS 3U
+#define MESH_UI_NODES_LEAD_ROWS 1U
+/* The Find text's buffer, NUL included: longer than any short name and most long ones. */
+#define MESH_UI_NODE_QUERY_MAX 24U
 
 #define MESH_UI_NAV_TARGET_NAME_MAX 40U
 /* A MeshCore repeater's password is 15 characters in its prefs; a sixteenth could never match
@@ -372,11 +388,11 @@ struct mesh_ui_nav {
     bool node_actions_open;
     uint32_t node_actions_cursor;
     /*
-     * Nodes tab: which of the roster the list is showing - `enum mesh_ui_node_filter`, stepped
-     * by A on the list's own first row.
+     * Nodes tab: which of the roster the list is showing - `enum mesh_ui_node_filter`, chosen
+     * by A on its chip in the chip bar.
      *
-     * A filter rather than a sort, and the reasoning is in include/mesh/ui/nodes.h; the Find
-     * row's text is `node_query`, beside it.
+     * A filter rather than a sort, and the reasoning is in include/mesh/ui/nodes.h; the search
+     * chip's text is `node_query`, beside it.
      * What belongs here is why it is on the nav at all: it decides how many rows the screen has,
      * so mesh_ui_nav_row_count() has to read it, and everything that turns a row into a node has
      * to read it too or the cursor and the list part company on the first press.
@@ -391,15 +407,15 @@ struct mesh_ui_nav {
      */
     uint8_t node_filter; /* enum mesh_ui_node_filter */
     /*
-     * Nodes tab: the Find row's text - a piece of a name, a short name or an id, narrowing what
+     * Nodes tab: the search chip's text - a piece of a name, a short name or an id, narrowing what
      * the filter kept. "" is no query. On the nav for the filter's reason, since it decides how
      * many rows there are, and like the filter it lasts until the reader clears it but not
      * past a restart.
      */
     char node_query[MESH_UI_NODE_QUERY_MAX];
     /*
-     * Nodes tab: what order the rows the filter kept are in - `enum mesh_ui_node_sort`, stepped
-     * by A on the row under the filter's.
+     * Nodes tab: what order the rows the filter kept are in - `enum mesh_ui_node_sort`, chosen
+     * on the sheet the sort chip raises (`node_sort_open`).
      *
      * Beside the filter rather than folded into it because they are different axes: "which of
      * them" and "in what order", and a reader looking for the nearest pinned node wants both at
@@ -415,6 +431,19 @@ struct mesh_ui_nav {
      * why the two still land in the same place.
      */
     uint8_t node_sort; /* enum mesh_ui_node_sort */
+    /* Nodes tab: which chip of the chip bar the d-pad is on - enum mesh_ui_nodes_chip. Kept
+       while the cursor is down among the nodes, so Up comes back to the chip it left. */
+    uint8_t node_chip;
+    /*
+     * Nodes tab: the sort sheet is up over the list, `node_sort_cursor` the order it is on.
+     *
+     * A sheet rather than a chip that steps, because there are five orders and a reader
+     * stepping blind through them is a reader who cannot see the one they want until they
+     * reach it. The sheet shows all five at once with the current one checked - the node
+     * verbs' sheet, one press from the list.
+     */
+    bool node_sort_open;
+    uint32_t node_sort_cursor;
     /* "Remove from radio" is armed by one press and acts on the second, the same way Y on the
        Devices tab is: it is the one node row that takes its own row away, so a press that
        lands on it by accident should cost nothing. Any other press stands it down. */

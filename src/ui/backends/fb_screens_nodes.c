@@ -519,13 +519,192 @@ void fb_render_node_pane(struct inkcell_draw_state *state, const struct mesh_ui_
     fb_render_node_actions(state, snapshot, layout);
 }
 
+static void fb_render_node_sort(struct inkcell_draw_state *state,
+                                const struct mesh_ui_snapshot *snapshot,
+                                struct inkcell_fb_layout *layout);
+
 void fb_render_nodes(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                      struct inkcell_fb_layout *layout) {
     if (snapshot->nav.node_detail_open) {
         fb_render_node_pane(state, snapshot, layout);
     } else {
-        fb_render_node_list(state, snapshot, layout);
+        struct inkcell_fb_layout under = *layout;
+        fb_render_node_list(state, snapshot, &under);
+        /* Over the whole body rather than the list's share of it, which the chip bar took the
+           top of: a sheet rises from the panel's edge, not from a list's. */
+        fb_render_node_sort(state, snapshot, layout);
     }
+}
+
+/*
+ * The chip bar: the search, the three filters and the sort, as one row of chips under the
+ * heading - see MESH_UI_NODES_CHIP_ROW for why it is one row and why it is fixed there.
+ *
+ * Drawn here rather than as a row of the list, and it consumes the layout it is drawn into, so
+ * the list below starts under it and scrolls without taking it along.
+ *
+ * The filters are the set with the chosen one filled - the tab strip's shape, and the reason
+ * all three are always on the panel. The search and the sort are verbs rather than a choice,
+ * so they are drawn as the neutral filled pill a control wears at rest; each carries in its own
+ * words what it is currently doing, which is the whole of why the list's state reads at a
+ * glance. The sort sits against the trailing edge, apart from the filters, because it answers a
+ * different question.
+ *
+ * A narrow panel or a large glyph scale drops words before it drops chips: first the sort's
+ * "Sort:" prefix, then the search's word while nothing is typed - its magnifier still says
+ * what it is. Past that the row is clipped at the panel's edge, which no panel this client
+ * lays out at reaches.
+ */
+static void fb_node_chip_bar(struct inkcell_draw_state *state, struct inkcell_fb_layout *layout,
+                             const struct mesh_ui_nav *nav, const char *sort_value,
+                             bool sort_unavailable, bool focused) {
+    const int scale = layout->small;
+    const int gap = inkcell_fb_space_at(state, INKCELL_SPACE_SM, scale);
+    /* Air under the bar as well as the pill's own gap, so the first node's avatar does not sit
+       against the chips - the bar is chrome over the list, not the list's first row. */
+    const int below = inkcell_fb_space(state, INKCELL_SPACE_MD);
+    const int pill_h = inkcell_fb_line_adv(state, scale);
+    const int band_h = gap + pill_h + below;
+    const int text_y = layout->body_y + gap + inkcell_step_px(scale);
+
+    char sort_chip[64];
+    inkcell_str_format(sort_chip, sizeof sort_chip, MESH_STR_NODES_SORT_CHIP, sort_value);
+    const char *find =
+        nav->node_query[0] != '\0' ? nav->node_query : inkcell_str(MESH_STR_NODES_FIND_ROW);
+    const char *sort = sort_chip;
+
+    struct {
+        enum inkcell_icon icon;
+        const char *label;
+    } chips[MESH_UI_NODES_CHIP_COUNT];
+    chips[MESH_UI_NODES_CHIP_FIND].icon = INKCELL_ICON_SEARCH;
+    chips[MESH_UI_NODES_CHIP_FIND].label = find;
+    for (uint32_t f = 0; f < (uint32_t)MESH_UI_NODE_FILTER_COUNT; ++f) {
+        chips[MESH_UI_NODES_CHIP_FILTER_FIRST + f].icon = INKCELL_ICON_NONE;
+        chips[MESH_UI_NODES_CHIP_FILTER_FIRST + f].label =
+            inkcell_str(mesh_ui_node_filter_label((enum mesh_ui_node_filter)f));
+    }
+    chips[MESH_UI_NODES_CHIP_SORT].icon = INKCELL_ICON_NONE;
+    chips[MESH_UI_NODES_CHIP_SORT].label = sort;
+
+    /* The words, dropped a step at a time until the bar fits. */
+    for (int step = 0; step < 3; ++step) {
+        int need = 0;
+        for (size_t c = 0; c < (size_t)MESH_UI_NODES_CHIP_COUNT; ++c) {
+            need += inkcell_fb_chip_width(state, chips[c].icon, chips[c].label, scale);
+        }
+        need += gap; /* the gap between the filters and the sort */
+        if (need <= layout->body_w) {
+            break;
+        }
+        if (step == 0) {
+            chips[MESH_UI_NODES_CHIP_SORT].label = sort_value;
+        } else if (step == 1 && nav->node_query[0] == '\0') {
+            chips[MESH_UI_NODES_CHIP_FIND].label = "";
+        }
+    }
+
+    const uint8_t filter = nav->node_filter;
+    int x = layout->body_x;
+    for (size_t c = 0; c < (size_t)MESH_UI_NODES_CHIP_COUNT; ++c) {
+        const bool is_filter =
+            c >= (size_t)MESH_UI_NODES_CHIP_FILTER_FIRST && c < (size_t)MESH_UI_NODES_CHIP_SORT;
+        if (c == (size_t)MESH_UI_NODES_CHIP_SORT) {
+            /* Against the trailing edge, unless the filters already reach it. */
+            const int w = inkcell_fb_chip_width(state, chips[c].icon, chips[c].label, scale) -
+                          inkcell_fb_char_adv(state, scale);
+            const int end = layout->body_x + layout->body_w;
+            if (end - w > x + gap) {
+                x = end - w;
+            } else {
+                x += gap;
+            }
+        }
+        const bool active =
+            is_filter && (size_t)filter == c - (size_t)MESH_UI_NODES_CHIP_FILTER_FIRST;
+        const bool chip_focused = focused && nav->node_chip == (uint8_t)c;
+        /* A search with something in it is doing something, so it wears the accent too: the
+           reader looking at the list should see at once that it has been narrowed. The sort
+           that cannot measure anything is the warning family's, for the same reason. */
+        const bool lit =
+            active || (c == (size_t)MESH_UI_NODES_CHIP_FIND && nav->node_query[0] != '\0');
+        const struct inkcell_fb_button button = {
+            .rect = inkcell_fb_chip_box(state, x, text_y, chips[c].icon, chips[c].label, scale),
+            .icon = chips[c].icon,
+            .label = chips[c].label,
+            .focused = chip_focused,
+            .variant = lit || (c == (size_t)MESH_UI_NODES_CHIP_SORT && sort_unavailable)
+                           ? INKCELL_FB_BUTTON_TONAL
+                           : (is_filter ? INKCELL_FB_BUTTON_TEXT : INKCELL_FB_BUTTON_FILLED),
+            .family = c == (size_t)MESH_UI_NODES_CHIP_SORT && sort_unavailable
+                          ? INKCELL_FAMILY_WARNING
+                          : INKCELL_FAMILY_PRIMARY,
+            .shape = INKCELL_SHAPE_FULL,
+            .idle_tone = INKCELL_TONE_DIM,
+            .ground = INKCELL_COLOR_BG,
+            .scale = scale,
+            .focus_id = (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)c,
+        };
+        inkcell_fb_draw_button(state, &button);
+        x += inkcell_fb_chip_width(state, chips[c].icon, chips[c].label, scale);
+    }
+
+    layout->body_y += band_h;
+    layout->rows = inkcell_fb_layout_rows(state, layout);
+}
+
+/*
+ * The sort sheet: the five orders, the current one checked, over the list it orders.
+ *
+ * Called on every frame the list is, for the node verbs' reason: a sheet that is leaving is not
+ * in the snapshot any more, and it still has frames to draw.
+ */
+static void fb_render_node_sort(struct inkcell_draw_state *state,
+                                const struct mesh_ui_snapshot *snapshot,
+                                struct inkcell_fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    const bool up = nav->node_sort_open && !nav->node_detail_open;
+    const uint32_t count = (uint32_t)MESH_UI_NODE_SORT_COUNT;
+    const struct inkcell_fb_sheet sheet = {.title = inkcell_str(MESH_STR_NODES_SORT_TITLE)};
+    const struct inkcell_fb_list_style look = fb_list_look(state, FB_LIST_ROLE_MENU);
+    /* Tall enough for every order at the list's own step, which a roomy density makes more
+       than a body line: five choices are few enough that none of them should need a scroll.
+       One step over, because the sheet's content is measured in whole body lines and the list
+       in whole steps inside that, and each rounds down. */
+    const int pad = look.density == INKCELL_FB_LIST_COMFORTABLE
+                        ? inkcell_fb_space(state, INKCELL_SPACE_LG) / 2
+                        : 0;
+
+    struct inkcell_overlay_frame frame;
+    struct inkcell_fb_layout inner;
+    if (!fb_sheet_begin(state, layout, FB_OVERLAY_NODE_SORT, up, &sheet,
+                        (int)(count + 1U) * (layout->line + 2 * pad), &frame, &inner)) {
+        return;
+    }
+    uint8_t heights[MESH_UI_NODE_SORT_COUNT];
+    for (uint32_t r = 0; r < count; ++r) {
+        heights[r] = 1U;
+    }
+    const uint32_t cursor = nav->node_sort_cursor < count ? nav->node_sort_cursor : count - 1U;
+    struct inkcell_fb_list list =
+        inkcell_fb_list_begin_styled(state, &inner, count, cursor, heights, NULL, &look);
+    inkcell_fb_list_glide(state, &list, FB_LIST_NODE_SORT);
+    inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS);
+    uint32_t i;
+    while (inkcell_fb_list_next(&list, &i)) {
+        /* Keyed on the row, above everything else a radio here reaches. The sheet closes on the
+           press that changes the answer, so this never animates in place. */
+        struct inkcell_fb_selection sel = {
+            .id = 0x05000000U | i,
+            .on = i == (uint32_t)nav->node_sort,
+        };
+        const struct inkcell_fb_list_item row = {
+            .text = inkcell_str(mesh_ui_node_sort_label((enum mesh_ui_node_sort)i)),
+            .trailing = {.kind = INKCELL_FB_TRAILING_RADIO, .sel = &sel},
+        };
+        inkcell_fb_list_item(state, &list, i, &row);
+    }
+    fb_sheet_end(state, &frame);
 }
 
 void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
@@ -584,29 +763,26 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
     struct mesh_ui_store view;
     mesh_ui_store_view(snapshot, &view);
     /*
-     * The filter row, the sort row and the map row on the front of the list, and then the nodes
-     * the filter kept in the order the sort put them. The count is the same arithmetic
-     * mesh_ui_nav_row_count() does, and it is written out here rather than shared because the
-     * nav's answer already carries the empty-roster case this branch cannot reach.
+     * The chip bar, and under it the nodes the filter kept in the order the sort put them. The
+     * nav counts the bar as row 0 (MESH_UI_NODES_LEAD_ROWS); the list drawn here holds only the
+     * nodes, so the list's index is the nav's row less that.
      *
-     * A filter that keeps nothing still draws its lead rows and then says so on the row where
-     * the first node would be - so the strip that emptied the list is still on the frame, and
-     * the press that puts it back is one A away. The extra row is the *note's*, not a node's:
-     * mesh_ui_nav_row_count() does not count it and the cursor cannot reach it, exactly as the
-     * empty states elsewhere are not rows.
+     * A filter that keeps nothing still draws the bar and then says so where the first node
+     * would be - so the chip that emptied the list is still on the frame, and the press that
+     * puts it back is one A away. That row is the *note's*, not a node's: mesh_ui_nav_row_count()
+     * does not count it and the cursor cannot reach it, exactly as the empty states elsewhere
+     * are not rows.
      */
     const bool nothing_matched = (count == 0U);
     /*
-     * A sort that cannot measure anything says so in its own value column, and nowhere else.
+     * A sort that cannot measure anything says so on its own chip, and nowhere else.
      *
      * A distance sort with no fix of our own leaves the list in the order it was published in,
-     * and a row reading "Distance" over a list that did not move is the control and the rows
+     * and a chip reading "Distance" over a list that did not move is the control and the rows
      * disagreeing about one fact - the failure the Direct chip's note is written against,
-     * arriving from the other side. It is said where the reader just pressed, in the column that
-     * already says what the sort is set to, because the two alternatives are both worse: a row
-     * of its own past the lead rows is a row the nav does not count and the cursor cannot reach,
-     * which is only safe when there are no node rows to draw under it, and a supporting line
-     * that appears with the state would change the height of the row the cursor is standing on.
+     * arriving from the other side. It is said where the reader just pressed, on the chip that
+     * already says what the sort is set to, because a row of its own under the bar would be a
+     * row the nav does not count and the cursor cannot reach.
      */
     const bool sort_unavailable = !mesh_ui_node_sort_available(hs, sort);
     char sort_value[40];
@@ -616,97 +792,51 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
     } else {
         inkwell_str_copy(sort_value, sizeof sort_value, inkcell_str(mesh_ui_node_sort_label(sort)));
     }
-    const uint32_t rows = count + MESH_UI_NODES_LEAD_ROWS + (nothing_matched ? 1U : 0U);
-    /*
-     * Every row here is two steps - a name and the line under it - except the strip, which is
-     * one.
-     *
-     * That is the variable-height list model earning its keep rather than a special case. A
-     * chip is a capsule one line advance tall and there is nothing under it to say, so a
-     * two-step strip would spend a whole node row on air - on the one list in this client that
-     * runs to a hundred and twenty-eight rows, which is precisely where a row costs the most.
-     * Declared before the list is opened, because the model is the authority on every height
-     * and can only be if it is told first.
-     */
-    uint8_t node_heights[MESH_UI_MAX_HANDSHAKE_NODES + MESH_UI_NODES_LEAD_ROWS + 1U];
+    /* The bar has the cursor when the list is what the reader is on and row 0 is where they
+       are; a detail open beside the list has the tab's cursor for its own rows. */
+    const bool on_chips =
+        !nav->node_detail_open && nav->cursor[MESH_UI_SCREEN_NODES] == MESH_UI_NODES_CHIP_ROW;
+    fb_node_chip_bar(state, layout, nav, sort_value, sort_unavailable, on_chips);
+
+    const uint32_t rows = count + (nothing_matched ? 1U : 0U);
+    /* Every node is two steps - a name and the line under it. Declared before the list is
+       opened, because the model is the authority on every height and can only be if it is told
+       first. */
+    uint8_t node_heights[MESH_UI_MAX_HANDSHAKE_NODES + 1U];
     for (uint32_t r = 0; r < rows && r < (uint32_t)(sizeof node_heights); ++r) {
-        /* The lead rows are one step each - the map and the places included, whose count sits in
-           the value column rather than on a line of its own: five rows of controls are the top
-           of a list whose nodes are what the reader came for. */
-        node_heights[r] = r < MESH_UI_NODES_LEAD_ROWS ? 1U : 2U;
+        node_heights[r] = 2U;
     }
     /* With a node open - which is only drawn beside it, on a split frame - the tab's cursor
        indexes the detail's rows, and the list's own place is the open node's row, found by
        which node it is: the roster re-ranks under an open detail on every publish. */
     uint32_t cursor = nav->cursor[MESH_UI_SCREEN_NODES];
+    cursor = cursor >= MESH_UI_NODES_LEAD_ROWS ? cursor - MESH_UI_NODES_LEAD_ROWS : 0U;
     if (nav->node_detail_open) {
         const uint32_t at = mesh_ui_node_view_find(hs, &view_rows, nav->node_detail_node);
-        cursor = at < count ? at + MESH_UI_NODES_LEAD_ROWS : nav->node_list_cursor;
+        const uint32_t parked = nav->node_list_cursor >= MESH_UI_NODES_LEAD_ROWS
+                                    ? nav->node_list_cursor - MESH_UI_NODES_LEAD_ROWS
+                                    : 0U;
+        cursor = at < count ? at : parked;
     }
     const struct inkcell_fb_list_style look = fb_list_look(state, FB_LIST_ROLE_FEED);
     struct inkcell_fb_list list =
         inkcell_fb_list_begin_styled(state, layout, rows, cursor, node_heights, NULL, &look);
+    /*
+     * With the cursor up on the chip bar, no row is the cursor's. The window is still derived
+     * from row 0, which is what keeps the top of the list in view under the bar - but nothing
+     * is highlighted and nothing claims the focus ring, which is on a chip. Past the end is how
+     * a list says "none of mine": inkcell_list_is_cursor() is an equality with the index.
+     */
+    if (on_chips) {
+        list.model.cursor = UINT32_MAX;
+    }
     /* The rows glide and are click targets only while they are what the reader is on. A detail
        open beside them glides its own window - there is one glide slot, and two lists taking it
-       in turn every frame would leave neither gliding - and registers its own rows. */
+       in turn every frame would leave neither gliding - and registers its own rows. Their ids
+       are the nav's rows, the bar's included, so a click names the row the d-pad would. */
     if (!nav->node_detail_open) {
         inkcell_fb_list_glide(state, &list, FB_LIST_NODES);
-        inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
-    }
-    /*
-     * The filter and the sort are one control group, drawn as two Settings field rows.
-     *
-     * Both were bespoke before this: the filter a chip strip that filled the row on its own, the
-     * sort a label and a word. Neither said in the gutter that it was set here, so the strip
-     * read as a caption about the list rather than a control over it, and the sort read as a
-     * stated fact. The screen was two rows of what looked like status above a list, and the
-     * presses that worked them were named only at the bottom of the panel.
-     *
-     * So they are the shape this client already has for "one of a small set, chosen on the
-     * row": a label naming the axis, the value column, and whichever mark the Settings tab
-     * would give the same kind of row - which is the whole of why they are drawn this way, and
-     * why the answer is not written out twice. Both carry the stepper, and the filter's
-     * stands down for its segmented button whenever that button is what gets drawn - which is
-     * the row's own answer rather than this screen's, because the fallback to a word is exactly
-     * the shape that still needs the mark. Nothing here is a new component - it is
-     * `struct inkcell_fb_list_item` with the slots the Settings tab's enums already use.
-     *
-     * One label column for both rows, measured from the longer of the two words, so the group
-     * reads as one block rather than as two rows that happen to adjoin.
-     */
-    const char *const control_labels[] = {inkcell_str(MESH_STR_NODES_FILTER_ROW),
-                                          inkcell_str(MESH_STR_NODES_SORT_ROW),
-                                          inkcell_str(MESH_STR_NODES_FIND_ROW)};
-    const size_t control_label_cols = inkcell_fb_field_label_cols_fit(
-        state, layout, control_labels, sizeof control_labels / sizeof control_labels[0]);
-    /*
-     * The filter gets the whole set and the sort gets the chosen word, and that split is a
-     * measurement rather than a preference - it is INKCELL_FB_SEGMENTED_MAX, stated once in the
-     * component and read here.
-     *
-     * Three filters are inside it, so all three are on the panel: the reader sees that "Direct"
-     * and "Pinned" exist without pressing anything, which is the single biggest thing the chip
-     * strip got right and the reason the set is still shown rather than stepped. Five sorts are
-     * outside it, so the sort is the word - five equal shares of a value column are five clipped
-     * words, which is the same answer the Settings tab gives a region or a modem preset. The
-     * component decides between the set and the word from the room it is given, so a narrow
-     * panel or a large glyph scale falls back to the word here too rather than to three pills
-     * with no labels in them.
-     */
-    /* The set is copied into a fixed array, so the bound is checked where the two constants meet
-       rather than trusted. A fourth filter is free; a fifth is a write past `labels` that only
-       shows up as whatever sits after it on the stack, which is the one way this row could fail
-       without looking wrong. The same guard mesh_ui_node_view::order states about the roster. */
-    INKCELL_STATIC_ASSERT((unsigned)MESH_UI_NODE_FILTER_COUNT <= INKCELL_FB_SEGMENTED_MAX,
-                          "a filter has been added that the segmented button cannot hold");
-    struct inkcell_fb_segmented filter_segments = {
-        .count = (size_t)MESH_UI_NODE_FILTER_COUNT,
-        .active = (size_t)filter,
-        .value = inkcell_str(mesh_ui_node_filter_label(filter)),
-    };
-    for (uint32_t f = 0; f < (uint32_t)MESH_UI_NODE_FILTER_COUNT; ++f) {
-        filter_segments.labels[f] =
-            inkcell_str(mesh_ui_node_filter_label((enum mesh_ui_node_filter)f));
+        inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS + MESH_UI_NODES_LEAD_ROWS);
     }
     const bool imperial = mesh_ui_units_imperial(snapshot->settings.units);
     char right[32];
@@ -714,60 +844,10 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
     char initials[MESH_UI_CONVERSATION_INITIALS_MAX];
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {
-        if (i == MESH_UI_NODES_FILTER_ROW) {
-            const struct inkcell_fb_list_item filter_row = {
-                .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_NONE},
-                .label = inkcell_str(MESH_STR_NODES_FILTER_ROW),
-                .label_cols = control_label_cols,
-                /* No value column: the set is the value, and the word for the chosen one is
-                   inside the control. The stepper *stands down* for that control rather than
-                   being left off, because asking for one is not getting one - too narrow a
-                   panel or too large a glyph scale and the segments come back as the chosen
-                   word, which is the sort row's shape below and needs the sort row's mark. The
-                   Settings tab's segmented rows say this the same way. */
-                .marker_icon = INKCELL_ICON_STEPPER,
-                .marker_yields_to_control = true,
-                .trailing = {.kind = INKCELL_FB_TRAILING_SEGMENTED, .segmented = &filter_segments},
-            };
-            inkcell_fb_list_item(state, &list, i, &filter_row);
-            continue;
-        }
-        if (i == MESH_UI_NODES_SORT_ROW) {
-            const struct inkcell_fb_list_item sort_row = {
-                .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_NONE},
-                .label = inkcell_str(MESH_STR_NODES_SORT_ROW),
-                .label_cols = control_label_cols,
-                /* Five orders is too many for a segmented button, so this row is the word -
-                   and a word cannot say whether it can be changed. The stepper is what a
-                   Settings enum in the same position wears, for the same reason. */
-                .marker_icon = INKCELL_ICON_STEPPER,
-                /* The order, and what it could not do - never dim, whatever it says. On this
-                   list a dim row is one that cannot be pressed, and this one always can: the
-                   press steps on to a sort that works. */
-                .value = sort_value,
-            };
-            inkcell_fb_list_item(state, &list, i, &sort_row);
-            continue;
-        }
-        if (i == MESH_UI_NODES_FIND_ROW) {
-            const struct inkcell_fb_list_item find_row = {
-                .leading = {.kind = INKCELL_FB_LEADING_ICON, .icon = INKCELL_ICON_NONE},
-                .label = inkcell_str(MESH_STR_NODES_FIND_ROW),
-                .label_cols = control_label_cols,
-                /* The pencil: a press opens a keyboard for this row, which is that mark's one
-                   meaning. The value is what was typed and nothing while nothing is - a word
-                   standing in for it would read as a query. */
-                .marker_icon = INKCELL_ICON_EDIT,
-                .value = nav->node_query,
-            };
-            inkcell_fb_list_item(state, &list, i, &find_row);
-            continue;
-        }
-        if (nothing_matched && i >= MESH_UI_NODES_LEAD_ROWS) {
+        if (nothing_matched) {
             /* The row that is not a row: what the filter did, where the nodes would be. Dim
-               because it is not something to press - the same tone the map row takes when it
-               has nothing to open. A query says so in its own words, since the chip may well
-               be on All. */
+               because it is not something to press. A query says so in its own words, since
+               the filter chip may well be on All. */
             inkcell_fb_list_row(state, &list, i,
                                 inkcell_str(nav->node_query[0] != '\0'
                                                 ? MESH_STR_NODES_FIND_NONE
@@ -778,8 +858,7 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
         /* Through the view, never by subtracting from the raw roster: the row-to-node mapping
            is mesh_ui_nav_node_at_row()'s question and this is the same answer, so the node the
            cursor opens and the node this row drew cannot be two different nodes. */
-        const struct mesh_ui_node_summary *node =
-            mesh_ui_node_view_at(hs, &view_rows, i - MESH_UI_NODES_LEAD_ROWS);
+        const struct mesh_ui_node_summary *node = mesh_ui_node_view_at(hs, &view_rows, i);
         if (node == NULL) {
             continue;
         }

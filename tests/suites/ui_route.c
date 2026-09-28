@@ -145,7 +145,7 @@ MESH_TEST_CASE(ui_route_in_and_out_are_opposite, unit) {
      *
      * The shoulders rather than the d-pad, and that is the claim rather than a convenience: what
      * this case is about is that a tab hop is a *direction*, and the shoulder is the press that
-     * is a tab hop from every row. The Nodes list lands on its filter row, where Left and Right
+     * is a tab hop from every row. The Nodes list lands on its chip bar, where Left and Right
      * belong to the control - so asking them for a transition here would be asking the one row
      * on the tab that does not offer one.
      */

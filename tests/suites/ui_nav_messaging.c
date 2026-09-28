@@ -252,7 +252,7 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action); /* clamps at the last row */
-    /* Three nodes under the two lead rows, so the last row is one before their sum. */
+    /* Three nodes under the chip bar, so the last row is one before their sum. */
     const uint32_t last_node_row = MESH_UI_NODES_LEAD_ROWS + 3U - 1U;
     if (store.nav.cursor[MESH_UI_SCREEN_NODES] != last_node_row) {
         failure = "DOWN must clamp at the last node";

@@ -276,6 +276,8 @@ static const struct help_feature k_help_features[] = {
     HELP_FEATURE(MESH_UI_SCREEN_MESSAGES, MESH_UI_ROUTE_REACTION, MESH_STR_HELP_SUBJECT_REACTION,
                  k_help_reaction),
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_LIST, MESH_STR_TAB_NODES, k_help_nodes),
+    /* The sort sheet over that list is the list's help: the orders are one of its paragraphs. */
+    HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_NODE_SORT, MESH_STR_TAB_NODES, k_help_nodes),
     /* The Map tab's two faces. The map's help has to say first that the d-pad does something
        else here, which is the thing a reader arriving from any other tab does not expect. */
     HELP_FEATURE(MESH_UI_SCREEN_MAP, MESH_UI_ROUTE_MAP, MESH_STR_HELP_SUBJECT_MAP, k_help_map),

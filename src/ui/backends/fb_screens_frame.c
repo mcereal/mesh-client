@@ -280,7 +280,7 @@ struct inkcell_box fb_render_content(const struct inkcell_draw_state *state) {
  */
 static bool fb_layer_up(const struct mesh_ui_nav *nav) {
     return nav->confirm.open || nav->verify_open || nav->reaction_open || nav->context_open ||
-           nav->node_actions_open || nav->help_open;
+           nav->node_actions_open || nav->node_sort_open || nav->help_open;
 }
 
 /*

@@ -239,6 +239,42 @@ static void click_settle(struct mesh_ui_store *store) {
 }
 
 /*
+ * A chip on the Nodes list's bar is a target of its own, and a click on one does what the d-pad
+ * and A would: the Direct chip filters, the sort chip raises its sheet, and a click on a row of
+ * that sheet takes the order.
+ */
+MESH_TEST_CASE(ui_click_on_a_node_chip_presses_it, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_action action;
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES),
+                              mesh_ui_store_shutdown(&store), "the test needs the Nodes tab");
+    click_settle(&store);
+    (void)mesh_ui_store_handle_click(
+        &store, (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)MESH_UI_NODES_CHIP_FILTER_FIRST + 1U,
+        &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_filter != 1U, mesh_ui_store_shutdown(&store),
+                              "a click on the Direct chip should choose it");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_CHIP_ROW,
+                              mesh_ui_store_shutdown(&store),
+                              "with the cursor on the bar, where the d-pad would have it");
+
+    click_settle(&store);
+    (void)mesh_ui_store_handle_click(
+        &store, (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)MESH_UI_NODES_CHIP_SORT, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_sort_open, mesh_ui_store_shutdown(&store),
+                              "a click on the sort chip should raise the sheet");
+    click_settle(&store);
+    (void)mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS + 2U, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.node_sort_open || store.nav.node_sort != 2U,
+                              mesh_ui_store_shutdown(&store),
+                              "and a click on a row of it should take that order");
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
  * A click that moves the cursor has walked off an armed row, as a d-pad step would have.
  *
  * The click's own press is A, and A on the detail that armed the delete is the key allowed to

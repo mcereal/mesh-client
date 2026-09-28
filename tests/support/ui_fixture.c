@@ -102,7 +102,7 @@ bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen)
     /*
      * The shoulder rather than the d-pad, because the shoulder is the press that means "the next
      * tab" from anywhere. Left and Right mean it on most rows and not on all of them - a
-     * Settings field edits, and so do the Nodes list's filter and sort rows - so a fixture that
+     * Settings field edits, and so does the Nodes list's chip bar - so a fixture that
      * walked the ring with Right would hang on the first screen whose cursor happened to be
      * resting on a control. That is the split the action bar has always described: "L/R tabs"
      * names the shoulders, and this is a test asking for a tab rather than for a d-pad.

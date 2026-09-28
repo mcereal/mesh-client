@@ -43,6 +43,10 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         if (nav->node_detail_open && nav->node_trend != 0U) {
             depth++;
         }
+        /* The sort sheet over the list, which only the list raises. */
+        if (!nav->node_detail_open && nav->node_sort_open) {
+            depth++;
+        }
         return depth;
     }
     case MESH_UI_SCREEN_MAP:
@@ -135,6 +139,9 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
             }
             out->level = MESH_UI_ROUTE_NODE;
             return;
+        }
+        if (nav->node_sort_open) {
+            out->level = MESH_UI_ROUTE_NODE_SORT;
         }
         return;
     case MESH_UI_SCREEN_MAP:
@@ -433,6 +440,7 @@ static const char *const k_level_names[MESH_UI_ROUTE_COUNT] = {
     [MESH_UI_ROUTE_DEVICES] = "devices",
     [MESH_UI_ROUTE_WAYPOINTS] = "waypoints",
     [MESH_UI_ROUTE_FIRMWARE] = "firmware",
+    [MESH_UI_ROUTE_NODE_SORT] = "node-sort",
 };
 
 const char *mesh_ui_screen_id(enum mesh_ui_screen screen) {

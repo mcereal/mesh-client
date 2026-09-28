@@ -44,6 +44,9 @@ enum mesh_ui_focus_id {
     MESH_UI_FOCUS_BAR = 0x0500,
     /* The tab strip, `base + enum mesh_ui_screen`. */
     MESH_UI_FOCUS_TABS = 0x0800,
+    /* The Nodes list's chip bar, `base + enum mesh_ui_nodes_chip`. Its own block rather than
+       row 0 of the rows', because a row is one target and the bar is five. */
+    MESH_UI_FOCUS_NODE_CHIPS = 0x0C00,
     /* The rows of the list the screen drew, `base + index` - the index the list's own cursor
        holds. One block, because one screen list is drawn per frame and an index means nothing
        outside the list it belongs to. */

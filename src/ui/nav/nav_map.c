@@ -234,6 +234,7 @@ static bool mesh_ui_nav_map_confirm(struct mesh_ui_nav *nav, const struct mesh_u
         nav->node_list_cursor = nav->cursor[MESH_UI_SCREEN_NODES];
     }
     nav->screen = MESH_UI_SCREEN_NODES;
+    nav->node_sort_open = false; /* a sheet left up on the list is not what the reader is opening */
     nav->node_detail_node = marker->id;
     nav->node_detail_open = true;
     nav->node_detail_from_map = true;

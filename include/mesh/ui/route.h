@@ -86,6 +86,9 @@ enum mesh_ui_route_level {
     /* A radio firmware install, as the whole screen: the dial, the stage, the steps. Over the
        section or page whose row started it, on the Settings tab or the Radio tab. */
     MESH_UI_ROUTE_FIRMWARE,
+    /* The five orders the Nodes list can be in, as a sheet over it - raised by the sort chip. A
+       level for the node verbs' reason: the slide, the back arrow and the B keycap. */
+    MESH_UI_ROUTE_NODE_SORT,
     MESH_UI_ROUTE_COUNT
 };
 

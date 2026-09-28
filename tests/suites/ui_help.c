@@ -826,7 +826,7 @@ MESH_TEST_CASE(help_follows_the_route_into_a_level, unit) {
     MESH_TEST_FAIL_IF(!help_store_tab(&nodes, MESH_UI_SCREEN_NODES), "Nodes did not open");
     struct mesh_ui_help_topic roster;
     MESH_TEST_FAIL_IF(!topic_for(&nodes, &roster), "the roster has no topic");
-    /* Off the list's filter and map rows, each of which is a level of its own. */
+    /* Off the list's chip bar, onto the first node. */
     for (uint32_t lead = 0; lead < MESH_UI_NODES_LEAD_ROWS; ++lead) {
         press(&nodes, INKCELL_KEY_DOWN);
     }

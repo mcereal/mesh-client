@@ -349,10 +349,10 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
          * runs nothing, so on most rows it is not named.
          *
          * This is the Status screen's rule rather than the node list's, and the difference is
-         * worth stating because both are in this file. The list names X and Y over its map row
-         * where they do nothing, because they are true of every *other* row and a bar that shed
-         * keycaps as the cursor moved would be describing the row rather than the screen. Here
-         * they are not true of every other row and never were: the screen is ten verbs and a
+         * worth stating because both are in this file. The list names X and Y on every node row,
+         * because they are true of every node and a bar that shed keycaps as the cursor moved
+         * would be describing the row rather than the screen. Here they are not true of every
+         * other row and never were: the screen is ten verbs and a
          * hundred facts, and mesh_ui_nav_confirm() has always returned false on the facts. The
          * bar said "A select" over all of them anyway, which is the keycap-that-does-nothing
          * this whole table exists to prevent, offered on two rows in three of the longest screen
@@ -402,31 +402,9 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
         return;
     }
     /*
-     * The list, whose first three rows are the filter, the sort and the find rather than nodes - so
-     * X's pin and Y's message have no node under them there, and are not named. They were once, on
-     * the argument that they are true of every other row; but "X pin" sitting under the filter
-     * chips read as a press about the filter, and a keycap that does nothing is the thing this
-     * table exists to prevent.
-     *
-     * A is named per row too, which is the Waypoints list's rule: the top three rows genuinely
-     * offer a different press from the rest of the list, and naming "open" over a row that
-     * filters would be the bar describing something else.
-     *
-     * What changes on those rows is the *keycap* as well as the word, which is the point of it.
-     * The d-pad is what edits them - the Settings tab's press, and the one the pencil in each
-     * row's gutter is already pointing at - so the bar names the d-pad, exactly as the Settings
-     * bar does. A still steps forward and is deliberately not named: a bar that offered both
-     * would spend a slot on the second way of doing a thing it has already said how to do, on
-     * the one screen here whose bar is already five keycaps long.
-     *
-     * The sort row takes its own word rather than borrowing "filter": the two rows look alike
-     * and sit one above the other, so the bar is the only thing on the frame that says which of
-     * them the press is about to move.
-     */
-    /*
-     * No list at all: fb_render_node_list() draws the empty state over no rows, so the filter,
+     * No list at all: fb_render_node_list() draws the empty state over no rows, so the chips,
      * the pin and the write have nothing under them, and Left and Right are the tab switch
-     * rather than the filter (mesh_ui_nav_nodes_list_showing()). With no radio, A is the way
+     * rather than the chips (mesh_ui_nav_nodes_list_showing()). With no radio, A is the way
      * out - it lands on the device list, which is what the sentence on the screen asks for.
      * Waiting for a roster the radio is already sending, it has nothing to do either.
      */
@@ -438,20 +416,44 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
         commands_add_tabs(bar);
         return;
     }
+    /* The sort sheet over the list: pick an order, or put it down. */
+    if (nav->node_sort_open) {
+        command_add(bar, MESH_UI_COMMAND_SELECT, MESH_STR_ACTION_SELECT, INKCELL_BUTTON_A);
+        command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
+        commands_add_help(snapshot, bar);
+        commands_add_tabs(bar);
+        return;
+    }
+    /*
+     * The list, whose first row is the chip bar rather than a node - so X's pin and Y's message
+     * have no node under them there, and are not named. "X pin" sitting under the filter chips
+     * read as a press about the filter, and a keycap that does nothing is the thing this table
+     * exists to prevent.
+     *
+     * A is named for the chip under the cursor, which is the Waypoints list's rule: the chips
+     * offer three different presses, and naming "open" over one that filters would be the bar
+     * describing something else. Left and Right are named too, because on this row they walk
+     * the chips rather than the tabs, and a reader arriving from a node row has every reason to
+     * expect the other.
+     */
     const uint32_t nodes_cursor = nav->cursor[MESH_UI_SCREEN_NODES];
-    if (nodes_cursor == MESH_UI_NODES_FILTER_ROW) {
-        command_add(bar, MESH_UI_COMMAND_FILTER, MESH_STR_ACTION_FILTER, INKCELL_BUTTON_LEFT_RIGHT);
-    } else if (nodes_cursor == MESH_UI_NODES_SORT_ROW) {
-        command_add(bar, MESH_UI_COMMAND_SORT, MESH_STR_ACTION_SORT, INKCELL_BUTTON_LEFT_RIGHT);
-    } else if (nodes_cursor == MESH_UI_NODES_FIND_ROW) {
+    const bool on_chips = nodes_cursor == MESH_UI_NODES_CHIP_ROW;
+    const bool on_find = on_chips && nav->node_chip == (uint8_t)MESH_UI_NODES_CHIP_FIND;
+    if (on_find) {
         command_add(bar, MESH_UI_COMMAND_FIND, MESH_STR_ACTION_FIND, INKCELL_BUTTON_A);
+    } else if (on_chips && nav->node_chip == (uint8_t)MESH_UI_NODES_CHIP_SORT) {
+        command_add(bar, MESH_UI_COMMAND_SORT, MESH_STR_ACTION_SORT, INKCELL_BUTTON_A);
+    } else if (on_chips) {
+        command_add(bar, MESH_UI_COMMAND_FILTER, MESH_STR_ACTION_FILTER, INKCELL_BUTTON_A);
     } else {
         command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
     }
-    /* The Find row's X is a different verb while there is a query - it clears it - so it is
-       named for the row then. With nothing typed it has nothing to do, like the other lead
-       rows. */
-    if (nodes_cursor == MESH_UI_NODES_FIND_ROW && nav->node_query[0] != '\0') {
+    if (on_chips) {
+        command_add(bar, MESH_UI_COMMAND_CHOOSE, MESH_STR_ACTION_CHOOSE, INKCELL_BUTTON_LEFT_RIGHT);
+    }
+    /* The search chip's X clears the query, and is named only while there is one: with nothing
+       typed it has nothing to do, like the rest of the chip bar. */
+    if (on_find && nav->node_query[0] != '\0') {
         command_add(bar, MESH_UI_COMMAND_CLEAR, MESH_STR_ACTION_CLEAR, INKCELL_BUTTON_X);
     } else if (snapshot == NULL || mesh_ui_actions_list_pins(snapshot, nav, nodes_cursor)) {
         command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);

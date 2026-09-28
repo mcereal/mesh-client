@@ -139,16 +139,22 @@ MESH_TEST_CASE(commands_are_the_source_of_the_legacy_action_bar, unit) {
     /* A roster to stand on: with none the list is the empty state and has no filter row. */
     snapshot.handshake_valid = true;
     snapshot.handshake.node_count = 1U;
-    snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
+    snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_CHIP_ROW;
+    snapshot.nav.node_chip = (uint8_t)MESH_UI_NODES_CHIP_FILTER_FIRST + 1U;
     mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_A) != MESH_UI_COMMAND_FILTER,
+                      "a filter chip should declare FILTER");
     MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_LEFT_RIGHT) !=
-                          MESH_UI_COMMAND_FILTER,
-                      "the Nodes filter row should declare FILTER");
-    snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_SORT_ROW;
+                          MESH_UI_COMMAND_CHOOSE,
+                      "and name Left and Right, which walk the chips there");
+    snapshot.nav.node_chip = (uint8_t)MESH_UI_NODES_CHIP_SORT;
     mesh_ui_commands_for(&snapshot, &commands);
-    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_LEFT_RIGHT) !=
-                          MESH_UI_COMMAND_SORT,
-                      "the Nodes sort row should declare SORT");
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_A) != MESH_UI_COMMAND_SORT,
+                      "the sort chip should declare SORT");
+    snapshot.nav.node_chip = (uint8_t)MESH_UI_NODES_CHIP_FIND;
+    mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_A) != MESH_UI_COMMAND_FIND,
+                      "the search chip should declare FIND");
 
     actions_snapshot(&snapshot);
     snapshot.nav.screen = MESH_UI_SCREEN_MAP;
@@ -986,14 +992,14 @@ MESH_TEST_CASE(actions_about_names_a_for_the_row, unit) {
 }
 
 /*
- * The Nodes tab with nothing to list. There is no filter row and no node, so the d-pad, the pin
+ * The Nodes tab with nothing to list. There is no chip bar and no node, so the d-pad, the pin
  * and the write have nothing under them; with no radio, A goes to connect one.
  */
 MESH_TEST_CASE(actions_empty_nodes_offer_only_the_way_forward, unit) {
     struct mesh_ui_snapshot snapshot;
     actions_snapshot(&snapshot);
     snapshot.nav.screen = MESH_UI_SCREEN_NODES;
-    snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_FILTER_ROW;
+    snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_CHIP_ROW;
 
     struct mesh_ui_command_set commands;
     mesh_ui_commands_for(&snapshot, &commands);
@@ -1140,7 +1146,7 @@ MESH_TEST_CASE(actions_quit_is_a_keycap_while_nothing_is_attached, unit) {
     record_success(test_name);
 }
 
-/* The filter, sort, find, map and places rows have no node under them to pin or message. */
+/* The chip bar has no node under it to pin or message. */
 MESH_TEST_CASE(actions_node_lead_rows_do_not_offer_pin_or_message, unit) {
     struct mesh_ui_snapshot snapshot;
     struct mesh_ui_command_set commands;

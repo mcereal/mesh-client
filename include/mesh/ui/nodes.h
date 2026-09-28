@@ -30,12 +30,12 @@ struct mesh_ui_node_summary;
  * answer that (the list is already ranked, and a rank is what put the node they want at 94). What
  * a reader always knows is which *kind* of node they are after, and there are only ever two kinds
  * worth asking for: the ones they chose to keep, and the ones that are actually in earshot. When
- * they know a piece of the name too, the Find row narrows further - see
+ * they know a piece of the name too, the search chip narrows further - see
  * mesh_ui_node_query_matches().
  *
  * So the set is deliberately three and closed. Every candidate for a fourth failed the same
  * test - a filter has to be a question a reader arrives with, not a column the client happens to
- * hold. "Positioned" is the map's roster and the map row is two rows away; "off radio" is a
+ * hold. "Positioned" is the map's roster and the map is one tab away; "off radio" is a
  * state the rows already say in the column where a signal would be; "has telemetry" is a fact
  * about a node nobody goes looking for a node by.
  */
@@ -100,11 +100,11 @@ uint32_t mesh_ui_node_filter_count(const struct mesh_ui_handshake_state *handsha
                                    enum mesh_ui_node_filter filter);
 
 /*
- * The Find row's text, and whether a node answers to it.
+ * The search chip's text, and whether a node answers to it.
  *
  * A piece of the long name, the short name or the `!1234abcd` id, with ASCII case folded -
  * what somebody looking for a node remembers of it, typed a character at a time on a d-pad, so
- * a part is as good as the whole. NULL or "" is no query, and matches every node: the Find row
+ * a part is as good as the whole. NULL or "" is no query, and matches every node: the search chip
  * narrows what the filter kept, it never stands in for it.
  */
 bool mesh_ui_node_query_matches(const struct mesh_ui_node_summary *node, const char *query);
@@ -113,10 +113,6 @@ bool mesh_ui_node_query_matches(const struct mesh_ui_node_summary *node, const c
    reader of the list's length asks while a query is set, so the cursor and the rows agree. */
 uint32_t mesh_ui_node_query_count(const struct mesh_ui_handshake_state *handshake,
                                   enum mesh_ui_node_filter filter, const char *query);
-
-/* The next filter along, wrapping. What A on the filter row does - the settings enum row's step,
-   and the reason the chips need no second key. */
-enum mesh_ui_node_filter mesh_ui_node_filter_step(enum mesh_ui_node_filter filter, int delta);
 
 /* The chip's word. */
 inkcell_str_id mesh_ui_node_filter_label(enum mesh_ui_node_filter filter);
@@ -142,7 +138,7 @@ inkcell_str_id mesh_ui_node_filter_label(enum mesh_ui_node_filter filter);
  * them, and a fourth chip for it would have to pick a radius the client has no business picking.
  *
  * Name is the second. A to Z puts a name you would know on sight at a place you can scroll to,
- * and costs no keyboard - which is what the reader who cannot spell it needs. The Find row is
+ * and costs no keyboard - which is what the reader who cannot spell it needs. The search chip is
  * for the one who can type a piece of it: a fragment of the long name, the short name or the id
  * is enough, and the keyboard's caret makes a typo a fix rather than a retype.
  *
@@ -264,10 +260,6 @@ mesh_ui_node_view_at(const struct mesh_ui_handshake_state *handshake,
 uint32_t mesh_ui_node_view_find(const struct mesh_ui_handshake_state *handshake,
                                 const struct mesh_ui_node_view *view, uint32_t node_id);
 
-/* The next sort along, wrapping. What A on the sort row does, the way A on the filter row steps
-   the chips above it. */
-enum mesh_ui_node_sort mesh_ui_node_sort_step(enum mesh_ui_node_sort sort, int delta);
-
 /* The chip's word. */
 inkcell_str_id mesh_ui_node_sort_label(enum mesh_ui_node_sort sort);
 
@@ -276,9 +268,9 @@ inkcell_str_id mesh_ui_node_sort_label(enum mesh_ui_node_sort sort);
  * our own to measure from.
  *
  * Its own question rather than something the renderer works out, because the renderer is not
- * allowed to know what a sort needs: the row draws a word and something else answers whether the
- * word is telling the truth. It is the same shape as the map row asking
- * mesh_ui_map_has_markers() before it claims to open anything.
+ * allowed to know what a sort needs: the chip draws a word and something else answers whether the
+ * word is telling the truth. It is the same shape as the map asking mesh_ui_map_has_markers()
+ * before it draws anything.
  */
 bool mesh_ui_node_sort_available(const struct mesh_ui_handshake_state *handshake,
                                  enum mesh_ui_node_sort sort);
