@@ -166,7 +166,8 @@ MESH_TEST_CASE(session_events_the_nodedb_lists_what_the_radio_heard, unit) {
         MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &info), "encode failed");
     }
 
-    MESH_TEST_FAIL_IF(record.count != 1U || record.events[0].kind != MESH_SESSION_EVENT_NODE_LISTED ||
+    MESH_TEST_FAIL_IF(record.count != 1U ||
+                          record.events[0].kind != MESH_SESSION_EVENT_NODE_LISTED ||
                           record.events[0].node_id != EV_PEER || !record.events[0].has_hops ||
                           record.events[0].hops != 1U,
                       "only the node the radio heard is listed, and never our own");

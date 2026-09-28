@@ -1,0 +1,419 @@
+#define _POSIX_C_SOURCE 200809L
+
+/*
+ * The lifetime stats: numbers that only go up, across every run and every radio.
+ *
+ * The cases are about the two promises a tally has to keep - it counts a thing once, and it
+ * still has the count after a restart - and about the lines drawn around what counts at all:
+ * our own radios are not nodes we heard, and a path over MQTT says nothing about our reach.
+ */
+
+#include "inkwell/base/time.h"
+
+#include "framework/mesh_test.h"
+#include "support/fs_fixture.h"
+#include "support/session_fixture.h"
+
+#include "mesh/core/lifetime.h"
+#include "mesh/core/message.h"
+#include "mesh/core/session.h"
+
+#include "meshtastic/mesh.pb.h"
+#include "meshtastic/portnums.pb.h"
+
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#define LT_US 0x1111U
+#define LT_PEER 0x2222U
+#define LT_OTHER 0x3333U
+
+/* The lifetime struct carries the node set, so it is too large for a test's stack. */
+static struct mesh_lifetime g_lifetime;
+
+static bool lt_open(char *dir, size_t dir_len) {
+    snprintf(dir, dir_len, "/tmp/mesh_lifetime_XXXXXX");
+    if (mkdtemp(dir) == NULL) {
+        return false;
+    }
+    return mesh_lifetime_init(&g_lifetime, dir) == 0;
+}
+
+static struct mesh_session g_session;
+
+/* A session with our node at `us_lat`, so a distance can be measured from it. */
+static void lt_session(int32_t us_lat_i, int32_t us_lon_i) {
+    mesh_session_init(&g_session);
+    g_session.handshake.has_my_info = true;
+    g_session.handshake.my_info.my_node_num = LT_US;
+    g_session.handshake.node_count = 1U;
+    struct mesh_node_summary *self = &g_session.handshake.nodes[0];
+    memset(self, 0, sizeof *self);
+    self->node_id = LT_US;
+    self->position.valid = us_lat_i != 0 || us_lon_i != 0;
+    self->position.latitude_i = us_lat_i;
+    self->position.longitude_i = us_lon_i;
+}
+
+static void lt_message(uint32_t from, uint32_t to, enum mesh_message_direction direction,
+                       bool reaction) {
+    struct mesh_message message;
+    memset(&message, 0, sizeof message);
+    message.from = from;
+    message.to = to;
+    message.direction = direction;
+    message.is_reaction = reaction;
+    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_MESSAGE,
+                                             .message = &message};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+}
+
+static void lt_node(enum mesh_session_event_kind kind, const struct mesh_node_summary *node,
+                    bool via_mqtt, bool has_hops, uint8_t hops) {
+    const struct mesh_session_event event = {
+        .kind = kind, .node = node, .via_mqtt = via_mqtt, .has_hops = has_hops, .hops = hops};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+}
+
+static struct mesh_node_summary lt_summary(uint32_t id) {
+    struct mesh_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = id;
+    return node;
+}
+
+/* How many lines of the seen file carry `key`. */
+static unsigned lt_seen_lines(const char *dir, const char *key) {
+    char path[512];
+    snprintf(path, sizeof path, "%s/seen.stats", dir);
+    FILE *file = fopen(path, "r");
+    if (file == NULL) {
+        return 0U;
+    }
+    char line[128];
+    unsigned count = 0U;
+    const size_t key_len = strlen(key);
+    while (fgets(line, sizeof line, file) != NULL) {
+        if (strncmp(line, key, key_len) == 0 && line[key_len] == '=') {
+            count++;
+        }
+    }
+    fclose(file);
+    return count;
+}
+
+MESH_TEST_CASE(lifetime_counts_messages_by_direction_and_kind, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+
+    lt_message(LT_PEER, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_INBOUND, false);
+    lt_message(LT_PEER, LT_US, MESH_MESSAGE_INBOUND, false);
+    lt_message(LT_US, LT_PEER, MESH_MESSAGE_OUTBOUND, false);
+    lt_message(LT_US, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_OUTBOUND, false);
+    lt_message(LT_US, LT_PEER, MESH_MESSAGE_OUTBOUND, true);
+    lt_message(LT_PEER, LT_US, MESH_MESSAGE_INBOUND, true);
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_RECEIVED) != 2U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_SENT) != 2U,
+                      "two each way, reactions aside");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_DIRECT_RECEIVED) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_DIRECT_SENT) != 1U,
+                      "one of each was direct");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_REACTIONS_SENT) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_REACTIONS_RECEIVED) != 1U,
+                      "a reaction is its own count");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_dirty(&g_lifetime), "and the totals want writing");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(lifetime_survives_a_restart, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    lt_message(LT_PEER, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_INBOUND, false);
+    lt_message(LT_US, LT_PEER, MESH_MESSAGE_OUTBOUND, false);
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, true, 3U);
+    mesh_lifetime_note_radio(&g_lifetime, LT_US);
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0 || mesh_lifetime_dirty(&g_lifetime),
+                      "the totals were written");
+
+    /* The next run, from the card alone. */
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_RECEIVED) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_SENT) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_DIRECT_SENT) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MOST_HOPS) != 3U,
+                      "the counts and the record come back");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_RADIOS) != 1U,
+                      "and so does the set");
+
+    /* A node written before the flush is on the card even though nothing flushed it: the seen
+       file is appended as it learns, so a SIGKILL cannot take a node back. */
+    struct mesh_node_summary other = lt_summary(LT_OTHER);
+    lt_node(MESH_SESSION_EVENT_NODE_LISTED, &other, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 2U,
+                      "a node reaches the card without a flush");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(lifetime_a_node_is_one_node_however_often_heard, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    for (int i = 0; i < 3; ++i) {
+        lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    }
+    lt_node(MESH_SESSION_EVENT_NODE_LISTED, &peer, false, false, 0U);
+
+    /* A node only ever bridged in is heard, but not by us. */
+    struct mesh_node_summary bridged = lt_summary(LT_OTHER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &bridged, true, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 2U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_RF) != 1U,
+                      "two nodes, one of them over the air");
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "heard") != 2U || lt_seen_lines(dir, "rf") != 1U,
+                      "and one line per thing learned, however often it was heard");
+
+    /* Then it is heard over the air too, which is one more fact and one more line. */
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &bridged, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_RF) != 2U ||
+                          lt_seen_lines(dir, "rf") != 2U || lt_seen_lines(dir, "heard") != 2U,
+                      "a node heard over the air later is counted there once");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(lifetime_our_radios_are_not_nodes_we_heard, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    /* A second radio of ours, heard over the air before it was ever plugged in. */
+    struct mesh_node_summary spare = lt_summary(LT_OTHER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &spare, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 1U,
+                      "until it is attached it is a node like any other");
+    mesh_lifetime_note_radio(&g_lifetime, LT_US);
+    mesh_lifetime_note_radio(&g_lifetime, LT_OTHER);
+    mesh_lifetime_note_radio(&g_lifetime, LT_OTHER);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_RADIOS) != 2U,
+                      "two radios, however often attached");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 0U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_RF) != 0U,
+                      "and once it is, it is not counted as a node heard");
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "radio") != 2U, "each radio is written down once");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/*
+ * The records are about this radio's reach: a hop count or a distance counts only from a packet
+ * we watched arrive over the air. A listing's hop count may be days old, and a bridged packet's
+ * path is somebody else's.
+ */
+MESH_TEST_CASE(lifetime_records_take_only_what_arrived_over_the_air, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    /* Us at 51.5, 0; the peer 0.1 degrees of latitude north, about 11.1 km. */
+    lt_session(515000000, 0);
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    peer.position.valid = true;
+    peer.position.latitude_i = 516000000;
+    peer.position.longitude_i = 0;
+
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, true, true, 7U);
+    lt_node(MESH_SESSION_EVENT_NODE_LISTED, &peer, false, true, 6U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MOST_HOPS) != 0U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M) != 0U,
+                      "MQTT, a listing and a packet with no hop count set no record");
+
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, true, 2U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MOST_HOPS) != 2U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M) != 0U,
+                      "two hops out is a hop record and no distance record");
+
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, true, 0U);
+    const uint64_t farthest = mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M);
+    MESH_TEST_FAIL_IF(farthest < 11000U || farthest > 11250U,
+                      "heard direct at about 11.1 km sets the distance");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MOST_HOPS) != 2U,
+                      "and a record is never lowered");
+
+    /* With no fix of our own there is nothing to measure from. */
+    peer.position.latitude_i = 530000000;
+    g_session.handshake.nodes[0].position.valid = false;
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, true, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M) != farthest,
+                      "no fix of ours is no distance");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* A card moved back to an older build keeps what the newer one counted. */
+MESH_TEST_CASE(lifetime_keeps_keys_it_does_not_know, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    char path[128];
+    snprintf(path, sizeof path, "%s/totals.stats", dir);
+    FILE *file = fopen(path, "w");
+    MESH_TEST_FAIL_IF(file == NULL, "could not write the totals");
+    fputs("messages_sent=41\nfuture_stat=7\n", file);
+    fclose(file);
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    lt_session(0, 0);
+    lt_message(LT_US, LT_PEER, MESH_MESSAGE_OUTBOUND, false);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_SENT) != 42U,
+                      "the count carries on from the card");
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+
+    file = fopen(path, "r");
+    MESH_TEST_FAIL_IF(file == NULL, "the totals are gone");
+    char line[128];
+    bool kept = false;
+    while (fgets(line, sizeof line, file) != NULL) {
+        kept = kept || strcmp(line, "future_stat=7\n") == 0;
+    }
+    fclose(file);
+    MESH_TEST_FAIL_IF(!kept, "a key this build does not know survives the rewrite");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(lifetime_a_torn_seen_line_is_skipped, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    char path[128];
+    snprintf(path, sizeof path, "%s/seen.stats", dir);
+    FILE *file = fopen(path, "w");
+    MESH_TEST_FAIL_IF(file == NULL, "could not write the seen file");
+    /* One whole line, one line that is not a node, and an append the power cut short. */
+    fputs("heard=00002222\nheard=zz\nheard=0000", file);
+    fclose(file);
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 1U,
+                      "only the whole line is a node");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(lifetime_reset_starts_from_nothing, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, true, 4U);
+    lt_message(LT_US, LT_PEER, MESH_MESSAGE_OUTBOUND, false);
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    const uint32_t revision = g_lifetime.revision;
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_reset(&g_lifetime) != 0, "the reset failed");
+    MESH_TEST_FAIL_IF(g_lifetime.revision == revision, "a reset is a change a screen redraws for");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    for (unsigned i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
+        MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, (enum mesh_lifetime_stat)i) != 0U,
+                          mesh_lifetime_key((enum mesh_lifetime_stat)i));
+    }
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* `since` is written only off a clock that is credibly one, and the counts do not wait for it. */
+MESH_TEST_CASE(lifetime_since_is_the_first_credible_second, unit) {
+    char dir[64];
+    inkwell_time_wall_set_fixed(86400U); /* 2 January 1970: a Brick that has never been set */
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    lt_message(LT_PEER, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_INBOUND, false);
+    MESH_TEST_FAIL_IF(g_lifetime.since != 0U, "1970 is not a date");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_RECEIVED) != 1U,
+                      "but the message still counts");
+
+    inkwell_time_wall_set_fixed(1750000000U); /* set over Wi-Fi mid-run */
+    lt_message(LT_PEER, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_INBOUND, false);
+    inkwell_time_wall_set_fixed(1760000000U);
+    lt_message(LT_PEER, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_INBOUND, false);
+    inkwell_time_wall_set_fixed(0U);
+    MESH_TEST_FAIL_IF(g_lifetime.since != 1750000000U, "the first credible second, and only it");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* A full set turns a node away rather than forgetting one, and says the counts are a floor. */
+MESH_TEST_CASE(lifetime_a_full_set_says_so, unit) {
+    /* Disabled - no directory - so eight thousand nodes do not become eight thousand appends. */
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, "") == 0, "an empty directory is refused");
+    lt_session(0, 0);
+    struct mesh_node_summary node = lt_summary(0U);
+    for (uint32_t i = 1U; i <= MESH_LIFETIME_NODES_MAX; ++i) {
+        node.node_id = 0x10000U + i * 7U;
+        lt_node(MESH_SESSION_EVENT_NODE_HEARD, &node, false, false, 0U);
+    }
+    MESH_TEST_FAIL_IF(!mesh_lifetime_complete(&g_lifetime), "full is not yet over");
+    node.node_id = 1U;
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &node, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_complete(&g_lifetime) ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) !=
+                              MESH_LIFETIME_NODES_MAX,
+                      "one more is turned away, and the count says it is a floor");
+    node.node_id = 0x10000U + 7U;
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &node, true, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) !=
+                          MESH_LIFETIME_NODES_MAX,
+                      "a node already held is still held");
+    record_success(test_name);
+}
+
+/* End to end, through the session's own observer: what one conversation adds up to. */
+MESH_TEST_CASE(lifetime_counts_what_the_session_announces, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    mesh_session_init(&g_session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&g_session, mesh_test_trace_capture_fn, &capture);
+    mesh_session_set_observer(&g_session, mesh_lifetime_observe, &g_lifetime);
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = LT_US;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&g_session, &my_info), "encode failed");
+
+    const uint8_t hello[] = "hello";
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_app_packet(&g_session, LT_PEER,
+                                                         meshtastic_PortNum_TEXT_MESSAGE_APP, hello,
+                                                         sizeof hello - 1U),
+                      "encode failed");
+    uint32_t packet_id = 0U;
+    MESH_TEST_FAIL_IF(mesh_session_send_text(&g_session, LT_PEER, 0U, "hi", true, &packet_id) != 0,
+                      "the send failed");
+    /* The echo of our send, and the same node again. */
+    meshtastic_FromRadio echo = meshtastic_FromRadio_init_default;
+    echo.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    echo.packet.from = LT_US;
+    echo.packet.to = LT_PEER;
+    echo.packet.id = packet_id;
+    echo.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    echo.packet.decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    memcpy(echo.packet.decoded.payload.bytes, "hi", 2U);
+    echo.packet.decoded.payload.size = 2U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&g_session, &echo), "encode failed");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_RECEIVED) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_SENT) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_DIRECT_SENT) != 1U,
+                      "one message each way, the echo counted by nobody");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_RF) != 1U,
+                      "one node heard, and not our own");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
