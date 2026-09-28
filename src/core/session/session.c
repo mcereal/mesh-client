@@ -884,6 +884,14 @@ struct mesh_node_summary *mesh_session_model_node(struct mesh_session *session, 
     return slot;
 }
 
+struct mesh_node_summary *mesh_session_model_contact(struct mesh_session *session,
+                                                     uint32_t node_id) {
+    if (session == NULL || node_id == 0U || node_id == MESH_MESSAGE_BROADCAST_ADDR) {
+        return NULL;
+    }
+    return mesh_session_node_slot_from(session, node_id, false);
+}
+
 struct mesh_message *mesh_session_model_log_message(struct mesh_session *session,
                                                     const struct mesh_message *message) {
     if (session == NULL || message == NULL) {

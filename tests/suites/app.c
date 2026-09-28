@@ -4019,6 +4019,18 @@ MESH_TEST_CASE(app_new_node_notice, unit) {
         goto cleanup;
     }
 
+    /* A node opened from the map is the Nodes screen without the list: the notice still speaks. */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    app->ui_store.nav.screen = MESH_UI_SCREEN_NODES;
+    app->ui_store.nav.node_detail_from_map = true;
+    (void)app_discover(app, 9U, "HOTL");
+    mesh_app_publish_ui_state(app);
+    app->ui_store.nav.node_detail_from_map = false;
+    if (strstr(app->ui_store.nav.toast.text, "HOTL") == NULL) {
+        failure = "a detail opened from the map shows no list, so it should not swallow the notice";
+        goto cleanup;
+    }
+
     /* On the Nodes tab the rows are saying it already. */
     mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
     app->ui_store.nav.screen = MESH_UI_SCREEN_NODES;

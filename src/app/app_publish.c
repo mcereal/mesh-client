@@ -2478,7 +2478,7 @@ static void mesh_app_report_new_nodes(struct mesh_app *app) {
     const uint32_t fresh = latest - app->ui_nodes_announced;
     app->ui_nodes_announced = latest;
     if (app->config.run_mode != MESH_APP_RUN_FOREGROUND ||
-        app->ui_store.nav.screen == MESH_UI_SCREEN_NODES) {
+        mesh_ui_nav_nodes_list_up(&app->ui_store.nav)) {
         return;
     }
 

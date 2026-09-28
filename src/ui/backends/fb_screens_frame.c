@@ -109,11 +109,11 @@ static const struct inkcell_fb_chip *fb_tab_chips(const struct mesh_ui_snapshot 
     struct mesh_ui_store view;
     mesh_ui_store_view(snapshot, &view);
     fb_tab_badge(mesh_ui_nav_unread_total(&view), unread, sizeof unread);
-    /* Never on the tab the reader is standing on. The store's mark has already caught up by the
-       time a snapshot is taken there, so this is zero anyway - said here as well so that a
-       snapshot built by hand cannot badge the tab it is on, and because the rows below the
-       strip are already saying which nodes are the new ones. */
-    fb_tab_badge(snapshot->nav.screen == MESH_UI_SCREEN_NODES || !snapshot->handshake_valid
+    /* Never while the list is up. The store's mark has already caught up by the time a snapshot
+       is taken there, so this is zero anyway - said here as well so that a snapshot built by
+       hand cannot badge the list it is showing. A node opened from the map is the Nodes tab
+       without its list, so the badge stays: nothing on that frame has said who is new. */
+    fb_tab_badge(mesh_ui_nav_nodes_list_up(&snapshot->nav) || !snapshot->handshake_valid
                      ? 0U
                      : mesh_ui_nodes_new_count(&snapshot->handshake, snapshot->nav.nodes_seen),
                  discovered, sizeof discovered);

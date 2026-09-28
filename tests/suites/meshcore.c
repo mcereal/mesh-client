@@ -1372,6 +1372,8 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     MESH_TEST_FAIL_IF(dave == NULL || !dave->in_nodedb || strcmp(dave->long_name, "Dave") != 0,
                       "the OK puts it on the roster, a contact");
     MESH_TEST_FAIL_IF(dave->last_heard != 0U, "and never heard: a link is not a transmission");
+    MESH_TEST_FAIL_IF(dave->discovered != 0U,
+                      "nor a discovery: the user typed it in, and a notice would say so back");
 
     /* A heard node added with no advert kept - one from before this connection - carries no
        stamp either, and is still heard as of the OK if the roster let it go meanwhile. */

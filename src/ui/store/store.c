@@ -1460,7 +1460,7 @@ bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store) {
  * has seen one node there, not the list, so it neither clears the badge nor counts as arriving.
  */
 static void mesh_ui_store_mark_nodes_seen(struct mesh_ui_store *store) {
-    const bool up = store->nav.screen == MESH_UI_SCREEN_NODES && !store->nav.node_detail_from_map;
+    const bool up = mesh_ui_nav_nodes_list_up(&store->nav);
     if (up && !store->nodes_on_screen) {
         store->nav.nodes_new_after = store->nav.nodes_seen;
     }

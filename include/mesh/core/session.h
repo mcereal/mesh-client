@@ -834,6 +834,10 @@ void mesh_session_model_sync_begin(struct mesh_session *session);
 void mesh_session_model_adopt_radio(struct mesh_session *session, uint32_t node_num);
 struct mesh_node_summary *mesh_session_model_node(struct mesh_session *session, uint32_t node_id,
                                                   bool synced);
+/* model_node() for a node the *user* put there - a contact imported from a link - which is never
+   a discovery (mesh_session_nodes_discovered()): telling them about it repeats what they did. */
+struct mesh_node_summary *mesh_session_model_contact(struct mesh_session *session,
+                                                     uint32_t node_id);
 /* Takes a node out of the roster: the radio no longer carries it. -ENOENT when it was not in. */
 int mesh_session_model_drop_node(struct mesh_session *session, uint32_t node_id);
 /* Stores `channel` at its own index; one beyond MESH_SESSION_MAX_CHANNELS is refused. */

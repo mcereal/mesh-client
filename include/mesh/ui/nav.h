@@ -1349,6 +1349,14 @@ bool mesh_ui_nav_conversation_is_armed(const struct mesh_ui_nav *nav,
 uint32_t mesh_ui_nav_open_conversation_row(const struct mesh_ui_nav *nav,
                                            const struct mesh_ui_store *store);
 
+/*
+ * Whether the Nodes *list* is what the reader is on: the Nodes screen, less a node opened from the
+ * map, whose B goes back to the map and whose frame leaves the roster out. The one answer the
+ * discovery badge, the rows' mark and the new-node notice all ask, so the three cannot disagree
+ * about whether the reader has seen the list.
+ */
+bool mesh_ui_nav_nodes_list_up(const struct mesh_ui_nav *nav);
+
 /* Inbound messages across every channel and peer that have not been read. */
 uint32_t mesh_ui_nav_unread_total(const struct mesh_ui_store *store);
 

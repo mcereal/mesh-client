@@ -321,10 +321,15 @@ mesh_meshcore_heard_advert(const struct mesh_meshcore *meshcore, const uint8_t *
     return NULL;
 }
 
+/* `imported` is a contact the user added themselves, which the roster takes without calling it
+   a discovery; see mesh_session_model_contact(). */
 static void mesh_meshcore_store_contact(struct mesh_meshcore *meshcore,
-                                        const struct mesh_meshcore_contact *contact, bool synced) {
+                                        const struct mesh_meshcore_contact *contact, bool synced,
+                                        bool imported) {
     const uint32_t id = mesh_meshcore_node_id(contact->public_key, MESH_MESHCORE_PUBKEY_LEN);
-    struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, id, synced);
+    struct mesh_node_summary *node = imported
+                                         ? mesh_session_model_contact(meshcore->model, id)
+                                         : mesh_session_model_node(meshcore->model, id, synced);
     if (node == NULL) {
         return;
     }
@@ -972,7 +977,7 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
         struct mesh_meshcore_contact contact;
         if (mesh_meshcore_decode_contact(frame, len, &contact) == 0) {
             mesh_meshcore_keep_advert(meshcore, &contact);
-            mesh_meshcore_store_contact(meshcore, &contact, false);
+            mesh_meshcore_store_contact(meshcore, &contact, false, false);
             const uint32_t id = mesh_meshcore_node_id(contact.public_key, MESH_MESHCORE_PUBKEY_LEN);
             struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, id, false);
             if (node != NULL) {
@@ -1209,7 +1214,8 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
     if (code == MESH_MESHCORE_RESP_CONTACT) {
         struct mesh_meshcore_contact contact;
         if (mesh_meshcore_decode_contact(frame, len, &contact) == 0) {
-            mesh_meshcore_store_contact(meshcore, &contact, cmd == MESH_MESHCORE_CMD_GET_CONTACTS);
+            mesh_meshcore_store_contact(meshcore, &contact, cmd == MESH_MESHCORE_CMD_GET_CONTACTS,
+                                        false);
             if (cmd == MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY && meshcore->awaiting &&
                 request->favorite != MESH_MESHCORE_FAVORITE_NONE &&
                 memcmp(contact.public_key, request->frame + 1, MESH_MESHCORE_PUBKEY_LEN) == 0) {
@@ -1373,7 +1379,9 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
                 const bool heard = !request->never_heard;
                 contact.last_advert = 0U;
                 contact.lastmod = was == NULL && heard ? mesh_meshcore_clock_now(meshcore) : 0U;
-                mesh_meshcore_store_contact(meshcore, &contact, false);
+                /* The user's add, from a link or from a heard advert: never a discovery. A heard
+                   node was already counted when its advert arrived. */
+                mesh_meshcore_store_contact(meshcore, &contact, false, true);
             }
         } else if (cmd == MESH_MESHCORE_CMD_REMOVE_CONTACT && request != NULL &&
                    request->len == 1U + MESH_MESHCORE_PUBKEY_LEN) {
