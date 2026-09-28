@@ -187,7 +187,8 @@ static bool stack_write_junk(const char *dir, const char *name, char *out, size_
  * What else is in it is what a real card has: a download still arriving (`.part`), the Finder's
  * AppleDouble shadow of a file copied from a Mac (`._name.mctp`), and a pack that is damaged.
  * The first two are not packs by name and the third is skipped with the rest still drawn; a name
- * in capitals is a FAT32 card written somewhere else and is a pack like any other.
+ * in capitals is a FAT32 card written somewhere else and is a pack like any other, and sorts
+ * with the rest ignoring case - `Bravo` after `alpha`, where a byte order would put it first.
  */
 MESH_TEST_CASE(map_stack_reads_a_maps_directory, unit) {
     char dir[] = "/tmp/meshclient_maps_XXXXXX";
@@ -202,8 +203,8 @@ MESH_TEST_CASE(map_stack_reads_a_maps_directory, unit) {
     memset(paths, 0, sizeof paths);
     bool made = mesh_test_map_pack_write(&b, k_region, count, 0U, "Bravo", "") == 0 &&
                 mesh_test_map_pack_write(&a, k_region, count, 1U, "Alpha", "") == 0;
-    made = made && stack_place(&b, dir, "bravo.mctp", paths[0], sizeof paths[0]) &&
-           stack_place(&a, dir, "ALPHA.MCTP", paths[1], sizeof paths[1]) &&
+    made = made && stack_place(&b, dir, "Bravo.mctp", paths[0], sizeof paths[0]) &&
+           stack_place(&a, dir, "alpha.MCTP", paths[1], sizeof paths[1]) &&
            stack_write_junk(dir, "charlie.mctp.part", paths[2], sizeof paths[2]) &&
            stack_write_junk(dir, "._alpha.mctp", paths[3], sizeof paths[3]) &&
            stack_write_junk(dir, "damaged.mctp", paths[4], sizeof paths[4]) &&
@@ -233,5 +234,55 @@ MESH_TEST_CASE(map_stack_reads_a_maps_directory, unit) {
     MESH_TEST_FAIL_IF(added != 2U, "the two packs open and nothing else does");
     MESH_TEST_FAIL_IF(!ordered, "in name order, whatever the case");
     MESH_TEST_FAIL_IF(none != 0U || stack.count != 0U, "a directory that is not there opens none");
+    record_success(test_name);
+}
+
+/*
+ * A directory with more candidates than are looked at keeps the first ones *by name*.
+ *
+ * Seventy damaged files between two real packs: `a.mctp` sorts first and is kept, `c.mctp` is
+ * past the names considered and is not, whichever order the filesystem lists them in. Taking the
+ * first names listed instead would make which packs open depend on the order the card was
+ * written in.
+ */
+MESH_TEST_CASE(map_stack_keeps_the_first_names_not_the_first_listed, unit) {
+    char dir[] = "/tmp/meshclient_maps_XXXXXX";
+    MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "a scratch directory");
+
+    enum { JUNK = 70 };
+    char paths[JUNK + 2][128];
+    memset(paths, 0, sizeof paths);
+    const size_t count = sizeof k_region / sizeof *k_region;
+    struct mesh_test_map_pack first;
+    struct mesh_test_map_pack last;
+    memset(&first, 0, sizeof first);
+    memset(&last, 0, sizeof last);
+    bool made = mesh_test_map_pack_write(&last, k_region, count, 0U, "Last", "") == 0 &&
+                stack_place(&last, dir, "c.mctp", paths[JUNK], sizeof paths[JUNK]);
+    for (int i = 0; made && i < JUNK; ++i) {
+        char name[32];
+        snprintf(name, sizeof name, "b%02d.mctp", i);
+        made = stack_write_junk(dir, name, paths[i], sizeof paths[i]);
+    }
+    made = made && mesh_test_map_pack_write(&first, k_region, count, 1U, "First", "") == 0 &&
+           stack_place(&first, dir, "a.mctp", paths[JUNK + 1], sizeof paths[JUNK + 1]);
+
+    struct mesh_map_stack stack;
+    mesh_map_stack_init(&stack);
+    const size_t added = made ? mesh_map_stack_add_dir(&stack, dir) : 0U;
+    const bool kept_first = stack.count == 1U && strcmp(stack.packs[0].info.name, "First") == 0;
+    mesh_map_stack_close(&stack);
+
+    for (size_t i = 0U; i < (size_t)JUNK + 2U; ++i) {
+        if (paths[i][0] != '\0') {
+            unlink(paths[i]);
+        }
+    }
+    mesh_test_map_pack_remove(&first);
+    mesh_test_map_pack_remove(&last);
+    rmdir(dir);
+
+    MESH_TEST_FAIL_IF(!made, "the directory is laid out");
+    MESH_TEST_FAIL_IF(added != 1U || !kept_first, "the pack that sorts first opens, and only it");
     record_success(test_name);
 }

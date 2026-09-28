@@ -53,15 +53,42 @@ static bool stack_is_pack_name(const char *name) {
            strcasecmp(name + length - suffix, STACK_SUFFIX) == 0;
 }
 
-static void stack_collect(void *context, const char *name) {
-    struct stack_names *const names = context;
-    if (names->count < STACK_DIR_NAMES_MAX && stack_is_pack_name(name)) {
-        memcpy(names->names[names->count], name, strlen(name) + 1U);
-        ++names->count;
-    }
+/* Name order ignoring case, which is what a card written from two operating systems needs to
+   sort the same way twice; the case-sensitive order only breaks a tie between two names that
+   differ in nothing else, so the order is total and never depends on how they were listed. */
+static int stack_compare_names(const void *a, const void *b) {
+    const int folded = strcasecmp(a, b);
+    return folded != 0 ? folded : strcmp(a, b);
 }
 
-static int stack_compare_names(const void *a, const void *b) { return strcmp(a, b); }
+/*
+ * Keeps the first STACK_DIR_NAMES_MAX names *in name order*, not the first that many listed.
+ *
+ * A directory lists in whatever order its filesystem keeps, so taking the first names to
+ * arrive would make which packs open depend on that - and on FAT it is the order the files were
+ * written. Once full, a new name replaces the last in order when it sorts before it.
+ */
+static void stack_collect(void *context, const char *name) {
+    struct stack_names *const names = context;
+    if (!stack_is_pack_name(name)) {
+        return;
+    }
+    size_t slot = names->count;
+    if (names->count == STACK_DIR_NAMES_MAX) {
+        slot = 0U;
+        for (size_t i = 1U; i < names->count; ++i) {
+            if (stack_compare_names(names->names[i], names->names[slot]) > 0) {
+                slot = i;
+            }
+        }
+        if (stack_compare_names(name, names->names[slot]) >= 0) {
+            return;
+        }
+    } else {
+        ++names->count;
+    }
+    memcpy(names->names[slot], name, strlen(name) + 1U);
+}
 
 size_t mesh_map_stack_add_dir(struct mesh_map_stack *stack, const char *dir) {
     if (stack == NULL || dir == NULL || !inkwell_file_is_dir(dir)) {

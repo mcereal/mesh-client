@@ -28,8 +28,8 @@ extern "C" {
  * the tile, but a region's shallow tiles were drawn from that region alone - the rest of the
  * continent is blank on them. The pack with the shallower deepest level is the broader one, and
  * the world base is the broadest there is. Past that, the order the packs were added in decides,
- * which is file name order in a directory, so two regions meeting at a border draw the same way
- * on every launch.
+ * which is name order (ignoring case) in a directory, so two regions meeting at a border draw the
+ * same way on every launch.
  *
  * The answer depends only on the key and the set of packs, which is what lets one tile cache hold
  * the lot under the key alone: nothing about a pixel in it says which file it came from, and it
@@ -71,7 +71,7 @@ void mesh_map_stack_init(struct mesh_map_stack *stack);
 int mesh_map_stack_add(struct mesh_map_stack *stack, const char *path);
 
 /*
- * Adds every `*.mctp` in `dir`, in file name order, and returns how many opened.
+ * Adds every `*.mctp` in `dir`, in name order ignoring case, and returns how many opened.
  *
  * A name is matched without regard to case, because a card written from another computer is
  * FAT32 and the name may have arrived as MAP.MCTP. A download in progress is `<name>.part` and
