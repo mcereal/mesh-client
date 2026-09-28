@@ -118,6 +118,16 @@ bool mesh_map_tile_span_key(const struct mesh_map_tile_span *span, int32_t colum
    and a caller's arithmetic mistake get the same refusal in the same place. */
 bool mesh_map_tile_key_valid(struct mesh_map_tile_key key);
 
+/*
+ * The tile at `zoom` whose square contains `key`'s: the same key with its x and y shifted down
+ * one bit a level.
+ *
+ * False - and `out` zeroed - when `key` is not valid or `zoom` is deeper than it. A key is its
+ * own ancestor at its own zoom, so a caller walking up from a tile can start the walk at zero.
+ */
+bool mesh_map_tile_ancestor(struct mesh_map_tile_key key, uint8_t zoom,
+                            struct mesh_map_tile_key *out);
+
 #ifdef __cplusplus
 }
 #endif

@@ -171,3 +171,95 @@ MESH_TEST_CASE(tile_image_holds_a_bounded_amount_of_memory, unit) {
     tile_free(tile);
     record_success(test_name);
 }
+
+/* A pixel of a synthetic tile that says where it came from: its column in blue, its row in
+   green, so an enlarged copy can be checked against the square it was cut from. */
+static void tile_mark(uint8_t *pixels) {
+    for (size_t row = 0; row < MESH_MAP_TILE_SIZE; ++row) {
+        for (size_t column = 0; column < MESH_MAP_TILE_SIZE; ++column) {
+            uint8_t *const at =
+                pixels + (row * MESH_MAP_TILE_SIZE + column) * MESH_MAP_TILE_PIXEL_BYTES;
+            at[0] = (uint8_t)column;
+            at[1] = (uint8_t)row;
+            at[2] = 0x5AU;
+            at[3] = 0xFFU;
+        }
+    }
+}
+
+/*
+ * A deeper tile is its own quarter (or sixteenth...) of the ancestor, each pixel repeated.
+ *
+ * Checked at every pixel against where it has to have come from, at one level and at the most
+ * the client draws, and for a child in the ancestor's bottom-right corner so a swapped x and y
+ * or a lost offset cannot pass by landing in the top-left.
+ */
+MESH_TEST_CASE(tile_image_overzoom_enlarges_the_childs_square, unit) {
+    uint8_t *const ancestor = malloc(MESH_MAP_TILE_IMAGE_BYTES);
+    uint8_t *const child = malloc(MESH_MAP_TILE_IMAGE_BYTES);
+    MESH_TEST_FAIL_IF(ancestor == NULL || child == NULL, "two tiles' memory");
+    tile_mark(ancestor);
+
+    const struct mesh_map_tile_key above = {.zoom = 13U, .x = 2641U, .y = 3606U};
+    for (unsigned levels = 1U; levels <= MESH_MAP_TILE_OVERZOOM_LEVELS; levels += 3U) {
+        const size_t repeat = (size_t)1 << levels;
+        const size_t part = MESH_MAP_TILE_SIZE / repeat;
+        const struct mesh_map_tile_key key = {.zoom = (uint8_t)(above.zoom + levels),
+                                              .x = (above.x << levels) + (uint32_t)repeat - 1U,
+                                              .y = (above.y << levels) + (uint32_t)repeat - 2U};
+        MESH_TEST_FAIL_IF(
+            mesh_map_tile_overzoom(ancestor, above, key, child, MESH_MAP_TILE_IMAGE_BYTES) != 0,
+            "a child within reach is drawn");
+        for (size_t row = 0; row < MESH_MAP_TILE_SIZE; ++row) {
+            for (size_t column = 0; column < MESH_MAP_TILE_SIZE; ++column) {
+                const uint8_t *const at =
+                    child + (row * MESH_MAP_TILE_SIZE + column) * MESH_MAP_TILE_PIXEL_BYTES;
+                const size_t from_column = (repeat - 1U) * part + column / repeat;
+                const size_t from_row = (repeat - 2U) * part + row / repeat;
+                MESH_TEST_FAIL_IF(at[0] != (uint8_t)from_column || at[1] != (uint8_t)from_row ||
+                                      at[2] != 0x5AU || at[3] != 0xFFU,
+                                  "every pixel is the ancestor's pixel above it");
+            }
+        }
+    }
+    free(ancestor);
+    free(child);
+    record_success(test_name);
+}
+
+/* What is not an ancestor within reach is refused, and nothing is guessed from it. */
+MESH_TEST_CASE(tile_image_overzoom_refuses_what_is_not_above_it, unit) {
+    uint8_t *const ancestor = calloc(1U, MESH_MAP_TILE_IMAGE_BYTES);
+    uint8_t *const child = calloc(1U, MESH_MAP_TILE_IMAGE_BYTES);
+    MESH_TEST_FAIL_IF(ancestor == NULL || child == NULL, "two tiles' memory");
+
+    const struct mesh_map_tile_key above = {.zoom = 13U, .x = 100U, .y = 200U};
+    const struct mesh_map_tile_key inside = {.zoom = 14U, .x = 201U, .y = 401U};
+    const struct mesh_map_tile_key beside = {.zoom = 14U, .x = 202U, .y = 401U};
+    const struct mesh_map_tile_key too_deep = {
+        .zoom = (uint8_t)(13U + MESH_MAP_TILE_OVERZOOM_LEVELS + 1U),
+        .x = 100U << (MESH_MAP_TILE_OVERZOOM_LEVELS + 1U),
+        .y = 200U << (MESH_MAP_TILE_OVERZOOM_LEVELS + 1U)};
+
+    MESH_TEST_FAIL_IF(mesh_map_tile_overzoom(ancestor, above, beside, child,
+                                             MESH_MAP_TILE_IMAGE_BYTES) != -EINVAL,
+                      "a neighbour's child is not this tile's");
+    MESH_TEST_FAIL_IF(
+        mesh_map_tile_overzoom(ancestor, above, above, child, MESH_MAP_TILE_IMAGE_BYTES) != -EINVAL,
+        "a tile is not drawn from itself");
+    MESH_TEST_FAIL_IF(mesh_map_tile_overzoom(ancestor, inside, above, child,
+                                             MESH_MAP_TILE_IMAGE_BYTES) != -EINVAL,
+                      "nor from its own child");
+    MESH_TEST_FAIL_IF(mesh_map_tile_overzoom(ancestor, above, too_deep, child,
+                                             MESH_MAP_TILE_IMAGE_BYTES) != -EINVAL,
+                      "past the reach the client draws, nothing is");
+    MESH_TEST_FAIL_IF(mesh_map_tile_overzoom(ancestor, above, inside, child,
+                                             MESH_MAP_TILE_IMAGE_BYTES - 1U) != -ENOBUFS,
+                      "a buffer short of a tile is refused");
+    MESH_TEST_FAIL_IF(
+        mesh_map_tile_overzoom(ancestor, above, inside, child, MESH_MAP_TILE_IMAGE_BYTES) != 0,
+        "and the child it does hold is drawn");
+    free(ancestor);
+    free(child);
+    record_success(test_name);
+}
