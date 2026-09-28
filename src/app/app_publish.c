@@ -2450,16 +2450,21 @@ static void mesh_app_report_direct_messages(struct mesh_app *app) {
  * Announces nodes the mesh has told us about for the first time: by name when there is one, as a
  * count when a burst arrived together.
  *
- * Held while a sync is running, and that is the burst's reason. A sync against a roster that
- * already has nodes in it brings back whoever the radio heard while this client was not
+ * Held until a sync has *completed*, and that is the burst's reason. A sync against a roster
+ * that already has nodes in it brings back whoever the radio heard while this client was not
  * running, one NodeInfo at a time across several seconds - so announcing as they land would be
- * a notice per node, each replacing the last, and the user would read the last of five. Waiting
- * for the sync to finish makes them one notice with the right number in it.
+ * a notice per node, and the user would read the last of five. Waiting for the sync to finish
+ * makes them one notice with the right number in it. Completed rather than merely not running:
+ * a link that drops mid-sync clears the request too, and announcing the half that had landed
+ * would leave the retry to announce the other half as a second batch.
  *
- * Set rather than posted, which is the alerts' call and the opposite of the direct messages':
- * two notices about new nodes are one situation, and the newer says it better. Nothing while
- * the Nodes tab is up - the list is marking them already, and a notice reporting a row the
- * reader is looking at is the client talking to itself.
+ * Posted rather than set. A node discovery is something arriving, like a direct message, and
+ * it waits behind whatever is showing rather than replacing it - which matters most when the
+ * node was discovered *by* that message: the packet that brought a stranger's first words also
+ * put them in the roster, and the words are the better notice. The batching above is what
+ * keeps the queue from filling with one notice per node. Nothing while the Nodes tab is up -
+ * the list is marking them already, and a notice reporting a row the reader is looking at is
+ * the client talking to itself.
  */
 static void mesh_app_report_new_nodes(struct mesh_app *app) {
     const uint32_t latest = mesh_session_nodes_discovered(&app->session);
@@ -2467,7 +2472,7 @@ static void mesh_app_report_new_nodes(struct mesh_app *app) {
         return;
     }
     const struct mesh_handshake_status *status = mesh_session_handshake(&app->session);
-    if (status != NULL && status->request_in_flight) {
+    if (status == NULL || !status->config_complete) {
         return;
     }
     const uint32_t fresh = latest - app->ui_nodes_announced;
@@ -2497,7 +2502,7 @@ static void mesh_app_report_new_nodes(struct mesh_app *app) {
         inkcell_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_NODES_NEW_ONE, fresh,
                                   (unsigned)fresh);
     }
-    mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+    mesh_ui_store_post_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
     inkwell_log_info("app", "Discovered %u new node%s", (unsigned)fresh, fresh == 1U ? "" : "s");
 }
 

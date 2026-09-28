@@ -3973,19 +3973,49 @@ MESH_TEST_CASE(app_new_node_notice, unit) {
         goto cleanup;
     }
 
-    /* A sync still landing is held until it is through, and then said once. */
+    /*
+     * A sync still landing is held until it is through, and then said once - including across a
+     * link that drops mid-sync, which clears the request without completing anything: the half
+     * that landed waits for the retry's other half rather than going out as a batch of its own.
+     */
     mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    handshake->config_complete = false;
     handshake->request_in_flight = true;
     (void)app_discover(app, 5U, "DLTA");
     mesh_app_publish_ui_state(app);
+    handshake->request_in_flight = false; /* the link dropped */
+    mesh_app_publish_ui_state(app);
     if (app->ui_store.nav.toast.text[0] != '\0') {
-        failure = "a node arriving mid-sync should wait for the sync";
+        failure = "a node from a sync that has not completed should wait for one that does";
         goto cleanup;
     }
+    handshake->request_in_flight = true; /* the retry */
+    (void)app_discover(app, 7U, "FXTR");
     handshake->request_in_flight = false;
+    handshake->config_complete = true;
     mesh_app_publish_ui_state(app);
-    if (strstr(app->ui_store.nav.toast.text, "DLTA") == NULL) {
-        failure = "and be announced when it completes";
+    if (strstr(app->ui_store.nav.toast.text, "2") == NULL) {
+        failure = "and both halves be one notice when the retry completes";
+        goto cleanup;
+    }
+
+    /*
+     * A stranger's first direct message discovers them too. The words are the better notice,
+     * so the discovery queues behind them rather than replacing them.
+     */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    struct mesh_message hello = {0};
+    hello.from = 8U;
+    hello.to = 1U;
+    hello.direction = MESH_MESSAGE_INBOUND;
+    hello.packet_id = 200U;
+    snprintf(hello.text, sizeof hello.text, "%s", "hello from the pass");
+    mesh_app_publish_ui_state(app); /* adopt an empty log, as a launch does */
+    (void)app_discover(app, 8U, "GOLF");
+    mesh_message_log_append(&app->session.messages, &hello);
+    mesh_app_publish_ui_state(app);
+    if (strstr(app->ui_store.nav.toast.text, "hello from the pass") == NULL) {
+        failure = "the discovery should not replace the message that made it";
         goto cleanup;
     }
 
