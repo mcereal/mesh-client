@@ -474,7 +474,7 @@ only a consequence of one of them, and neither is a thing a test could pin.
   else.** `fb_link_summary()` builds the link's state at the end of the keycap row on every frame
   of every screen, so with a link up it names the radio in the success tone and the card's
   Transport and Radio rows were the same two facts a dozen rows further up. With no radio it says
-  what the transport is doing and the quit hint instead, so the rows come back. It is the
+  only what the transport is doing, so the rows come back. It is the
   banner's rule on a card row.
 
 ## Charts and history

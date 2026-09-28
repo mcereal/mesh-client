@@ -1183,6 +1183,14 @@ const struct mesh_ui_message *mesh_ui_nav_message_at_cursor(const struct mesh_ui
 const struct mesh_ui_message *mesh_ui_nav_resendable(const struct mesh_ui_nav *nav,
                                                      struct mesh_ui_message_view messages);
 
+/*
+ * Whether L2 in the open thread would land on the first unread bubble rather than the oldest -
+ * false once the cursor is already at or above that line, or when nothing is unread. What the
+ * action bar asks to name the triggers, from the same target the press computes.
+ */
+bool mesh_ui_nav_thread_back_lands_on_unread(const struct mesh_ui_nav *nav,
+                                             struct mesh_ui_message_view messages);
+
 /* Human name for the open thread: "All traffic", "#LongFast", "BRVO", or "Messages" when the
    conversation list is showing. */
 void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, size_t out_len);

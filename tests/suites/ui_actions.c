@@ -190,17 +190,21 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
                       "Y should forget a radio on the device list");
 
     /*
-     * Status offers the way out - but only while a radio is attached, because the line under
-     * the bar already ends in the quit hint when there is none, and the same instruction twice
-     * reads as a rendering fault.
+     * Status offers the way out, radio or none - and says it once: with no radio every screen
+     * adds the quit keycap, and Status must not end up with two.
      */
     snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
     snapshot.nav.devices_open = false;
     snapshot.handshake_valid = false;
     snapshot.handshake.link_up = false;
     mesh_ui_actions_for(&snapshot, &bar);
-    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != INKCELL_STR_NONE,
-                      "Status should not repeat the quit hint while nothing is connected");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != MESH_STR_ACTION_QUIT,
+                      "Status should say how to leave with nothing connected");
+    size_t quit_caps = 0U;
+    for (size_t i = 0; i < bar.count; ++i) {
+        quit_caps += bar.items[i].button == INKCELL_BUTTON_QUIT ? 1U : 0U;
+    }
+    MESH_TEST_FAIL_IF(quit_caps != 1U, "Status should name the quit key exactly once");
     /* And A is the first verb the cards carry with no radio: the way to the device list. */
     MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_A) != MESH_STR_ACTION_DEVICES,
                       "Status with no radio should stand on the device list");
@@ -1105,5 +1109,93 @@ MESH_TEST_CASE(actions_empty_messages_offer_to_connect, unit) {
     mesh_ui_commands_for(&snapshot, &commands);
     MESH_TEST_FAIL_IF(command_for_button(&commands, INKCELL_BUTTON_A) != MESH_UI_COMMAND_OPEN,
                       "with a radio attached, A opens all traffic");
+    record_success(test_name);
+}
+
+/*
+ * With no radio every screen names the quit key, since the line beside the bar says only what
+ * the transport is doing. With one attached it is Status's alone, as it always was.
+ */
+MESH_TEST_CASE(actions_quit_is_a_keycap_while_nothing_is_attached, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct inkcell_action_bar bar;
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != MESH_STR_ACTION_QUIT,
+                      "with no radio, the Nodes bar should say how to quit");
+
+    /* An overlay returns early from the table, and must still say it. */
+    snapshot.nav.help_open = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != MESH_STR_ACTION_QUIT,
+                      "with no radio, an overlay's bar should say how to quit too");
+    snapshot.nav.help_open = false;
+
+    actions_add_device(&snapshot, "F4:12:FA:00:0A:22", MESH_UI_DEVICE_BLE)->connected = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_QUIT) != INKCELL_STR_NONE,
+                      "with a radio attached, only Status says how to quit");
+    record_success(test_name);
+}
+
+/* The filter, sort, find, map and places rows have no node under them to pin or message. */
+MESH_TEST_CASE(actions_node_lead_rows_do_not_offer_pin_or_message, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_command_set commands;
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    actions_add_peer(&snapshot);
+    for (uint32_t row = 0U; row < MESH_UI_NODES_LEAD_ROWS; ++row) {
+        snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = row;
+        mesh_ui_commands_for(&snapshot, &commands);
+        MESH_TEST_FAIL_IF(mesh_ui_commands_find(&commands, MESH_UI_COMMAND_PIN) != NULL,
+                          "a lead row has no node for X to pin");
+        MESH_TEST_FAIL_IF(mesh_ui_commands_find(&commands, MESH_UI_COMMAND_WRITE) != NULL,
+                          "a lead row has no node for Y to message");
+    }
+    snapshot.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_LEAD_ROWS;
+    mesh_ui_commands_for(&snapshot, &commands);
+    MESH_TEST_FAIL_IF(mesh_ui_commands_find(&commands, MESH_UI_COMMAND_PIN) == NULL,
+                      "a node row should offer the pin");
+    MESH_TEST_FAIL_IF(mesh_ui_commands_find(&commands, MESH_UI_COMMAND_WRITE) == NULL,
+                      "a node row should offer a message");
+    record_success(test_name);
+}
+
+/* The triggers are named for where L2 lands: the unread line while there is one, else the top. */
+MESH_TEST_CASE(actions_thread_jump_names_where_l2_lands, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct inkcell_action_bar bar;
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.thread_open = true;
+    snapshot.nav.target_node = 0x3000U;
+    actions_add_message(&snapshot, 0x3000U);
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_TRIGGERS) !=
+                          MESH_STR_ACTION_THREAD_JUMP_OLDEST,
+                      "with nothing unread, L2 goes to the oldest");
+
+    /* Two bubbles, the second unread, with the cursor on the newest below the line. */
+    actions_add_message(&snapshot, 0x3000U);
+    snapshot.messages.entries[1].packet_id = 13U;
+    actions_add_message(&snapshot, 0x3000U);
+    snapshot.messages.entries[2].packet_id = 14U;
+    snapshot.nav.thread_unread_from = 12U;
+    snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] = 2U;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_TRIGGERS) !=
+                          MESH_STR_ACTION_THREAD_JUMP,
+                      "with something unread below the cursor's line, L2 goes to it");
+
+    /* On the unread line itself, the next L2 goes the rest of the way. */
+    snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] = 1U;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_TRIGGERS) !=
+                          MESH_STR_ACTION_THREAD_JUMP_OLDEST,
+                      "at the unread line, L2 goes to the oldest");
     record_success(test_name);
 }

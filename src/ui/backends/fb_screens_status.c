@@ -200,7 +200,7 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
      * it again a dozen rows further up, at the top of the one column on this client that runs
      * out of room - so they were being paid for twice and read once.
      *
-     * With no radio the line says the quit hint instead of a device, so the rows are back and
+     * With no radio the line says only the transport state, not a device, so the rows are back and
      * the card is where "not connected" is written. Which is the whole of the rule: a row says
      * only what nothing else on the frame says, and whether anything else is saying it is a
      * question about the state rather than about the row.

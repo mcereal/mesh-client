@@ -12,7 +12,6 @@
  * fb_screens_internal.h, and a case here.
  */
 
-#include "inkcell/ui/input.h"
 #include "inkcell/ui/layout.h"
 #include "inkcell/ui/widgets.h"
 #include "inkwell/base/time.h"
@@ -172,15 +171,17 @@ static void fb_link_summary(const struct mesh_ui_snapshot *snapshot, struct inkc
         *tone = INKCELL_TONE_SUCCESS;
         return;
     }
-    inkcell_line_str(line, MESH_STR_HEADER_STATUS_QUIT, status, inkcell_input_quit_hint());
+    /* The transport state alone: how to quit is a keycap in the bar beside it while nothing is
+       attached (see mesh_ui_commands_for()), not a sentence on this line. */
+    inkcell_line_printf(line, "%s", status);
     *tone = INKCELL_TONE_DIM;
 }
 
 /*
  * The link, as the heading's status mark, for a frame that has no foot to say it at the end of:
  * the radio's name in the success tone while one is attached, and what the transport is doing,
- * dimmed, while none is. A pointer frame only - see fb_heading_begin(). The quit hint the foot
- * adds while nothing is attached has the window's close box to stand for it there.
+ * dimmed, while none is. A pointer frame only - see fb_heading_begin(). The quit keycap the foot
+ * carries while nothing is attached has the window's close box to stand for it there.
  */
 static struct inkcell_fb_bar_status fb_link_status(const struct mesh_ui_snapshot *snapshot) {
     const struct mesh_ui_device *device = mesh_ui_snapshot_connected_device(snapshot);
