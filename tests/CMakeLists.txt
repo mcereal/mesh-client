@@ -48,6 +48,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/key_trust.c
     suites/map.c
     suites/map_pack.c
+    suites/map_stack.c
     suites/tile_cache.c
     suites/tile_image.c
     suites/meshcore.c

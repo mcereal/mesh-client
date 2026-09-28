@@ -56,8 +56,8 @@ make deploy-run ARGS="--list-devices"
 make deploy-run ARGS="--status --json"
 ```
 
-The map reads `$HOME/.meshclient/map.mctp`, outside the pak that self-update replaces, and
-`make deploy` does not touch it. Check a pack on the board that will draw it with
+The map reads the packs in `$HOME/.meshclient/maps/` (and a lone `$HOME/.meshclient/map.mctp`),
+outside the pak that self-update replaces, and `make deploy` does not touch them. Check a pack on the board that will draw it with
 `make deploy-run ARGS="--map-pack <path>"` — see [`cli.md`](cli.md#looking-inside-a-tile-pack).
 On-device controls are in [`cli.md`](cli.md#on-device-controls).
 
