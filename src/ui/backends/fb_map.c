@@ -642,6 +642,32 @@ void fb_basemap_open_default(struct inkcell_draw_state *state) {
 }
 
 /*
+ * `key` drawn from `above`, its ancestor at the pack's deepest level, into a cache slot of its
+ * own - or NULL when the ancestor is not held after all.
+ *
+ * The slot is claimed before the ancestor's pixels are asked for, because a claim may evict and
+ * the pointer get() hands back is only good until the next one. Asked in that order, an
+ * ancestor the claim pushed out is a MISS here rather than a read of freed pixels, and the next
+ * frame reads it again.
+ */
+static const uint8_t *fb_basemap_overzoom(struct fb_basemap *basemap,
+                                          struct mesh_map_tile_key above,
+                                          struct mesh_map_tile_key key) {
+    uint8_t *const slot = mesh_map_tile_cache_claim(&basemap->cache, key);
+    if (slot == NULL) {
+        return NULL;
+    }
+    const uint8_t *from = NULL;
+    if (mesh_map_tile_cache_get(&basemap->cache, above, &from) != MESH_MAP_TILE_READY ||
+        mesh_map_tile_overzoom(from, above, key, slot, MESH_MAP_TILE_CACHE_TILE_BYTES) != 0) {
+        mesh_map_tile_cache_abandon(&basemap->cache, key);
+        return NULL;
+    }
+    mesh_map_tile_cache_commit(&basemap->cache, key);
+    return slot;
+}
+
+/*
  * The tiles under the markers: what is held, one that is not, and the grid showing through the
  * holes.
  *
@@ -669,6 +695,14 @@ void fb_basemap_open_default(struct inkcell_draw_state *state) {
  * two-thirds of a second a view takes to fill, which is a worse frame than the grid. The two
  * states differ in what the client *does* - one asks for another frame and the other stops
  * asking - which is the difference that matters on a handheld.
+ *
+ * **Past the pack's deepest level, a tile is its ancestor enlarged.** The map opens at zoom 14
+ * and a region is cut to 13, so without this the first view of a freshly installed pack is the
+ * grid. The enlargement is made once and kept in the cache under the deeper tile's own key, so
+ * it costs a copy the frame it is made and a blit on every frame after, like any other tile; a
+ * re-opened pack clears it with the rest. Only past the deepest level, and only from that level:
+ * a tile the pack leaves out *above* it is outside the region, and an enlarged shallow tile
+ * there would be ground the pack never drew passed off as a map.
  *
  * Returns whether any tile was drawn, which is what decides whether the names on top of them
  * need a plate behind them.
@@ -714,8 +748,41 @@ static bool fb_map_draw_basemap(struct inkcell_draw_state *state,
             if (held == MESH_MAP_TILE_ABSENT) {
                 continue;
             }
-            if (!mesh_map_source_has(&basemap->source, key)) {
-                mesh_map_tile_cache_note_absent(&basemap->cache, key);
+
+            /* What this position is filled from: the tile itself, or past the pack's deepest
+               level the ancestor at that level. */
+            struct mesh_map_tile_key want = key;
+            const uint8_t deepest = basemap->source.info.max_zoom;
+            if (key.zoom > deepest) {
+                if ((unsigned)(key.zoom - deepest) > MESH_MAP_TILE_OVERZOOM_LEVELS ||
+                    !mesh_map_tile_ancestor(key, deepest, &want)) {
+                    mesh_map_tile_cache_note_absent(&basemap->cache, key);
+                    continue;
+                }
+                const enum mesh_map_tile_state above =
+                    mesh_map_tile_cache_get(&basemap->cache, want, NULL);
+                if (above == MESH_MAP_TILE_READY) {
+                    pixels = fb_basemap_overzoom(basemap, want, key);
+                    if (pixels != NULL) {
+                        inkcell_fb_blit_bgra(state, x, y, MESH_MAP_TILE_SIZE, MESH_MAP_TILE_SIZE,
+                                             pixels, FB_BASEMAP_TILE_STRIDE);
+                        drew = true;
+                    } else {
+                        /* Evicted by its own child's claim: read again next frame. */
+                        basemap->pending = true;
+                    }
+                    continue;
+                }
+                if (above == MESH_MAP_TILE_ABSENT) {
+                    mesh_map_tile_cache_note_absent(&basemap->cache, key);
+                    continue;
+                }
+            }
+            if (!mesh_map_source_has(&basemap->source, want)) {
+                mesh_map_tile_cache_note_absent(&basemap->cache, want);
+                if (want.zoom != key.zoom) {
+                    mesh_map_tile_cache_note_absent(&basemap->cache, key);
+                }
                 continue;
             }
 
@@ -724,7 +791,7 @@ static bool fb_map_draw_basemap(struct inkcell_draw_state *state,
             const int64_t distance = dx * dx + dy * dy;
             if (wanted == 0U || distance < nearest) {
                 nearest = distance;
-                next = key;
+                next = want;
                 next_x = x;
                 next_y = y;
             }
@@ -734,7 +801,7 @@ static bool fb_map_draw_basemap(struct inkcell_draw_state *state,
 
     /* The one this frame is about to fetch is not one the next frame will want, so what is left
        over is what asks for another frame. */
-    basemap->pending = wanted > 1U;
+    basemap->pending = basemap->pending || wanted > 1U;
     if (basemap->pending) {
         /* And what the next frame has to redraw. Without this the frame after an animation
            would be clipped to the widget that was moving and the tile just decoded would not
@@ -765,6 +832,13 @@ static bool fb_map_draw_basemap(struct inkcell_draw_state *state,
     inkcell_latency_tile(decode_at - read_at, inkcell_latency_now_us() - decode_at);
     if (decoded == 0) {
         mesh_map_tile_cache_commit(&basemap->cache, next);
+        if (next.zoom != span.zoom) {
+            /* An ancestor, which is drawn by being enlarged into the tiles under it - the next
+               frame's work, so that frame has to be asked for. */
+            basemap->pending = true;
+            inkcell_fb_animation_damage(state, body->x, body->y, body->w, body->h);
+            return drew;
+        }
         inkcell_fb_blit_bgra(state, next_x, next_y, MESH_MAP_TILE_SIZE, MESH_MAP_TILE_SIZE, slot,
                              FB_BASEMAP_TILE_STRIDE);
         return true;

@@ -1724,3 +1724,21 @@ MESH_TEST_CASE(map_tile_span_repeats_a_world_narrower_than_the_panel, unit) {
     }
     record_success(test_name);
 }
+
+/* An ancestor is the same place, shallower: every level is one bit off x and y. */
+MESH_TEST_CASE(map_tile_ancestor_is_the_square_above, unit) {
+    const struct mesh_map_tile_key key = {.zoom = 14U, .x = 5283U, .y = 7213U};
+    struct mesh_map_tile_key above;
+    MESH_TEST_FAIL_IF(!mesh_map_tile_ancestor(key, 13U, &above), "one level up");
+    MESH_TEST_FAIL_IF(above.zoom != 13U || above.x != 2641U || above.y != 3606U,
+                      "is x and y halved");
+    MESH_TEST_FAIL_IF(!mesh_map_tile_ancestor(key, 0U, &above), "zoom 0");
+    MESH_TEST_FAIL_IF(above.zoom != 0U || above.x != 0U || above.y != 0U, "is the only tile");
+    MESH_TEST_FAIL_IF(!mesh_map_tile_ancestor(key, 14U, &above), "its own zoom");
+    MESH_TEST_FAIL_IF(above.x != key.x || above.y != key.y, "is itself");
+    MESH_TEST_FAIL_IF(mesh_map_tile_ancestor(key, 15U, &above), "deeper is not an ancestor");
+    MESH_TEST_FAIL_IF(above.zoom != 0U || above.x != 0U, "and the answer is zeroed");
+    const struct mesh_map_tile_key off_world = {.zoom = 2U, .x = 4U, .y = 0U};
+    MESH_TEST_FAIL_IF(mesh_map_tile_ancestor(off_world, 1U, &above), "nor of a tile that is not");
+    record_success(test_name);
+}

@@ -197,15 +197,16 @@ MESH_TEST_CASE(map_pack_opens_and_says_what_it_holds, unit) {
 }
 
 /*
- * The coverage is the union of the tiles' own corners, and it is derived rather than declared.
+ * The coverage is the union of the deepest level's corners, and it is derived rather than
+ * declared.
  *
- * The union is taken across zooms, which is the part worth a case: the fixture's z12 tile is
- * the widest and sets three of the four edges, and its *southern* edge is a whole z12 tile below
- * where the z14 tiles stop - so a reader that measured coverage at one level, or at the deepest
- * one, would get a different box from this. A header field claiming any of it is exactly the bug
- * this refuses to be able to have.
+ * The deepest level only, which is the part worth a case: the fixture's z12 tile is wider than
+ * the z14 tiles under it and reaches further north and east, so a reader that took the union
+ * across zooms would report the z12 box. A real regional pack holds its zoom-0 ancestor, and
+ * that union is the whole world. A header field claiming any of it is exactly the bug this
+ * refuses to be able to have.
  */
-MESH_TEST_CASE(map_pack_coverage_comes_from_the_tiles, unit) {
+MESH_TEST_CASE(map_pack_coverage_comes_from_the_deepest_tiles, unit) {
     char path[64];
     MESH_TEST_FAIL_IF(pack_write(pack_good(), path, sizeof path) == 0U, "fixture pack written");
 
@@ -218,9 +219,9 @@ MESH_TEST_CASE(map_pack_coverage_comes_from_the_tiles, unit) {
     const bool west =
         source.info.west_i > -1224316406 - slack && source.info.west_i < -1224316406 + slack;
     const bool east =
-        source.info.east_i > -1223437500 - slack && source.info.east_i < -1223437500 + slack;
+        source.info.east_i > -1223876953 - slack && source.info.east_i < -1223876953 + slack;
     const bool north =
-        source.info.north_i > 484583519 - slack && source.info.north_i < 484583519 + slack;
+        source.info.north_i > 484437783 - slack && source.info.north_i < 484437783 + slack;
     const bool south =
         source.info.south_i > 484000325 - slack && source.info.south_i < 484000325 + slack;
     MESH_TEST_FAIL_IF_CLEANUP(!west || !east, mesh_map_source_close(&source),

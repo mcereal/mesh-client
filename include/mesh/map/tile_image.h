@@ -94,6 +94,33 @@ extern "C" {
 int mesh_map_tile_decode(const uint8_t *encoded, size_t len, uint8_t *pixels, size_t pixels_len);
 
 /*
+ * How many levels past a pack's deepest a tile is drawn by enlarging one it does hold.
+ *
+ * Four is sixteen screen pixels to every pixel of the tile underneath, so a 256 px tile
+ * becomes a 16 px square of it: roads and coast still read, lettering does not. Past that the
+ * picture is a handful of flat blocks, which says less about the ground than the grid does and
+ * looks more like it knows - so a pack cut at 13 draws to 17, and the world base (6) to 10.
+ */
+#define MESH_MAP_TILE_OVERZOOM_LEVELS 4U
+
+/*
+ * Draws `child` out of `ancestor`'s pixels: the part of the ancestor's square the child covers,
+ * enlarged to a whole tile, each source pixel repeated 2^(child.zoom - ancestor.zoom) times
+ * each way.
+ *
+ * Nearest pixel rather than smoothed, because a palette map is flat fills with hard edges and a
+ * blur of one is a worse picture of the same information - and because nothing smoothed can be
+ * done in the time a frame has on this CPU.
+ *
+ * `ancestor_pixels` is one decoded tile, `pixels` at least MESH_MAP_TILE_IMAGE_BYTES and wholly
+ * written. 0 on success; -EINVAL when `ancestor` is not `child`'s ancestor within
+ * MESH_MAP_TILE_OVERZOOM_LEVELS, or an argument is NULL; -ENOBUFS when `pixels` is smaller than a
+ * tile.
+ */
+int mesh_map_tile_overzoom(const uint8_t *ancestor_pixels, struct mesh_map_tile_key ancestor,
+                           struct mesh_map_tile_key child, uint8_t *pixels, size_t pixels_len);
+
+/*
  * How much memory decoding holds, against the tile budget.
  *
  * It is a constant rather than a total that grows with use: the decoder's own state and its

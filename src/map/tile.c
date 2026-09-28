@@ -14,6 +14,22 @@ bool mesh_map_tile_key_valid(struct mesh_map_tile_key key) {
     return (int64_t)key.x < width && (int64_t)key.y < width;
 }
 
+bool mesh_map_tile_ancestor(struct mesh_map_tile_key key, uint8_t zoom,
+                            struct mesh_map_tile_key *out) {
+    if (out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof *out);
+    if (!mesh_map_tile_key_valid(key) || zoom > key.zoom) {
+        return false;
+    }
+    const unsigned shift = (unsigned)(key.zoom - zoom);
+    out->zoom = zoom;
+    out->x = key.x >> shift;
+    out->y = key.y >> shift;
+    return true;
+}
+
 bool mesh_map_tile_span_key(const struct mesh_map_tile_span *span, int32_t column, int32_t row,
                             struct mesh_map_tile_key *out) {
     if (out != NULL) {

@@ -111,7 +111,7 @@ meshclient --map-pack /mnt/SDCARD/Tools/tg5040/MeshClient.pak/maps/region.mctp
 Prints a raster tile pack's name, attribution, cut date, tile counts by zoom and the area they
 cover, then reads one tile out of the middle to prove the index points at bytes the card really
 has. No radio, no network, nothing decoded. Coverage is derived from the tiles the pack holds
-rather than read out of a header, so it is the number a mis-built pack disagrees with; a "middle
+at its deepest zoom rather than read out of a header, so it is the number a mis-built pack disagrees with; a "middle
 tile is not in the pack" line is not a fault, since a pack is a rectangle with holes in it.
 
 The map draws **`$HOME/.meshclient/map.mctp`** — beside the node cache, deliberately not inside

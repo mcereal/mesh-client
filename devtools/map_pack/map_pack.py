@@ -499,12 +499,19 @@ def load(path):
 
 
 def coverage(entries):
-    """The bounding box of the tiles, the way the reader derives it."""
+    """The bounding box of the deepest zoom's tiles, the way the reader derives it.
+
+    Only the deepest: a regional pack also holds its ancestors down to zoom 0, which is the
+    whole world, so a box over every tile would say every region covers the Earth.
+    """
     north = -90.0
     south = 90.0
     east = -180.0
     west = 180.0
+    deepest = max((entry[0] for entry in entries), default=0)
     for z, x, y, _, _ in entries:
+        if z != deepest:
+            continue
         t_north, t_west, t_south, t_east = tile_bounds(z, x, y)
         north = max(north, t_north)
         south = min(south, t_south)
