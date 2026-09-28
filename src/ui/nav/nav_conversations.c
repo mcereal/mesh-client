@@ -579,6 +579,24 @@ bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t ind
     return false;
 }
 
+/* Whether `conversation` is the thread the nav has open - by what it is, never by where. */
+static bool mesh_ui_nav_conversation_is_open(const struct mesh_ui_nav *nav,
+                                             const struct mesh_ui_conversation *conversation) {
+    switch ((enum mesh_ui_conversation_kind)conversation->kind) {
+    case MESH_UI_CONVERSATION_ALL:
+        return nav->inbox;
+    case MESH_UI_CONVERSATION_CHANNEL:
+        return !nav->inbox && nav->target_node == MESH_MESSAGE_BROADCAST_ADDR &&
+               nav->target_channel == conversation->channel;
+    case MESH_UI_CONVERSATION_DIRECT:
+        return !nav->inbox && nav->target_node != MESH_MESSAGE_BROADCAST_ADDR &&
+               nav->target_node == conversation->node;
+    case MESH_UI_CONVERSATION_NEW:
+    default:
+        return false;
+    }
+}
+
 uint32_t mesh_ui_nav_open_conversation_row(const struct mesh_ui_nav *nav,
                                            const struct mesh_ui_store *store) {
     if (nav == NULL) {
@@ -593,28 +611,19 @@ uint32_t mesh_ui_nav_open_conversation_row(const struct mesh_ui_nav *nav,
         if (!mesh_ui_nav_conversation_at(store, i, &conversation)) {
             break;
         }
-        bool open = false;
-        switch ((enum mesh_ui_conversation_kind)conversation.kind) {
-        case MESH_UI_CONVERSATION_ALL:
-            open = nav->inbox;
-            break;
-        case MESH_UI_CONVERSATION_CHANNEL:
-            open = !nav->inbox && nav->target_node == MESH_MESSAGE_BROADCAST_ADDR &&
-                   nav->target_channel == conversation.channel;
-            break;
-        case MESH_UI_CONVERSATION_DIRECT:
-            open = !nav->inbox && nav->target_node != MESH_MESSAGE_BROADCAST_ADDR &&
-                   nav->target_node == conversation.node;
-            break;
-        case MESH_UI_CONVERSATION_NEW:
-        default:
-            break;
-        }
-        if (open) {
+        if (mesh_ui_nav_conversation_is_open(nav, &conversation)) {
             return i;
         }
     }
     return nav->conversation_list_cursor;
+}
+
+bool mesh_ui_nav_conversation_row_is_open(const struct mesh_ui_nav *nav,
+                                          const struct mesh_ui_store *store, uint32_t row) {
+    struct mesh_ui_conversation conversation;
+    return nav != NULL && store != NULL && nav->thread_open &&
+           mesh_ui_nav_conversation_at(store, row, &conversation) &&
+           mesh_ui_nav_conversation_is_open(nav, &conversation);
 }
 
 bool mesh_ui_nav_conversation_is_armed(const struct mesh_ui_nav *nav,

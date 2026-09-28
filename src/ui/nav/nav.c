@@ -381,9 +381,9 @@ static bool mesh_ui_nav_close_node_detail(struct mesh_ui_nav *nav) {
  * nav that would have to be invalidated by every publish, every chip step and every pin - three
  * writers and one reader, for a hundred and twenty-eight elements.
  */
-static const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct mesh_ui_nav *nav,
-                                                                  const struct mesh_ui_store *store,
-                                                                  uint32_t cursor) {
+const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct mesh_ui_nav *nav,
+                                                           const struct mesh_ui_store *store,
+                                                           uint32_t cursor) {
     if (nav == NULL || store == NULL || cursor < MESH_UI_NODES_LEAD_ROWS) {
         return NULL;
     }

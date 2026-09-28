@@ -34,6 +34,11 @@
  *                          keycap letters, and nothing the wheel or the back arrow already does
  *   context row N          right-click the middle of the screen list's row N on the last
  *                          frame, as a window's mouse would - the row's menu, at the pointer
+ *   click row N            left-click the screen list's row N on the last frame, as a
+ *                          window's mouse would - which also hides the cursor's cue
+ *   hover row N|none       the pointer over row N of the last frame, or over nothing
+ *   cursor hidden|shown    whether the reader is on the pointer (no cursor cue) or the keys
+ *   type TEXT              text a window's keyboard commits, into the open keyboard's draft
  *   tab NAME               walk Left/Right to messages|nodes|devices|status|settings
  *   config                 a radio that has answered the config handshake
  *   syncing [on|off]       a config replay still running, partway through the roster; `off`
@@ -89,6 +94,7 @@
 
 #include "inkcell/ui/focus.h"
 #include "inkcell/ui/theme.h"
+#include "inkcell/ui/widgets/focus.h"
 #include "inkwell/base/env.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
@@ -1012,6 +1018,87 @@ static int verb_context(struct inkstand_scene *scene, char *rest, void *userdata
         return inkstand_scene_fail(scene, "the last frame drew no row %s", index_text);
     }
     (void)mesh_ui_store_handle_context(&cap->store, id, box.x + box.w / 3, box.y + box.h / 2);
+    return 0;
+}
+
+/*
+ * The row a verb below names, found where the last frame drew it: `row N` is the screen list's
+ * row N, which is what a reader's pointer would have been over.
+ */
+static int uicap_row_box(struct inkstand_scene *scene, const char *verb, char **rest, uint32_t *id,
+                         struct inkcell_focus_rect *box) {
+    char *what = inkstand_scene_word(rest);
+    char *index_text = inkstand_scene_word(rest);
+    if (what == NULL || strcmp(what, "row") != 0 || index_text == NULL) {
+        return inkstand_scene_fail(scene, "'%s' needs 'row N'", verb);
+    }
+    unsigned row = 0U;
+    const int parsed = inkstand_scene_number(scene, index_text, "row", &row);
+    if (parsed < 0) {
+        return parsed;
+    }
+    *id = (uint32_t)MESH_UI_FOCUS_ROWS + row;
+    if (!inkcell_focus_rect_of(inkcell_capture_state(inkstand_scene_capture(scene))->focus, *id,
+                               box)) {
+        return inkstand_scene_fail(scene, "the last frame drew no row %s", index_text);
+    }
+    return 0;
+}
+
+/* The pointer over a row - its hover layer - or `hover none`, off everything. */
+static int verb_hover(struct inkstand_scene *scene, char *rest, void *userdata) {
+    (void)userdata;
+    struct inkcell_draw_state *const state = inkcell_capture_state(inkstand_scene_capture(scene));
+    if (rest != NULL && strncmp(rest, "none", 4U) == 0) {
+        (void)inkcell_fb_set_hover(state, state->focus, INKCELL_FOCUS_NONE);
+        return 0;
+    }
+    uint32_t id = 0U;
+    struct inkcell_focus_rect box;
+    const int found = uicap_row_box(scene, "hover", &rest, &id, &box);
+    if (found < 0) {
+        return found;
+    }
+    (void)inkcell_fb_set_hover(state, state->focus, id);
+    return 0;
+}
+
+/*
+ * A left click on a row, as a window's mouse would make it: the cursor's cue goes, as it does
+ * whenever the reader reaches for the mouse, and the click is the store's to answer.
+ */
+static int verb_click(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    uint32_t id = 0U;
+    struct inkcell_focus_rect box;
+    const int found = uicap_row_box(scene, "click", &rest, &id, &box);
+    if (found < 0) {
+        return found;
+    }
+    (void)inkcell_fb_set_cursor_hidden(inkcell_capture_state(inkstand_scene_capture(scene)), true);
+    struct mesh_ui_action action;
+    (void)mesh_ui_store_handle_click(&cap->store, id, &action);
+    return 0;
+}
+
+/* Text committed by a window's keyboard, into whatever the keyboard is open on - what a desktop
+   types where the Brick walks the grid. */
+static int verb_type(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    (void)scene;
+    (void)mesh_ui_store_insert_text(&cap->store, inkstand_scene_tail(rest));
+    return 0;
+}
+
+/* `cursor hidden|shown`: whether the reader is on the pointer or the keys. */
+static int verb_cursor(struct inkstand_scene *scene, char *rest, void *userdata) {
+    (void)userdata;
+    char *how = inkstand_scene_word(&rest);
+    if (how == NULL || (strcmp(how, "hidden") != 0 && strcmp(how, "shown") != 0)) {
+        return inkstand_scene_fail(scene, "'cursor' is hidden or shown");
+    }
+    (void)inkcell_fb_set_cursor_hidden(inkcell_capture_state(inkstand_scene_capture(scene)),
+                                       strcmp(how, "hidden") == 0);
     return 0;
 }
 
@@ -2794,6 +2881,10 @@ static const struct inkstand_scene_seed uicap_seeds[] = {
 static const struct inkstand_scene_verb uicap_verbs[] = {
     {"map", INKSTAND_SCENE_NO_FRAME, verb_map},
     {"context", 0U, verb_context},
+    {"hover", 0U, verb_hover},
+    {"click", 0U, verb_click},
+    {"cursor", 0U, verb_cursor},
+    {"type", 0U, verb_type},
     {"tab", INKSTAND_SCENE_NO_FRAME, verb_tab},
     {"toast", 0U, verb_toast},
     {"status", 0U, verb_status},

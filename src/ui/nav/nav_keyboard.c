@@ -115,6 +115,12 @@ bool mesh_ui_nav_kb_node_search(const struct mesh_ui_nav *nav) {
            !nav->keyboard_passkey && !nav->keyboard_verify;
 }
 
+bool mesh_ui_nav_kb_writes_thread(const struct mesh_ui_nav *nav) {
+    return nav != NULL && nav->keyboard_open && nav->screen == MESH_UI_SCREEN_MESSAGES &&
+           nav->thread_open && !nav->inbox && !nav->compose_open && !nav->picker_open &&
+           !nav->keyboard_passkey && !mesh_ui_nav_kb_submit_finishes(nav);
+}
+
 size_t mesh_ui_nav_draft_used(const struct mesh_ui_nav *nav) {
     if (nav == NULL) {
         return 0U;

@@ -663,6 +663,22 @@ static bool fb_frame_split(const struct mesh_ui_snapshot *snapshot,
            !(body->screen == MESH_UI_SCREEN_NODES && snapshot->nav.node_detail_from_map);
 }
 
+bool fb_thread_field_writing(const struct inkcell_draw_state *state,
+                             const struct mesh_ui_nav *nav) {
+    return state != NULL && state->pointer && mesh_ui_nav_kb_writes_thread(nav);
+}
+
+void fb_body_route(const struct inkcell_draw_state *state, const struct mesh_ui_nav *nav,
+                   struct mesh_ui_route *out) {
+    if (!fb_thread_field_writing(state, nav)) {
+        mesh_ui_route_under_layers(nav, out);
+        return;
+    }
+    struct mesh_ui_nav thread = *nav;
+    thread.keyboard_open = false;
+    mesh_ui_route_under_layers(&thread, out);
+}
+
 bool fb_render_split_pair(const struct inkcell_draw_state *state, const struct mesh_ui_route *from,
                           const struct mesh_ui_route *to) {
     const struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
@@ -780,6 +796,16 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         inkcell_focus_begin(&cache->focus, cache->focus_storage, MESH_UI_FOCUS_MAX);
         inkcell_fb_set_focus_map(state, &cache->focus);
     }
+    /* First, so it is under everything: a click that lands on nothing else while the thread's
+       field is being written in is a click away from the field. See MESH_UI_FOCUS_FIELD. */
+    if (fb_thread_field_writing(state, &snapshot->nav)) {
+        inkcell_fb_target_register(
+            state, (uint32_t)MESH_UI_FOCUS_FIELD_DISMISS,
+            &(const struct inkcell_fb_rect){.x = 0,
+                                            .y = 0,
+                                            .w = inkcell_fb_panel_width(state),
+                                            .h = inkcell_fb_panel_height(state)});
+    }
 
     inkcell_fb_clear(state, inkcell_fb_color(state, INKCELL_COLOR_BG));
 
@@ -855,7 +881,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
      * it is one pane, and the nav is the same either way: see fb_render_split().
      */
     struct mesh_ui_route body;
-    mesh_ui_route_under_layers(&snapshot->nav, &body);
+    fb_body_route(state, &snapshot->nav, &body);
     /* The install's screen is the one place with no tabs: it is the whole panel, and nothing
        across the strip can be reached from it anyway. */
     const bool takeover = body.level == MESH_UI_ROUTE_FIRMWARE;

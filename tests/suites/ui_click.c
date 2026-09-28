@@ -660,6 +660,275 @@ MESH_TEST_CASE(ui_click_a_wide_window_opens_a_section_beside_the_sections, unit)
     click_close(&store, capture);
 }
 
+/*
+ * The list a split frame keeps beside an open detail is still a sidebar to a pointer: a click on
+ * another of its rows leaves the detail and opens that row, where the d-pad would have had to go
+ * back first. Its rows are targets in a block of their own, so they never answer for the detail.
+ */
+MESH_TEST_CASE(ui_click_a_wide_window_opens_another_row_from_the_list_beside_a_detail, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    struct mesh_ui_action action;
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 2U, &action) ||
+            !store.nav.thread_open,
+        click_close(&store, capture), "a click on a conversation should open it");
+    const uint32_t first_node = store.nav.target_node;
+    const uint8_t first_channel = store.nav.target_channel;
+
+    /* The open conversation's own row is the selection: a click there leaves the thread where
+       the reader had it, and is no change at all. */
+    (void)click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + 2U, &action) ||
+            !store.nav.thread_open || store.nav.target_node != first_node,
+        click_close(&store, capture),
+        "a click on the open conversation's own row should do nothing");
+
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect row;
+    struct inkcell_focus_rect bubble;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + 1U, &row) ||
+            !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS, &bubble) ||
+            row.x + row.w > bubble.x,
+        click_close(&store, capture),
+        "the conversations should stay click targets in their own pane beside the thread");
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_focus_first(map) == (uint32_t)MESH_UI_FOCUS_PANE_ROWS + 1U,
+                              click_close(&store, capture),
+                              "the list beside the thread is not somewhere the d-pad stands");
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + 1U, &action) ||
+            !store.nav.thread_open,
+        click_close(&store, capture), "a click on another conversation should open it");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.target_node == first_node &&
+                                  store.nav.target_channel == first_channel,
+                              click_close(&store, capture),
+                              "and it should be that conversation, not the one that was open");
+    click_close(&store, capture);
+    record_success(test_name);
+}
+
+/*
+ * The selected row is found by what it is. A thread opened on a peer with nothing said yet has no
+ * row, and the row the list's cursor was parked on is then some other conversation, which a
+ * click must still open. And a click on the list goes nowhere while a layer is over the detail.
+ */
+MESH_TEST_CASE(ui_click_the_list_beside_an_unlisted_thread_or_a_layer, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    struct mesh_ui_action action;
+
+    /* Parked on row 1, then a thread with no row of its own - as the picker or a node opens. */
+    store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+    store.nav.conversation_list_cursor = 1U;
+    store.nav.thread_open = true;
+    store.nav.inbox = false;
+    store.nav.target_node = 0x7E57AB1EU;
+    store.nav.cursor[MESH_UI_SCREEN_MESSAGES] = 0U;
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_nav_conversation_row_is_open(&store.nav, &store, 1U),
+                              click_close(&store, capture),
+                              "an unlisted thread should not be row 1");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + 1U, &action) ||
+            !store.nav.thread_open || store.nav.target_node == 0x7E57AB1EU,
+        click_close(&store, capture),
+        "the row the list was parked on should still open its own conversation");
+
+    /* A layer over the thread: the list beneath it answers nothing. */
+    const uint32_t node = store.nav.target_node;
+    const uint8_t channel = store.nav.target_channel;
+    store.nav.reaction_open = true;
+    (void)click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + 2U, &action) ||
+            !store.nav.reaction_open || store.nav.target_node != node ||
+            store.nav.target_channel != channel,
+        click_close(&store, capture), "a click beneath a layer should go nowhere");
+    click_close(&store, capture);
+    record_success(test_name);
+}
+
+/*
+ * A window writes a message in a field at the foot of the thread rather than on a screen of its
+ * own: the field is pressed as Y, the thread stays on the panel with the list beside it and
+ * nothing slides, and a click anywhere else puts the field down with the draft kept.
+ */
+MESH_TEST_CASE(ui_click_a_window_writes_in_the_field_at_the_foot_of_the_thread, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    struct mesh_ui_action action;
+    const uint32_t field = INKCELL_FOCUS_KEY(INKCELL_KEY_Y);
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 2U, &action) ||
+            !store.nav.thread_open,
+        click_close(&store, capture), "a click on a conversation should open it");
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect box;
+    struct inkcell_focus_rect bubble;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(map, field, &box) ||
+            inkcell_focus_hit(map, box.x + box.w / 2, box.y + box.h / 2) != field,
+        click_close(&store, capture), "the thread should have a field a pointer can press");
+    for (uint32_t i = 0U; i < 64U; ++i) {
+        if (inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + i, &bubble)) {
+            MESH_TEST_FAIL_IF_CLEANUP(bubble.y + bubble.h > box.y, click_close(&store, capture),
+                                      "every bubble should stand above the field");
+        }
+    }
+
+    /* The field is Y, which a window's backend presses for it. */
+    (void)mesh_ui_store_handle_key(&store, inkcell_focus_key_of(field), &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_nav_kb_writes_thread(&store.nav),
+                              click_close(&store, capture),
+                              "pressing the field should open the keyboard on the thread");
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    inkcell_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_fb_transition_offset(inkcell_capture_state(capture)) != 0,
+                              click_close(&store, capture),
+                              "the field taking the keyboard is not a move");
+    (void)mesh_ui_store_insert_text(&store, "on my way");
+    map = click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_focus_rect_of(map, field, &box), click_close(&store, capture),
+                              "a field being written in is not pressed again");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS, &bubble) ||
+            !inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_PANE_ROWS, &box),
+        click_close(&store, capture), "the thread and the list beside it should still be drawn");
+
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_FIELD, &action) ||
+                                  !mesh_ui_nav_kb_writes_thread(&store.nav),
+                              click_close(&store, capture),
+                              "a click in the field being written in should keep it");
+
+    /* Somewhere nothing else is drawn - the air above a short transcript - which is where a
+       reader clicks to be done with a text box. */
+    map = click_render(&store, capture);
+    int blank_x = -1;
+    int blank_y = -1;
+    for (int y = 0; y < 1080 && blank_x < 0; y += 8) {
+        for (int x = 1919; x >= 0 && blank_x < 0; x -= 8) {
+            if (inkcell_focus_hit(map, x, y) == (uint32_t)MESH_UI_FOCUS_FIELD_DISMISS) {
+                blank_x = x;
+                blank_y = y;
+            }
+        }
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(blank_x < 0, click_close(&store, capture),
+                              "a click on nothing should still land on something while writing");
+    (void)mesh_ui_store_handle_click(&store, inkcell_focus_hit(map, blank_x, blank_y), &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.keyboard_open || !store.nav.thread_open,
+                              click_close(&store, capture),
+                              "a click on nothing should put the field down");
+    MESH_TEST_FAIL_IF_CLEANUP(strcmp(store.nav.draft, "on my way") != 0,
+                              click_close(&store, capture), "and keep what was written in it");
+    map = click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_FIELD_DISMISS, &box),
+        click_close(&store, capture), "with the field put down, nothing lies under the frame");
+
+    /* And a click on the transcript puts it down too, landing on the bubble as well. */
+    (void)mesh_ui_store_handle_key(&store, inkcell_focus_key_of(field), &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS, &action) ||
+                                  store.nav.keyboard_open || !store.nav.thread_open,
+                              click_close(&store, capture),
+                              "a click on the transcript should put the field down");
+    click_close(&store, capture);
+    record_success(test_name);
+}
+
+/*
+ * A click on the list beside an open section is a way out of it, and leaving a section with
+ * unsaved edits asks first. The click asks exactly once: it stops at the question rather than
+ * pressing B again, which would be the answer - and the edits gone.
+ */
+MESH_TEST_CASE(ui_click_the_list_beside_a_section_with_edits_asks_first, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.use_preset = true;
+    mesh_ui_store_set_settings(&store, &settings);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    click_settle(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_settings_open(&store, MESH_UI_SETTINGS_LORA),
+                              click_close(&store, capture), "LoRa should open");
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.settings_edit_count != 1U, click_close(&store, capture),
+                              "A on a toggle should record an edit");
+
+    /* LoRa's own row is the selection, and clicking it asks for nothing - not even the question. */
+    uint32_t lora = 0U;
+    while (mesh_ui_settings_root_at(&store.settings, lora) != MESH_UI_SETTINGS_LORA) {
+        ++lora;
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + lora, &action) ||
+            store.nav.settings_section != MESH_UI_SETTINGS_LORA ||
+            store.nav.settings_discard_armed || store.nav.settings_edit_count != 1U,
+        click_close(&store, capture), "a click on the open section's own row should do nothing");
+
+    /* A heading on that list is a label, and a click on it leaves nothing. */
+    uint32_t heading = 0U;
+    while (heading < mesh_ui_settings_root_count(&store.settings) &&
+           !mesh_ui_settings_root_is_heading(&store.settings, heading)) {
+        ++heading;
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(heading >= mesh_ui_settings_root_count(&store.settings),
+                              click_close(&store, capture),
+                              "the section list should have a heading");
+    (void)click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_store_handle_click(&store, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + heading, &action) ||
+            store.nav.settings_section != MESH_UI_SETTINGS_LORA || store.nav.settings_discard_armed,
+        click_close(&store, capture), "a click on a heading beside the section should do nothing");
+
+    uint32_t device = 0U;
+    while (mesh_ui_settings_root_at(&store.settings, device) != MESH_UI_SETTINGS_DEVICE) {
+        ++device;
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + device, &action),
+        click_close(&store, capture), "the sections beside LoRa should be click targets");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        store.nav.settings_section != MESH_UI_SETTINGS_LORA || !store.nav.settings_discard_armed ||
+            store.nav.settings_edit_count != 1U,
+        click_close(&store, capture), "the click should stop at the question with the edit kept");
+    click_close(&store, capture);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_click_a_right_click_off_a_list_opens_nothing, unit) {
     struct mesh_ui_store store;
     struct inkcell_capture *capture = NULL;

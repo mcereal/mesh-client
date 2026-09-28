@@ -98,6 +98,9 @@ void fb_render_conversations(struct inkcell_draw_state *state,
        went on registering would be two things answering one id. */
     if (!nav->thread_open) {
         inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    } else {
+        /* A pointer can still reach another conversation: see MESH_UI_FOCUS_PANE_ROWS. */
+        inkcell_fb_list_targets(&list, (uint32_t)MESH_UI_FOCUS_PANE_ROWS);
     }
     char age[8];
     char badge[8];
@@ -684,6 +687,69 @@ static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot,
     row->bubble.meta.clock = row->clock;
 }
 
+/* The most lines the thread's field grows to as a message is written into it, before it scrolls
+   its own text rather than taking any more of the transcript. */
+#define FB_THREAD_FIELD_LINES_MAX 6U
+
+/*
+ * The field at the foot of a conversation, in a window: where a message is written.
+ *
+ * A desktop messenger's reply box is always there, and a window has a keyboard of its own, so
+ * a pointer frame draws one under every conversation it can write to. At rest it says who a
+ * message would go to and is pressed as Y - the same press that writes on the Brick, so every
+ * guard on that key is met. Once Y has opened the keyboard the typing lands here, in the
+ * transcript's own pane, with the conversation still above it - rather than on a screen of its
+ * own that hides what is being answered. It grows with the draft, a line at a time, up to
+ * FB_THREAD_FIELD_LINES_MAX.
+ *
+ * Its room comes off the foot of the body, so the transcript above it is laid out in what is
+ * left and stays bottom-anchored against the field.
+ */
+static void fb_draw_thread_field(const struct inkcell_draw_state *state,
+                                 const struct mesh_ui_snapshot *snapshot, const char *convo,
+                                 struct inkcell_fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    if (!state->pointer || nav->inbox || layout->line <= 0) {
+        return;
+    }
+    const bool writing = fb_thread_field_writing(state, nav);
+    char placeholder[128];
+    inkcell_str_format(placeholder, sizeof placeholder, MESH_STR_COMPOSE_FIELD, convo);
+    char masked[MESH_UI_DRAFT_MAX];
+    size_t caret_back = nav->kb.caret_back;
+    char counter[32] = "";
+    struct inkcell_fb_text_field field = {
+        .value = writing ? mesh_ui_nav_kb_shown(nav, masked, sizeof masked, &caret_back) : "",
+        .caret = writing,
+        .caret_back = caret_back,
+        .lines = 1U,
+        .placeholder = placeholder,
+        .lit = writing,
+        .target = writing ? (uint32_t)MESH_UI_FOCUS_FIELD : INKCELL_FOCUS_KEY(INKCELL_KEY_Y),
+    };
+    if (writing) {
+        /* The draft and the caret after it, wrapped as the field will draw them. */
+        char measured[MESH_UI_DRAFT_MAX + 2U];
+        snprintf(measured, sizeof measured, "%s_", field.value);
+        const uint32_t lines = inkcell_fb_wrapped_lines(
+            state, measured, (size_t)inkcell_fb_content_w(state), state->scale);
+        field.lines = lines < 1U                          ? 1U
+                      : lines > FB_THREAD_FIELD_LINES_MAX ? FB_THREAD_FIELD_LINES_MAX
+                                                          : lines;
+        snprintf(counter, sizeof counter, "%zu/%zu", mesh_ui_nav_draft_used(nav),
+                 mesh_ui_nav_draft_cap(nav));
+        field.counter = counter;
+    }
+    const int height = inkcell_fb_text_field_height(state, layout, &field);
+    const uint32_t taken = (uint32_t)((height + layout->line - 1) / layout->line);
+    if (taken >= layout->rows) {
+        return;
+    }
+    layout->rows -= taken;
+    int y = layout->body_y + (int)(layout->rows + taken) * layout->line - height;
+    inkcell_fb_draw_text_field(state, layout, &y, &field);
+}
+
 void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                       struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -720,6 +786,7 @@ void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_sna
                         .badge = kind,
                         .badge_family = INKCELL_FAMILY_SECONDARY,
                     });
+    fb_draw_thread_field(state, snapshot, convo, layout);
 
     if (count == 0U) {
         inkcell_fb_draw_empty(

@@ -42,6 +42,11 @@ enum mesh_ui_focus_id {
        actions for a pointer. A block of its own rather than the menu's, because the menu's ids
        are only answered while the menu is open and these are answered whenever they are drawn. */
     MESH_UI_FOCUS_BAR = 0x0500,
+    /* A window's thread field while a message is written in it (src/ui/backends/
+       fb_screens_messages.c). A click there keeps the field; the dismiss target lies under the
+       whole frame, below everything else, so a click on nothing still puts the field down. */
+    MESH_UI_FOCUS_FIELD = 0x0700,
+    MESH_UI_FOCUS_FIELD_DISMISS = 0x0701,
     /* The tab strip, `base + enum mesh_ui_screen`. */
     MESH_UI_FOCUS_TABS = 0x0800,
     /* The Nodes list's chip bar, `base + enum mesh_ui_nodes_chip`. Its own block rather than
@@ -55,6 +60,11 @@ enum mesh_ui_focus_id {
        because the list under a sheet is still on the frame and still registered, and a click
        has to say which of the two it landed on. */
     MESH_UI_FOCUS_SHEET_ROWS = 0x2000,
+    /* The rows of the list a split frame keeps beside the detail it opened, `base + index` in
+       that list's own numbering - the index its cursor holds with the detail closed. Pointer
+       targets only (inkcell_fb_list_targets()): the detail has the d-pad, and the rows block is
+       its. A click on one leaves the detail and opens that row - see src/ui/nav/nav_click.c. */
+    MESH_UI_FOCUS_PANE_ROWS = 0x3000,
 };
 
 /* How many ids one block holds: a list longer than this registers only its first rows. */

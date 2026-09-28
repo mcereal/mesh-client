@@ -837,6 +837,9 @@ void fb_render_node_list(struct inkcell_draw_state *state, const struct mesh_ui_
     if (!nav->node_detail_open) {
         inkcell_fb_list_glide(state, &list, FB_LIST_NODES);
         inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS + MESH_UI_NODES_LEAD_ROWS);
+    } else {
+        /* A pointer can still reach another node: see MESH_UI_FOCUS_PANE_ROWS. */
+        inkcell_fb_list_targets(&list, (uint32_t)MESH_UI_FOCUS_PANE_ROWS + MESH_UI_NODES_LEAD_ROWS);
     }
     const bool imperial = mesh_ui_units_imperial(snapshot->settings.units);
     char right[32];

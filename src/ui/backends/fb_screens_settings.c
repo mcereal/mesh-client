@@ -411,6 +411,9 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
     if (!beside) {
         inkcell_fb_list_glide(state, &list, view->glide);
         inkcell_fb_list_focus(&list, (uint32_t)MESH_UI_FOCUS_ROWS);
+    } else {
+        /* A pointer can still reach another section: see MESH_UI_FOCUS_PANE_ROWS. */
+        inkcell_fb_list_targets(&list, (uint32_t)MESH_UI_FOCUS_PANE_ROWS);
     }
     uint32_t i;
     while (inkcell_fb_list_next(&list, &i)) {

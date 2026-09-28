@@ -31,6 +31,7 @@
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/route.h"
+#include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
 
@@ -205,6 +206,111 @@ static bool mesh_ui_nav_click_row(struct mesh_ui_nav *nav, const struct mesh_ui_
     return mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_A, out_action) || moved;
 }
 
+/* Whether the tab has a detail open over its list - what a split frame stands beside the list. */
+static bool mesh_ui_nav_click_detail_open(const struct mesh_ui_nav *nav) {
+    switch (nav->screen) {
+    case MESH_UI_SCREEN_MESSAGES:
+        return nav->thread_open;
+    case MESH_UI_SCREEN_NODES:
+        return nav->node_detail_open;
+    case MESH_UI_SCREEN_SETTINGS:
+        return nav->settings_section != MESH_UI_SETTINGS_NO_SECTION;
+    default:
+        return false;
+    }
+}
+
+/*
+ * A row of the list a split frame keeps beside an open detail: that detail left, and the row
+ * opened in its place - what clicking a sidebar does.
+ *
+ * Left by B, pressed until the list is the reader's again, so leaving meets every guard leaving
+ * by the keys does: a section with unsaved edits asks its question, the walk stops there, and the
+ * click has asked it rather than thrown the edits away. A message being written in the thread's
+ * field is put down first by the same key, with its draft kept. Only then is the row the list's
+ * cursor and A, which is the ordinary row click.
+ */
+/* Whether row `index` of the list beside the detail is the one that detail is showing - found
+   by what the row is, as the list pane finds the row it lights. */
+static bool mesh_ui_nav_click_is_open_row(const struct mesh_ui_nav *nav,
+                                          const struct mesh_ui_store *store, uint32_t index) {
+    switch (nav->screen) {
+    case MESH_UI_SCREEN_MESSAGES:
+        return mesh_ui_nav_conversation_row_is_open(nav, store, index);
+    case MESH_UI_SCREEN_NODES: {
+        const struct mesh_ui_node_summary *node = mesh_ui_nav_node_at_row(nav, store, index);
+        return node != NULL && node->node_id == nav->node_detail_node;
+    }
+    case MESH_UI_SCREEN_SETTINGS: {
+        const uint8_t top = nav->settings_parent != MESH_UI_SETTINGS_NO_SECTION
+                                ? nav->settings_parent
+                                : nav->settings_section;
+        return index < mesh_ui_settings_root_count(&store->settings) &&
+               (uint8_t)mesh_ui_settings_root_at(&store->settings, index) == top;
+    }
+    default:
+        return false;
+    }
+}
+
+/* Whether row `index` of the list beside the detail is somewhere a click can go - not a heading,
+   and not past the end of a list that has since shrunk. Asked before anything is left: a label is
+   no reason to close what the reader has open. */
+static bool mesh_ui_nav_click_pane_row_opens(const struct mesh_ui_nav *nav,
+                                             const struct mesh_ui_store *store, uint32_t index) {
+    switch (nav->screen) {
+    case MESH_UI_SCREEN_MESSAGES: {
+        struct mesh_ui_conversation conversation;
+        return mesh_ui_nav_conversation_at(store, index, &conversation);
+    }
+    case MESH_UI_SCREEN_NODES:
+        return mesh_ui_nav_node_at_row(nav, store, index) != NULL;
+    case MESH_UI_SCREEN_SETTINGS:
+        return index < mesh_ui_settings_root_count(&store->settings) &&
+               !mesh_ui_settings_root_is_heading(&store->settings, index);
+    default:
+        return false;
+    }
+}
+
+static bool mesh_ui_nav_click_pane_row(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                       uint32_t index, struct mesh_ui_action *out_action) {
+    if (!mesh_ui_nav_click_detail_open(nav)) {
+        return false; /* drawn on a frame whose detail has since closed */
+    }
+    /* Under a layer the list is not the top of the frame, and a click there goes nowhere - the
+       rule for every click below a sheet (see the top of this file). The thread's field has
+       already been put down by the time a click reaches here. */
+    if (mesh_ui_nav_click_modal(nav) || nav->node_actions_open || nav->node_sort_open) {
+        return false;
+    }
+    /* The selected row is what is already open: nothing is asked for, so nothing is left - no
+       discard question, and the detail keeps its place. */
+    if (!mesh_ui_nav_click_pane_row_opens(nav, store, index) ||
+        mesh_ui_nav_click_is_open_row(nav, store, index)) {
+        return false;
+    }
+    bool changed = false;
+    for (int i = 0; i < 8 && mesh_ui_nav_click_detail_open(nav); ++i) {
+        /* A B that did not take the reader up a level asked something instead - a dialog, or
+           the section's "B again to discard" - and a second B would be the answer the reader
+           has not given. So the walk stops at the first press that goes nowhere. */
+        struct mesh_ui_route was;
+        mesh_ui_route_of(nav, &was);
+        changed = mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_B, out_action) || changed;
+        struct mesh_ui_route now;
+        mesh_ui_route_of(nav, &now);
+        if (nav->confirm.open || now.depth >= was.depth) {
+            return changed;
+        }
+    }
+    if (mesh_ui_nav_click_detail_open(nav) || mesh_ui_nav_click_modal(nav)) {
+        return changed;
+    }
+    return mesh_ui_nav_click_row(nav, store, (uint32_t)MESH_UI_FOCUS_ROWS, index, out_action) ||
+           changed;
+}
+
 static bool mesh_ui_nav_click_dialog(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                      uint8_t answer, struct mesh_ui_action *out_action) {
     if (nav->help_open) {
@@ -220,6 +326,9 @@ static bool mesh_ui_nav_click_dialog(struct mesh_ui_nav *nav, const struct mesh_
     }
     return mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_A, out_action);
 }
+
+static bool mesh_ui_nav_click_target(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                     uint32_t target, struct mesh_ui_action *out_action);
 
 bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                               uint32_t target, struct mesh_ui_action *out_action) {
@@ -238,6 +347,26 @@ bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_stor
         nav->context_open = false;
         return true;
     }
+    /*
+     * A message being written in a window's thread field is put down by a click anywhere else, as
+     * clicking away from a text box does - by B, which keeps the draft - and the click then lands
+     * on what it was aimed at. Without this every click would meet the keyboard, which takes no
+     * clicks, and the only way off the field would be the Escape key.
+     */
+    if (target == (uint32_t)MESH_UI_FOCUS_FIELD) {
+        return false; /* a click in the field being written in keeps it */
+    }
+    bool field_put_down = false;
+    if (mesh_ui_nav_kb_writes_thread(nav)) {
+        (void)mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_B, out_action);
+        field_put_down = true;
+    }
+    return mesh_ui_nav_click_target(nav, store, target, out_action) || field_put_down;
+}
+
+/* A click on `target`, with nothing in the way of it - see mesh_ui_nav_handle_click(). */
+static bool mesh_ui_nav_click_target(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                     uint32_t target, struct mesh_ui_action *out_action) {
     if (target == (uint32_t)MESH_UI_FOCUS_DIALOG || target == (uint32_t)MESH_UI_FOCUS_DIALOG + 1U) {
         return mesh_ui_nav_click_dialog(nav, store, (uint8_t)(target - MESH_UI_FOCUS_DIALOG),
                                         out_action);
@@ -260,6 +389,11 @@ bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_stor
         mesh_ui_nav_click_stand_down(nav);
         (void)mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_A, out_action);
         return true; /* the cursor moved onto the bar, whatever the press then did */
+    }
+    if (target >= (uint32_t)MESH_UI_FOCUS_PANE_ROWS &&
+        target < (uint32_t)MESH_UI_FOCUS_PANE_ROWS + MESH_UI_FOCUS_BLOCK) {
+        return mesh_ui_nav_click_pane_row(nav, store, target - (uint32_t)MESH_UI_FOCUS_PANE_ROWS,
+                                          out_action);
     }
     const uint32_t blocks[] = {(uint32_t)MESH_UI_FOCUS_ROWS, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS};
     for (size_t b = 0; b < sizeof blocks / sizeof blocks[0]; ++b) {
