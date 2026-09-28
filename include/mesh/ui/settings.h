@@ -1036,8 +1036,10 @@ bool mesh_ui_settings_item_is_fact(const struct mesh_ui_settings_item *item);
  *   anything else      nothing. A fact, a heading, a meter, a verb - none is changed in place,
  *                      and the verbs carry a tonal disc and a chevron of their own.
  *
- * An `inactive` row takes nothing whatever its kind: it is drawn dim, a press on it says why it
- * cannot be changed, and a stepper beside it offered a Left and Right that do not move it.
+ * An `inactive` row takes nothing at rest whatever its kind - it is drawn dim, and a dim row
+ * each offering a stepper read as controls nothing had disabled - and takes its kind's mark
+ * under the cursor, where Left and Right still act (and say when the edit will count). See
+ * mesh_ui_settings_item_marker_at().
  *
  * `cycle` sits with the kinds and answers before them: the swap rune, because A moves that row's
  * value where the d-pad moves a field's, and the gutter is where that difference is stated.
@@ -1054,6 +1056,10 @@ bool mesh_ui_settings_item_is_fact(const struct mesh_ui_settings_item *item);
  * switch does. See the seam in fb_screens_settings.c.
  */
 enum inkcell_icon mesh_ui_settings_item_marker(const struct mesh_ui_settings_item *item);
+/* The same question for a row the cursor may be on: `under_cursor` is what lets an inactive row
+   show the mark where a press would land. mesh_ui_settings_item_marker() is this with false. */
+enum inkcell_icon mesh_ui_settings_item_marker_at(const struct mesh_ui_settings_item *item,
+                                                  bool under_cursor);
 
 /*
  * How many groups a built section actually has: maximal runs of non-heading rows, counting only

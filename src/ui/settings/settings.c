@@ -343,6 +343,11 @@ bool mesh_ui_settings_item_is_fact(const struct mesh_ui_settings_item *item) {
 }
 
 enum inkcell_icon mesh_ui_settings_item_marker(const struct mesh_ui_settings_item *item) {
+    return mesh_ui_settings_item_marker_at(item, false);
+}
+
+enum inkcell_icon mesh_ui_settings_item_marker_at(const struct mesh_ui_settings_item *item,
+                                                  bool under_cursor) {
     if (item == NULL) {
         return INKCELL_ICON_NONE;
     }
@@ -362,10 +367,12 @@ enum inkcell_icon mesh_ui_settings_item_marker(const struct mesh_ui_settings_ite
     if (item->field == MESH_UI_FIELD_NONE) {
         return INKCELL_ICON_NONE;
     }
-    /* Nor is an inactive row: a manual LoRa number while a preset stands in for it is drawn
-       dim and a press on it explains why rather than stepping, so the stepper there promised a
-       Left and Right that do not move it. The dim value says what the mark would have. */
-    if (item->inactive) {
+    /* An inactive row wears its mark only under the cursor. A manual LoRa number while a
+       preset stands in for it still takes Left and Right - a setting can be readied before the
+       preset is turned off, and the press says so - but a column of dim rows each offering a
+       stepper read as a column of controls the preset had not in fact disabled. At rest the
+       row says it is not in use; where the press would land, it says the press still works. */
+    if (item->inactive && !under_cursor) {
         return INKCELL_ICON_NONE;
     }
     switch (item->kind) {
@@ -2810,7 +2817,8 @@ bool mesh_ui_settings_number_track(enum mesh_ui_setting_field field, uint32_t va
      * other leading words - "default", "the firmware decides" - name a value nobody here
      * knows, and stay off.
      */
-    if (field == MESH_UI_FIELD_LORA_TX_POWER && value == 0U) {
+    if ((field == MESH_UI_FIELD_LORA_TX_POWER || field == MESH_UI_FIELD_LORA_HAM_TX_POWER) &&
+        value == 0U) {
         track.position = INKCELL_ANIM_ONE;
         track.unplaced = false;
     }

@@ -442,7 +442,8 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
              * chevron every row that opens something ends in, on the trailing edge rather than
              * in the gutter.
              */
-            const enum inkcell_icon marker = mesh_ui_settings_item_marker(&item);
+            const enum inkcell_icon marker =
+                mesh_ui_settings_item_marker_at(&item, !beside && i == cursor);
             /*
              * Whether that mark stands down for a control drawn beside the value, which is this
              * backend's own decision and taken twice below: a small enum becomes a segmented

@@ -1019,6 +1019,7 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
         int cx;
         int cy;
         uint32_t more;
+        size_t taken_at; /* its own entry in `taken`, or FB_MAP_BOXES_MAX for none */
     };
     struct fb_map_placed placed[FB_MAP_LABELS_MAX];
     size_t placed_count = 0U;
@@ -1077,11 +1078,13 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
             }
             continue;
         }
+        size_t taken_at = FB_MAP_BOXES_MAX;
         if (taken_count < FB_MAP_BOXES_MAX) {
+            taken_at = taken_count;
             taken[taken_count++] = *chosen;
         }
-        placed[placed_count++] =
-            (struct fb_map_placed){.box = *chosen, .marker = marker, .cx = cx, .cy = cy};
+        placed[placed_count++] = (struct fb_map_placed){
+            .box = *chosen, .marker = marker, .cx = cx, .cy = cy, .taken_at = taken_at};
     }
 
     /* Each crowded-out name goes to the nearest name that was placed, if one is near enough to
@@ -1122,14 +1125,17 @@ void fb_render_map(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
             }
             bool clear = grown.x >= body.x && grown.x + grown.w < body.x + body.w;
             for (size_t j = 0; j < taken_count && clear; ++j) {
-                const struct fb_map_box *other = &taken[j];
-                const bool own = other->x == label->box.x && other->y == label->box.y &&
-                                 other->w == label->box.w && other->h == label->box.h;
-                clear = own || !fb_map_boxes_overlap(&grown, other);
+                clear = j == label->taken_at || !fb_map_boxes_overlap(&grown, &taken[j]);
             }
             if (clear) {
                 inkwell_str_copy(text, sizeof text, counted);
                 x = grown.x;
+                /* The grown box is the one on the panel now, so the next count is checked
+                   against it: two neighbours each growing into the gap between them would
+                   otherwise both find it clear and write over each other. */
+                if (label->taken_at < FB_MAP_BOXES_MAX) {
+                    taken[label->taken_at] = grown;
+                }
             }
         }
         const struct inkcell_paint paint = inkcell_fb_paint(

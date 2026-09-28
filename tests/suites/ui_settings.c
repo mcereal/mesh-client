@@ -3263,9 +3263,19 @@ MESH_TEST_CASE(ui_settings_a_marker_says_how_the_row_is_changed, unit) {
                 expected = INKCELL_ICON_NONE;
                 counter = &quiet;
             } else if (item.inactive) {
-                /* Shown dim and not changed here: a press explains why, so no mark offers one. */
+                /* Dim at rest with no mark; under the cursor it still steps, and says so. */
                 expected = INKCELL_ICON_NONE;
                 counter = &quiet;
+                const enum inkcell_icon under = mesh_ui_settings_item_marker_at(&item, true);
+                if ((item.kind == INKSTAND_FORM_ENUM || item.kind == INKSTAND_FORM_NUMBER) &&
+                    under != INKCELL_ICON_STEPPER) {
+                    snprintf(message, sizeof message,
+                             "\"%s\" in section %s is inactive and still steps, but wears no "
+                             "stepper under the cursor",
+                             item.label, mesh_ui_settings_section_name(section));
+                    record_failure(test_name, message);
+                    return;
+                }
             } else if (item.kind == INKSTAND_FORM_TEXT || item.kind == INKSTAND_FORM_KEY) {
                 expected = INKCELL_ICON_EDIT;
                 counter = &typed;
@@ -3506,6 +3516,9 @@ MESH_TEST_CASE(ui_settings_number_track_refuses_what_it_cannot_place, unit) {
     MESH_TEST_FAIL_IF(track.unplaced || track.position != 1000,
                       "\"max\" is the top of a power scale, not an empty bar");
     MESH_TEST_FAIL_IF(track.stops == 0U, "a full track still has its stops to draw");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_LORA_HAM_TX_POWER, 0U, &track) ||
+                          track.unplaced || track.position != 1000,
+                      "the ham row's \"max\" is the same full track");
 
     /* And the rest of the same list is a scale: 2 dBm is its bottom, 30 its top. */
     MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_LORA_TX_POWER, 2U, &track),
@@ -3581,7 +3594,8 @@ MESH_TEST_CASE(ui_settings_number_scales_are_well_formed, unit) {
                 record_failure(test_name, "a field stopped being a scale mid-walk");
                 return;
             }
-            if (value == 0U && field == MESH_UI_FIELD_LORA_TX_POWER) {
+            if (value == 0U && (field == MESH_UI_FIELD_LORA_TX_POWER ||
+                                field == MESH_UI_FIELD_LORA_HAM_TX_POWER)) {
                 /* Transmit power's own "max": the one leading word that is drawn at the top of
                    its track rather than off it. It is still the first thing the walk sees, so
                    the climb it is held to starts after it. */
