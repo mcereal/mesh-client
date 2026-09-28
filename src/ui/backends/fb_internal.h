@@ -184,9 +184,15 @@ bool fb_render_split_pair(const struct inkcell_draw_state *state, const struct m
                           const struct mesh_ui_route *to);
 
 /*
- * A message being written into the open thread, in a window: the field at the foot of the
- * transcript has the keyboard, and the thread is still the screen - see
- * mesh_ui_nav_kb_writes_thread(). Never on a panel, whose keyboard is a screen of its own.
+ * A message being written into the open thread with the thread still the screen - see
+ * mesh_ui_nav_kb_writes_thread(). The field at the foot of the transcript has the keyboard: in a
+ * window, the window's own; with a d-pad, the grid, docked under the field.
+ *
+ * With a pointer, always. With a d-pad, where the last frame had room for a list and a detail
+ * side by side: there the thread keeps its pane and the list stays beside it, and the reader can
+ * see what they are answering while they type. On a panel with no such room - the Brick - the
+ * keyboard is a screen of its own, since its keys want the body and a transcript squeezed into
+ * the rows above them would be one bubble tall.
  */
 bool fb_thread_field_writing(const struct inkcell_draw_state *state, const struct mesh_ui_nav *nav);
 

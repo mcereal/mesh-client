@@ -399,9 +399,8 @@ void fb_render_picker(struct inkcell_draw_state *state, const struct mesh_ui_sna
  * of the same list. They disagreed: the copy here left the key-verification prompt out, so six
  * digits that must never reach the mesh were typed under a send arrow.
  */
-static void fb_draw_keyboard_grid(const struct inkcell_draw_state *state,
-                                  const struct mesh_ui_nav *nav, struct inkcell_fb_layout *layout,
-                                  int *y) {
+void fb_draw_keyboard_grid(const struct inkcell_draw_state *state, const struct mesh_ui_nav *nav,
+                           struct inkcell_fb_layout *layout, int *y) {
     const struct inkcell_keyboard_layout kb_layout = mesh_ui_nav_kb_layout(nav);
     const struct inkcell_fb_keyboard grid = {
         .keyboard = &nav->kb,

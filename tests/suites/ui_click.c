@@ -1343,3 +1343,57 @@ MESH_TEST_CASE(ui_click_a_wide_window_puts_the_map_heading_over_the_whole_map, u
                               "the map's heading should run to the map's trailing edge");
     click_close(&store, capture);
 }
+
+/*
+ * With a d-pad on a frame with room for the list beside the thread, Y docks the keyboard under
+ * the conversation instead of giving it the body: the list and the transcript are still drawn,
+ * and the grid under them is the one that types. On the Brick's panel the keyboard is a screen
+ * of its own, as it always was.
+ */
+static bool docked_keyboard_keeps_thread(uint32_t width, uint32_t height, bool *typed) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    if (mesh_ui_store_init(&store) != 0) {
+        return false;
+    }
+    mesh_test_nav_populate(&store);
+    if (mesh_ui_capture_open(&capture, width, height, INKCELL_SCALE(4)) != 0) {
+        mesh_ui_store_shutdown(&store);
+        return false;
+    }
+    struct mesh_ui_action action;
+    /* Down to a conversation the keyboard can write in, and open it. */
+    bool open = false;
+    for (int i = 0; i < 6 && !open; ++i) {
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+        open = store.nav.thread_open && !store.nav.inbox;
+        if (!open && store.nav.thread_open) {
+            (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+        }
+    }
+    (void)click_render(&store, capture);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect box;
+    const bool kept = open && mesh_ui_nav_kb_writes_thread(&store.nav) &&
+                      inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS, &box) &&
+                      inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_PANE_ROWS, &box);
+    /* And the grid is live: A on the key under the cursor types it. */
+    const size_t before = strlen(store.nav.draft);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    *typed = strlen(store.nav.draft) == before + 1U;
+    click_close(&store, capture);
+    return kept;
+}
+
+MESH_TEST_CASE(ui_click_a_wide_window_docks_the_keyboard_under_the_thread, unit) {
+    bool typed = false;
+    MESH_TEST_FAIL_IF(!docked_keyboard_keeps_thread(1920U, 1080U, &typed),
+                      "a wide frame should keep the thread and the list beside the keyboard");
+    MESH_TEST_FAIL_IF(!typed, "the docked grid should type");
+    MESH_TEST_FAIL_IF(docked_keyboard_keeps_thread(1024U, 768U, &typed),
+                      "the Brick's panel should give the keyboard the body");
+    MESH_TEST_FAIL_IF(!typed, "the Brick's grid should type");
+    record_success(test_name);
+}

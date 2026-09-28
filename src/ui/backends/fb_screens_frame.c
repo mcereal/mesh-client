@@ -294,6 +294,10 @@ struct inkcell_fb_render_cache {
     /* Whether the last frame stood its list and detail side by side - see fb_render_split_pair().
      */
     bool split;
+    /* Whether the last frame had room to, whatever it drew - see fb_thread_field_writing(). The
+       last frame's rather than this one's, because the route is settled before the scaffold
+       answers, and every reader in one frame has to get the same answer. */
+    bool splittable;
 };
 
 struct inkcell_box fb_render_content(const struct inkcell_draw_state *state) {
@@ -680,7 +684,11 @@ static bool fb_frame_split(const struct mesh_ui_snapshot *snapshot,
 
 bool fb_thread_field_writing(const struct inkcell_draw_state *state,
                              const struct mesh_ui_nav *nav) {
-    return state != NULL && state->pointer && mesh_ui_nav_kb_writes_thread(nav);
+    if (state == NULL || !mesh_ui_nav_kb_writes_thread(nav)) {
+        return false;
+    }
+    const struct inkcell_fb_render_cache *const cache = state->render_cache;
+    return state->pointer || (cache != NULL && cache->splittable);
 }
 
 void fb_body_route(const struct inkcell_draw_state *state, const struct mesh_ui_nav *nav,
@@ -813,7 +821,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
     }
     /* First, so it is under everything: a click that lands on nothing else while the thread's
        field is being written in is a click away from the field. See MESH_UI_FOCUS_FIELD. */
-    if (fb_thread_field_writing(state, &snapshot->nav)) {
+    if (state->pointer && fb_thread_field_writing(state, &snapshot->nav)) {
         inkcell_fb_target_register(
             state, (uint32_t)MESH_UI_FOCUS_FIELD_DISMISS,
             &(const struct inkcell_fb_rect){.x = 0,
@@ -1114,4 +1122,9 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .until_ms = snapshot->nav.toast.until_ms,
     };
     inkcell_fb_draw_snackbar(state, &layout, &snackbar);
+
+    /* Last, so every reader in this frame got the last one's answer - see `splittable`. */
+    if (cache != NULL) {
+        cache->splittable = frame.splittable;
+    }
 }

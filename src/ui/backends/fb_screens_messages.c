@@ -696,7 +696,8 @@ static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot,
 #define FB_THREAD_FIELD_LINES_MAX 6U
 
 /*
- * The field at the foot of a conversation, in a window: where a message is written.
+ * The field at the foot of a conversation: where a message is written, in a window and, on a
+ * frame with room for the list beside the thread, with a d-pad.
  *
  * A desktop messenger's reply box is always there, and a window has a keyboard of its own, so
  * a pointer frame draws one under every conversation it can write to. At rest it says who a
@@ -706,6 +707,13 @@ static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot,
  * own that hides what is being answered. It grows with the draft, a line at a time, up to
  * FB_THREAD_FIELD_LINES_MAX.
  *
+ * With a d-pad there is no field at rest - Y is on the keycap bar - but once Y has opened the
+ * keyboard on a wide enough frame the same field comes up with the grid docked under it, rather
+ * than the keyboard taking the body. The grid is laid out at the least room it takes
+ * (inkcell_fb_keyboard_min_height()), a line and a cell's padding a row, and the rest of the pane
+ * is the conversation. The field is not lit then: the ring is on the key the cursor
+ * is on, and a lit field beside it would be two places the reader seemed to be.
+ *
  * Its room comes off the foot of the body, so the transcript above it is laid out in what is
  * left and stays bottom-anchored against the field.
  */
@@ -713,10 +721,22 @@ static void fb_draw_thread_field(const struct inkcell_draw_state *state,
                                  const struct mesh_ui_snapshot *snapshot, const char *convo,
                                  struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
-    if (!state->pointer || nav->inbox || layout->line <= 0) {
+    const bool writing = fb_thread_field_writing(state, nav);
+    if ((!state->pointer && !writing) || nav->inbox || layout->line <= 0) {
         return;
     }
-    const bool writing = fb_thread_field_writing(state, nav);
+    /* The grid first, from the foot up, and the field and the transcript in what it leaves. */
+    const bool docked = writing && !state->pointer;
+    int grid_y = layout->footer_y;
+    uint32_t grid_rows = 0U;
+    if (docked) {
+        grid_y -= inkcell_fb_keyboard_min_height(state, layout);
+        /* The rows the grid's band reaches into: every one of them when it is taller than the
+           pane, none when it fits under the last. */
+        const int above = grid_y - layout->body_y;
+        const uint32_t clear = above > 0 ? (uint32_t)(above / layout->line) : 0U;
+        grid_rows = clear < layout->rows ? layout->rows - clear : 0U;
+    }
     char placeholder[128];
     inkcell_str_format(placeholder, sizeof placeholder, MESH_STR_COMPOSE_FIELD, convo);
     char masked[MESH_UI_DRAFT_MAX];
@@ -728,7 +748,7 @@ static void fb_draw_thread_field(const struct inkcell_draw_state *state,
         .caret_back = caret_back,
         .lines = 1U,
         .placeholder = placeholder,
-        .lit = writing,
+        .lit = writing && state->pointer,
         .target = writing ? (uint32_t)MESH_UI_FOCUS_FIELD : INKCELL_FOCUS_KEY(INKCELL_KEY_Y),
     };
     if (writing) {
@@ -746,12 +766,21 @@ static void fb_draw_thread_field(const struct inkcell_draw_state *state,
     }
     const int height = inkcell_fb_text_field_height(state, layout, &field);
     const uint32_t taken = (uint32_t)((height + layout->line - 1) / layout->line);
-    if (taken >= layout->rows) {
+    if (docked) {
+        /* The keys are drawn whatever is left for the transcript: a window short enough to leave
+           it nothing still has to be one somebody can type in. */
+        layout->rows = taken + grid_rows < layout->rows ? layout->rows - taken - grid_rows : 0U;
+    } else if (taken >= layout->rows) {
         return;
+    } else {
+        layout->rows -= taken;
     }
-    layout->rows -= taken;
-    int y = layout->body_y + (int)(layout->rows + taken) * layout->line - height;
+    int y = docked ? grid_y - height
+                   : layout->body_y + (int)(layout->rows + taken) * layout->line - height;
     inkcell_fb_draw_text_field(state, layout, &y, &field);
+    if (docked) {
+        fb_draw_keyboard_grid(state, nav, layout, &grid_y);
+    }
 }
 
 void fb_render_thread(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
