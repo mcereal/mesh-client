@@ -21,6 +21,7 @@
 #include "mesh/ui/commands.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/preferences.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
@@ -103,6 +104,53 @@ MESH_TEST_CASE(ui_click_a_tab_is_that_tab, unit) {
         MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen != order[i], click_close(&store, capture),
                                   "a click on a tab should put that tab up");
     }
+    click_close(&store, capture);
+}
+
+/*
+ * The rail's toggle, in a window wide enough to draw a rail. Its id says what the reader saw it
+ * offer, so the action is a width rather than a flip, and the frame the app publishes back draws
+ * the other press. The Brick's panel is compact and draws no toggle at all.
+ */
+MESH_TEST_CASE(ui_click_the_rail_toggle_asks_for_the_other_width, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(click_open(&store, &capture) != 0, "store or capture failed to open");
+    struct inkcell_focus_rect box;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        inkcell_focus_rect_of(click_render(&store, capture), MESH_UI_FOCUS_RAIL_EXPAND, &box) ||
+            inkcell_focus_rect_of(inkcell_capture_state(capture)->focus,
+                                  MESH_UI_FOCUS_RAIL_COLLAPSE, &box),
+        click_close(&store, capture), "the Brick's frame draws no rail toggle");
+    inkcell_capture_close(capture);
+    capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1600U, 900U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "the wide capture failed to open");
+
+    struct mesh_ui_action action;
+    struct mesh_ui_settings settings = store.settings;
+    settings.client.rail = MESH_UI_RAIL_COLLAPSED;
+    mesh_ui_store_set_settings(&store, &settings);
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, MESH_UI_FOCUS_RAIL_EXPAND, &action),
+                              click_close(&store, capture),
+                              "a collapsed rail should draw the press that expands it");
+    MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_SET_RAIL || action.number != 1U,
+                              click_close(&store, capture), "the press should ask to expand");
+
+    settings = store.settings;
+    settings.client.rail = MESH_UI_RAIL_EXPANDED;
+    mesh_ui_store_set_settings(&store, &settings);
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, MESH_UI_FOCUS_RAIL_COLLAPSE, &action),
+                              click_close(&store, capture),
+                              "an expanded rail should draw the press that collapses it");
+    MESH_TEST_FAIL_IF_CLEANUP(action.type != MESH_UI_ACTION_SET_RAIL || action.number != 0U,
+                              click_close(&store, capture), "the press should ask to collapse");
+    /* The tabs are still where a click finds them, words and all. */
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_NODES,
+                  &action) ||
+            store.nav.screen != MESH_UI_SCREEN_NODES,
+        click_close(&store, capture), "a click on an expanded row should put that tab up");
     click_close(&store, capture);
 }
 

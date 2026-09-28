@@ -26,6 +26,7 @@
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/nodes.h"
+#include "mesh/ui/preferences.h"
 #include "mesh/ui/route.h"
 
 #include <stdio.h>
@@ -96,6 +97,20 @@ static void fb_tab_badge(uint32_t count, char *out, size_t out_len) {
     } else if (count > 0U) {
         snprintf(out, out_len, "%u", (unsigned)count);
     }
+}
+
+/* The scaffold registers its toggle at `rail_toggle_id + enum inkcell_fb_rail_toggle`, and the
+   nav answers the two ids by name: they are one fact spelled twice, held together here. */
+_Static_assert(INKCELL_FB_RAIL_TOGGLE_EXPAND == 0 &&
+                   (int)MESH_UI_FOCUS_RAIL_COLLAPSE - (int)MESH_UI_FOCUS_RAIL_EXPAND ==
+                       (int)INKCELL_FB_RAIL_TOGGLE_COLLAPSE,
+               "the rail toggle's two ids are the scaffold's base and base + 1");
+
+/* The remembered width (MESH_UI_RAIL_*) as the scaffold spells it. */
+static enum inkcell_fb_rail fb_rail(uint8_t rail) {
+    return rail == MESH_UI_RAIL_COLLAPSED  ? INKCELL_FB_RAIL_COLLAPSED
+           : rail == MESH_UI_RAIL_EXPANDED ? INKCELL_FB_RAIL_EXPANDED
+                                           : INKCELL_FB_RAIL_AUTO;
 }
 
 static const struct inkcell_fb_chip *fb_tab_chips(const struct mesh_ui_snapshot *snapshot) {
@@ -890,6 +905,11 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .count = takeover ? 0U : MESH_UI_SCREEN_COUNT,
         .active = (size_t)snapshot->nav.screen,
         .compact_nav = INKCELL_FB_COMPACT_NAV_TOP,
+        /* The rail's width is the reader's, remembered by the app: the toggle at its head says
+           which way a press goes (MESH_UI_FOCUS_RAIL_*), and until they have pressed it the
+           window's width decides. The Brick is compact and never draws a rail. */
+        .rail = fb_rail(snapshot->settings.client.rail),
+        .rail_toggle_id = takeover ? INKCELL_FOCUS_NONE : (uint32_t)MESH_UI_FOCUS_RAIL_EXPAND,
         .footer = !footless,
         /* One row rather than two: the keycaps and the link's state share it, and the body gets
            the other back. The two-line bar - every press spelled out over a log line - is the

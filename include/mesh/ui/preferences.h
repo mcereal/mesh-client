@@ -76,6 +76,11 @@ struct mesh_ui_preferences {
        0 standard, +1 large (MESH_UI_TEXT_SIZE_*). 0 is what a file written before the setting
        existed reads as. Written by name, for the reason update_channel is. */
     int8_t text_size;
+    /* Whether a window's navigation rail is folded to its icons or unfolded into labelled rows
+       (MESH_UI_RAIL_*). 0 is automatic - the window's width decides - which is what a file
+       written before the toggle existed reads as. Written by name, for the reason
+       update_channel is. Nothing on the Brick draws a rail, so there it is only remembered. */
+    uint8_t rail;
     /* Locale id, e.g. "es". Empty follows the system language. */
     char language[16];
     /*
@@ -97,6 +102,12 @@ struct mesh_ui_preferences {
 #define MESH_UI_TEXT_SIZE_SMALL (-1)
 #define MESH_UI_TEXT_SIZE_STANDARD 0
 #define MESH_UI_TEXT_SIZE_LARGE 1
+
+/* The rail's width, as the reader last left it: inkcell's enum inkcell_fb_rail, spelled here so
+   this header does not pull the toolkit in for three values. */
+#define MESH_UI_RAIL_AUTO 0U
+#define MESH_UI_RAIL_COLLAPSED 1U
+#define MESH_UI_RAIL_EXPANDED 2U
 
 int mesh_ui_preferences_default_path(char *buffer, size_t buffer_len);
 int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path);

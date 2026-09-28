@@ -453,6 +453,12 @@ moves the tabs into a rail down the leading edge and gives the body the rest. On
 any window that is still compact, it is the tab strip across the top - kept there on purpose,
 because L1 and R1 are on the top edge of the case - and the frame is the one it always was.
 
+The rail has two widths: folded to a column of icons, or unfolded into rows with each tab's icon
+and name side by side. The press at its head switches between them, and the app remembers the
+choice in `ui_prefs` (`rail=collapsed|expanded`). Until somebody presses it the window decides -
+unfolded in the expanded width class, folded on a medium one. A capture sets it with
+`rail auto|collapsed|expanded`, or clicks the press itself with `rail toggle`.
+
 A window with room for a whole measure of detail beside a list - 1920x1080 at the Brick's scale is
 the first - stands the two side by side. Three screens do so:
 

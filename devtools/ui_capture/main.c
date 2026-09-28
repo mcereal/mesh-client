@@ -38,6 +38,8 @@
  *                          window's mouse would - which also hides the cursor's cue
  *   hover row N|none       the pointer over row N of the last frame, or over nothing
  *   cursor hidden|shown    whether the reader is on the pointer (no cursor cue) or the keys
+ *   rail auto|collapsed|expanded|toggle   a window's rail width; `toggle` clicks the press
+ *                          at the rail's head on the last frame
  *   type TEXT              text a window's keyboard commits, into the open keyboard's draft
  *   tab NAME               walk Left/Right to messages|nodes|devices|status|settings
  *   config                 a radio that has answered the config handshake
@@ -111,6 +113,7 @@
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/preferences.h"
 #include "mesh/ui/protocols.h"
 #include "mesh/ui/route.h"
 /* For the flag rows' masks: the fixture sets position_flags and the field table is what says
@@ -2461,6 +2464,47 @@ static int verb_crash(struct inkstand_scene *scene, char *rest, void *userdata) 
 }
 
 /*
+ * The rail's width, as the app would publish it once the reader had chosen.
+ *
+ *   rail auto|collapsed|expanded|toggle
+ *
+ * `toggle` clicks the press at the rail's head on the last frame, through the store, and does
+ * with the action what on_set_rail() does - so a clip of the fold is a clip of the real click
+ * path rather than of a flag set behind it. There is no app here to remember the answer.
+ */
+static int verb_rail(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *how = inkstand_scene_word(&rest);
+    uint8_t rail = MESH_UI_RAIL_AUTO;
+    if (how != NULL && strcmp(how, "toggle") == 0) {
+        const struct inkcell_focus_map *map =
+            inkcell_capture_state(inkstand_scene_capture(scene))->focus;
+        struct inkcell_focus_rect box;
+        uint32_t id = (uint32_t)MESH_UI_FOCUS_RAIL_EXPAND;
+        if (map == NULL ||
+            (!inkcell_focus_rect_of(map, id, &box) && !inkcell_focus_rect_of(map, ++id, &box))) {
+            return inkstand_scene_fail(scene, "'rail toggle' needs a frame that drew a rail");
+        }
+        struct mesh_ui_action action;
+        (void)mesh_ui_store_handle_click(&cap->store, id, &action);
+        if (action.type != MESH_UI_ACTION_SET_RAIL) {
+            return inkstand_scene_fail(scene, "the rail's toggle did not ask for a width");
+        }
+        rail = action.number != 0U ? MESH_UI_RAIL_EXPANDED : MESH_UI_RAIL_COLLAPSED;
+    } else if (how != NULL && strcmp(how, "collapsed") == 0) {
+        rail = MESH_UI_RAIL_COLLAPSED;
+    } else if (how != NULL && strcmp(how, "expanded") == 0) {
+        rail = MESH_UI_RAIL_EXPANDED;
+    } else if (how == NULL || strcmp(how, "auto") != 0) {
+        return inkstand_scene_fail(scene, "'rail' is auto, collapsed, expanded or toggle");
+    }
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.client.rail = rail;
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
+/*
  * The Settings tab pointed at another node's radio.
  *
  *   remote <name>|off
@@ -2959,6 +3003,7 @@ static const struct inkstand_scene_verb uicap_verbs[] = {
     {"airtime", 0U, verb_airtime},
     {"update", 0U, verb_update},
     {"crash", 0U, verb_crash},
+    {"rail", 0U, verb_rail},
     {"remote", 0U, verb_remote},
     {"firmware-channel", 0U, verb_firmware_channel},
     {"firmware", 0U, verb_firmware},

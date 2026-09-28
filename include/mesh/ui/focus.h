@@ -49,6 +49,14 @@ enum mesh_ui_focus_id {
     MESH_UI_FOCUS_FIELD_DISMISS = 0x0701,
     /* The tab strip, `base + enum mesh_ui_screen`. */
     MESH_UI_FOCUS_TABS = 0x0800,
+    /* The rail's fold-and-unfold press: two ids, because the press offers the opposite of
+       whatever the reader is looking at, and the click has only the id to say which. Handed to
+       the scaffold as its `rail_toggle_id`, which registers `base + enum inkcell_fb_rail_toggle`
+       - so EXPAND is the base and COLLAPSE the one after it, which src/ui/backends/
+       fb_screens_frame.c holds with a static assertion. Drawn only where the tabs are a rail: a
+       window wider than the Brick. */
+    MESH_UI_FOCUS_RAIL_EXPAND = 0x0B00,
+    MESH_UI_FOCUS_RAIL_COLLAPSE = 0x0B01,
     /* The Nodes list's chip bar, `base + enum mesh_ui_nodes_chip`. Its own block rather than
        row 0 of the rows', because a row is one target and the bar is five. */
     MESH_UI_FOCUS_NODE_CHIPS = 0x0C00,

@@ -371,6 +371,17 @@ static bool mesh_ui_nav_click_target(struct mesh_ui_nav *nav, const struct mesh_
         return mesh_ui_nav_click_dialog(nav, store, (uint8_t)(target - MESH_UI_FOCUS_DIALOG),
                                         out_action);
     }
+    /* The rail's toggle is chrome, not a place: it moves no cursor and asks no question, so it is
+       answered under a sheet as readily as over the list. What the reader chose is the app's to
+       remember, like the theme. */
+    if (target == (uint32_t)MESH_UI_FOCUS_RAIL_EXPAND ||
+        target == (uint32_t)MESH_UI_FOCUS_RAIL_COLLAPSE) {
+        if (out_action != NULL) {
+            out_action->type = MESH_UI_ACTION_SET_RAIL;
+            out_action->number = target == (uint32_t)MESH_UI_FOCUS_RAIL_EXPAND ? 1U : 0U;
+        }
+        return true;
+    }
     if (target >= (uint32_t)MESH_UI_FOCUS_TABS &&
         target < (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_COUNT) {
         return mesh_ui_nav_click_tab(
