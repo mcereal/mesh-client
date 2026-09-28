@@ -711,9 +711,10 @@ the tab, and left the handful of rows that really do open one saying nothing the
 `ui_settings_a_marker_says_how_the_row_is_changed` walks every section and holds the table above;
 `ui_settings_a_state_mark_outranks_the_offer` holds the ranking.
 
-The Nodes list's filter and sort rows answer the same table, which is why they are drawn as
-settings rows at all: the filter is a segmented button and says nothing, the sort is five orders
-and one word and takes the stepper.
+The Nodes list's search, filter and sort are not settings rows: they are one row of chips under
+the heading (`MESH_UI_NODES_CHIP_ROW`), where the chosen filter is the filled chip and the search
+and the sort carry what they are doing in their own words. The sort's five orders are a sheet the
+chip raises, not a value stepped in place.
 
 ### A section on the Radio tab
 
@@ -1175,8 +1176,8 @@ scene can only reach a screen the device can reach. The one thing the harness ca
 a `mesh_ui_action` — pressing START in the keyboard raises `SEND_TEXT` and the store stops there,
 so `message out ...` is how a scene stands in for the echo.
 
-A scene that walks the **Nodes** list counts rows, not roster entries: the filter row, the sort
-row and the Map are in front of the first node (`MESH_UI_NODES_LEAD_ROWS`), so a node's row is its
+A scene that walks the **Nodes** list counts rows, not roster entries: the chip bar is in front of
+the first node (`MESH_UI_NODES_LEAD_ROWS`), so a node's row is its
 index plus that, and a node detail's row numbers move with what that node reported. Both mistakes
 render a perfectly good picture of the wrong screen, which is the one failure a capture cannot
 report — so check the frames rather than the count.

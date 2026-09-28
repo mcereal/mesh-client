@@ -207,12 +207,12 @@ accumulation across runs. `MESHCLIENT_LOG_FILE` names the file when it is somewh
 
 ## On-device controls
 
-Four tabs: **Messages, Nodes, Radio, Settings.**
+Five tabs: **Messages, Nodes, Map, Radio, Settings.**
 
 | Key | Action |
 |---|---|
 | Left/Right, L1/R1 | switch tab |
-| L2/R2 | move a whole group at a time where a screen draws its groups as cards, and a page of five rows on a plain list |
+| L2/R2 | move a whole group at a time where a screen draws its groups as cards, and a page of five rows on a plain list; on the Map tab, turn between the map and the places |
 | Up/Down | move the cursor — hold to keep scrolling, which speeds up after a few rows |
 | A | act on the row |
 | B | back out — keep it held to go all the way back to the tab's own list |
@@ -248,11 +248,13 @@ draft of up to 63 bytes that is not already on the list, while the list has fewe
 list is then written to `canned.txt`, built-in replies included, so it is the file from then on.
 
 **Nodes** is the contact list; A opens a node's detail, where rows appear only for what the node
-has actually reported. Above the nodes are the filter, the sort, *Find* - A types a piece of a
-name, short name or `!id` into the heading, which counts the matches as you type, and the list
-keeps only the nodes that match; X clears it - the *Map* and
-the *Waypoints* row, which opens the shared places (and the row that marks a new one here); B goes
-back. **Radio** opens on the link, mesh and radio cards; the Link card's
+has actually reported. Above the nodes is one row of chips - *Find*, *All*, *Direct*, *Pinned*
+and the sort - which Left and Right walk and A presses. *Find* types a piece of a name, short
+name or `!id` into the heading, which counts the matches as you type, and the list keeps only
+the nodes that match; X on it clears the search. The sort chip opens a sheet of the five orders.
+B goes back. **Map** opens on the map: the d-pad pans, X and Y zoom, START frames everything and
+A opens the node or place under the crosshair (B from a node comes back to the map). R2 turns it
+to the shared places, with the row that marks a new one here, and L2 back. **Radio** opens on the link, mesh and radio cards; the Link card's
 *devices* button opens the device list, which shows USB ports first (no pairing, so they sort to
 the top), then BLE advertisers; A connects and bonds, X twice disconnects and holds auto-connect off (once, for a link still
 coming up), Y twice forgets a bond, B goes back to the cards. The Mesh card's *nodes* button opens the node

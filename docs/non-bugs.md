@@ -126,14 +126,12 @@ only a consequence of one of them, and neither is a thing a test could pin.
 
 ## The Nodes tab
 
-- **The filter and the sort are stepped by Left and Right, and the shoulders still walk the tabs.**
-  The d-pad does mean two things on this screen - edit on the top two rows, next tab on every row
-  under them - and that is the Settings tab's arrangement rather than a new one: a field row edits,
-  a row with no field walks the tabs, and `INKCELL_ICON_EDIT` in the gutter is what tells them
-  apart before the press. A still steps forward, for the reason it does on a Settings enum.
-  It was A alone, on a chip strip wearing no marker, and the cost was a screen whose two controls
-  were only discoverable by pressing every button on the case.
-  `ui_nav_nodes_filter_steps_and_renumbers_the_rows`, `ui_nav_nodes_controls_take_the_d_pad`.
+- **Left and Right walk the chip bar, and the shoulders still walk the tabs.** The d-pad does mean
+  two things on this screen - walk the chips on the bar, next tab on every row under it - and that
+  is the Settings tab's arrangement rather than a new one: a row of controls edits, a row with none
+  walks the tabs, and the ring on the chip is what tells them apart before the press. The walk
+  stops at either end of the bar rather than escaping to the next tab.
+  `ui_nav_nodes_filter_steps_and_renumbers_the_rows`, `ui_nav_nodes_chips_take_the_d_pad`.
 - **A fixture that wants a tab presses the shoulder, not Right.** `mesh_test_open_tab()` walked the
   ring with `INKCELL_KEY_RIGHT` and hung on the first screen whose cursor was resting on a control
   - which, once the Nodes list took the axis, was the Nodes list every time. `ui_fixture.c`.
@@ -150,18 +148,20 @@ only a consequence of one of them, and neither is a thing a test could pin.
   asks the filter alone, so a sort that dropped or duplicated a node would be a cursor walking off
   the end of a list the screen says is longer.
   `ui_nav_nodes_sort_permutes_but_never_selects`.
-- **A filter that keeps nothing keeps the lead rows above it.** The chip that emptied the list is
+- **A filter that keeps nothing keeps the chip bar above it.** The chip that emptied the list is
   on the first row, so falling through to `inkcell_fb_draw_empty()` would take away the control that puts
   it back. `ui_nav_nodes_filter_that_keeps_nothing_keeps_its_own_rows`.
-- **`map_open` outlives a change of tab, and the key handler must still check `nav->screen`.** The
-  flag says *where the Nodes tab is standing*, not *what the reader is looking at*; read as "a map
-  is open somewhere", the arrows pan a map nobody can see.
+- **The Map tab's face outlives a change of tab, and the key handler must still check
+  `nav->screen`.** `waypoints_open` and the viewport say *where the Map tab is standing*, not *what
+  the reader is looking at*; read as "the map is up somewhere", the arrows pan a map nobody can see.
+  `mesh_ui_nav_map_showing()` is the question.
   `map_keys_belong_to_the_screen_the_map_is_on`, `map_hands_the_keys_over_when_a_place_opens`.
 
-- **The Nodes title counts what is drawn, not what is held.** `held` is the published roster and
-  `count` is whatever the filter kept; the heading's "n of m" already means "there is more than
-  this", so a filter needs no sentence of its own. Conflating the two read "Nodes 42" over three
-  pinned rows.
+- **The Nodes title counts only what the reader narrowed.** "n of m" appears only under a filter
+  chip or a search, and `m` is the same list with neither. It once took the largest of the list,
+  the client's roster and the radio's NodeDB count, and read "Nodes (22 of 42)" with every filter
+  off - a number nothing on the frame could explain. The radio's count is the Radio tab's roster
+  card's to say.
 
 ## The map
 

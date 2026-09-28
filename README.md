@@ -67,7 +67,7 @@ updated.
 
 ## Using it
 
-Four tabs — Messages, Nodes, Radio, Settings — driven by the d-pad and face buttons.
+Five tabs — Messages, Nodes, Map, Radio, Settings — driven by the d-pad and face buttons.
 Connect from **Radio → devices** (it bonds and prompts for a PIN-mode node's six digits), or let
 auto-connect find your usual radio on its own.
 
