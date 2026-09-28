@@ -442,7 +442,7 @@ static bool downloads_installed_whole(const struct downloads_rig *rig) {
         return false;
     }
     inkwell_sha256_hex(digest, hex, sizeof hex);
-    char part[256];
+    char part[sizeof path + sizeof ".part"];
     snprintf(part, sizeof part, "%s.part", path);
     return strcmp(hex, rig->sha) == 0 && access(part, F_OK) != 0;
 }

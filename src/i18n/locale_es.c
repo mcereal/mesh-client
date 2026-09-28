@@ -1367,8 +1367,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TEXT_RM_BACKUP] =
         "La copia guardada se borra de la flash de la radio. Los ajustes en uso no cambian, y ya "
         "no habrá nada que restaurar.",
-    [MESH_STR_CONFIRM_TEXT_MAPS_DELETE] =
-        "El mapa se borra de la tarjeta y deja de dibujarse. Puede descargarse de nuevo desde esta pantalla.",
+    [MESH_STR_CONFIRM_TEXT_MAPS_DELETE] = "El mapa se borra de la tarjeta y deja de dibujarse. "
+                                          "Puede descargarse de nuevo desde esta pantalla.",
     [MESH_STR_CONFIRM_TEXT_FW_SWITCH] =
         "La radio se reescribe por el cable y empieza de nuevo como un nodo nuevo: sus ajustes, "
         "claves, contactos y canales no se conservan. Mantenla conectada hasta que vuelva.",
@@ -1766,7 +1766,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_MAP_PACKS_UNREACHABLE] = "No se pudo conectar con el servidor de mapas",
     [MESH_STR_MAP_PACKS_BAD_REPLY] = "Respuesta inesperada del servidor de mapas",
     [MESH_STR_MAP_PACKS_TIMED_OUT] = "Tiempo agotado al conectar con el servidor de mapas",
-    [MESH_STR_MAP_PACKS_TLS_UNVERIFIED] = "No se pudo verificar el certificado del servidor de mapas",
+    [MESH_STR_MAP_PACKS_TLS_UNVERIFIED] =
+        "No se pudo verificar el certificado del servidor de mapas",
     [MESH_STR_MAP_PACKS_TOO_LARGE] = "El servidor de mapas envió más de lo esperado",
     [MESH_STR_MAP_PACKS_HTTP_STATUS] = "El servidor de mapas respondió HTTP %d",
     [MESH_STR_MAP_PACKS_WRITE_FAILED] = "No se pudo guardar el mapa. ¿Está llena la tarjeta?",

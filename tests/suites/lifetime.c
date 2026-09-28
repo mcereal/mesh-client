@@ -65,7 +65,7 @@ static void lt_message(uint32_t from, uint32_t to, enum mesh_message_direction d
     memset(&message, 0, sizeof message);
     message.from = from;
     message.to = to;
-    message.direction = direction;
+    message.direction = (uint8_t)direction;
     message.is_reaction = reaction;
     const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_MESSAGE,
                                              .message = &message};

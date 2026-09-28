@@ -7,6 +7,7 @@
 #include "inkcell/ui/theme.h"
 
 #include "inkstand/app/control.h"
+#include "inkwell/ble/central.h"
 #include "inkwell/net/mqtt.h"
 #include "inkwell/runtime/loop.h"
 #include "inkwell/runtime/signals.h"
@@ -179,14 +180,14 @@ struct mesh_app {
        the PIN is for, and is dropped once it has failed. A radio that answered to the name with
        another key is `firmware_ble_handoff_wrong`. */
     uint8_t firmware_ble_handoff_key[MESH_MESHCORE_PUBKEY_LEN];
-    char firmware_ble_handoff_tried[18];
+    char firmware_ble_handoff_tried[INKWELL_BLE_ADDRESS_MAX];
     /* A radio the handoff bonded for the first time, whose bond goes if its key is wrong. */
-    char firmware_ble_handoff_bonded[18];
-    char firmware_ble_handoff_wrong[MESH_APP_HANDOFF_WRONG_MAX][18];
+    char firmware_ble_handoff_bonded[INKWELL_BLE_ADDRESS_MAX];
+    char firmware_ble_handoff_wrong[MESH_APP_HANDOFF_WRONG_MAX][INKWELL_BLE_ADDRESS_MAX];
     /* The fixed PIN the radio reported before it moved, 0 for a random one on its screen; and
        the address it was typed for, once - a PIN that did not take is the user's to answer. */
     uint32_t firmware_ble_handoff_pin;
-    char firmware_ble_handoff_pin_used[18];
+    char firmware_ble_handoff_pin_used[INKWELL_BLE_ADDRESS_MAX];
     /* Whether an install stopped the transports and owes them back. A flag rather than a
        question, because "stopped" and "stopped by us" are not the same state and only the
        second one should be restarted. */

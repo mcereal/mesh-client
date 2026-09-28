@@ -1670,7 +1670,7 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
             break;
         }
         case MESH_UI_FIELD_AUTO_ADD:
-            write.manual_add_contacts = edit->number != 0U ? 0U : 1U;
+            write.manual_add_contacts = (uint8_t)(edit->number != 0U ? 0U : 1U);
             write.set_other = true;
             break;
         case MESH_UI_FIELD_EXTRA_ACKS:

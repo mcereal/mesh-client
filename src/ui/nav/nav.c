@@ -1966,6 +1966,13 @@ static bool mesh_ui_nav_node_actions_key(struct mesh_ui_nav *nav, const struct m
     }
 }
 
+/* A pressed row's text is a map pack's id or a firmware board's name, copied out whole. */
+_Static_assert(MESH_UI_MAPS_ID_MAX <= sizeof((struct mesh_ui_nav *)0)->maps_pending,
+               "a map pack id fits where a delete sheet keeps it");
+_Static_assert(MESH_UI_MAPS_ID_MAX <= sizeof((struct mesh_ui_action *)0)->identifier &&
+                   MESH_UI_FW_BOARD_MAX <= sizeof((struct mesh_ui_action *)0)->identifier,
+               "a map pack id and a board name fit in an action's identifier");
+
 /*
  * A on a row of the open section, on whichever tab shows one: a verb row asks for what it does,
  * and any other row is edited as A edits it. The Settings tab's sections and the Radio tab's
@@ -1984,7 +1991,7 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
            straight through. */
         const enum mesh_ui_settings_action which = (enum mesh_ui_settings_action)item.number;
         if (which == MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
-            snprintf(nav->maps_pending, sizeof nav->maps_pending, "%s", item.text);
+            inkwell_str_copy(nav->maps_pending, sizeof nav->maps_pending, item.text);
         }
         if (mesh_ui_settings_action_needs_confirm(which)) {
             /* Cancel under the cursor, so a repeated press changes nothing. */
@@ -2096,13 +2103,13 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
                    it change shape as the download starts, so the cursor goes to the top, where
                    its bar will be. */
                 action->type = MESH_UI_ACTION_MAPS_DOWNLOAD;
-                snprintf(action->identifier, sizeof action->identifier, "%s", item.text);
+                inkwell_str_copy(action->identifier, sizeof action->identifier, item.text);
                 nav->cursor[nav->screen] = 0U;
             } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_PICK_FIRMWARE_BOARD) {
                 /* Which board is the row's own text: the list is the app's, and the nav only
                    hands back the name that was under the cursor. */
                 action->type = MESH_UI_ACTION_PICK_FIRMWARE_BOARD;
-                snprintf(action->identifier, sizeof action->identifier, "%s", item.text);
+                inkwell_str_copy(action->identifier, sizeof action->identifier, item.text);
                 /* The list goes once the pick lands, so the cursor goes back to the top of the
                    section, where the answer will be. */
                 nav->cursor[nav->screen] = 0U;
