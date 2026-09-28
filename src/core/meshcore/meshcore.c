@@ -794,8 +794,9 @@ static void mesh_meshcore_pending_done(struct mesh_meshcore *meshcore,
     memset(pending, 0, sizeof *pending);
 }
 
-/* A repeater replied to a command: the oldest one to it still waiting is the one answered. The
-   reply names its sender by a six-byte prefix, and a command is held by the whole key. */
+/* A repeater replied to a command: the oldest one to it still waiting - the first sent, which is
+   not the lowest packet id - is the one answered. The reply names its sender by a six-byte
+   prefix, and a command is held by the whole key. */
 static void mesh_meshcore_command_answered(struct mesh_meshcore *meshcore,
                                            const uint8_t prefix[MESH_MESHCORE_PREFIX_LEN]) {
     struct mesh_meshcore_pending *oldest = NULL;
@@ -803,7 +804,7 @@ static void mesh_meshcore_command_answered(struct mesh_meshcore *meshcore,
         struct mesh_meshcore_pending *pending = &meshcore->pending[i];
         if (pending->packet_id != 0U && pending->command &&
             memcmp(pending->key, prefix, MESH_MESHCORE_PREFIX_LEN) == 0 &&
-            (oldest == NULL || pending->packet_id < oldest->packet_id)) {
+            (oldest == NULL || (int32_t)(pending->sequence - oldest->sequence) < 0)) {
             oldest = pending;
         }
     }
@@ -1856,6 +1857,7 @@ int mesh_meshcore_send_text(struct mesh_meshcore *meshcore, uint32_t dest, uint8
         pending->packet_id = message.packet_id;
         pending->timestamp = timestamp;
         pending->command = mesh_meshcore_is_command_peer(meshcore, dest);
+        pending->sequence = ++meshcore->pending_sequence;
         memcpy(pending->key, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
         snprintf(pending->text, sizeof pending->text, "%s", text);
         message.ack = MESH_MESSAGE_ACK_PENDING;

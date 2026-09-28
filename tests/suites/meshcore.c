@@ -2009,6 +2009,39 @@ MESH_TEST_CASE(meshcore_a_repeater_is_sent_commands, unit) {
 
     feed_code(&protocol, MESH_MESHCORE_RESP_NO_MORE_MESSAGES);
 
+    /* Two waiting on one repeater: its first reply answers the first sent. Packet ids are a
+       xorshift, so the generator is seeded where the first id is the larger - the order the
+       ids alone would get backwards. */
+    uint32_t seed = 1U;
+    for (;; ++seed) {
+        g_model.next_packet_id = seed;
+        const uint32_t a = mesh_session_next_packet_id(&g_model);
+        const uint32_t b = mesh_session_next_packet_id(&g_model);
+        if (a > b) {
+            break;
+        }
+    }
+    g_model.next_packet_id = seed;
+    uint32_t first_id = 0U;
+    uint32_t second_id = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, alice, 0U, "clock", &first_id) != 0 ||
+                          mesh_meshcore_send_text(&g_meshcore, alice, 0U, "ver", &second_id) != 0 ||
+                          first_id <= second_id,
+                      "two commands go out, the first under the larger id");
+    feed(&protocol, sent, sizeof sent);
+    feed(&protocol, sent, sizeof sent);
+    feed_code(&protocol, MESH_MESHCORE_PUSH_MSG_WAITING);
+    feed(&protocol, reply, sizeof reply);
+    MESH_TEST_FAIL_IF(
+        mesh_message_log_find(&g_model.messages, first_id)->ack != MESH_MESSAGE_ACK_DELIVERED ||
+            mesh_message_log_find(&g_model.messages, second_id)->ack != MESH_MESSAGE_ACK_PENDING,
+        "the first reply settles the first command sent, not the lower id");
+    feed(&protocol, reply, sizeof reply);
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&g_model.messages, second_id)->ack !=
+                          MESH_MESSAGE_ACK_DELIVERED,
+                      "and the second, the second");
+    feed_code(&protocol, MESH_MESHCORE_RESP_NO_MORE_MESSAGES);
+
     /* One nobody answers: failed at its deadline, said, and not written again. */
     MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, alice, 0U, "reboot", &packet_id) != 0,
                       "a second command goes out");

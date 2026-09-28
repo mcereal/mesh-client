@@ -460,6 +460,9 @@ struct mesh_meshcore_pending {
        by the repeater's reply instead, and is not tried again - a retry of "reboot" would be a
        second reboot. */
     bool command;
+    /* When it was sent, as a count: a repeater's replies come back in the order its commands
+       went, and the packet id is a xorshift, not a clock. */
+    uint32_t sequence;
     /* Whole, not a prefix: the last attempt resets the route, which names the contact by key. */
     uint8_t key[MESH_MESHCORE_PUBKEY_LEN];
     char text[MESH_MESHCORE_TEXT_MAX + 1U];
@@ -540,6 +543,7 @@ struct mesh_meshcore {
     uint32_t last_timestamp;
 
     struct mesh_meshcore_pending pending[MESH_MESHCORE_PENDING_SENDS];
+    uint32_t pending_sequence; /* the last `sequence` handed out */
     uint32_t next_packet_id;
 
     /* A settings save in flight: how many of its commands are still unanswered, and the first
