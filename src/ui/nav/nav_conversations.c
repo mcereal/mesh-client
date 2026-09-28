@@ -343,7 +343,8 @@ static void mesh_ui_nav_conversation_summarise(const struct mesh_ui_store *store
 }
 
 bool mesh_ui_nav_nodes_list_up(const struct mesh_ui_nav *nav) {
-    return nav != NULL && nav->screen == MESH_UI_SCREEN_NODES && !nav->node_detail_from_map;
+    return nav != NULL && nav->screen == MESH_UI_SCREEN_NODES && !nav->node_detail_open &&
+           !nav->node_detail_from_map;
 }
 
 uint32_t mesh_ui_nav_unread_total(const struct mesh_ui_store *store) {

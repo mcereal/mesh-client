@@ -1350,10 +1350,12 @@ uint32_t mesh_ui_nav_open_conversation_row(const struct mesh_ui_nav *nav,
                                            const struct mesh_ui_store *store);
 
 /*
- * Whether the Nodes *list* is what the reader is on: the Nodes screen, less a node opened from the
- * map, whose B goes back to the map and whose frame leaves the roster out. The one answer the
- * discovery badge, the rows' mark and the new-node notice all ask, so the three cannot disagree
- * about whether the reader has seen the list.
+ * Whether the Nodes *list* is what the reader is on: the Nodes screen with no node open. A detail
+ * replaces the roster on a one-pane panel, and one opened from the map never had a roster
+ * behind it, so a node discovered while either is up is one the reader has not seen. It is the
+ * one answer the discovery badge and the new-node notice ask, so the two cannot disagree. A
+ * split frame does show the list beside a detail; counting it as not up there only keeps the
+ * badge until the reader is back on the list, which is the safe side to err on.
  */
 bool mesh_ui_nav_nodes_list_up(const struct mesh_ui_nav *nav);
 

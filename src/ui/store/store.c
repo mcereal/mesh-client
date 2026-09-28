@@ -1455,16 +1455,22 @@ bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store) {
  * published 128 cannot hold the badge up after the reader has been to the tab: it was not on
  * the list, and a badge that no visit clears is the badge this mark exists to prevent.
  *
- * A node opened from the map is the Nodes screen without the list: B takes it back to the map,
- * and the split frame leaves the roster out for the same reason (fb_frame_split()). The reader
- * has seen one node there, not the list, so it neither clears the badge nor counts as arriving.
+ * Two questions, because a visit is not only the list. *Arriving* is coming to the tab, and it is
+ * what captures where the rows' mark starts: opening a node and coming back to the list is the
+ * same visit, and a mark that moved on the way back would take "new" off rows the reader has
+ * not looked at yet. *Seeing* is the list being up (mesh_ui_nav_nodes_list_up()), and only that
+ * moves the badge's mark - a node discovered while a detail covers the roster is one nobody has
+ * seen. A node opened from the map is neither: B takes it back to the map, and the frame leaves
+ * the roster out for that reason (fb_frame_split()).
  */
 static void mesh_ui_store_mark_nodes_seen(struct mesh_ui_store *store) {
-    const bool up = mesh_ui_nav_nodes_list_up(&store->nav);
-    if (up && !store->nodes_on_screen) {
+    const bool on_tab =
+        store->nav.screen == MESH_UI_SCREEN_NODES && !store->nav.node_detail_from_map;
+    if (on_tab && !store->nodes_on_screen) {
         store->nav.nodes_new_after = store->nav.nodes_seen;
     }
-    store->nodes_on_screen = up;
+    store->nodes_on_screen = on_tab;
+    const bool up = mesh_ui_nav_nodes_list_up(&store->nav);
     if (up && store->handshake_valid && store->handshake.nodes_discovered > store->nav.nodes_seen) {
         store->nav.nodes_seen = store->handshake.nodes_discovered;
     }

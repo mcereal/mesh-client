@@ -4031,6 +4031,19 @@ MESH_TEST_CASE(app_new_node_notice, unit) {
         goto cleanup;
     }
 
+    /* A node opened from the list covers it on the Brick: the notice still speaks. */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    app->ui_store.nav.screen = MESH_UI_SCREEN_NODES;
+    app->ui_store.nav.node_detail_open = true;
+    (void)app_discover(app, 11U, "JULT");
+    mesh_app_publish_ui_state(app);
+    app->ui_store.nav.node_detail_open = false;
+    app->ui_store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+    if (strstr(app->ui_store.nav.toast.text, "JULT") == NULL) {
+        failure = "a node detail hides the list, so it should not swallow the notice";
+        goto cleanup;
+    }
+
     /* Seen on the list while a sync was still landing is not news when the sync completes. */
     mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
     handshake->config_complete = false;

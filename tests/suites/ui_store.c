@@ -2223,6 +2223,23 @@ MESH_TEST_CASE(ui_store_nodes_badge_clears_by_going_there, unit) {
                               mesh_ui_store_shutdown(&store),
                               "the badge's mark follows the session while the rows' stays put");
 
+    /*
+     * A node opened from the list covers it on a one-pane panel: a discovery while it is up is
+     * not seen, and coming back to the list is the same visit, so the rows keep their mark.
+     */
+    store.nav.node_detail_open = true;
+    handshake.nodes_discovered = 4U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(snapshot.nav.nodes_seen != 3U, mesh_ui_store_shutdown(&store),
+                              "a discovery behind an open node should not be marked seen");
+    store.nav.node_detail_open = false;
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(snapshot.nav.nodes_seen != 4U || snapshot.nav.nodes_new_after != 0U,
+                              mesh_ui_store_shutdown(&store),
+                              "back on the list it is seen, and the rows' mark has not moved");
+
     /* Away and back: nothing is new any more, on the rows or the badge. */
     store.nav.screen = MESH_UI_SCREEN_MESSAGES;
     mesh_ui_store_request_refresh(&store);
