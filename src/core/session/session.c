@@ -121,10 +121,13 @@ static void mesh_session_clear_nodes(struct mesh_session *session) {
 }
 
 /* Whether the roster holds nothing a sync's nodes could be new against: empty, or only our own
-   record. Read as a sync begins; see mesh_session_nodes_discovered(). */
+   record. Read as a sync begins; see mesh_session_nodes_discovered(). Before the radio has said
+   who it is on this run, "our own" is the owner the cache handed back - a restart whose card held
+   only our record is as bare as a fresh install. */
 static bool mesh_session_roster_bare(const struct mesh_session *session) {
     const struct mesh_handshake_status *handshake = &session->handshake;
-    const uint32_t my_node = handshake->has_my_info ? handshake->my_info.my_node_num : 0U;
+    const uint32_t my_node =
+        handshake->has_my_info ? handshake->my_info.my_node_num : session->roster_node;
     for (size_t i = 0; i < handshake->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
         if (my_node == 0U || handshake->nodes[i].node_id != my_node) {
             return false;
@@ -254,7 +257,10 @@ int mesh_session_begin_handshake(struct mesh_session *session) {
     if (++session->sync_epoch == 0U) {
         session->sync_epoch = 1U;
     }
-    session->roster_first_sync = mesh_session_roster_bare(session);
+    /* Kept rather than re-derived when the last sync never completed: a first sync the link
+       dropped halfway through leaves half the database behind, and the retry would otherwise
+       read that half as a roster to be new against and announce the other half. */
+    session->roster_first_sync = session->roster_first_sync || mesh_session_roster_bare(session);
     session->handshake.request_in_flight = true;
     session->handshake.request_id = request_id;
 
@@ -838,7 +844,10 @@ void mesh_session_model_sync_begin(struct mesh_session *session) {
     if (++session->sync_epoch == 0U) {
         session->sync_epoch = 1U;
     }
-    session->roster_first_sync = mesh_session_roster_bare(session);
+    /* Kept rather than re-derived when the last sync never completed: a first sync the link
+       dropped halfway through leaves half the database behind, and the retry would otherwise
+       read that half as a roster to be new against and announce the other half. */
+    session->roster_first_sync = session->roster_first_sync || mesh_session_roster_bare(session);
     session->handshake.request_in_flight = true;
     session->handshake.request_id = session->sync_epoch;
 }

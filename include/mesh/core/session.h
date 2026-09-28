@@ -729,8 +729,9 @@ struct mesh_session {
        hand a second node a number the first still carries. */
     uint32_t nodes_discovered;
     /* The sync running now began with a roster holding nothing but ourselves, so there is
-       nothing its nodes could be new *against*. Settled when a sync begins, raised again when a
-       radio swap drops the roster mid-sync, and lowered when the sync completes. */
+       nothing its nodes could be new *against*. Raised when a sync begins that way or a radio
+       swap drops the roster mid-sync, and lowered only when a sync completes - so a first sync
+       interrupted and retried is still a first sync. */
     bool roster_first_sync;
     bool node_cache_warned;
     bool admin_probe_queued; /* the post-handshake probe has been queued this connection */

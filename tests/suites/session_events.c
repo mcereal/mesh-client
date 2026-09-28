@@ -327,3 +327,51 @@ MESH_TEST_CASE(session_nodes_a_resync_discovers_what_the_radio_heard_meanwhile, 
     MESH_TEST_FAIL_IF(ev_node(&session, EV_US)->discovered != 0U, "our own record is never news");
     record_success(test_name);
 }
+
+/* A first sync the link drops halfway through is still a first sync when it is retried: the half
+   it delivered is not a roster the other half could be new against. */
+MESH_TEST_CASE(session_nodes_an_interrupted_first_sync_stays_a_first_sync, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    struct mesh_test_event_record record;
+    ev_open(&session, &capture, &record);
+
+    MESH_TEST_FAIL_IF(mesh_session_begin_handshake(&session) != 0, "the handshake did not start");
+    MESH_TEST_FAIL_IF(!ev_feed_node_info(&session, EV_PEER), "encode failed");
+    /* The link drops before config_complete; the retry asks again. */
+    MESH_TEST_FAIL_IF(mesh_session_begin_handshake(&session) != 0, "the retry did not start");
+    MESH_TEST_FAIL_IF(!ev_feed_node_info(&session, EV_PEER) ||
+                          !ev_feed_node_info(&session, EV_OTHER) || !ev_complete_sync(&session),
+                      "encode failed");
+    MESH_TEST_FAIL_IF(mesh_session_nodes_discovered(&session) != 0U,
+                      "the rest of an interrupted first sync is not news");
+    record_success(test_name);
+}
+
+/* A restart whose card held only our own record: the owner is known from the cache before the
+   radio has said who it is, and that roster is as bare as an empty one. */
+MESH_TEST_CASE(session_nodes_a_cache_of_only_ourselves_is_a_bare_roster, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+
+    mesh_session_set_roster_owner(&session, EV_US);
+    struct mesh_node_summary self;
+    memset(&self, 0, sizeof self);
+    self.node_id = EV_US;
+    mesh_session_seed_node(&session, &self);
+
+    MESH_TEST_FAIL_IF(mesh_session_begin_handshake(&session) != 0, "the handshake did not start");
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = EV_US;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info) ||
+                          !ev_feed_node_info(&session, EV_PEER) ||
+                          !ev_feed_node_info(&session, EV_OTHER) || !ev_complete_sync(&session),
+                      "encode failed");
+    MESH_TEST_FAIL_IF(mesh_session_nodes_discovered(&session) != 0U,
+                      "a roster of only ourselves has nothing for the sync to be new against");
+    record_success(test_name);
+}
