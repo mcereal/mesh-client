@@ -98,6 +98,8 @@ struct fb_app {
      */
     int text_base;
     int text_applied;
+    /* The map packs revision last opened (struct mesh_ui_client_info). */
+    uint32_t map_packs_revision;
 };
 
 /* The app behind `state`, or NULL when nothing installed one. */
@@ -137,9 +139,9 @@ int fb_basemap_add(struct inkcell_draw_state *state, const char *path);
  * `$HOME/.meshclient/map.mctp` a sideload went to before there was a directory. Missing is the
  * ordinary case and is not an error - the map draws its graticule and says nothing.
  *
- * The device backend calls this and the capture harness deliberately does not: a scene names its
- * pack, because a frame that quietly picked up whatever pack the developer had installed would
- * render differently on two machines.
+ * The renderer calls this when the snapshot's `map_packs_revision` changes, which the running
+ * client publishes and a capture does not: a scene names its pack, because a frame that quietly
+ * picked up whatever pack the developer had installed would render differently on two machines.
  */
 void fb_basemap_open_default(struct inkcell_draw_state *state);
 

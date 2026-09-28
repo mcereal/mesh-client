@@ -1252,6 +1252,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     }
     memset(app, 0, sizeof *app);
     app->config = initial_config;
+    app->map_packs_revision = 1U;
 
     /*
      * Before anything reads a knob, asks for a word, or opens a connection.

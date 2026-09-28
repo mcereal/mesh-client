@@ -217,6 +217,13 @@ struct mesh_app {
     char ui_preferences_path[256];
     char ui_handshake_cache_path[256];
     /*
+     * Which set of map packs the renderer should be drawing, as a count that changes when the
+     * set does - published in the client info, where the backend compares it with the last one
+     * it opened. Starts at 1, so the first frame opens what is installed; 0 is a snapshot with
+     * no opinion, which is every capture's, and a capture names its own packs.
+     */
+    uint32_t map_packs_revision;
+    /*
      * The per-conversation transcript on the card, beside the handshake cache rather than
      * inside it. What it is for is in mesh/ui/store_archive.h; what it is *here* for is that
      * the app is the only thing that sees both halves of a publish - the transport ring that

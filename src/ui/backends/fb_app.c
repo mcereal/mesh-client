@@ -38,6 +38,19 @@ static void fb_app_render(struct inkcell_draw_state *state, const void *snapshot
         return;
     }
 
+    /*
+     * The installed map packs, when the snapshot says they are not the ones open. Here rather
+     * than at backend start, because inkcell starts the backend and there is no call up into
+     * this client that has the state before the first frame - and here is also where a download
+     * finishing, or a pack being deleted, reaches the renderer. 0 leaves a capture's own packs
+     * alone.
+     */
+    const uint32_t packs = snapshot->settings.client.map_packs_revision;
+    if (packs != 0U && packs != app->map_packs_revision) {
+        app->map_packs_revision = packs;
+        fb_basemap_open_default(state);
+    }
+
     /* The theme the snapshot names, if this build knows it and is not already drawing with it. */
     (void)inkcell_fb_state_set_theme_by_id(state, snapshot->settings.client.theme);
 
