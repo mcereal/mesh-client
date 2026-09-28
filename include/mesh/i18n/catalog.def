@@ -130,14 +130,16 @@ MESH_STR_ENTRY(ACTION_HELP,               "help")
 MESH_STR_ENTRY(ACTION_SCROLL,             "scroll")
 /* The shoulder buttons inside a long picker: ten rows at a time rather than one. */
 MESH_STR_ENTRY(ACTION_JUMP,               "jump 10")
-/* The triggers inside a thread: back to the first unread message (then the oldest), and on to
-   the newest. */
-MESH_STR_ENTRY(ACTION_THREAD_JUMP,        "new / latest")
+/* The triggers inside a thread: L2 back to the first unread message, R2 on to the newest. The
+   second form is the same pair once nothing is unread, when L2 goes to the oldest instead - the
+   keycap names where the press lands rather than one word for both. */
+MESH_STR_ENTRY(ACTION_THREAD_JUMP,        "unread / newest")
+MESH_STR_ENTRY(ACTION_THREAD_JUMP_OLDEST, "oldest / newest")
 /* The map's three presses, and the one screen in this client where the d-pad moves the picture
    instead of a cursor. "pan" is that: sliding the view over the world. */
 MESH_STR_ENTRY(ACTION_PAN,                "pan")
-MESH_STR_ENTRY(ACTION_ZOOM_IN,            "closer")
-MESH_STR_ENTRY(ACTION_ZOOM_OUT,           "wider")
+MESH_STR_ENTRY(ACTION_ZOOM_IN,            "zoom in")
+MESH_STR_ENTRY(ACTION_ZOOM_OUT,           "zoom out")
 /* START on the map: frame every marker again, which is the view the map opened on. A verb
    rather than "reset" because nothing is being undone - the reader is asking to see all of it. */
 MESH_STR_ENTRY(ACTION_FIT,                "fit all")
@@ -157,8 +159,9 @@ MESH_STR_ENTRY(ACTION_DONE,               "done")
 MESH_STR_ENTRY(ACTION_SEND,               "send")
 /* Answer with one of the canned messages, rather than opening the keyboard to write one. */
 MESH_STR_ENTRY(ACTION_REPLY,              "reply")
-/* Open the keyboard to compose a message to whoever the cursor is on. */
-MESH_STR_ENTRY(ACTION_WRITE,              "write")
+/* Open the keyboard to compose a message to whoever the cursor is on. Named for what comes out
+   of it rather than for the act: "write" alone left the reader asking write what. */
+MESH_STR_ENTRY(ACTION_WRITE,              "message")
 /* Put an emoji on the message under the cursor - a tapback, not a message of its own. Every
    messenger has a word for this one and it is rarely "react"; use the one yours uses. */
 MESH_STR_ENTRY(ACTION_REACT,              "react")
@@ -246,25 +249,14 @@ MESH_STR_ENTRY(ACTION_CONFIRM_FORGET,     "confirm forget")
 MESH_STR_ENTRY(ACTION_CONFIRM_DISCARD,    "confirm discard")
 MESH_STR_ENTRY(ACTION_CONFIRM_DISCONNECT, "confirm disconnect")
 
-/* ---- how to leave -------------------------------------------------------------------------- */
-
-/*
- * Shown beside the transport state while nothing is connected, as a sentence rather than as an
- * action, because that line is prose and not a bar. MENU is the Brick's own button; the second
- * form is what MESHCLIENT_QUIT_KEYS leaves us able to say when somebody has rebound quitting to
- * a key whose name we do not know.
- */
 /* ---- the header ---------------------------------------------------------------------------- */
 
 /* The transport has not said anything yet: the very first frame after launch. */
 MESH_STR_ENTRY(HEADER_TRANSPORT_STARTING, "starting")
-/* "<transport state>: <node we are talking to>" along the top. */
-/* "<transport state> | <how to quit>", when nothing is connected. */
-MESH_STR_ENTRY(HEADER_STATUS_QUIT,        "%s | %s")
 
 /* ---- the Messages tab ---------------------------------------------------------------------- */
 
-MESH_STR_ENTRY(MESSAGES_EMPTY,            "Connect to a node to see conversations.")
+MESH_STR_ENTRY(MESSAGES_EMPTY,            "Connect to a radio to see conversations.")
 /* The placeholder row at the top of the conversation list, which opens a new message. */
 MESH_STR_ENTRY(MESSAGES_NEW,              "New message")
 MESH_STR_ENTRY(MESSAGES_NEW_PREVIEW,      "Pick a channel or a node")
@@ -332,7 +324,7 @@ MESH_STR_ENTRY(DELIVERY_FAILED,           "failed")
  */
 
 MESH_STR_ENTRY(WAYPOINTS_EMPTY,           "No places have been shared yet.")
-MESH_STR_ENTRY(WAYPOINTS_EMPTY_DISCONNECTED, "Connect to a node to see shared places.")
+MESH_STR_ENTRY(WAYPOINTS_EMPTY_DISCONNECTED, "Connect to a radio to see shared places.")
 MESH_STR_ENTRY(WAYPOINTS_GONE,            "That place is no longer in the list.")
 /* The last row of the list: share our own radio's position as a new place. */
 MESH_STR_ENTRY(WAYPOINTS_NEW,             "New waypoint here")
@@ -416,7 +408,7 @@ MESH_STR_ENTRY(VALUE_ALTITUDE_FT,         "%lld ft")
 /* ---- the Nodes tab -------------------------------------------------------------------------- */
 
 MESH_STR_ENTRY(NODES_EMPTY_WAITING,       "Waiting for the node list...")
-MESH_STR_ENTRY(NODES_EMPTY_DISCONNECTED,  "Connect to a node to see the mesh.")
+MESH_STR_ENTRY(NODES_EMPTY_DISCONNECTED,  "Connect to a radio to see the mesh.")
 MESH_STR_ENTRY(NODES_GONE,                "That node is no longer in the list.")
 MESH_STR_ENTRY(NODES_PICK,                "Open a node to see it here.")
 MESH_STR_ENTRY(NODES_DETAIL_EMPTY,        "Nothing reported for this node yet.")

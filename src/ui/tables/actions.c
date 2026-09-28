@@ -171,10 +171,13 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
     }
     commands_add_help(snapshot, bar);
     /* The triggers walk the transcript's two landmarks: the first unread bubble (then the
-       oldest), and the newest. See mesh_ui_nav_thread_jump(). After help, so a narrow panel
-       drops this before the screen that explains it. */
+       oldest), and the newest. See mesh_ui_nav_thread_jump(). Named for where L2 lands, which
+       is the oldest once nothing is unread. After help, so a narrow panel drops this before
+       the screen that explains it. */
     if (has_bubble) {
-        command_add(bar, MESH_UI_COMMAND_THREAD_JUMP, MESH_STR_ACTION_THREAD_JUMP,
+        command_add(bar, MESH_UI_COMMAND_THREAD_JUMP,
+                    nav->thread_unread_from != 0U ? MESH_STR_ACTION_THREAD_JUMP
+                                                  : MESH_STR_ACTION_THREAD_JUMP_OLDEST,
                     INKCELL_BUTTON_TRIGGERS);
     }
     commands_add_tabs(bar);
@@ -210,17 +213,15 @@ static void actions_map(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_
 }
 
 /*
- * Whether X pins on the Nodes list with the cursor at `cursor`: the node under it when there is
- * one, the same mesh_ui_node_pinnable() the press asks. Over a lead row the keycap stays where
- * every node can be pinned, since it is true of every other row; where only some can - a
- * MeshCore list of contacts and heard nodes - it is named only over one that can.
+ * Whether X pins on the Nodes list with the cursor at `cursor`: the node under it, the same
+ * mesh_ui_node_pinnable() the press asks. Never over a lead row - there is no node under the
+ * cursor for the press to pin, and "X pin" over the filter chips read as pinning the filter.
  */
 static bool mesh_ui_actions_list_pins(const struct mesh_ui_snapshot *snapshot,
                                       const struct mesh_ui_nav *nav, uint32_t cursor) {
     const uint32_t lacks = snapshot->settings.protocol_lacks;
     if (cursor < MESH_UI_NODES_LEAD_ROWS) {
-        return (lacks &
-                ((uint32_t)MESH_UI_FEATURE_NODE_PIN | (uint32_t)MESH_UI_FEATURE_NODE_FLAGS)) == 0U;
+        return false;
     }
     struct mesh_ui_node_view view;
     mesh_ui_node_view_build_query(&snapshot->handshake, (enum mesh_ui_node_filter)nav->node_filter,
@@ -375,19 +376,14 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
     }
     /*
      * The list, whose first five rows are the filter, the sort, the find, the map and the places
-     * rather than nodes -
-     * so X and Y are named for presses that do nothing there. They are named anyway, and
-     * deliberately: they are true of every other row on the screen, and a bar that shed two
-     * keycaps as the cursor passed over the top rows would be describing the row rather than the
-     * list. The Status screen's rule is the opposite one because its cards offer genuinely
-     * different verbs; here there is one verb per key and three rows that happen not to take two
-     * of them.
+     * rather than nodes - so X's pin and Y's message have no node under them there, and are
+     * not named. They were once, on the argument that they are true of every other row; but
+     * "X pin" sitting under the filter chips read as a press about the filter, and a keycap
+     * that does nothing is the thing this table exists to prevent.
      *
-     * The control rows are the exception, and it is the Waypoints list's exception rather
-     * than a new one: the top three rows genuinely offer a different press from the rest of the
-     * list, and naming "open" over a row that filters would be the bar describing something
-     * else. That is the line between the two rules. A keycap whose verb changes is named per
-     * row; a keycap that simply has nothing to do on one row keeps the list's word for it.
+     * A is named per row too, which is the Waypoints list's rule: the top three rows genuinely
+     * offer a different press from the rest of the list, and naming "open" over a row that
+     * filters would be the bar describing something else.
      *
      * What changes on those rows is the *keycap* as well as the word, which is the point of it.
      * The d-pad is what edits them - the Settings tab's press, and the one the pencil in each
@@ -426,14 +422,16 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
         command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
     }
     /* The Find row's X is a different verb while there is a query - it clears it - so it is
-       named for the row then, by the line above. With nothing typed it has nothing to do, and
-       keeps the list's word like the map row does. */
+       named for the row then. With nothing typed it has nothing to do, like the other lead
+       rows. */
     if (nodes_cursor == MESH_UI_NODES_FIND_ROW && nav->node_query[0] != '\0') {
         command_add(bar, MESH_UI_COMMAND_CLEAR, MESH_STR_ACTION_CLEAR, INKCELL_BUTTON_X);
     } else if (snapshot == NULL || mesh_ui_actions_list_pins(snapshot, nav, nodes_cursor)) {
         command_add(bar, MESH_UI_COMMAND_PIN, MESH_STR_ACTION_PIN, INKCELL_BUTTON_X);
     }
-    command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);
+    if (nodes_cursor >= MESH_UI_NODES_LEAD_ROWS) {
+        command_add(bar, MESH_UI_COMMAND_WRITE, MESH_STR_ACTION_WRITE, INKCELL_BUTTON_Y);
+    }
     commands_add_help(snapshot, bar);
     commands_add_tabs(bar);
 }
@@ -867,14 +865,8 @@ static void actions_status(const struct mesh_ui_snapshot *snapshot,
     if (actions.count > 1U) {
         command_add(bar, MESH_UI_COMMAND_CHOOSE, MESH_STR_ACTION_CHOOSE, INKCELL_BUTTON_UP_DOWN);
     }
-    /*
-     * And the one thing the Brick's own chrome cannot say: how to get out. Only while a radio
-     * is attached - the line under the bar already ends in the quit hint when there is none,
-     * and the same instruction twice reads as a rendering fault.
-     */
-    if (connected) {
-        command_add(bar, MESH_UI_COMMAND_QUIT, MESH_STR_ACTION_QUIT, INKCELL_BUTTON_QUIT);
-    }
+    /* And the one thing the Brick's own chrome cannot say: how to get out. */
+    command_add(bar, MESH_UI_COMMAND_QUIT, MESH_STR_ACTION_QUIT, INKCELL_BUTTON_QUIT);
     commands_add_help(snapshot, bar);
     commands_add_tabs(bar);
 }
@@ -1101,6 +1093,17 @@ void mesh_ui_commands_for(const struct mesh_ui_snapshot *snapshot,
             actions_status(snapshot, out);
         }
         break;
+    }
+    /*
+     * With no radio, every screen says how to get out, as a keycap like every other press. It
+     * was a sentence on the line beside the transport state ("scanning | Press MENU to quit"),
+     * the one instruction on the frame that was not in the bar. Status says it whether or not a
+     * radio is attached, so it is not said twice there. Last, so a narrow panel drops it before
+     * any of the screen's own presses.
+     */
+    if (mesh_ui_snapshot_connected_device(snapshot) == NULL &&
+        mesh_ui_commands_find(out, MESH_UI_COMMAND_QUIT) == NULL) {
+        command_add(out, MESH_UI_COMMAND_QUIT, MESH_STR_ACTION_QUIT, INKCELL_BUTTON_QUIT);
     }
 }
 
