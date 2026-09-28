@@ -68,3 +68,38 @@ int mesh_test_trace_capture_fn(void *ctx, const uint8_t *packet, size_t len, uin
     capture->calls++;
     return 0;
 }
+
+void mesh_test_event_record_fn(void *ctx, const struct mesh_session *session,
+                               const struct mesh_session_event *event) {
+    (void)session;
+    struct mesh_test_event_record *record = ctx;
+    if (record->count >= MESH_TEST_EVENT_MAX) {
+        return;
+    }
+    struct mesh_test_event *out = &record->events[record->count++];
+    memset(out, 0, sizeof *out);
+    out->kind = event->kind;
+    if (event->message != NULL) {
+        out->node_id = event->message->from;
+        out->packet_id = event->message->packet_id;
+        out->direction = event->message->direction;
+    }
+    if (event->node != NULL) {
+        out->node_id = event->node->node_id;
+    }
+    out->via_mqtt = event->via_mqtt;
+    out->has_hops = event->has_hops;
+    out->hops = event->hops;
+}
+
+size_t mesh_test_event_count(const struct mesh_test_event_record *record,
+                             enum mesh_session_event_kind kind, uint32_t node_id) {
+    size_t count = 0U;
+    for (size_t i = 0; i < record->count; ++i) {
+        if (record->events[i].kind == kind &&
+            (node_id == 0U || record->events[i].node_id == node_id)) {
+            count++;
+        }
+    }
+    return count;
+}

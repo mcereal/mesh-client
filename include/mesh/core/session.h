@@ -588,6 +588,60 @@ typedef mesh_protocol_send_fn mesh_session_send_fn;
 typedef void (*mesh_session_mqtt_fn)(void *ctx, const char *topic, const uint8_t *payload,
                                      size_t len, bool retained);
 
+/*
+ * What happened, as it happened: the handful of facts a listener outside the session wants to
+ * count rather than read back off the roster and the log.
+ *
+ * The roster and the log are *state* - what is true now, rewritten as it changes, capped, and
+ * reloaded from the card at launch. A tally cannot be kept off state: a message ring that holds
+ * 64 records says nothing about how many went through it, and a roster seeded from the last
+ * run's cache would be counted again at every launch. So the session says so at the moment a
+ * record is made, once, from the few places a record can be made, and says nothing about a
+ * record it was handed back rather than told about - mesh_session_seed_node() is silent, as is
+ * the radio echoing a send the log already holds.
+ *
+ * Both protocols write the model through the session (see the model calls below), so a
+ * listener hears Meshtastic and MeshCore alike without knowing which is attached.
+ *
+ *   MESSAGE      a record entered the message log: one heard, one replayed by a Store & Forward
+ *                router, or one of ours going out. `message` is the record as it was appended;
+ *                its direction says which way.
+ *   NODE_HEARD   a packet from `node` arrived while we were watching. `via_mqtt` and the hop
+ *                count are *this packet's*, which the record may not keep: a hop count only
+ *                rides a packet whose firmware reports one.
+ *   NODE_LISTED  the radio's own database named `node`. The radio heard it at some point, but
+ *                perhaps while this client was not running; a record the radio has no heard
+ *                time for at all - a contact typed in from a link - is not announced.
+ *
+ * Our own radio is never announced as a node.
+ */
+enum mesh_session_event_kind {
+    MESH_SESSION_EVENT_MESSAGE = 0,
+    MESH_SESSION_EVENT_NODE_HEARD,
+    MESH_SESSION_EVENT_NODE_LISTED,
+};
+
+struct mesh_session_event {
+    enum mesh_session_event_kind kind;
+    /* MESSAGE: the record as appended. Valid only for the call. */
+    const struct mesh_message *message;
+    /* NODE_*: the roster record, after this update. Valid only for the call. */
+    const struct mesh_node_summary *node;
+    /* NODE_HEARD: how this one packet arrived. */
+    bool via_mqtt;
+    bool has_hops;
+    uint8_t hops;
+};
+
+struct mesh_session;
+
+/*
+ * Called on the loop, from inside the decode or the send that made the record. The session is
+ * mid-update, so a listener reads what it is handed and the roster, and changes neither.
+ */
+typedef void (*mesh_session_observer_fn)(void *ctx, const struct mesh_session *session,
+                                         const struct mesh_session_event *event);
+
 struct mesh_session {
     struct mesh_handshake_status handshake;
     /* Describes the radio that is connected right now; cleared with the handshake. */
@@ -635,6 +689,9 @@ struct mesh_session {
        proxying, and the variant is counted and dropped rather than decoded. */
     mesh_session_mqtt_fn mqtt;
     void *mqtt_ctx;
+    /* Who is told what happened; NULL for nobody. See struct mesh_session_event. */
+    mesh_session_observer_fn observer;
+    void *observer_ctx;
     /* MqttClientProxyMessages the radio offered with nowhere to put them. Not an error: a radio
        with proxying on and a client that is not proxying is an ordinary configuration, and this
        is what lets a status row say so instead of the screen simply staying empty. */
@@ -736,10 +793,31 @@ void mesh_session_model_sync_complete(struct mesh_session *session);
    Settings tab reads them unchanged. Its write counters are how a save is seen to land. */
 struct mesh_radio_settings *mesh_session_model_settings(struct mesh_session *session);
 
+/*
+ * The model's two announcing writes, for a protocol that fills the model rather than decoding
+ * FromRadio: log_message() appends to the message log and announces it, and note_node()
+ * announces a node the protocol has just written with model_node(). A protocol that appended to
+ * `messages` itself would be heard by nobody.
+ */
+struct mesh_message *mesh_session_model_log_message(struct mesh_session *session,
+                                                    const struct mesh_message *message);
+void mesh_session_model_note_node(struct mesh_session *session,
+                                  const struct mesh_session_event *event);
+
 /* Decodes one FromRadio protobuf and folds it into the handshake, node cache, settings or
    message log. Admin replies never reach the message log. */
 void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t *payload,
                                     size_t len);
+
+/*
+ * Installs the listener for struct mesh_session_event, or clears it with NULL.
+ *
+ * Like the MQTT handler below it outlives any one link, so it is set once after
+ * mesh_session_init() - which clears it along with everything else - and survives every
+ * attach, detach and radio swap after that.
+ */
+void mesh_session_set_observer(struct mesh_session *session, mesh_session_observer_fn observer,
+                               void *ctx);
 
 /* ------------------------------------------------------------------ the MQTT client proxy */
 

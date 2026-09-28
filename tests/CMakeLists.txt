@@ -58,6 +58,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/protocol.c
     suites/radio_settings.c
     suites/session.c
+    suites/session_events.c
     suites/store_forward.c
     suites/transport_ble_data.c
     suites/transport_ble_link.c
