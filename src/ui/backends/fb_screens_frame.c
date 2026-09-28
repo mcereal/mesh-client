@@ -722,15 +722,6 @@ static void fb_render_split(struct inkcell_draw_state *state,
         cache->heading.pass = 1U;
     }
     layout->back = back && !reading;
-    /*
-     * With a detail open, the list's cursor is the row that detail belongs to - a selection, not
-     * a cursor - so it is drawn to a reader on the pointer too, as a sidebar keeps the item it
-     * is showing lit. With nothing open it is only where the next key lands, and is not.
-     */
-    const bool cursor_hidden = state->cursor_hidden;
-    if (reading) {
-        state->cursor_hidden = false;
-    }
     switch (nav->screen) {
     case MESH_UI_SCREEN_NODES:
         fb_render_node_list(state, snapshot, layout);
@@ -743,7 +734,6 @@ static void fb_render_split(struct inkcell_draw_state *state,
         fb_render_conversations(state, snapshot, layout);
         break;
     }
-    state->cursor_hidden = cursor_hidden;
 
     /* Where the reader is, for whatever reads the frame's body back - the pane they are in. */
     if (cache != NULL) {

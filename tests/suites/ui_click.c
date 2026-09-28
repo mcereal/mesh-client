@@ -704,6 +704,7 @@ MESH_TEST_CASE(ui_click_a_wide_window_opens_another_row_from_the_list_beside_a_d
                               click_close(&store, capture),
                               "and it should be that conversation, not the one that was open");
     click_close(&store, capture);
+    record_success(test_name);
 }
 
 /*
@@ -800,6 +801,7 @@ MESH_TEST_CASE(ui_click_a_window_writes_in_the_field_at_the_foot_of_the_thread, 
                               click_close(&store, capture),
                               "a click on the transcript should put the field down");
     click_close(&store, capture);
+    record_success(test_name);
 }
 
 /*
@@ -843,6 +845,7 @@ MESH_TEST_CASE(ui_click_the_list_beside_a_section_with_edits_asks_first, unit) {
             store.nav.settings_edit_count != 1U,
         click_close(&store, capture), "the click should stop at the question with the edit kept");
     click_close(&store, capture);
+    record_success(test_name);
 }
 
 MESH_TEST_CASE(ui_click_a_right_click_off_a_list_opens_nothing, unit) {
