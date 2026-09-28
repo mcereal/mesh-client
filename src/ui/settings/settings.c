@@ -226,6 +226,7 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_MAPS_DOWNLOAD] = INKCELL_ICON_DOWNLOAD,
     [MESH_UI_SETTINGS_ACTION_MAPS_CANCEL] = INKCELL_ICON_CLOSE,
     [MESH_UI_SETTINGS_ACTION_MAPS_DELETE] = INKCELL_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_MAPS_OPEN_GROUP] = INKCELL_ICON_MAP,
 };
 
 /*
@@ -327,6 +328,7 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_MAPS_CANCEL] = INKCELL_TONE_NORMAL,
     /* Takes a file off the card; downloading it again is the only way back. */
     [MESH_UI_SETTINGS_ACTION_MAPS_DELETE] = INKCELL_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_MAPS_OPEN_GROUP] = INKCELL_TONE_NORMAL,
 };
 
 enum inkcell_icon mesh_ui_settings_action_icon(enum mesh_ui_settings_action action) {
@@ -2970,7 +2972,8 @@ bool mesh_ui_settings_action_opens(enum mesh_ui_settings_action action) {
            action == MESH_UI_SETTINGS_ACTION_IMPORT_CHANNELS ||
            action == MESH_UI_SETTINGS_ACTION_SHARE_CONTACT ||
            action == MESH_UI_SETTINGS_ACTION_IMPORT_CONTACT ||
-           action == MESH_UI_SETTINGS_ACTION_SHOW_FIRMWARE;
+           action == MESH_UI_SETTINGS_ACTION_SHOW_FIRMWARE ||
+           action == MESH_UI_SETTINGS_ACTION_MAPS_OPEN_GROUP;
 }
 
 /*

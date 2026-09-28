@@ -482,6 +482,11 @@ bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav) {
         return false;
     }
     mesh_ui_nav_edits_clear(nav);
+    if (nav->settings_section == MESH_UI_SETTINGS_MAPS && nav->maps_group != 0U) {
+        nav->maps_group = 0U;
+        nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->maps_group_list_cursor;
+        return true;
+    }
     if (nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
         nav->settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
         nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->settings_channel_list_cursor;

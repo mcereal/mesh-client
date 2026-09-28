@@ -68,6 +68,10 @@ struct inkwell_loop;
  */
 #define MESH_MAP_PACKS_DRAWN_MAX 16U
 
+/* The longest file name the map opens (mesh/map/stack.h's own limit), which is what is counted
+   against MESH_MAP_PACKS_DRAWN_MAX - listed or not. */
+#define MESH_MAP_PACKS_NAME_ON_CARD_MAX 256U
+
 #define MESH_MAP_PACKS_GROUPS_MAX 32U
 #define MESH_MAP_PACKS_ENTRIES_MAX 96U
 #define MESH_MAP_PACKS_INSTALLED_MAX 32U
@@ -146,6 +150,9 @@ struct mesh_map_packs {
     bool catalog_valid;
     struct mesh_map_packs_installed installed[MESH_MAP_PACKS_INSTALLED_MAX];
     size_t installed_count;
+    /* Every `*.mctp` the map would open, including one whose name is too long to list here -
+       what a new region is counted against. */
+    size_t on_card;
     struct mesh_map_packs_download download;
     char message[MESH_MAP_PACKS_MESSAGE_MAX];
     /* Changes whenever anything a screen shows does. */
@@ -190,7 +197,8 @@ void mesh_map_packs_cancel(struct mesh_map_packs *packs);
 
 /*
  * Deletes every installed file of `id` - and a stopped download of it. -EBUSY while that pack is
- * downloading, -ENOENT when nothing of it is installed.
+ * downloading, -ENOENT when nothing of it is installed, and -errno (or -EIO) when the card would
+ * not give it up - `message` then says so rather than that it was deleted.
  */
 int mesh_map_packs_delete(struct mesh_map_packs *packs, const char *id);
 

@@ -1216,22 +1216,18 @@ const struct inkwell_serial_port_info *mesh_app_firmware_silent_port(struct mesh
  * Not part of the cached half above, because none of it comes out of mesh_radio_settings: a
  * check finishing changes these rows while the radio's own configuration has not moved.
  */
-/* The name a group or a pack is listed under, from the catalog. */
-static const char *mesh_app_maps_group_name(const struct mesh_map_packs *packs, const char *id) {
-    for (size_t i = 0U; i < packs->catalog.group_count; ++i) {
-        if (strcmp(packs->catalog.groups[i].id, id) == 0) {
-            return packs->catalog.groups[i].name;
-        }
-    }
-    return "";
-}
-
 /*
- * The Maps section's data: the module's state, the packs on the card, and the catalog's packs
- * in the order they are drawn - by group, in the catalog's group order, with the packs at the top
- * of the tree (the world base) first. A catalog pack already on the card at its newest cut is
- * left out of that list; one on the card at an older cut is in it, as an update.
+ * The Maps section's data: the module's state, the packs on the card, and every catalog pack the
+ * card does not already have at its newest cut - one on the card at an older cut is in the list
+ * too, as an update. The catalog's packs are grouped the way the section shows them: the top of
+ * the tree (the world base) with no group, and each catalog group that has something to offer as
+ * one of `maps_groups`, in the catalog's order.
  */
+_Static_assert(MESH_UI_MAPS_ROWS_MAX >= MESH_MAP_PACKS_INSTALLED_MAX + MESH_MAP_PACKS_ENTRIES_MAX,
+               "every installed pack and every catalog pack needs a row");
+_Static_assert(MESH_UI_MAPS_GROUPS_MAX >= MESH_MAP_PACKS_GROUPS_MAX,
+               "every catalog group needs a slot");
+
 static void mesh_app_flatten_maps(const struct mesh_app *app, struct mesh_ui_settings *dst) {
     const struct mesh_map_packs *const packs = &app->map_packs;
     dst->maps_supported = mesh_map_packs_available(packs);
@@ -1244,6 +1240,7 @@ static void mesh_app_flatten_maps(const struct mesh_app *app, struct mesh_ui_set
     inkwell_str_copy(dst->maps_download_name, sizeof dst->maps_download_name,
                      dst->maps_downloading ? packs->download.entry.name : "");
     dst->maps_row_count = 0U;
+    dst->maps_group_count = 0U;
 
     for (size_t i = 0U; i < packs->installed_count && dst->maps_row_count < MESH_UI_MAPS_ROWS_MAX;
          ++i) {
@@ -1252,6 +1249,7 @@ static void mesh_app_flatten_maps(const struct mesh_app *app, struct mesh_ui_set
         struct mesh_ui_maps_row *const row = &dst->maps_rows[dst->maps_row_count++];
         memset(row, 0, sizeof *row);
         row->kind = (uint8_t)MESH_UI_MAPS_ROW_INSTALLED;
+        row->group = MESH_UI_MAPS_NO_GROUP;
         inkwell_str_copy(row->id, sizeof row->id, pack->id);
         inkwell_str_copy(row->name, sizeof row->name, entry != NULL ? entry->name : pack->id);
         inkwell_str_copy(row->cut, sizeof row->cut, pack->cut);
@@ -1262,13 +1260,23 @@ static void mesh_app_flatten_maps(const struct mesh_app *app, struct mesh_ui_set
         return;
     }
 
-    /* The top of the tree first, then each group that has packs, in the catalog's order. */
+    /* g == 0 is the top of the tree; g > 0 is catalog group g - 1. */
     for (size_t g = 0U; g <= packs->catalog.group_count; ++g) {
-        const char *const group = g == 0U ? "" : packs->catalog.groups[g - 1U].id;
+        const char *const parent = g == 0U ? "" : packs->catalog.groups[g - 1U].id;
+        const uint8_t slot = g == 0U ? MESH_UI_MAPS_NO_GROUP : dst->maps_group_count;
+        struct mesh_ui_maps_group *const group =
+            g == 0U || slot >= MESH_UI_MAPS_GROUPS_MAX ? NULL : &dst->maps_groups[slot];
+        if (g != 0U && group == NULL) {
+            break;
+        }
+        if (group != NULL) {
+            memset(group, 0, sizeof *group);
+            inkwell_str_copy(group->name, sizeof group->name, packs->catalog.groups[g - 1U].name);
+        }
         for (size_t i = 0U;
              i < packs->catalog.entry_count && dst->maps_row_count < MESH_UI_MAPS_ROWS_MAX; ++i) {
             const struct mesh_map_packs_entry *const entry = &packs->catalog.entries[i];
-            if (strcmp(entry->parent, group) != 0) {
+            if (strcmp(entry->parent, parent) != 0) {
                 continue;
             }
             const struct mesh_map_packs_installed *const installed =
@@ -1280,13 +1288,20 @@ static void mesh_app_flatten_maps(const struct mesh_app *app, struct mesh_ui_set
             struct mesh_ui_maps_row *const row = &dst->maps_rows[dst->maps_row_count++];
             memset(row, 0, sizeof *row);
             row->kind = (uint8_t)MESH_UI_MAPS_ROW_AVAILABLE;
+            row->group = slot;
             inkwell_str_copy(row->id, sizeof row->id, entry->id);
             inkwell_str_copy(row->name, sizeof row->name, entry->name);
-            inkwell_str_copy(row->group, sizeof row->group,
-                             mesh_app_maps_group_name(packs, entry->parent));
             inkwell_str_copy(row->cut, sizeof row->cut, entry->cut);
             row->bytes = entry->bytes;
             row->update = update;
+            if (group != NULL) {
+                group->count = group->count < UINT8_MAX ? (uint8_t)(group->count + 1U) : UINT8_MAX;
+                group->update = group->update || update;
+            }
+        }
+        /* A group with nothing to offer is not a row: it would open onto an empty list. */
+        if (group != NULL && group->count > 0U) {
+            ++dst->maps_group_count;
         }
     }
 }

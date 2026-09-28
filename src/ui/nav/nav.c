@@ -33,6 +33,7 @@
 #include "mesh/ui/units.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
@@ -106,8 +107,14 @@ uint8_t mesh_ui_nav_radio_page_section(uint8_t page) {
 }
 
 uint8_t mesh_ui_nav_open_channel(const struct mesh_ui_nav *nav) {
-    return nav != NULL && nav->screen == MESH_UI_SCREEN_SETTINGS ? nav->settings_channel
-                                                                 : MESH_UI_SETTINGS_NO_CHANNEL;
+    if (nav == NULL || nav->screen != MESH_UI_SCREEN_SETTINGS) {
+        return MESH_UI_SETTINGS_NO_CHANNEL;
+    }
+    if (nav->settings_section == MESH_UI_SETTINGS_MAPS) {
+        return nav->maps_group != 0U ? (uint8_t)(nav->maps_group - 1U)
+                                     : MESH_UI_SETTINGS_NO_CHANNEL;
+    }
+    return nav->settings_channel;
 }
 
 static void mesh_ui_nav_refresh_target_name(struct mesh_ui_nav *nav,
@@ -871,7 +878,7 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         }
         return mesh_ui_settings_item_count(
             &store->settings, store->handshake_valid ? &store->handshake : NULL,
-            (enum mesh_ui_settings_section)nav->settings_section, nav->settings_channel);
+            (enum mesh_ui_settings_section)nav->settings_section, mesh_ui_nav_open_channel(nav));
     case MESH_UI_SCREEN_RADIO:
     default: {
         if (nav->devices_open) {
@@ -2010,6 +2017,16 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
             mesh_ui_nav_open_contact_url_keyboard(nav);
             return true;
         }
+        /* A catalog group, opened to its packs; B comes back to the row it was opened from. */
+        if (which == MESH_UI_SETTINGS_ACTION_MAPS_OPEN_GROUP) {
+            const unsigned long index = strtoul(item.text, NULL, 10);
+            if (index < MESH_UI_MAPS_GROUPS_MAX) {
+                nav->maps_group_list_cursor = nav->cursor[nav->screen];
+                nav->maps_group = (uint8_t)(index + 1U);
+                nav->cursor[nav->screen] = 0U;
+            }
+            return true;
+        }
         /* And the install's screen, back from wherever B put it. */
         if (which == MESH_UI_SETTINGS_ACTION_SHOW_FIRMWARE) {
             nav->firmware_open = true;
@@ -2291,6 +2308,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         }
         nav->settings_list_cursor = cursor;
         nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
+        nav->maps_group = 0U;
         nav->settings_section = (uint8_t)mesh_ui_settings_root_at(&store->settings, cursor);
         mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
         return true;

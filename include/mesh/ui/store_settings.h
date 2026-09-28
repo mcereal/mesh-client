@@ -400,9 +400,14 @@ enum mesh_ui_feature {
  */
 /*
  * One row of the Maps section: a pack on the card, or one the server offers under a heading.
- * The app writes them in the order they are drawn - installed first, then each heading's packs.
+ * The app writes them installed first, then the catalog's in its order. Every catalog pack has a
+ * row - the section shows them a group at a time (MESH_UI_SETTINGS_MAPS), so no screen has to
+ * hold them all, and none is left out for want of one.
  */
-#define MESH_UI_MAPS_ROWS_MAX 48U
+#define MESH_UI_MAPS_ROWS_MAX 128U /* MESH_MAP_PACKS_INSTALLED_MAX + MESH_MAP_PACKS_ENTRIES_MAX */
+#define MESH_UI_MAPS_GROUPS_MAX 32U
+/* A row's `group` for a pack at the top of the catalog's tree - the world base. */
+#define MESH_UI_MAPS_NO_GROUP 0xFFU
 #define MESH_UI_MAPS_ID_MAX 48U
 #define MESH_UI_MAPS_NAME_MAX 32U
 #define MESH_UI_MAPS_MESSAGE_MAX 96U
@@ -415,12 +420,20 @@ enum mesh_ui_maps_row_kind {
 struct mesh_ui_maps_row {
     char id[MESH_UI_MAPS_ID_MAX];
     char name[MESH_UI_MAPS_NAME_MAX];
-    /* The heading an available pack is listed under - its group's name, "" for the top. */
-    char group[MESH_UI_MAPS_NAME_MAX];
+    /* Which of `maps_groups` an available pack is listed in, or MESH_UI_MAPS_NO_GROUP. */
+    uint8_t group;
     char cut[9]; /* YYYYMMDD, "" for a pack copied on by hand */
     uint64_t bytes;
     uint8_t kind; /* enum mesh_ui_maps_row_kind */
     /* Installed, and the server has a newer cut of it. */
+    bool update;
+};
+
+/* A heading of the catalog with packs to offer: a row at the top of the section that opens its
+   packs. `count` is how many; `update` is whether one of them is a newer cut of a pack here. */
+struct mesh_ui_maps_group {
+    char name[MESH_UI_MAPS_NAME_MAX];
+    uint8_t count;
     bool update;
 };
 
@@ -967,6 +980,8 @@ struct mesh_ui_settings {
     char maps_download_name[MESH_UI_MAPS_NAME_MAX];
     uint8_t maps_row_count;
     struct mesh_ui_maps_row maps_rows[MESH_UI_MAPS_ROWS_MAX];
+    uint8_t maps_group_count;
+    struct mesh_ui_maps_group maps_groups[MESH_UI_MAPS_GROUPS_MAX];
 };
 
 #ifdef __cplusplus

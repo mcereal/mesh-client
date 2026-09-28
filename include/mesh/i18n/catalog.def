@@ -3138,6 +3138,7 @@ MESH_STR_ENTRY(MAP_PACKS_ENV_FILE,        "Off: MESHCLIENT_MAP_PACK is set")
 MESH_STR_ENTRY(MAP_PACKS_DAMAGED,         "%s arrived damaged. Try again.")
 MESH_STR_ENTRY(MAP_PACKS_DONE,            "%s is on the map")
 MESH_STR_ENTRY(MAP_PACKS_DELETED,         "%s deleted")
+MESH_STR_ENTRY(MAP_PACKS_DELETE_FAILED,   "%s could not be deleted")
 /* A download the reader stopped. What arrived is kept, and the next press carries on. */
 MESH_STR_ENTRY(MAP_PACKS_STOPPED,         "Stopped; downloading resumes it")
 
@@ -3154,6 +3155,12 @@ MESH_STR_ENTRY(MAPS_GET_LIST,             "See the maps to download")
 MESH_STR_ENTRY(MAPS_REFRESH,              "Check for new maps")
 /* The heading over the maps that are not in any region, which is the whole-world one. */
 MESH_STR_ENTRY(MAPS_HEAD_WORLD,           "Everywhere")
+/* The heading over the groups of maps - "United States", "Europe" - each of which opens a list. */
+MESH_STR_ENTRY(MAPS_HEAD_REGIONS,         "Regions")
+/* How many maps a group offers, beside its name. */
+MESH_STR_PLURAL_ENTRY(MAPS_GROUP_COUNT,   "%u map", "%u maps")
+/* Beside a group's name when one of its maps is a newer version of one on this device. */
+MESH_STR_ENTRY(MAPS_GROUP_UPDATE,         "Update available")
 /* A size in megabytes, whole part and tenths: "22.5 MB". */
 MESH_STR_ENTRY(MAPS_SIZE,                 "%u.%u MB")
 /* An installed map's size and the date its data is from: "22.5 MB, 2026-09-27". The three

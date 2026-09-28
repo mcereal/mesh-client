@@ -292,17 +292,21 @@ static void packs_scan_visit(void *context, const char *name) {
     struct mesh_map_packs *const packs = ((struct packs_scan *)context)->packs;
     /* The same rule the map opens by (mesh/map/stack.h): `.mctp` in any case, no dot files. */
     if (name[0] == '.' || !packs_ends_with(name, PACKS_SUFFIX) ||
-        packs->installed_count >= MESH_MAP_PACKS_INSTALLED_MAX) {
+        strlen(name) >= MESH_MAP_PACKS_NAME_ON_CARD_MAX) {
         return;
     }
+    /* Counted whether or not it can be listed: a pack the map draws is one of the
+       MESH_MAP_PACKS_DRAWN_MAX however long its name. */
+    ++packs->on_card;
     struct mesh_map_packs_installed *const pack = &packs->installed[packs->installed_count];
-    memset(pack, 0, sizeof *pack);
-    if (strlen(name) >= sizeof pack->file) {
+    const size_t stem = strlen(name) - (sizeof PACKS_SUFFIX - 1U);
+    if (packs->installed_count >= MESH_MAP_PACKS_INSTALLED_MAX ||
+        strlen(name) >= sizeof pack->file || stem >= sizeof pack->id) {
         return;
     }
+    memset(pack, 0, sizeof *pack);
     snprintf(pack->file, sizeof pack->file, "%s", name);
     if (!packs_split_name(name, pack->id, sizeof pack->id, pack->cut, sizeof pack->cut)) {
-        const size_t stem = strlen(name) - (sizeof PACKS_SUFFIX - 1U);
         snprintf(pack->id, sizeof pack->id, "%.*s", (int)stem, name);
         pack->cut[0] = '\0';
     }
@@ -322,6 +326,7 @@ void mesh_map_packs_rescan(struct mesh_map_packs *packs) {
         return;
     }
     packs->installed_count = 0U;
+    packs->on_card = 0U;
     struct packs_scan scan = {.packs = packs};
     if (packs->dir[0] != '\0' && inkwell_file_is_dir(packs->dir)) {
         (void)inkwell_file_list(packs->dir, packs_scan_visit, &scan);
@@ -593,7 +598,7 @@ static bool packs_load_hash(struct mesh_map_packs_download *download, uint64_t p
 static void packs_next_piece(struct mesh_map_packs *packs, uint64_t now_ms);
 
 /* Removes every file of `id` in the directory except `keep` (a file name, or NULL). */
-static void packs_remove_id(struct mesh_map_packs *packs, const char *id, const char *keep);
+static int packs_remove_id(struct mesh_map_packs *packs, const char *id, const char *keep);
 
 static void packs_download_failed(struct mesh_map_packs *packs, const char *message) {
     (void)remove(packs->download.chunk_path);
@@ -740,7 +745,7 @@ int mesh_map_packs_download(struct mesh_map_packs *packs, const char *id, uint64
         return -ENOENT;
     }
     if (mesh_map_packs_find_installed(packs, id) == NULL &&
-        packs->installed_count >= MESH_MAP_PACKS_DRAWN_MAX) {
+        packs->on_card >= MESH_MAP_PACKS_DRAWN_MAX) {
         return -ENOSPC;
     }
     const int made = packs_make_dir(packs->dir);
@@ -836,24 +841,29 @@ static void packs_collect_id(void *context, const char *name) {
     }
 }
 
-static void packs_remove_id(struct mesh_map_packs *packs, const char *id, const char *keep) {
+/* 0, or the first -errno: a directory that would not list, or a file that would not go. Every
+   file is still tried after one fails, so what can be removed is. */
+static int packs_remove_id(struct mesh_map_packs *packs, const char *id, const char *keep) {
     /* Collected first and removed after, rather than removed while the directory is being
        read: what readdir() does with an entry deleted under it is the filesystem's business. */
     struct packs_doomed *const doomed = calloc(1U, sizeof *doomed);
     if (doomed == NULL) {
-        return;
+        return -ENOMEM;
     }
     doomed->id = id;
     doomed->keep = keep;
-    (void)inkwell_file_list(packs->dir, packs_collect_id, doomed);
+    int result = inkwell_file_list(packs->dir, packs_collect_id, doomed);
     for (size_t i = 0U; i < doomed->count; ++i) {
         char path[MESH_MAP_PACKS_PATH_MAX + 96U];
         snprintf(path, sizeof path, "%s/%s", packs->dir, doomed->names[i]);
         if (remove(path) != 0) {
-            inkwell_log_warn("maps", "%s could not be removed: %s", path, strerror(errno));
+            const int failed = errno != 0 ? -errno : -EIO;
+            inkwell_log_warn("maps", "%s could not be removed: %s", path, strerror(-failed));
+            result = result < 0 ? result : failed;
         }
     }
     free(doomed);
+    return result < 0 ? result : 0;
 }
 
 int mesh_map_packs_delete(struct mesh_map_packs *packs, const char *id) {
@@ -871,15 +881,23 @@ int mesh_map_packs_delete(struct mesh_map_packs *packs, const char *id) {
     const struct mesh_map_packs_entry *const entry = mesh_map_packs_find(packs, id);
     char name[MESH_MAP_PACKS_NAME_MAX + MESH_MAP_PACKS_ID_MAX];
     snprintf(name, sizeof name, "%s", entry != NULL ? entry->name : installed->id);
-    packs_remove_id(packs, id, NULL);
+    const int removed = packs_remove_id(packs, id, NULL);
+    /* Rescanned and announced to the map either way: a delete that failed half way has still
+       changed the card, and the list says what is there rather than what was asked for. */
     mesh_map_packs_rescan(packs);
     ++packs->installed_revision;
+    const bool gone = mesh_map_packs_find_installed(packs, id) == NULL;
     char message[MESH_MAP_PACKS_MESSAGE_MAX];
-    inkcell_str_format(message, sizeof message, MESH_STR_MAP_PACKS_DELETED, name);
+    inkcell_str_format(
+        message, sizeof message,
+        removed == 0 && gone ? MESH_STR_MAP_PACKS_DELETED : MESH_STR_MAP_PACKS_DELETE_FAILED, name);
     /* A download of another pack carries on; otherwise the list is what is left to show. */
     const enum mesh_map_packs_state next =
         packs->state == MESH_MAP_PACKS_DOWNLOADING || !packs->catalog_valid ? packs->state
                                                                             : MESH_MAP_PACKS_READY;
     packs_set(packs, next, message);
-    return 0;
+    if (removed < 0) {
+        return removed;
+    }
+    return gone ? 0 : -EIO;
 }

@@ -749,6 +749,9 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_MAPS_DOWNLOAD,
     MESH_UI_SETTINGS_ACTION_MAPS_CANCEL,
     MESH_UI_SETTINGS_ACTION_MAPS_DELETE,
+    /* One of the catalog's groups, opened to its packs: the row's `text` is the group's index in
+       `maps_groups`. The nav's alone, like the share rows - nothing is asked of the app. */
+    MESH_UI_SETTINGS_ACTION_MAPS_OPEN_GROUP,
     /* Not an action: what the two verb tables below are sized by, so a row added above without
        a symbol or a weight is a hole in an array rather than a row that quietly draws nothing.
        Last, so no existing value moves - nav->confirm.subject carries one in a uint8_t. */

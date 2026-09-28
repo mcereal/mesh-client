@@ -181,6 +181,37 @@ MESH_TEST_CASE(map_downloads_without_a_directory_download_nothing, unit) {
     record_success(test_name);
 }
 
+/*
+ * A delete the card refuses says so. Reporting it deleted would leave a pack the map still
+ * draws under a line saying it is gone, and the reader no reason to look for why.
+ */
+MESH_TEST_CASE(map_downloads_a_refused_delete_is_not_a_delete, unit) {
+    if (geteuid() == 0) {
+        /* root removes from a read-only directory, so there is no refusal to provoke. */
+        record_success(test_name);
+        return;
+    }
+    char dir[] = "/tmp/meshclient_packs_XXXXXX";
+    MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "a scratch directory");
+    const bool laid_out = downloads_touch(dir, "world.20260927.mctp", 10U);
+    struct mesh_map_packs *packs = calloc(1U, sizeof *packs);
+    MESH_TEST_FAIL_IF_CLEANUP(packs == NULL, downloads_clear(dir), "module memory");
+    (void)mesh_map_packs_init(packs, NULL, dir);
+    (void)chmod(dir, 0500);
+    const int deleted = mesh_map_packs_delete(packs, "world");
+    const bool still_listed = mesh_map_packs_find_installed(packs, "world") != NULL;
+    const bool said_so = strstr(packs->message, "could not be deleted") != NULL;
+    (void)chmod(dir, 0700);
+    mesh_map_packs_shutdown(packs);
+    free(packs);
+    downloads_clear(dir);
+    MESH_TEST_FAIL_IF(!laid_out, "the card is laid out");
+    MESH_TEST_FAIL_IF(deleted >= 0, "a delete the card refused reports the refusal");
+    MESH_TEST_FAIL_IF(!still_listed, "and the pack is still listed, because it is still there");
+    MESH_TEST_FAIL_IF(!said_so, "and the status says it could not be deleted");
+    record_success(test_name);
+}
+
 #ifdef INKWELL_HAVE_TLS
 
 #include "support/https_fixture.h"
@@ -473,8 +504,16 @@ MESH_TEST_CASE(map_downloads_stop_at_what_the_map_draws, unit) {
         (void)mkdir(parent, 0700);
         (void)mkdir(rig.maps, 0700);
         for (unsigned i = 0U; i < MESH_MAP_PACKS_DRAWN_MAX && failure == NULL; ++i) {
-            char name[64];
-            snprintf(name, sizeof name, "region-%02u.20260927.mctp", i);
+            char name[128];
+            /* The last is a pack copied on by hand under a name too long to list, which the
+               map draws all the same and so counts. */
+            if (i + 1U == MESH_MAP_PACKS_DRAWN_MAX) {
+                snprintf(name, sizeof name, "%s",
+                         "a-pack-somebody-copied-on-by-hand-with-a-very-long-descriptive-"
+                         "name.mctp");
+            } else {
+                snprintf(name, sizeof name, "region-%02u.20260927.mctp", i);
+            }
             if (!downloads_touch(rig.maps, name, 1U)) {
                 failure = "the full card could not be laid out";
             }
@@ -484,6 +523,9 @@ MESH_TEST_CASE(map_downloads_stop_at_what_the_map_draws, unit) {
     if (failure == NULL && (mesh_map_packs_refresh(&rig.packs, 0U) != 0 ||
                             !downloads_wait_past(&rig, MESH_MAP_PACKS_LOADING))) {
         failure = "the catalog did not arrive";
+    }
+    if (failure == NULL && rig.packs.installed_count != MESH_MAP_PACKS_DRAWN_MAX - 1U) {
+        failure = "the long name should be counted but not listed";
     }
     if (failure == NULL && mesh_map_packs_download(&rig.packs, "test-region", 0U) != -ENOSPC) {
         failure = "a region past what the map draws was not refused";
@@ -502,7 +544,7 @@ MESH_TEST_CASE(map_downloads_stop_at_what_the_map_draws, unit) {
     if (failure == NULL && (mesh_map_packs_download(&rig.packs, "test-region", 0U) != 0 ||
                             !downloads_wait_past(&rig, MESH_MAP_PACKS_DOWNLOADING) ||
                             rig.packs.state != MESH_MAP_PACKS_READY ||
-                            rig.packs.installed_count != MESH_MAP_PACKS_DRAWN_MAX)) {
+                            rig.packs.on_card != MESH_MAP_PACKS_DRAWN_MAX)) {
         failure = "an update of an installed region was refused, or grew the set";
     }
     downloads_rig_down(&rig);

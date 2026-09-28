@@ -777,19 +777,42 @@ static void format_pack_size(char *out, size_t out_len, uint64_t bytes) {
                        (unsigned)(tenths % 10U));
 }
 
+/* A pack the server offers, as a row whose press downloads it; `text` is its id. */
+static void maps_available_row(const struct mesh_ui_maps_row *row, struct item_list *list) {
+    char size[32];
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    format_pack_size(size, sizeof size, row->bytes);
+    if (row->update) {
+        inkcell_str_format(value, sizeof value, MESH_STR_MAPS_UPDATE_VALUE, size);
+    } else {
+        inkwell_str_copy(value, sizeof value, size);
+    }
+    const size_t before = list->count;
+    item_action_named(list, row->name, value, MESH_UI_SETTINGS_ACTION_MAPS_DOWNLOAD);
+    if (list->count > before) {
+        inkwell_str_copy(list->items[before].text, sizeof list->items[before].text, row->id);
+    }
+}
+
 /*
- * Maps: the packs on the card, and the ones the map server offers under its own headings.
+ * Maps: the packs on the card, and the ones the map server offers.
  *
  * Every pack is a row whose label is its name and whose `text` is its id, which is what the nav
  * hands back with the press - the list is the app's, as the firmware board picker's is. A pack on
  * the card is deleted from its row, behind a sheet; one on the server is downloaded from its row,
  * and an installed pack the server has a newer cut of is listed there too, as an update.
  *
- * While a download runs its bar is the section's first row and the only thing offered is to
- * stop it: one download at a time is the module's rule, and a list of presses that would each
- * be refused is a list the reader has to learn not to trust.
+ * **The server's packs are shown a group at a time.** The top lists what is installed, the packs
+ * at the top of the catalog's tree (the world base), and one row per group that opens its packs
+ * - `channel` is the open group, as it is the open slot for Channels. A section is a bounded list
+ * of rows (MESH_UI_SETTINGS_ITEMS_MAX), and a catalog of every state and country is not, so one
+ * list of all of them would be a list with its end cut off.
+ *
+ * While a download runs its bar and the way to stop it are all that is offered: one download at
+ * a time is the module's rule, and a list of presses that would each be refused is a list the
+ * reader has to learn not to trust.
  */
-static void build_maps(const struct mesh_ui_settings *s, struct item_list *list) {
+static void build_maps(const struct mesh_ui_settings *s, uint8_t channel, struct item_list *list) {
     /*
      * The one press the section is about goes first and stays first - list the maps, check
      * again, stop the download - so the row under the cursor is still a press after the rows
@@ -810,6 +833,19 @@ static void build_maps(const struct mesh_ui_settings *s, struct item_list *list)
     }
     if (s->maps_message[0] != '\0') {
         item_text(list, MESH_STR_MAPS_STATUS, INKSTAND_FORM_INFO, s->maps_message);
+    }
+    const bool offering =
+        s->maps_supported && s->maps_catalog && !s->maps_downloading && !s->maps_loading;
+
+    /* One group open: its packs, and nothing else - its name is the heading's title. */
+    if (channel != MESH_UI_SETTINGS_NO_CHANNEL) {
+        for (uint8_t i = 0U; offering && i < s->maps_row_count && i < MESH_UI_MAPS_ROWS_MAX; ++i) {
+            const struct mesh_ui_maps_row *const row = &s->maps_rows[i];
+            if (row->kind == (uint8_t)MESH_UI_MAPS_ROW_AVAILABLE && row->group == channel) {
+                maps_available_row(row, list);
+            }
+        }
+        return;
     }
 
     /* A heading only over something: with nothing installed the list starts at the server's. */
@@ -838,39 +874,42 @@ static void build_maps(const struct mesh_ui_settings *s, struct item_list *list)
             inkwell_str_copy(list->items[before].text, sizeof list->items[before].text, row->id);
         }
     }
-
-    if (!s->maps_supported || !s->maps_catalog || s->maps_downloading || s->maps_loading) {
+    if (!offering) {
         return;
     }
 
-    /* The server's packs in the order the app wrote them, a heading wherever the group
-       changes. The top of the tree - the world base - is under a heading of its own. */
-    const char *group = NULL;
+    /* The top of the catalog's tree: the world base, which belongs to no group. */
+    headed = false;
     for (uint8_t i = 0U; i < s->maps_row_count && i < MESH_UI_MAPS_ROWS_MAX; ++i) {
         const struct mesh_ui_maps_row *const row = &s->maps_rows[i];
-        if (row->kind != (uint8_t)MESH_UI_MAPS_ROW_AVAILABLE) {
+        if (row->kind != (uint8_t)MESH_UI_MAPS_ROW_AVAILABLE ||
+            row->group != MESH_UI_MAPS_NO_GROUP) {
             continue;
         }
-        if (group == NULL || strcmp(group, row->group) != 0) {
-            group = row->group;
-            if (row->group[0] != '\0') {
-                item_add_named(list, row->group, INKSTAND_FORM_HEADING);
-            } else {
-                item_heading(list, MESH_STR_MAPS_HEAD_WORLD);
-            }
+        if (!headed) {
+            item_heading(list, MESH_STR_MAPS_HEAD_WORLD);
+            headed = true;
         }
-        char size[32];
+        maps_available_row(row, list);
+    }
+
+    /* And a row per group, which opens it. */
+    if (s->maps_group_count > 0U) {
+        item_heading(list, MESH_STR_MAPS_HEAD_REGIONS);
+    }
+    for (uint8_t g = 0U; g < s->maps_group_count && g < MESH_UI_MAPS_GROUPS_MAX; ++g) {
+        const struct mesh_ui_maps_group *const group = &s->maps_groups[g];
         char value[MESH_UI_SETTINGS_VALUE_MAX];
-        format_pack_size(size, sizeof size, row->bytes);
-        if (row->update) {
-            inkcell_str_format(value, sizeof value, MESH_STR_MAPS_UPDATE_VALUE, size);
+        if (group->update) {
+            inkwell_str_copy(value, sizeof value, inkcell_str(MESH_STR_MAPS_GROUP_UPDATE));
         } else {
-            inkwell_str_copy(value, sizeof value, size);
+            inkcell_str_format_plural(value, sizeof value, MESH_STR_MAPS_GROUP_COUNT_ONE,
+                                      group->count, (unsigned)group->count);
         }
         const size_t before = list->count;
-        item_action_named(list, row->name, value, MESH_UI_SETTINGS_ACTION_MAPS_DOWNLOAD);
+        item_action_named(list, group->name, value, MESH_UI_SETTINGS_ACTION_MAPS_OPEN_GROUP);
         if (list->count > before) {
-            inkwell_str_copy(list->items[before].text, sizeof list->items[before].text, row->id);
+            snprintf(list->items[before].text, sizeof list->items[before].text, "%u", (unsigned)g);
         }
     }
 }
@@ -2740,7 +2779,7 @@ static void build_section(const struct mesh_ui_settings *settings,
         build_about(settings, list);
         break;
     case MESH_UI_SETTINGS_MAPS:
-        build_maps(settings, list);
+        build_maps(settings, channel, list);
         break;
     case MESH_UI_SETTINGS_RADIO:
         build_radio(settings, handshake, list);

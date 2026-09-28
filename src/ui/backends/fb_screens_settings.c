@@ -143,7 +143,12 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
          * "Channels" over one channel - which is exactly where the breadcrumb was earning its
          * keep and nowhere else.
          */
-        if (view->channel != MESH_UI_SETTINGS_NO_CHANNEL) {
+        if (section == MESH_UI_SETTINGS_MAPS && view->channel != MESH_UI_SETTINGS_NO_CHANNEL &&
+            view->channel < settings->maps_group_count) {
+            /* One group of the catalog, out of Maps: the group's name, under the section's. */
+            bar.trail[bar.trail_count++] = mesh_ui_settings_section_name(MESH_UI_SETTINGS_MAPS);
+            bar.title = settings->maps_groups[view->channel].name;
+        } else if (view->channel != MESH_UI_SETTINGS_NO_CHANNEL) {
             /* One channel out of the Channels list: the list is the level above it, and unlike
                Modules it is not in settings_parent - a channel is identified by its number
                rather than by a section of its own. */
@@ -831,7 +836,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
 static struct settings_view settings_tab_view(const struct mesh_ui_nav *nav, bool roster) {
     return (struct settings_view){
         .section = nav->settings_section,
-        .channel = nav->settings_channel,
+        .channel = mesh_ui_nav_open_channel(nav),
         .parent = nav->settings_parent,
         .cursor = nav->cursor[MESH_UI_SCREEN_SETTINGS],
         .edits = nav->settings_edits,

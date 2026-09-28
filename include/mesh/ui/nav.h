@@ -835,6 +835,12 @@ struct mesh_ui_nav {
     /* The map pack a delete sheet is standing in front of: the row's id, kept from the press
        that opened the sheet to the one that answers it, since the sheet carries only the verb. */
     char maps_pending[64];
+    /* The catalog group Maps has open, as its index plus one - 0 is the section's top, which is
+       what a zeroed nav already says. The row the group was opened from is parked in
+       `maps_group_list_cursor`, as a channel's is. Answered through mesh_ui_nav_open_channel(),
+       which is the slot every section row builder is already handed. */
+    uint8_t maps_group;
+    uint32_t maps_group_list_cursor;
     /* A contact link that has been typed and parsed, waiting on the sheet in front of it.
        Its own buffer beside the channel one, for that buffer's reason: the keyboard closes
        before the sheet opens, and closing it is what puts the parked Compose draft back. */
@@ -1523,6 +1529,8 @@ bool mesh_ui_nav_disconnect_pending(const struct mesh_ui_nav *nav,
 uint8_t mesh_ui_nav_open_section(const struct mesh_ui_nav *nav);
 /* The section a Radio tab page is built from, or MESH_UI_SETTINGS_NO_SECTION for NONE. */
 uint8_t mesh_ui_nav_radio_page_section(uint8_t page);
+/* The slot the open section's rows are built for: the channel Channels has open, the catalog
+   group Maps has open, or MESH_UI_SETTINGS_NO_CHANNEL at a section's top. */
 uint8_t mesh_ui_nav_open_channel(const struct mesh_ui_nav *nav);
 
 /* Canned replies shown on the Compose tab. Defaults are built in; a file with one message per
