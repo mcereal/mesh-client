@@ -237,6 +237,13 @@ void mesh_app_backup_rescan(struct mesh_app *app) {
     free(backup);
 }
 
+/* Whether a MeshCore restore has reached its contacts: every save sent and answered. */
+static bool app_backup_restore_in_contacts(const struct mesh_app *app) {
+    return app->backup_restore.stage != 0U && app->backup_restore.contact_count > 0U &&
+           app->backup_restore.step >= app->backup_restore.step_count &&
+           app->meshcore.writes_outstanding == 0U;
+}
+
 void mesh_app_backup_publish(struct mesh_app *app, struct mesh_ui_backups *out) {
     if (app == NULL || out == NULL) {
         return;
@@ -252,11 +259,16 @@ void mesh_app_backup_publish(struct mesh_app *app, struct mesh_ui_backups *out) 
         }
     }
     /* A contact is through once the radio has answered it, so the one being written is not
-       counted until then. */
-    out->restore_contacts_total = app->backup_restore.contact_count;
-    out->restore_contacts_done = app->backup_restore.contact;
-    if (app->meshcore.contact_restore_outstanding && out->restore_contacts_done > 0U) {
-        out->restore_contacts_done--;
+       counted until then. Nothing is said of contacts until the saves ahead of them are done:
+       Stop is offered with the count, and it stops contacts, never a save. */
+    out->restore_contacts_total = 0U;
+    out->restore_contacts_done = 0U;
+    if (app_backup_restore_in_contacts(app)) {
+        out->restore_contacts_total = app->backup_restore.contact_count;
+        out->restore_contacts_done = app->backup_restore.contact;
+        if (app->meshcore.contact_restore_outstanding && out->restore_contacts_done > 0U) {
+            out->restore_contacts_done--;
+        }
     }
     out->restore_stopping = app->backup_restore.stopping;
     out->restore_keep_routes = app->backup_contact_options.keep_routes;
@@ -613,8 +625,9 @@ static void app_backup_restore_judge(struct mesh_app *app) {
  * A MeshCore restore's next write, once the last has been answered: the saves, then the contacts.
  * A write refused before it went out - a value the codec will not take - is skipped and the
  * next tried: the comparison at the end lists a save's, and a contact's is counted. A link that
- * dropped settled the write in flight as failed, and the reconnect reads the radio whole. Stop
- * sends nothing more, and the restore is read back and judged on what went.
+ * dropped settled the write in flight as failed, and the reconnect reads the radio whole. Stop,
+ * which comes only once the saves are through, sends no more contacts, and the restore is read
+ * back and judged on what went.
  */
 static void app_backup_restore_feed(struct mesh_app *app) {
     struct mesh_meshcore *meshcore = &app->meshcore;
@@ -625,8 +638,7 @@ static void app_backup_restore_feed(struct mesh_app *app) {
     if (meshcore->writes_outstanding > 0U || meshcore->contact_restore_outstanding) {
         return;
     }
-    while (!app->backup_restore.stopping &&
-           app->backup_restore.step < app->backup_restore.step_count) {
+    while (app->backup_restore.step < app->backup_restore.step_count) {
         const uint8_t step = app->backup_restore.step;
         const int result = mesh_meshcore_write_settings(meshcore, &app->backup_restore.steps[step]);
         if (result == -EBUSY || result == -ENOBUFS) {
@@ -643,6 +655,7 @@ static void app_backup_restore_feed(struct mesh_app *app) {
     while (!app->backup_restore.stopping &&
            app->backup_restore.contact < app->backup_restore.contact_count) {
         const uint16_t index = app->backup_restore.contact;
+        const uint32_t refused = meshcore->contact_restores_refused;
         const int result =
             mesh_meshcore_restore_contact(meshcore, &app->backup_restore.contacts[index]);
         /* Behind a save's read-back, other traffic, or a handshake the radio is going through
@@ -654,7 +667,10 @@ static void app_backup_restore_feed(struct mesh_app *app) {
         if (result > 0) {
             return;
         }
-        app->backup_restore.contacts_skipped++;
+        /* One the link refused as it was written is already the conversation's to count. */
+        if (meshcore->contact_restores_refused == refused) {
+            app->backup_restore.contacts_skipped++;
+        }
         inkwell_log_warn("app", "Restore of 0x%08x: contact %u of %u refused: %d",
                          (unsigned)app->backup_restore.node, (unsigned)index + 1U,
                          (unsigned)app->backup_restore.contact_count, result);
@@ -675,8 +691,10 @@ void mesh_app_backup_restore_option(struct mesh_app *app, uint32_t which) {
 }
 
 void mesh_app_backup_restore_stop(struct mesh_app *app) {
+    /* Only once the contacts have begun, which is when Stop is offered: the saves ahead of them
+       are a handful, and each always goes. */
     if (app == NULL || app->backup_restore.stage != APP_RESTORE_SENT || !app->meshcore_bound ||
-        app->backup_restore.stopping) {
+        app->backup_restore.stopping || !app_backup_restore_in_contacts(app)) {
         return;
     }
     app->backup_restore.stopping = true;

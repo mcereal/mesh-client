@@ -305,9 +305,10 @@ flood), or the backup's; and a contact the radio changed after the backup (its `
 kept, the default, or replaced. Adds are cut to the room DEVICE_INFO's `max_contacts` leaves.
 `mesh_meshcore_restore_contact()` sends one ADD_UPDATE_CONTACT and refuses a second until the
 radio answers, so hundreds of contacts never fill the command queue that messages share. The
-screen counts them through ("12 of 40 contacts") and offers Stop, which ends the restore after the
-contact in flight. The toast is judged on what the restore saw: contacts refused or left out for
-want of room are counted, and a contact only on the radio, still listed afterwards, is not.
+screen counts them through ("12 of 40 contacts") once the saves are done, and offers Stop, which
+ends the restore after the contact in flight. The toast is judged on what the restore saw:
+contacts refused or left out for want of room are counted, and a contact only on the radio, still
+listed afterwards, is not.
 
 ## Input
 

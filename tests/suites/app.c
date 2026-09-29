@@ -6355,3 +6355,73 @@ MESH_TEST_CASE(app_backup_restore_meshcore_keeps_a_contact_changed_since_unless_
     MESH_TEST_FAIL_IF(!restored, "the replaced contact was not restored");
     record_success(test_name);
 }
+
+/*
+ * Stop stops contacts, never a save: with saves ahead of the contacts, nothing about contacts is
+ * published and Stop is not taken until the saves are through, and then every one goes.
+ */
+MESH_TEST_CASE(app_backup_restore_meshcore_offers_stop_only_once_the_saves_are_through, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    const uint8_t power = app.meshcore.self.tx_power_dbm;
+    app_meshcore_contacts_lost(&app, 3U);
+    app.meshcore.self.tx_power_dbm = 10U;
+
+    mesh_app_backup_restore(&app, node, 2U);
+    mesh_app_backup_publish(&app, &g_restore_published);
+    const bool quiet =
+        app.backup_restore.step_count == 1U &&
+        mesh_test_meshcore_wire_last(&g_restore_wire) == MESH_MESHCORE_CMD_SET_RADIO_TX_POWER &&
+        g_restore_published.restore_contacts_total == 0U;
+    mesh_app_backup_restore_stop(&app);
+    const bool ignored = !app.backup_restore.stopping;
+    /* The save and its read-back, then every contact, answered as they come. */
+    app_meshcore_answer(&app, &protocol, 0U, power);
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool restored =
+        app.backup_restore.stage == 0U && app.meshcore.contact_count == 4U &&
+        strcmp(app.ui_store.nav.toast.text, "Radio restored from the backup") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!quiet, "contacts were counted while a save was still going");
+    MESH_TEST_FAIL_IF(!ignored, "stop was taken during the saves");
+    MESH_TEST_FAIL_IF(!restored, "the saves and every contact were not restored");
+    record_success(test_name);
+}
+
+/* A contact the link refuses as it is written is one contact not written, not two. */
+MESH_TEST_CASE(app_backup_restore_meshcore_counts_a_refused_send_once, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    app_meshcore_contacts_lost(&app, 2U);
+
+    mesh_app_backup_restore(&app, node, 2U);
+    /* The first is answered; the link refuses the second outright. */
+    const uint8_t ok = MESH_MESHCORE_RESP_OK;
+    mesh_protocol_receive(&protocol, &ok, 1U);
+    g_restore_wire.refuse = true;
+    mesh_app_backup_tick(&app);
+    g_restore_wire.refuse = false;
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool counted =
+        app.backup_restore.stage == 0U &&
+        strcmp(app.ui_store.nav.toast.text, "Restored; 1 contact could not be written") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!counted, "one refused send was not counted as exactly one contact");
+    record_success(test_name);
+}
