@@ -218,8 +218,14 @@ void fb_render_reactions(struct inkcell_draw_state *state, const struct mesh_ui_
 void fb_render_compose(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                        struct inkcell_fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
+    /* The thread heading's name, not the callsign: the sheet opens over that heading and has
+       the same full-width bar to say it in, so the same radio should not change name between
+       the two. */
+    char heading[MESH_UI_NAV_TARGET_NAME_MAX];
+    mesh_ui_nav_conversation_title(nav, snapshot->handshake_valid ? &snapshot->handshake : NULL,
+                                   heading, sizeof heading);
     char title[96];
-    inkcell_str_format(title, sizeof title, MESH_STR_COMPOSE_TO_KIND, nav->target_name,
+    inkcell_str_format(title, sizeof title, MESH_STR_COMPOSE_TO_KIND, heading,
                        inkcell_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
                                        ? MESH_STR_COMPOSE_SUFFIX_CHANNEL
                                        : MESH_STR_COMPOSE_SUFFIX_DIRECT));
@@ -526,7 +532,11 @@ void fb_render_keyboard(const struct inkcell_draw_state *state,
                            nav->login_name[0] != '\0' ? nav->login_name
                                                       : inkcell_str(MESH_STR_COMMON_UNKNOWN));
     } else {
-        inkcell_str_format(title, sizeof title, MESH_STR_COMPOSE_TO, nav->target_name);
+        /* Named as the thread under it is headed - see fb_render_compose(). */
+        char heading[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_ui_nav_conversation_title(nav, snapshot->handshake_valid ? &snapshot->handshake : NULL,
+                                       heading, sizeof heading);
+        inkcell_str_format(title, sizeof title, MESH_STR_COMPOSE_TO, heading);
     }
     /* The same badge the compose sheet carries, for the same reason: this keyboard was raised
        over a bubble, and the destination in the title is not what says so. A setting's keyboard
