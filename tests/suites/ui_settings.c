@@ -794,6 +794,27 @@ MESH_TEST_CASE(ui_settings_lora_trio_under_a_preset_reads_as_the_presets, unit) 
                           "a 0 under a preset is shown as a number");
     }
 
+    /* With the preset turned off - pending, not yet saved - a 0 is what the radio will be
+       told, and is not the preset's. */
+    struct mesh_ui_setting_edit edits[1];
+    memset(edits, 0, sizeof edits);
+    edits[0].field = MESH_UI_FIELD_LORA_USE_PRESET;
+    edits[0].number = 0U;
+    MESH_TEST_FAIL_IF(!settings_find_field_edited(&settings, edits, 1U, MESH_UI_SETTINGS_LORA,
+                                                  MESH_UI_FIELD_LORA_CODING, &row),
+                      "the coding rate row is missing after an edit");
+    MESH_TEST_FAIL_IF(strcmp(row.value, inkcell_str(MESH_STR_ZERO_FROM_PRESET)) == 0,
+                      "a manual row with the preset off still says it is the preset's");
+
+    /* MeshCore shares the coding rate row and has no presets at all. */
+    settings.protocol_lacks = MESH_UI_FEATURE_FULL_CONFIG;
+    MESH_TEST_FAIL_IF(
+        !settings_find_field(&settings, MESH_UI_SETTINGS_LORA, MESH_UI_FIELD_LORA_CODING, &row),
+        "MeshCore's coding rate row is missing");
+    MESH_TEST_FAIL_IF(strcmp(row.value, inkcell_str(MESH_STR_ZERO_FROM_PRESET)) == 0,
+                      "a radio with no presets was told its value is the preset's");
+    settings.protocol_lacks = 0U;
+
     settings.use_preset = false;
     settings.coding_rate = 8U;
     MESH_TEST_FAIL_IF(

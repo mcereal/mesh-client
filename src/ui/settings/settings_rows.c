@@ -1965,6 +1965,13 @@ static void build_lora(const struct mesh_ui_settings *s, struct item_list *list)
     for (size_t m = 0; m < sizeof manual / sizeof manual[0]; ++m) {
         struct mesh_ui_settings_item *row = item_field(list, manual[m], manual_value[m], NULL);
         if (row != NULL) {
+            /* Under a preset a radio may report 0 for all three, and "4/0" is no rate at all:
+               the value in use is the preset's. Only while the preset is on - with it off a 0
+               is what the radio will be told. */
+            if (preset_on && row->number == 0U) {
+                inkwell_str_copy(row->value, sizeof row->value,
+                                 inkcell_str(MESH_STR_ZERO_FROM_PRESET));
+            }
             row->inactive = preset_on;
             row->inactive_note = preset_on ? MESH_STR_TOAST_USED_WITHOUT_PRESET : INKCELL_STR_NONE;
         }
