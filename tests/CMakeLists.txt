@@ -91,6 +91,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/ui_nav_messaging.c
     suites/ui_protocol.c
     suites/ui_nav_nodes.c
+    suites/ui_nav_preview.c
     suites/ui_nav_settings.c
     suites/ui_nav_backups.c
     suites/ui_nav_profiles.c

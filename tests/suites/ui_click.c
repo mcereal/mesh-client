@@ -593,6 +593,56 @@ MESH_TEST_CASE(ui_click_a_wide_window_opens_a_thread_beside_its_list, unit) {
     click_close(&store, capture);
 }
 
+/*
+ * With nothing open, a wide window previews the row under the list's cursor in the pane beside
+ * it, and the preview is one target standing for that row: a click anywhere in it opens what it
+ * shows, as a click on the row would. Drawing it opens nothing - the thread is still closed and
+ * the list still has the keys until that click.
+ */
+MESH_TEST_CASE(ui_click_a_wide_window_previews_the_row_under_the_cursor, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    uint32_t channel = UINT32_MAX;
+    for (uint32_t i = 0U; i < mesh_ui_nav_conversation_count(&store); ++i) {
+        struct mesh_ui_conversation conversation;
+        if (mesh_ui_nav_conversation_at(&store, i, &conversation) &&
+            conversation.kind == (uint8_t)MESH_UI_CONVERSATION_CHANNEL) {
+            channel = i;
+            break;
+        }
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(channel == UINT32_MAX, click_close(&store, capture),
+                              "the fixture should list a channel");
+    store.nav.cursor[MESH_UI_SCREEN_MESSAGES] = channel;
+    const uint32_t id = (uint32_t)MESH_UI_FOCUS_ROWS + channel;
+
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect row;
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_rect_of(map, id, &row), click_close(&store, capture),
+                              "the list should register the row under its cursor");
+    const int list_right = row.x + row.w;
+    const int x = list_right + (1920 - list_right) / 2;
+    MESH_TEST_FAIL_IF_CLEANUP(inkcell_focus_hit(map, x, 1080 / 2) !=
+                                  (uint32_t)MESH_UI_FOCUS_PREVIEW,
+                              click_close(&store, capture),
+                              "the pane beside the list should stand for the row it previews");
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.thread_open, click_close(&store, capture),
+                              "drawing a preview should open nothing");
+
+    struct mesh_ui_action action;
+    (void)mesh_ui_store_handle_click(&store, inkcell_focus_hit(map, x, 1080 / 2), &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.thread_open || store.nav.inbox ||
+                                  store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR,
+                              click_close(&store, capture),
+                              "a click on the preview should open the conversation it showed");
+    click_close(&store, capture);
+    record_success(test_name);
+}
+
 /* The same split on the Nodes tab: the roster stays, and the node opened from it stands beside
    it without a slide. */
 MESH_TEST_CASE(ui_click_a_wide_window_opens_a_node_beside_its_roster, unit) {
