@@ -1318,6 +1318,13 @@ static void app_identity_tick(struct mesh_app *app) {
             app_identity_await(app, false);
             return;
         }
+        if (meshcore->identity_state == MESH_MESHCORE_IDENTITY_UNKNOWN) {
+            /* It may have been taken: the link is being dropped, and the radio that comes back
+               says - as the backup's node, or as it was. */
+            mesh_meshcore_identity_clear(meshcore);
+            app_identity_await(app, false);
+            return;
+        }
         app_identity_refusal_toast(app);
         mesh_meshcore_identity_clear(meshcore);
         app_identity_end(app);

@@ -3183,3 +3183,23 @@ MESH_TEST_CASE(meshcore_identity_late_key_leaves_the_next_command_alone, unit) {
                       "a key nobody was waiting for was kept");
     record_success(test_name);
 }
+
+/* An import that times out may have been taken, and its late OK names no command: nothing else
+   goes out behind it, and the link is called silent to be synced again. */
+MESH_TEST_CASE(meshcore_identity_import_timeout_quarantines_the_link, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    uint8_t key[MESH_MESHCORE_PRVKEY_LEN];
+    memset(key, 0x77, sizeof key);
+    (void)mesh_meshcore_import_identity(&g_meshcore, key);
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_advert(&g_meshcore, false) < 0, "the advert was refused");
+    const size_t sent = wire.count;
+    mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    MESH_TEST_FAIL_IF(g_meshcore.identity_state != MESH_MESHCORE_IDENTITY_UNKNOWN,
+                      "an unanswered import was taken for a refusal");
+    MESH_TEST_FAIL_IF(wire.count != sent || g_meshcore.awaiting,
+                      "a command went out behind an unanswered import");
+    MESH_TEST_FAIL_IF(!mesh_protocol_silent(&protocol), "the link was not called silent");
+    record_success(test_name);
+}

@@ -7092,9 +7092,20 @@ MESH_TEST_CASE(app_backup_identity_meshcore_never_waits_for_ever, unit) {
         strcmp(app.ui_store.nav.toast.text,
                "The radio did not come back; the identity key was not checked") == 0;
 
+    /* Unanswered: it may have been taken, so the radio that comes back is waited for. */
+    mesh_protocol_detach(&protocol);
+    const bool resynced = mesh_test_meshcore_sync(&app.meshcore, &protocol, &g_restore_wire);
+    app.meshcore.self_node = 0x01020304U;
+    mesh_app_backup_restore_identity(&app, node, 2U, true);
+    mesh_protocol_tick(&protocol, app.meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    mesh_app_backup_tick(&app);
+    const bool unanswered = app.backup_identity.stage != 0U && mesh_protocol_silent(&protocol);
+
     mesh_app_shutdown(&app);
     unsetenv("MESHCLIENT_UI_BACKEND");
     mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!resynced, "the radio did not sync again");
+    MESH_TEST_FAIL_IF(!unanswered, "an unanswered import was given up on, not waited out");
     MESH_TEST_FAIL_IF(!ended, "a refused restart left the restore waiting");
     MESH_TEST_FAIL_IF(!waiting, "the restart was not waited for");
     MESH_TEST_FAIL_IF(!gave_up, "a radio that never came back held the restore for good");

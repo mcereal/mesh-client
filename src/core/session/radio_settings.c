@@ -2,6 +2,7 @@
 
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
+#include "inkwell/base/wipe.h"
 
 #include "meshtastic/portnums.pb.h"
 
@@ -482,6 +483,8 @@ static void mesh_radio_settings_abort_transaction(struct mesh_radio_settings *se
     size_t dropped = 0U;
     while (settings->queue_len > 0U) {
         const enum mesh_admin_request_kind kind = settings->queue[settings->queue_head].kind;
+        /* A slot leaves the queue wiped: a Security write carries a private key. */
+        inkwell_wipe(&settings->queue[settings->queue_head], sizeof settings->queue[0]);
         settings->queue_head = (settings->queue_head + 1U) % MESH_RADIO_SETTINGS_FETCH_MAX;
         settings->queue_len -= 1U;
         dropped += 1U;
@@ -1772,6 +1775,7 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
         return false;
     }
     *out = settings->queue[settings->queue_head];
+    inkwell_wipe(&settings->queue[settings->queue_head], sizeof settings->queue[0]);
     settings->queue_head = (settings->queue_head + 1U) % MESH_RADIO_SETTINGS_FETCH_MAX;
     settings->queue_len -= 1U;
     /* Remember what kind went out, and where, so the reply (or its absence) is accounted

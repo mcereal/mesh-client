@@ -1496,6 +1496,7 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             [MESH_MESHCORE_IDENTITY_DISABLED] = "not in this firmware",
             [MESH_MESHCORE_IDENTITY_REFUSED] = "refused",
             [MESH_MESHCORE_IDENTITY_LOST] = "answered with something else",
+            [MESH_MESHCORE_IDENTITY_UNKNOWN] = "unanswered",
         };
         inkwell_log_info("meshcore", "Private key %s: %s (error %u)",
                          cmd == MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY ? "export" : "import",
@@ -1786,7 +1787,13 @@ static void mesh_meshcore_detach(void *self) {
         meshcore->contact_restore_outstanding = false;
         meshcore->contact_restores_refused += 1U;
     }
-    /* And the key: asked for, it can no longer come; arrived and not taken, it is not kept. */
+    /* And the key: an import on the air when the link went may have been taken; an export
+       asked for can no longer come; one arrived and not taken is not kept. */
+    if (meshcore->identity_state == MESH_MESHCORE_IDENTITY_ASKED && meshcore->awaiting &&
+        meshcore->queue_count > 0U &&
+        meshcore->queue[meshcore->queue_head].frame[0] == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY) {
+        meshcore->identity_state = MESH_MESHCORE_IDENTITY_UNKNOWN;
+    }
     if (meshcore->identity_state == MESH_MESHCORE_IDENTITY_EXPORTED) {
         inkwell_wipe(meshcore->identity_key, sizeof meshcore->identity_key);
         meshcore->identity_state = MESH_MESHCORE_IDENTITY_ASKED;
@@ -1882,6 +1889,18 @@ static void mesh_meshcore_tick(void *self, uint64_t now_ms) {
         const uint32_t packet_id = request->packet_id;
         mesh_meshcore_settle_restore(meshcore, request, false);
         mesh_meshcore_pop(meshcore);
+        /* An import unanswered may still have been taken - the radio switches keys before it
+           answers - and its late OK, which names no command, would settle whatever went next.
+           So nothing goes next: the link is called silent, to be dropped and synced again, and
+           the sync is what says which key the radio holds. */
+        if (cmd == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY) {
+            inkwell_log_warn("meshcore", "Private key import unanswered; resyncing the radio");
+            if (meshcore->identity_state == MESH_MESHCORE_IDENTITY_ASKED) {
+                meshcore->identity_state = MESH_MESHCORE_IDENTITY_UNKNOWN;
+            }
+            meshcore->timeouts = 2U;
+            return;
+        }
         /* A reboot is never answered: the radio is gone before it could be. Where the link
            outlives the restart - a USB-serial bridge keeps the port open while the ESP32 behind
            it resets - nothing else would notice, so the conversation starts over by itself. */

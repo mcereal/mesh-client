@@ -651,7 +651,11 @@ enum mesh_meshcore_identity_state {
     MESH_MESHCORE_IDENTITY_IMPORTED, /* the radio took the key sent */
     MESH_MESHCORE_IDENTITY_DISABLED, /* the firmware was built without the command */
     MESH_MESHCORE_IDENTITY_REFUSED,  /* the radio refused it: `identity_error` says why */
-    MESH_MESHCORE_IDENTITY_LOST,     /* unanswered, or the link went first */
+    MESH_MESHCORE_IDENTITY_LOST,     /* never sent, unanswered, or the link went first */
+    /* An import sent and never answered - timed out, or the link went while it was out. The radio
+       may hold the key or not; the link is called silent, and the sync after the reconnect says
+       which. */
+    MESH_MESHCORE_IDENTITY_UNKNOWN,
 };
 
 /*

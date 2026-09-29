@@ -5,6 +5,7 @@
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
+#include "inkwell/base/wipe.h"
 
 #include "mesh/core/channel_share.h"
 #include "mesh/core/contact_share.h"
@@ -2143,19 +2144,19 @@ void mesh_session_tick(struct mesh_session *session, uint64_t now_ms) {
                                                     sizeof payload, &written);
     if (result < 0) {
         inkwell_log_warn("session", "Admin request encode failed: %d", result);
-        return;
-    }
-    result = mesh_session_send_raw(session, payload, written, 0U);
-    if (result < 0) {
+    } else if ((result = mesh_session_send_raw(session, payload, written, 0U)) < 0) {
         /* A failed send may already have dropped the link (and reset the settings with it);
            the note lands in the fresh struct so the app still hears about the lost write. */
         inkwell_log_warn("session", "Admin request send failed: %d", result);
         mesh_radio_settings_mark_unsent(&session->settings, &request, result);
-        return;
+    } else {
+        mesh_radio_settings_mark_sent(&session->settings, request.packet_id, now_ms);
+        inkwell_log_info("session", "Sent admin request kind=%u type=%u id=%u",
+                         (unsigned)request.kind, (unsigned)request.type, request.packet_id);
     }
-    mesh_radio_settings_mark_sent(&session->settings, request.packet_id, now_ms);
-    inkwell_log_info("session", "Sent admin request kind=%u type=%u id=%u", (unsigned)request.kind,
-                     (unsigned)request.type, request.packet_id);
+    /* A Security write carries a private key - the radio's own, or a backup's going back. */
+    inkwell_wipe(&request, sizeof request);
+    inkwell_wipe(payload, sizeof payload);
 }
 
 int mesh_session_send_packet(struct mesh_session *session, const uint8_t *packet, size_t len) {
