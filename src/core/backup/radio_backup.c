@@ -251,6 +251,7 @@ static void radio_backup_write_records(FILE *file, void *context) {
         radio_backup_hex(line + prefix, backup->payload + section->offset, section->len);
         radio_backup_put(&writer, "section", line);
     }
+    inkwell_wipe(line, sizeof line); /* the last section may have been a private key, in hex */
 
     uint8_t digest[INKWELL_SHA256_DIGEST_LEN];
     inkwell_sha256_final(&writer.digest, digest);
@@ -387,6 +388,7 @@ static void radio_backup_read_section(struct radio_backup_reader *reader, const 
     if (len < 0 || mesh_radio_backup_add(reader->backup, (uint16_t)tag, bytes, (size_t)len) != 0) {
         radio_backup_fail(reader, -EBADMSG);
     }
+    inkwell_wipe(bytes, sizeof bytes); /* the section may have been a private key */
 }
 
 static void radio_backup_visit(void *context, const char *key, char *value) {
@@ -484,6 +486,7 @@ int mesh_radio_backup_read_file(struct mesh_radio_backup *backup, const char *pa
     char line[RADIO_BACKUP_LINE_MAX + 16U];
     const int read = inkwell_record_read(file, line, sizeof line, radio_backup_visit, &reader);
     fclose(file);
+    inkwell_wipe(line, sizeof line); /* and here, the last line read */
 
     int result = reader.error;
     if (result == 0 && read < 0) {
