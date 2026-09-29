@@ -1379,7 +1379,9 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     stats->radios = 2U;
     stats->nodes_floor = true;
     stats->most_hops = 0U;
+    stats->most_hops_measured = true;
     stats->farthest_direct_m = 12345U;
+    stats->farthest_direct_measured = true;
     stats->since = 1767225600U; /* a day in 2026 */
     mesh_ui_store_set_settings(&store, &settings);
 
@@ -1398,7 +1400,10 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
         failure = "a capped node set should say its count is a floor";
         goto cleanup;
     }
-    /* Heard over the air and never more than zero hops is a real record of zero. */
+    /* Measured and never more than zero hops is a real record of zero - whatever the node counts
+       say, since an RF node that later becomes one of our radios leaves them. */
+    stats->nodes_heard_rf = 0U;
+    mesh_ui_store_set_settings(&store, &settings);
     if ((value = stats_value_of(&store, "Most hops", &item)) == NULL || strcmp(value, "0") != 0) {
         failure = "a most-hops of zero that was measured should be drawn as one";
         goto cleanup;
@@ -1416,6 +1421,14 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     if ((value = stats_value_of(&store, "Counting since", &item)) == NULL ||
         strcmp(value, day) != 0) {
         failure = "the page should name the day the counting started";
+        goto cleanup;
+    }
+    /* And a distance measured at 0 - two radios at one spot - is a record, not "none yet". */
+    stats->farthest_direct_m = 0U;
+    mesh_ui_store_set_settings(&store, &settings);
+    if ((value = stats_value_of(&store, "Farthest direct", &item)) == NULL ||
+        strcmp(value, "none yet") == 0) {
+        failure = "a measured distance of zero should be drawn as a distance";
         goto cleanup;
     }
 

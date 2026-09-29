@@ -3458,8 +3458,8 @@ static void stats_since_row(struct item_list *list, uint32_t since) {
  *
  * Every row is a fact rather than a field, so the section's own paragraph is the whole of its
  * help. The records say "none yet" rather than 0 until something has set them: a most-hops of 0
- * is a real answer - everything heard came straight to us - and only one that has been measured
- * may be drawn as one, which is what heard-over-the-air is the test for.
+ * is a real answer - everything heard came straight to us - and so is a distance of 0, so each
+ * carries whether it was measured rather than being read off its own value or another count.
  */
 static void build_stats(const struct mesh_ui_settings *s, struct item_list *list) {
     const struct mesh_ui_lifetime_stats *stats = &s->client.lifetime;
@@ -3480,15 +3480,13 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
 
     item_heading(list, MESH_STR_STATS_HEAD_RECORDS);
     char value[MESH_UI_SETTINGS_VALUE_MAX];
-    if (stats->nodes_heard_rf > 0U) {
+    if (stats->most_hops_measured) {
         inkcell_str_format(value, sizeof value, MESH_STR_VALUE_PLAIN, (unsigned)stats->most_hops);
         item_text(list, MESH_STR_STATS_MOST_HOPS, INKSTAND_FORM_INFO, value);
     } else {
         item_str(list, MESH_STR_STATS_MOST_HOPS, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
     }
-    /* A direct hearing only counts once both ends had a fix, so 0 here is "never measured"
-       rather than "heard from next door" - two radios a metre apart round to 1 m. */
-    if (stats->farthest_direct_m > 0U) {
+    if (stats->farthest_direct_measured) {
         mesh_ui_format_distance((double)stats->farthest_direct_m, list->imperial, value,
                                 sizeof value);
         item_text(list, MESH_STR_STATS_FARTHEST_DIRECT, INKSTAND_FORM_INFO, value);

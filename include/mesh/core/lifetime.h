@@ -93,7 +93,9 @@ enum mesh_lifetime_kind {
 struct mesh_lifetime {
     struct inkstand_journal journal;
     uint64_t values[MESH_LIFETIME_STAT_COUNT]; /* COUNT and MAX; a SET's slot is unused */
-    uint32_t since;                            /* first credible wall-clock second, or 0 */
+    /* A MAX something has set, even to 0; unused for the other kinds. */
+    bool measured[MESH_LIFETIME_STAT_COUNT];
+    uint32_t since; /* first credible wall-clock second, or 0 */
     /* The set: node numbers ascending, and what is known about each (lifetime.c's SEEN_*). */
     uint32_t ids[MESH_LIFETIME_NODES_MAX];
     uint8_t facts[MESH_LIFETIME_NODES_MAX];
@@ -130,6 +132,13 @@ uint64_t mesh_lifetime_value(const struct mesh_lifetime *lifetime, enum mesh_lif
 enum mesh_lifetime_kind mesh_lifetime_kind_of(enum mesh_lifetime_stat stat);
 /* The stat's key on the card, for logs and tests. NULL out of range. */
 const char *mesh_lifetime_key(enum mesh_lifetime_stat stat);
+
+/*
+ * Whether a MAX has ever been set, which its value cannot say: 0 is both "not yet" and a real
+ * record (a node only ever heard straight to us is a most-hops of 0). Always true for a COUNT and
+ * a SET, whose 0 means none. Kept across a restart; a reset clears it.
+ */
+bool mesh_lifetime_measured(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat);
 
 /* False once the set has had to turn a node away, which makes every SET a floor. Kept across a
    restart; only mesh_lifetime_reset() makes the set complete again. */

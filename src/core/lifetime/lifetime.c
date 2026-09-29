@@ -22,6 +22,16 @@
    cannot say it: a set that is full holds exactly MESH_LIFETIME_NODES_MAX nodes either way, and
    only the refusal - which appends nothing - tells the two apart. */
 #define LIFETIME_KEY_FULL "nodes_full"
+/*
+ * Appended to a MAX's key once something has set it, even to 0: "<key>.measured=1".
+ *
+ * A record's value alone cannot say it. 0 is both "nothing measured yet" and a real record - a
+ * node heard only ever straight to us is a most-hops of 0 - and a screen that guessed from the
+ * value, or from some other count, draws "none yet" over a measurement. A line of its own
+ * rather than a new spelling of the value, so an older build carries it through as a key it
+ * does not know, and a card written before it existed still reads: see lifetime_read_legacy().
+ */
+#define LIFETIME_MEASURED_SUFFIX ".measured"
 #define LIFETIME_LINE_MAX 128U
 
 /* What the set knows about a node. Each is one line in the seen file, keyed by its name. */
@@ -233,10 +243,40 @@ static void lifetime_bump(struct mesh_lifetime *lifetime, enum mesh_lifetime_sta
 
 static void lifetime_raise(struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat,
                            uint64_t value) {
-    if (value > lifetime->values[stat]) {
-        lifetime->values[stat] = value;
+    if (value > lifetime->values[stat] || !lifetime->measured[stat]) {
+        if (value > lifetime->values[stat]) {
+            lifetime->values[stat] = value;
+        }
+        lifetime->measured[stat] = true;
         lifetime->dirty = true;
         lifetime_changed(lifetime);
+    }
+}
+
+/* "<key>.measured" for a MAX, or false: whether `key` is a record's measured marker. */
+static bool lifetime_measured_key(const char *key, size_t *out_stat) {
+    const size_t len = strlen(key);
+    const size_t suffix = sizeof LIFETIME_MEASURED_SUFFIX - 1U;
+    if (len <= suffix || strcmp(key + len - suffix, LIFETIME_MEASURED_SUFFIX) != 0) {
+        return false;
+    }
+    for (size_t i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
+        if (k_stat_kinds[i] == MESH_LIFETIME_MAX && strlen(k_stat_keys[i]) == len - suffix &&
+            strncmp(key, k_stat_keys[i], len - suffix) == 0) {
+            *out_stat = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+/* A card written before the marker existed has none, so a record it holds above 0 was measured
+   - nothing else raises one - and a 0 is taken as the "none yet" it most likely was. */
+static void lifetime_read_legacy(struct mesh_lifetime *lifetime) {
+    for (size_t i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
+        if (k_stat_kinds[i] == MESH_LIFETIME_MAX && lifetime->values[i] > 0U) {
+            lifetime->measured[i] = true;
+        }
     }
 }
 
@@ -252,6 +292,11 @@ static void lifetime_read_totals(void *context, const char *key, char *value) {
     }
     if (strcmp(key, LIFETIME_KEY_FULL) == 0) {
         lifetime->full = strcmp(value, "1") == 0;
+        return;
+    }
+    size_t measured = 0U;
+    if (lifetime_measured_key(key, &measured)) {
+        lifetime->measured[measured] = strcmp(value, "1") == 0;
         return;
     }
     for (size_t i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
@@ -283,6 +328,9 @@ static void lifetime_write_totals(FILE *file, void *context) {
         if (k_stat_kinds[i] != MESH_LIFETIME_SET) {
             fprintf(file, "%s=%" PRIu64 "\n", k_stat_keys[i], lifetime->values[i]);
         }
+        if (k_stat_kinds[i] == MESH_LIFETIME_MAX && lifetime->measured[i]) {
+            fprintf(file, "%s%s=1\n", k_stat_keys[i], LIFETIME_MEASURED_SUFFIX);
+        }
     }
     for (uint32_t i = 0; i < lifetime->foreign_count; ++i) {
         fprintf(file, "%s=", lifetime->foreign_keys[i]);
@@ -305,6 +353,7 @@ int mesh_lifetime_init(struct mesh_lifetime *lifetime, const char *dir) {
     if (result < 0 && result != -ENOENT) {
         inkwell_log_warn("lifetime", "Could not read the totals: %d", result);
     }
+    lifetime_read_legacy(lifetime);
     result = inkstand_journal_read(&lifetime->journal, LIFETIME_SEEN, line, sizeof line,
                                    lifetime_read_seen, lifetime);
     if (result < 0 && result != -ENOENT) {
@@ -413,6 +462,13 @@ uint64_t mesh_lifetime_value(const struct mesh_lifetime *lifetime, enum mesh_lif
     default:
         return lifetime->values[stat];
     }
+}
+
+bool mesh_lifetime_measured(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat) {
+    if (lifetime == NULL || (unsigned)stat >= MESH_LIFETIME_STAT_COUNT) {
+        return false;
+    }
+    return k_stat_kinds[stat] != MESH_LIFETIME_MAX || lifetime->measured[stat];
 }
 
 bool mesh_lifetime_complete(const struct mesh_lifetime *lifetime) {

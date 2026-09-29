@@ -1085,7 +1085,10 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
     dst->radios = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_RADIOS);
     dst->nodes_floor = !mesh_lifetime_complete(lifetime);
     dst->most_hops = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_MOST_HOPS);
+    dst->most_hops_measured = mesh_lifetime_measured(lifetime, MESH_LIFETIME_MOST_HOPS);
     dst->farthest_direct_m = mesh_lifetime_value(lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M);
+    dst->farthest_direct_measured =
+        mesh_lifetime_measured(lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M);
     dst->since = lifetime->since;
 }
 

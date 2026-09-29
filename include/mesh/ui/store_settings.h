@@ -100,8 +100,13 @@ struct mesh_ui_lifetime_stats {
     /* The node set has turned one away, so the three counts above are at least what they say
        rather than exactly it. */
     bool nodes_floor;
+    /* The two records, and whether anything has set each: 0 is a real record for both - a node
+       only ever heard straight to us, two radios at one spot - so the value cannot say "none
+       yet" by itself (mesh_lifetime_measured()). */
     uint32_t most_hops;
+    bool most_hops_measured;
     uint64_t farthest_direct_m;
+    bool farthest_direct_measured;
     /* The first credible wall-clock second the stats saw; 0 on a device that has never had a
        clock, which is a page that cannot say since when rather than one that started today. */
     uint32_t since;
