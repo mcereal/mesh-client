@@ -294,10 +294,9 @@ struct inkcell_fb_render_cache {
     /* Whether the last frame stood its list and detail side by side - see fb_render_split_pair().
      */
     bool split;
-    /* Whether the last frame had room to, whatever it drew - see fb_thread_field_writing(). The
-       last frame's rather than this one's, because the route is settled before the scaffold
-       answers, and every reader in one frame has to get the same answer. */
-    bool splittable;
+    /* Whether this frame docks the keyboard under the thread - fb_keyboard_docks(), asked once
+       in fb_render_begin() so every renderer in the frame reads the same answer. */
+    bool docked;
 };
 
 struct inkcell_box fb_render_content(const struct inkcell_draw_state *state) {
@@ -601,6 +600,9 @@ static void fb_render_begin(struct inkcell_draw_state *state,
         state->render_cache = calloc(1U, sizeof *state->render_cache);
     }
     struct inkcell_fb_render_cache *cache = state->render_cache;
+    if (cache != NULL) {
+        cache->docked = fb_keyboard_docks(state, snapshot);
+    }
     if (!state->partial_disabled && cache != NULL) {
         const time_t second = (time_t)inkwell_time_wall_s();
         /*
@@ -682,18 +684,38 @@ static bool fb_frame_split(const struct mesh_ui_snapshot *snapshot,
            !(body->screen == MESH_UI_SCREEN_NODES && snapshot->nav.node_detail_from_map);
 }
 
+bool fb_keyboard_docks(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot) {
+    if (state == NULL || snapshot == NULL || state->pointer ||
+        !mesh_ui_nav_kb_writes_thread(&snapshot->nav)) {
+        return false;
+    }
+    /* The fields that decide the width, as fb_render_snapshot() hands them to the scaffold. */
+    const struct inkcell_fb_scaffold room = {
+        .destinations = fb_tab_chips(snapshot),
+        .count = MESH_UI_SCREEN_COUNT,
+        .active = (size_t)snapshot->nav.screen,
+        .compact_nav = INKCELL_FB_COMPACT_NAV_TOP,
+        .rail = fb_rail(snapshot->settings.client.rail),
+        .rail_toggle_id = (uint32_t)MESH_UI_FOCUS_RAIL_EXPAND,
+    };
+    return inkcell_fb_scaffold_splittable(state, &room);
+}
+
 bool fb_thread_field_writing(const struct inkcell_draw_state *state,
                              const struct mesh_ui_nav *nav) {
     if (state == NULL || !mesh_ui_nav_kb_writes_thread(nav)) {
         return false;
     }
     const struct inkcell_fb_render_cache *const cache = state->render_cache;
-    return state->pointer || (cache != NULL && cache->splittable);
+    return state->pointer || (cache != NULL && cache->docked);
 }
 
-void fb_body_route(const struct inkcell_draw_state *state, const struct mesh_ui_nav *nav,
+void fb_body_route(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                    struct mesh_ui_route *out) {
-    if (!fb_thread_field_writing(state, nav)) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    const bool writing =
+        mesh_ui_nav_kb_writes_thread(nav) && (state->pointer || fb_keyboard_docks(state, snapshot));
+    if (!writing) {
         mesh_ui_route_under_layers(nav, out);
         return;
     }
@@ -904,7 +926,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
      * it is one pane, and the nav is the same either way: see fb_render_split().
      */
     struct mesh_ui_route body;
-    fb_body_route(state, &snapshot->nav, &body);
+    fb_body_route(state, snapshot, &body);
     /* The install's screen is the one place with no tabs: it is the whole panel, and nothing
        across the strip can be reached from it anyway. */
     const bool takeover = body.level == MESH_UI_ROUTE_FIRMWARE;
@@ -1122,9 +1144,4 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
         .until_ms = snapshot->nav.toast.until_ms,
     };
     inkcell_fb_draw_snackbar(state, &layout, &snackbar);
-
-    /* Last, so every reader in this frame got the last one's answer - see `splittable`. */
-    if (cache != NULL) {
-        cache->splittable = frame.splittable;
-    }
 }

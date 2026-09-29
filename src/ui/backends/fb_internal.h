@@ -188,11 +188,11 @@ bool fb_render_split_pair(const struct inkcell_draw_state *state, const struct m
  * mesh_ui_nav_kb_writes_thread(). The field at the foot of the transcript has the keyboard: in a
  * window, the window's own; with a d-pad, the grid, docked under the field.
  *
- * With a pointer, always. With a d-pad, where the last frame had room for a list and a detail
- * side by side: there the thread keeps its pane and the list stays beside it, and the reader can
- * see what they are answering while they type. On a panel with no such room - the Brick - the
- * keyboard is a screen of its own, since its keys want the body and a transcript squeezed into
- * the rows above them would be one bubble tall.
+ * With a pointer, always. With a d-pad, where the frame has room for a list and a detail side by
+ * side (fb_keyboard_docks()): there the thread keeps its pane and the list stays beside it, and the
+ * reader can see what they are answering while they type. On a panel with no such room - the Brick
+ * - the keyboard is a screen of its own, since its keys want the body and a transcript squeezed
+ * into the rows above them would be one bubble tall.
  */
 bool fb_thread_field_writing(const struct inkcell_draw_state *state, const struct mesh_ui_nav *nav);
 
@@ -202,8 +202,15 @@ bool fb_thread_field_writing(const struct inkcell_draw_state *state, const struc
  * field that took the keyboard is no more a place than a dialog is - so neither slides the body
  * nor unseats the list beside the thread.
  */
-void fb_body_route(const struct inkcell_draw_state *state, const struct mesh_ui_nav *nav,
+void fb_body_route(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                    struct mesh_ui_route *out);
+
+/*
+ * Whether this frame docks a d-pad's keyboard under the thread it is writing into: asked of the
+ * current geometry (inkcell_fb_scaffold_splittable()), because the answer picks the route and a
+ * window can change size between two frames. Never with a pointer, whose field needs no grid.
+ */
+bool fb_keyboard_docks(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot);
 
 /*
  * A screen's heading. Every screen - the map included - draws its app bar through this rather than

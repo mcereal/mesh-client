@@ -1347,8 +1347,9 @@ MESH_TEST_CASE(ui_click_a_wide_window_puts_the_map_heading_over_the_whole_map, u
 /*
  * With a d-pad on a frame with room for the list beside the thread, Y docks the keyboard under
  * the conversation instead of giving it the body: the list and the transcript are still drawn,
- * and the grid under them is the one that types. On the Brick's panel the keyboard is a screen
- * of its own, as it always was.
+ * and the grid under them is the one that types. It does so from the first frame the window
+ * draws at its size, with no frame before it to go by. On the Brick's panel the keyboard is a
+ * screen of its own, as it always was.
  */
 static bool docked_keyboard_keeps_thread(uint32_t width, uint32_t height, bool *typed) {
     struct mesh_ui_store store;
@@ -1372,7 +1373,8 @@ static bool docked_keyboard_keeps_thread(uint32_t width, uint32_t height, bool *
             (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
         }
     }
-    (void)click_render(&store, capture);
+    /* Nothing drawn before the keyboard is open: a window that has just changed size has
+       dropped every memo of the frames before it, and its first frame has to dock anyway. */
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_Y, &action);
     const struct inkcell_focus_map *map = click_render(&store, capture);
     struct inkcell_focus_rect box;
