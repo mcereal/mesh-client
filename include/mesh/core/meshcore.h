@@ -791,6 +791,15 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
  */
 int mesh_meshcore_import_channel(struct mesh_meshcore *meshcore, const char *name,
                                  const uint8_t secret[MESH_MESHCORE_SECRET_LEN], uint8_t *out_slot);
+/*
+ * The firmware's own bounds on the radio parameters and the transmit power, which a save checks
+ * before it sends anything: a value outside them is answered with ILLEGAL_ARG, and a refusal
+ * said about the value is more use than an error code back from the radio. The power's ceiling
+ * is the one this radio reported (SELF_INFO's max_tx_power_dbm).
+ */
+bool mesh_meshcore_radio_params_valid(uint32_t frequency_khz, uint32_t bandwidth_hz,
+                                      uint8_t spreading_factor, uint8_t coding_rate);
+bool mesh_meshcore_tx_power_valid(const struct mesh_meshcore *meshcore, int32_t dbm);
 /* Asks for SELF_INFO again, which re-projects the settings. 1 when asked, 0 when already
    asked, -ENOTCONN without a link. */
 int mesh_meshcore_refresh_settings(struct mesh_meshcore *meshcore);

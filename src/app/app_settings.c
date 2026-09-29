@@ -1729,7 +1729,7 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
         case MESH_UI_FIELD_LORA_ANY_TX_POWER: {
             /* dBm, signed and literal; above what the radio said it can do is refused. */
             const int32_t dbm = (int32_t)edit->number - (int32_t)MESH_UI_ANY_TX_POWER_BIAS;
-            if (dbm < -9 || dbm > (int32_t)self->max_tx_power_dbm) {
+            if (!mesh_meshcore_tx_power_valid(&app->meshcore, dbm)) {
                 return -EINVAL;
             }
             write.tx_power_dbm = (int8_t)dbm;
@@ -1750,13 +1750,11 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
     /* The firmware's own bounds, checked here so a refusal is a toast about the value rather
        than an error code back from the radio. */
     if (write.set_radio &&
-        (write.frequency_khz < 150000U || write.frequency_khz > 2500000U ||
-         write.spreading_factor < 5U || write.spreading_factor > 12U || write.coding_rate < 5U ||
-         write.coding_rate > 8U || write.bandwidth_hz < 7000U || write.bandwidth_hz > 500000U)) {
+        !mesh_meshcore_radio_params_valid(write.frequency_khz, write.bandwidth_hz,
+                                          write.spreading_factor, write.coding_rate)) {
         return -EINVAL;
     }
-    if (write.set_tx_power &&
-        (write.tx_power_dbm < -9 || write.tx_power_dbm > (int8_t)self->max_tx_power_dbm)) {
+    if (write.set_tx_power && !mesh_meshcore_tx_power_valid(&app->meshcore, write.tx_power_dbm)) {
         return -EINVAL;
     }
     return mesh_meshcore_write_settings(&app->meshcore, &write);

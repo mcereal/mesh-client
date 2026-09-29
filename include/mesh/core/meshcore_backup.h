@@ -119,6 +119,34 @@ int mesh_meshcore_backup_read(const struct mesh_radio_backup *backup,
 int mesh_meshcore_backup_diff(const struct mesh_radio_backup *a, const struct mesh_radio_backup *b,
                               struct mesh_radio_backup_diff *out);
 
+/* The most saves a plan is: the settings, then each channel slot on its own. */
+#define MESH_MESHCORE_BACKUP_PLAN_MAX (1U + MESH_MESHCORE_CHANNELS_KEPT)
+
+/*
+ * A restore of `backup` onto the radio `meshcore` holds, as the saves that would make it so:
+ * `writes[0]` carries every settings group that differs, when one does, and each channel slot
+ * that differs follows as a save of its own - a save takes one slot, and one save at a time is
+ * all the conversation will have outstanding, so the caller sends the next as the last is
+ * answered. A group is written whole with the backup's values, and only when some part of it
+ * differs: a radio already matching the backup is sent nothing.
+ *
+ * **What cannot be written is counted, not sent.** A value outside the firmware's bounds -
+ * radio parameters it no longer accepts, a power past what this radio reports it can do, a PIN
+ * outside the range - would be refused anyway, and a group is never quietly written with a
+ * value other than the backup's. Nor can the advert type, which a companion radio fixes itself,
+ * a slot this radio does not have, or - not yet - a contact. Each such difference adds one to
+ * `unwritable`; the comparison after the restore is where they show.
+ *
+ * How many saves were planned (0 when nothing writable differs), -EAGAIN before the radio has
+ * finished syncing, -ENODEV for a backup of another radio (its public key is not this one's),
+ * -EPROTO for a backup of another protocol, -EBADMSG for one that does not read, -ENOSPC when
+ * `max` is short of what the plan needs, -ENOMEM.
+ */
+int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
+                              const struct mesh_meshcore *meshcore,
+                              struct mesh_meshcore_settings_write *writes, size_t max,
+                              size_t *unwritable);
+
 #ifdef __cplusplus
 }
 #endif
