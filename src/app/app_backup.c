@@ -39,6 +39,13 @@ static int app_backup_capture(struct mesh_app *app, struct mesh_radio_backup *ba
                                                 mesh_session_handshake(&app->session), backup);
 }
 
+void mesh_app_backup_free(struct mesh_radio_backup *backups, size_t count) {
+    for (size_t i = 0; backups != NULL && i < count; ++i) {
+        mesh_radio_backup_wipe(&backups[i]);
+    }
+    free(backups);
+}
+
 /* Why, when and over which link: what a capture leaves to its caller. */
 static void app_backup_stamp(struct mesh_radio_backup *backup, uint8_t reason) {
     backup->header.reason = reason;
@@ -63,7 +70,7 @@ static bool app_backup_unchanged(const struct mesh_app *app,
                                                    previous) == 0 &&
                       previous->header.protocol == backup->header.protocol &&
                       mesh_radio_backup_same_payload(previous, backup);
-    free(previous);
+    mesh_app_backup_free(previous, 1U);
     return same;
 }
 
@@ -257,7 +264,7 @@ void mesh_app_backup_rescan(struct mesh_app *app) {
         ++listing->radio_count;
     }
     free(radios);
-    free(backup);
+    mesh_app_backup_free(backup, 1U);
 }
 
 /* The board on the link, as a backup's header names it. */
@@ -391,7 +398,7 @@ void mesh_app_backup_compare(struct mesh_app *app, uint32_t node, uint32_t seque
                      ? mesh_meshcore_backup_diff(saved, live, &listing->diff)
                      : mesh_radio_backup_meshtastic_diff(saved, live, &listing->diff);
     }
-    free(pair);
+    mesh_app_backup_free(pair, 2U);
     if (result != 0) {
         inkwell_log_warn("app", "Comparing backup %u of 0x%08x failed: %d", (unsigned)sequence,
                          (unsigned)node, result);
@@ -639,7 +646,7 @@ static void app_restore(struct mesh_app *app, uint32_t node, uint32_t sequence, 
         inkwell_log_warn("app", "%s %u failed: %d", profile != 0U ? "Applying profile" : "Restore",
                          (unsigned)(profile != 0U ? profile : sequence), result);
     }
-    free(backup);
+    mesh_app_backup_free(backup, 1U);
     free(writes);
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
 }
@@ -1014,8 +1021,7 @@ static int app_identity_save(struct mesh_app *app, const uint8_t *meshcore_key) 
         result = mesh_radio_backup_store_save(&app->backups, backup, &entry);
     }
     const uint32_t node = backup->header.node_id;
-    mesh_radio_backup_wipe(backup);
-    free(backup);
+    mesh_app_backup_free(backup, 1U);
     if (result != 0) {
         inkwell_log_warn("app", "Backup with the identity key failed: %d", result);
         return result;
@@ -1207,10 +1213,7 @@ void mesh_app_backup_restore_identity(struct mesh_app *app, uint32_t node, uint3
         already = sent == 0;
         result = sent < 0 ? sent : 0;
     }
-    if (backup != NULL) {
-        mesh_radio_backup_wipe(backup);
-        free(backup);
-    }
+    mesh_app_backup_free(backup, 1U);
     if (sent <= 0 && app->backup_identity.stage == APP_IDENTITY_NONE) {
         app_identity_end(app);
     }
@@ -1262,6 +1265,16 @@ static void app_identity_judge(struct mesh_app *app, uint32_t ready) {
                                              : MESH_STR_TOAST_IDENTITY_NOT_TAKEN));
 }
 
+/* How long a radio has to come back from the restart before the restore is left unjudged: a
+   reboot and a whole config sync, with room for a slow link. */
+#define APP_IDENTITY_RETURN_MS 120000U
+
+static void app_identity_await(struct mesh_app *app, bool gone) {
+    app->backup_identity.stage = APP_IDENTITY_RETURNING;
+    app->backup_identity.gone = gone;
+    app->backup_identity.deadline_ms = inkwell_time_monotonic_ms() + APP_IDENTITY_RETURN_MS;
+}
+
 static void app_identity_tick(struct mesh_app *app) {
     struct mesh_meshcore *meshcore = &app->meshcore;
     switch (app->backup_identity.stage) {
@@ -1293,11 +1306,16 @@ static void app_identity_tick(struct mesh_app *app) {
             /* The radio holds the key now, and everything this client knows of it is the old
                one's: a restart, and the sync after it reads the radio it has become. */
             mesh_meshcore_identity_clear(meshcore);
-            if (mesh_meshcore_reboot(meshcore) < 0) {
-                inkwell_log_warn("app", "Identity restored; the restart was not sent");
+            const int restart = mesh_meshcore_reboot(meshcore);
+            if (restart < 0) {
+                /* Taken, and nothing to wait for: the radio will not restart on its own. */
+                inkwell_log_warn("app", "Identity key taken; the restart was not sent (%d)",
+                                 restart);
+                app_identity_end(app);
+                app_identity_toast(app, inkcell_str(MESH_STR_TOAST_IDENTITY_RESTART));
+                return;
             }
-            app->backup_identity.stage = APP_IDENTITY_RETURNING;
-            app->backup_identity.gone = false;
+            app_identity_await(app, false);
             return;
         }
         app_identity_refusal_toast(app);
@@ -1325,12 +1343,18 @@ static void app_identity_tick(struct mesh_app *app) {
         if (!restarted && linked) {
             (void)mesh_session_refresh_settings(&app->session);
         }
-        app->backup_identity.stage = APP_IDENTITY_RETURNING;
         /* A Meshtastic radio is read again whether or not it restarted; nothing to wait out. */
-        app->backup_identity.gone = true;
+        app_identity_await(app, true);
         return;
     }
     case APP_IDENTITY_RETURNING: {
+        if (inkwell_time_monotonic_ms() >= app->backup_identity.deadline_ms) {
+            inkwell_log_warn("app", "Identity key of 0x%08x not checked: the radio did not return",
+                             (unsigned)app->backup_identity.node);
+            app_identity_end(app);
+            app_identity_toast(app, inkcell_str(MESH_STR_TOAST_IDENTITY_UNJUDGED));
+            return;
+        }
         const uint32_t ready = app_backup_ready_node(app);
         if (ready == 0U) {
             app->backup_identity.gone = true;

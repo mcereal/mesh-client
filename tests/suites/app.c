@@ -7051,3 +7051,52 @@ MESH_TEST_CASE(app_backup_identity_meshcore_firmware_without_it_is_said, unit) {
     MESH_TEST_FAIL_IF(!said, "a firmware without the export was not said, or a backup was taken");
     record_success(test_name);
 }
+
+/*
+ * Nothing holds later restores behind a key restore that cannot finish: a restart the link will
+ * not take ends it at once, and a radio that never comes back ends it at its deadline.
+ */
+MESH_TEST_CASE(app_backup_identity_meshcore_never_waits_for_ever, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    mesh_app_backup_take_identity(&app);
+    app_identity_feed_key(&protocol, 0x55);
+    mesh_app_backup_tick(&app); /* backup 2, with the key */
+    app.meshcore.self_node = 0x01020304U;
+
+    /* Taken, then the restart refused. */
+    mesh_app_backup_restore_identity(&app, node, 2U, true);
+    const uint8_t ok = MESH_MESHCORE_RESP_OK;
+    g_restore_wire.refuse = true;
+    mesh_protocol_receive(&protocol, &ok, 1U);
+    mesh_app_backup_tick(&app);
+    g_restore_wire.refuse = false;
+    const bool ended = app.backup_identity.stage == 0U &&
+                       strcmp(app.ui_store.nav.toast.text,
+                              "The radio took the identity key; restart it to finish") == 0;
+
+    /* Taken and restarting, and the radio never comes back. */
+    app.meshcore.self_node = 0x01020304U;
+    mesh_app_backup_restore_identity(&app, node, 2U, true);
+    mesh_protocol_receive(&protocol, &ok, 1U);
+    mesh_app_backup_tick(&app);
+    const bool waiting = app.backup_identity.stage != 0U;
+    app.backup_identity.deadline_ms = 1U;
+    mesh_app_backup_tick(&app);
+    const bool gave_up =
+        app.backup_identity.stage == 0U &&
+        strcmp(app.ui_store.nav.toast.text,
+               "The radio did not come back; the identity key was not checked") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!ended, "a refused restart left the restore waiting");
+    MESH_TEST_FAIL_IF(!waiting, "the restart was not waited for");
+    MESH_TEST_FAIL_IF(!gave_up, "a radio that never came back held the restore for good");
+    record_success(test_name);
+}

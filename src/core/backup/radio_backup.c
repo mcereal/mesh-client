@@ -503,7 +503,7 @@ int mesh_radio_backup_read_file(struct mesh_radio_backup *backup, const char *pa
         result = -EBADMSG;
     }
     if (result != 0) {
-        mesh_radio_backup_reset(backup);
+        mesh_radio_backup_wipe(backup); /* a half-read key is still a key */
     }
     return result;
 }

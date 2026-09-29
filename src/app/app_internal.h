@@ -93,6 +93,9 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
    stops the restore in flight after the contact being written. */
 void mesh_app_backup_restore_option(struct mesh_app *app, uint32_t which);
 void mesh_app_backup_restore_stop(struct mesh_app *app);
+/* Frees `count` backups allocated together, each wiped first: a backup read off the card may
+   hold a radio's private key, and freed memory is not where one should be left. */
+void mesh_app_backup_free(struct mesh_radio_backup *backups, size_t count);
 /* Lets go of a restore in flight - what it allocated - as the app shuts down. */
 void mesh_app_backup_restore_release(struct mesh_app *app);
 /*

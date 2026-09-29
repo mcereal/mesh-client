@@ -1459,8 +1459,11 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
      * as the head's answer, it would shift every reply after it by one - the handshake's
      * END_OF_CONTACTS then finds nothing outstanding, and the sync never finishes.
      */
+    /* And PRIVATE_KEY answers EXPORT_PRIVATE_KEY alone: one that lands after its export was
+       given up on would otherwise pop - and lose - whatever command is outstanding now. */
     if ((code == MESH_MESHCORE_RESP_DEVICE_INFO && cmd != MESH_MESHCORE_CMD_DEVICE_QUERY) ||
-        (code == MESH_MESHCORE_RESP_SELF_INFO && cmd != MESH_MESHCORE_CMD_APP_START)) {
+        (code == MESH_MESHCORE_RESP_SELF_INFO && cmd != MESH_MESHCORE_CMD_APP_START) ||
+        (code == MESH_MESHCORE_RESP_PRIVATE_KEY && cmd != MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY)) {
         inkwell_log_debug("meshcore", "Reply %u answers no command outstanding (head %u)",
                           (unsigned)code, (unsigned)cmd);
         return;

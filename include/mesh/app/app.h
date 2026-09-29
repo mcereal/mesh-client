@@ -314,6 +314,9 @@ struct mesh_app {
         /* The radio has been off the link since the key went: a MeshCore radio is judged only
            once it has restarted, and the one it was before the restart would say nothing. */
         bool gone;
+        /* When waiting for it gives up (monotonic ms): a radio that never comes back, or a link
+           that never lets it go, must not hold every later restore behind this one. */
+        uint64_t deadline_ms;
         /* A Meshtastic restore's public key: what the radio should report once it holds the
            backup's private one. */
         bool has_public_key;

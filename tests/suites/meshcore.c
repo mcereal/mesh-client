@@ -3157,3 +3157,29 @@ MESH_TEST_CASE(meshcore_backup_identity_rides_along_unseen, unit) {
                       "the key went into a profile");
     record_success(test_name);
 }
+
+/* A key that arrives after its export was given up on answers nothing outstanding now: the
+   save written meanwhile stays the head of the queue, and the key is not kept. */
+MESH_TEST_CASE(meshcore_identity_late_key_leaves_the_next_command_alone, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    (void)mesh_meshcore_export_identity(&g_meshcore);
+    mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.set_tx_power = true;
+    write.tx_power_dbm = 10;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) <= 0,
+                      "the save was not sent");
+    const size_t queued = g_meshcore.queue_count;
+    const uint8_t head = g_meshcore.queue[g_meshcore.queue_head].frame[0];
+    feed_private_key(&protocol, 0x66);
+    MESH_TEST_FAIL_IF(!g_meshcore.awaiting || g_meshcore.queue_count != queued ||
+                          g_meshcore.queue[g_meshcore.queue_head].frame[0] != head ||
+                          g_meshcore.writes_outstanding == 0U,
+                      "a late key popped the save outstanding in its place");
+    MESH_TEST_FAIL_IF(g_meshcore.identity_state == MESH_MESHCORE_IDENTITY_EXPORTED,
+                      "a key nobody was waiting for was kept");
+    record_success(test_name);
+}
