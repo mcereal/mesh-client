@@ -232,6 +232,22 @@ int mesh_radio_backup_store_save(struct mesh_radio_backup_store *store,
 int mesh_radio_backup_store_list(const struct mesh_radio_backup_store *store, uint32_t node_id,
                                  struct mesh_radio_backup_entry *out, size_t max);
 
+/*
+ * The radios with backups on the card, by node number, in no particular order: up to `max` of
+ * them, returning how many there are in all or a negative errno. A directory with nothing a
+ * backup is named like in it is not a radio.
+ */
+int mesh_radio_backup_store_radios(const struct mesh_radio_backup_store *store, uint32_t *out,
+                                   size_t max);
+
+/*
+ * Deletes one backup, named by its node and sequence number rather than by a file name, so a
+ * caller cannot be talked into removing anything else in the directory. 0, -ENOENT when there is
+ * no such backup, or a negative errno.
+ */
+int mesh_radio_backup_store_remove(struct mesh_radio_backup_store *store, uint32_t node_id,
+                                   uint32_t sequence);
+
 /* Reads one of them back; the errors are mesh_radio_backup_read_file()'s. */
 int mesh_radio_backup_store_load(const struct mesh_radio_backup_store *store, uint32_t node_id,
                                  const struct mesh_radio_backup_entry *entry,

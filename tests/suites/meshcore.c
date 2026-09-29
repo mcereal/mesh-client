@@ -2566,3 +2566,76 @@ MESH_TEST_CASE(meshcore_backup_refuses_a_book_that_dropped_a_contact, unit) {
     MESH_TEST_FAIL_IF(g_backup.section_count != 0U, "a refused capture left sections behind");
     record_success(test_name);
 }
+
+static struct mesh_radio_backup_diff g_diff;
+
+MESH_TEST_CASE(meshcore_backup_diff_of_the_same_radio_is_empty, unit) {
+    struct mesh_protocol protocol;
+    struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup_read);
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_diff(&g_backup, &g_backup_read, &g_diff) != 0 ||
+                          g_diff.count != 0U || g_diff.total != 0U,
+                      "an unchanged radio was reported as changed");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(meshcore_backup_diff_names_the_one_setting_changed, unit) {
+    struct mesh_protocol protocol;
+    struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    const uint32_t was = g_meshcore.self.frequency_khz;
+    g_meshcore.self.frequency_khz = was + 125U;
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup_read);
+    mesh_meshcore_backup_diff(&g_backup, &g_backup_read, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.count != 1U, "not exactly one change");
+    const struct mesh_radio_backup_change *change = &g_diff.changes[0];
+    MESH_TEST_FAIL_IF(change->topic != MESH_RADIO_BACKUP_TOPIC_LORA ||
+                          change->field != MESH_MESHCORE_BACKUP_FIELD_FREQUENCY ||
+                          change->before.number != (int64_t)was ||
+                          change->after.number != (int64_t)was + 125,
+                      "the change is not the frequency, backup to radio");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(meshcore_backup_diff_lists_contacts_by_key_not_by_route, unit) {
+    struct mesh_protocol protocol;
+    struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+
+    /* Alice's route and stamps moved, which is the radio hearing her again: not a change. */
+    struct mesh_meshcore_contact *alice = &g_meshcore.contacts[0];
+    alice->out_path_len = 1U;
+    alice->lastmod += 600U;
+    alice->last_advert += 600U;
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup_read);
+    mesh_meshcore_backup_diff(&g_backup, &g_backup_read, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.count != 0U, "a contact heard again was called changed");
+
+    /* Her name changing is, and a contact added since is an addition. */
+    snprintf(alice->name, sizeof alice->name, "%s", "Alicia");
+    struct mesh_meshcore_contact *bob = &g_meshcore.contacts[g_meshcore.contact_count++];
+    *bob = *alice;
+    bob->public_key[0] = 0x60;
+    snprintf(bob->name, sizeof bob->name, "%s", "Bob");
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup_read);
+    mesh_meshcore_backup_diff(&g_backup, &g_backup_read, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.count != 2U, "not a rename and an addition");
+    MESH_TEST_FAIL_IF(g_diff.changes[0].topic != MESH_RADIO_BACKUP_TOPIC_CONTACT ||
+                          g_diff.changes[0].kind != MESH_RADIO_BACKUP_CHANGED ||
+                          strcmp(g_diff.changes[0].before.text, "Alice") != 0 ||
+                          strcmp(g_diff.changes[0].after.text, "Alicia") != 0,
+                      "the rename is not Alice to Alicia");
+    MESH_TEST_FAIL_IF(g_diff.changes[1].kind != MESH_RADIO_BACKUP_ADDED ||
+                          strcmp(g_diff.changes[1].subject, "Bob") != 0,
+                      "Bob was not listed as added");
+
+    /* And the other way round, Bob is gone. */
+    mesh_meshcore_backup_diff(&g_backup_read, &g_backup, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.count != 2U || g_diff.changes[1].kind != MESH_RADIO_BACKUP_REMOVED,
+                      "a contact the radio no longer has was not a removal");
+    record_success(test_name);
+}

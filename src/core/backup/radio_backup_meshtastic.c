@@ -1,10 +1,12 @@
 #include "mesh/core/radio_backup_meshtastic.h"
 
+#include <pb_common.h>
 #include <pb_decode.h>
 #include <pb_encode.h>
 
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* Every Config section a backup must hold, in the order they are written. */
@@ -320,6 +322,376 @@ int mesh_radio_backup_meshtastic_read(const struct mesh_radio_backup *backup,
         if (!ok) {
             mesh_radio_settings_reset(settings);
             return -EBADMSG;
+        }
+    }
+    return 0;
+}
+
+/* ---- comparing ----------------------------------------------------------------------------- */
+
+/*
+ * Every section decodes into one of these; the largest decides the size, and the walk below
+ * reads them only through nanopb's field iterator, so which member was written does not matter
+ * to it.
+ */
+union mt_message {
+    meshtastic_Config config;
+    meshtastic_ModuleConfig module;
+    meshtastic_Channel channel;
+    meshtastic_User owner;
+    meshtastic_DeviceUIConfig ui;
+    meshtastic_Position position;
+};
+
+/* What a section is about: its topic, and which one of it - a Config variant, a module, a slot. */
+struct mt_key {
+    uint16_t tag;
+    uint8_t topic;
+    uint16_t index;
+    bool ok;
+};
+
+static const pb_msgdesc_t *mt_fields(uint16_t tag) {
+    switch (tag) {
+    case MESH_RADIO_BACKUP_MT_CONFIG:
+        return meshtastic_Config_fields;
+    case MESH_RADIO_BACKUP_MT_MODULE:
+        return meshtastic_ModuleConfig_fields;
+    case MESH_RADIO_BACKUP_MT_CHANNEL:
+        return meshtastic_Channel_fields;
+    case MESH_RADIO_BACKUP_MT_OWNER:
+        return meshtastic_User_fields;
+    case MESH_RADIO_BACKUP_MT_UI_CONFIG:
+        return meshtastic_DeviceUIConfig_fields;
+    case MESH_RADIO_BACKUP_MT_POSITION:
+        return meshtastic_Position_fields;
+    default:
+        return NULL;
+    }
+}
+
+static uint8_t mt_config_topic(pb_size_t variant) {
+    switch (variant) {
+    case meshtastic_Config_device_tag:
+        return MESH_RADIO_BACKUP_TOPIC_DEVICE;
+    case meshtastic_Config_position_tag:
+        return MESH_RADIO_BACKUP_TOPIC_POSITION;
+    case meshtastic_Config_power_tag:
+        return MESH_RADIO_BACKUP_TOPIC_POWER;
+    case meshtastic_Config_network_tag:
+        return MESH_RADIO_BACKUP_TOPIC_NETWORK;
+    case meshtastic_Config_display_tag:
+        return MESH_RADIO_BACKUP_TOPIC_DISPLAY;
+    case meshtastic_Config_lora_tag:
+        return MESH_RADIO_BACKUP_TOPIC_LORA;
+    case meshtastic_Config_bluetooth_tag:
+        return MESH_RADIO_BACKUP_TOPIC_BLUETOOTH;
+    case meshtastic_Config_security_tag:
+        return MESH_RADIO_BACKUP_TOPIC_SECURITY;
+    default:
+        return MESH_RADIO_BACKUP_TOPIC_NONE;
+    }
+}
+
+/* The oneof member a Config or a ModuleConfig carries: its descriptor and where it sits. */
+static bool mt_variant(const pb_msgdesc_t *fields, const void *message,
+                       const pb_msgdesc_t **variant_fields, const void **variant, pb_size_t *tag) {
+    pb_field_iter_t iter;
+    if (!pb_field_iter_begin_const(&iter, fields, message)) {
+        return false;
+    }
+    do {
+        if (PB_HTYPE(iter.type) == PB_HTYPE_ONEOF && PB_LTYPE_IS_SUBMSG(iter.type) &&
+            iter.pSize != NULL && *(const pb_size_t *)iter.pSize == iter.tag) {
+            *variant_fields = iter.submsg_desc;
+            *variant = iter.pData;
+            *tag = iter.tag;
+            return true;
+        }
+    } while (pb_field_iter_next(&iter));
+    return false;
+}
+
+static struct mt_key mt_key_of(uint16_t tag, const uint8_t *data, size_t len,
+                               union mt_message *message) {
+    struct mt_key key = {.tag = tag, .ok = true};
+    memset(message, 0, sizeof *message);
+    const pb_msgdesc_t *fields = mt_fields(tag);
+    if (fields != NULL && !mt_decode(data, len, fields, message)) {
+        key.ok = false;
+        return key;
+    }
+    switch (tag) {
+    case MESH_RADIO_BACKUP_MT_CONFIG:
+        key.index = message->config.which_payload_variant;
+        key.topic = mt_config_topic(message->config.which_payload_variant);
+        break;
+    case MESH_RADIO_BACKUP_MT_MODULE:
+        key.index = message->module.which_payload_variant;
+        key.topic = MESH_RADIO_BACKUP_TOPIC_MODULE;
+        break;
+    case MESH_RADIO_BACKUP_MT_CHANNEL:
+        key.index = (uint16_t)message->channel.index;
+        key.topic = MESH_RADIO_BACKUP_TOPIC_CHANNEL;
+        break;
+    case MESH_RADIO_BACKUP_MT_OWNER:
+        key.topic = MESH_RADIO_BACKUP_TOPIC_OWNER;
+        break;
+    case MESH_RADIO_BACKUP_MT_UI_CONFIG:
+        key.topic = MESH_RADIO_BACKUP_TOPIC_RADIO_UI;
+        break;
+    case MESH_RADIO_BACKUP_MT_CANNED:
+        key.topic = MESH_RADIO_BACKUP_TOPIC_CANNED;
+        break;
+    case MESH_RADIO_BACKUP_MT_RINGTONE:
+        key.topic = MESH_RADIO_BACKUP_TOPIC_RINGTONE;
+        break;
+    case MESH_RADIO_BACKUP_MT_POSITION:
+        key.topic = MESH_RADIO_BACKUP_TOPIC_FIXED_POSITION;
+        break;
+    default:
+        key.ok = false; /* a section a later build added: nothing here can say what it is */
+        break;
+    }
+    return key;
+}
+
+static int64_t mt_signed(const void *p, size_t size) {
+    switch (size) {
+    case 1:
+        return *(const int8_t *)p;
+    case 2:
+        return *(const int16_t *)p;
+    case 8:
+        return *(const int64_t *)p;
+    default:
+        return *(const int32_t *)p;
+    }
+}
+
+static uint64_t mt_unsigned(const void *p, size_t size) {
+    switch (size) {
+    case 1:
+        return *(const uint8_t *)p;
+    case 2:
+        return *(const uint16_t *)p;
+    case 8:
+        return *(const uint64_t *)p;
+    default:
+        return *(const uint32_t *)p;
+    }
+}
+
+/* Whether a field is set: a has_ flag, a oneof naming it, a repeated one with anything in it. */
+static bool mt_present(const pb_field_iter_t *iter) {
+    switch (PB_HTYPE(iter->type)) {
+    case PB_HTYPE_OPTIONAL:
+        return iter->pSize == NULL || *(const bool *)iter->pSize;
+    case PB_HTYPE_ONEOF:
+        return *(const pb_size_t *)iter->pSize == iter->tag;
+    case PB_HTYPE_REPEATED:
+        return iter->pSize != &iter->array_size ? *(const pb_size_t *)iter->pSize > 0U : true;
+    default:
+        return true;
+    }
+}
+
+/* A field's value as a line can show it; a list, a key or a message is only "set". */
+static void mt_value(const pb_field_iter_t *iter, struct mesh_radio_backup_value *value) {
+    if (PB_HTYPE(iter->type) == PB_HTYPE_REPEATED) {
+        mesh_radio_backup_value_opaque(value);
+        return;
+    }
+    switch (PB_LTYPE(iter->type)) {
+    case PB_LTYPE_BOOL:
+        mesh_radio_backup_value_bool(value, *(const bool *)iter->pData);
+        break;
+    case PB_LTYPE_VARINT:
+    case PB_LTYPE_SVARINT:
+        mesh_radio_backup_value_int(value, mt_signed(iter->pData, iter->data_size));
+        break;
+    case PB_LTYPE_UVARINT:
+    case PB_LTYPE_FIXED32:
+    case PB_LTYPE_FIXED64:
+        mesh_radio_backup_value_uint(value, mt_unsigned(iter->pData, iter->data_size));
+        break;
+    case PB_LTYPE_STRING:
+        mesh_radio_backup_value_text(value, iter->pData, iter->data_size);
+        break;
+    default:
+        mesh_radio_backup_value_opaque(value);
+        break;
+    }
+}
+
+/* Whether two present fields hold the same value, compared the way the type is stored. */
+static bool mt_same(const pb_field_iter_t *a, const pb_field_iter_t *b) {
+    if (PB_HTYPE(a->type) == PB_HTYPE_REPEATED) {
+        const pb_size_t count = a->pSize != NULL ? *(const pb_size_t *)a->pSize : a->array_size;
+        const pb_size_t other = b->pSize != NULL ? *(const pb_size_t *)b->pSize : b->array_size;
+        return count == other && memcmp(a->pData, b->pData, (size_t)count * a->data_size) == 0;
+    }
+    switch (PB_LTYPE(a->type)) {
+    case PB_LTYPE_BOOL:
+        return *(const bool *)a->pData == *(const bool *)b->pData;
+    case PB_LTYPE_STRING:
+        return strncmp(a->pData, b->pData, a->data_size) == 0;
+    case PB_LTYPE_BYTES: {
+        const pb_bytes_array_t *x = a->pData;
+        const pb_bytes_array_t *y = b->pData;
+        return x->size == y->size && memcmp(x->bytes, y->bytes, x->size) == 0;
+    }
+    default:
+        return memcmp(a->pData, b->pData, a->data_size) == 0;
+    }
+}
+
+static void mt_walk(struct mesh_radio_backup_diff *diff, const struct mt_key *key, uint16_t parent,
+                    unsigned depth, const pb_msgdesc_t *fields, const void *a, const void *b) {
+    pb_field_iter_t ia;
+    pb_field_iter_t ib;
+    if (!pb_field_iter_begin_const(&ia, fields, a) || !pb_field_iter_begin_const(&ib, fields, b)) {
+        return;
+    }
+    do {
+        if (PB_ATYPE(ia.type) != PB_ATYPE_STATIC) {
+            continue;
+        }
+        const bool in_a = mt_present(&ia);
+        const bool in_b = mt_present(&ib);
+        if (!in_a && !in_b) {
+            continue;
+        }
+        const uint16_t field = parent != 0U ? (uint16_t)(parent * 100U + ia.tag) : (uint16_t)ia.tag;
+        /* A message inside the message, both there: walked for its own fields, so a changed
+           address inside the network settings is the one line rather than "network changed". */
+        if (in_a && in_b && PB_LTYPE_IS_SUBMSG(ia.type) && PB_HTYPE(ia.type) != PB_HTYPE_REPEATED &&
+            depth < 2U && ia.tag < 100U && field < 650U) {
+            mt_walk(diff, key, field, depth + 1U, ia.submsg_desc, ia.pData, ib.pData);
+            continue;
+        }
+        if (in_a && in_b && mt_same(&ia, &ib)) {
+            continue;
+        }
+        const uint8_t kind = !in_a   ? MESH_RADIO_BACKUP_ADDED
+                             : !in_b ? MESH_RADIO_BACKUP_REMOVED
+                                     : MESH_RADIO_BACKUP_CHANGED;
+        struct mesh_radio_backup_change *change =
+            mesh_radio_backup_diff_add(diff, kind, key->topic, key->index, field);
+        if (change == NULL) {
+            continue;
+        }
+        if (in_a) {
+            mt_value(&ia, &change->before);
+        }
+        if (in_b) {
+            mt_value(&ib, &change->after);
+        }
+    } while (pb_field_iter_next(&ia) && pb_field_iter_next(&ib));
+}
+
+/* Two sections with the same key, compared field by field. */
+static void mt_compare(struct mesh_radio_backup_diff *diff, const struct mt_key *key,
+                       const uint8_t *data_a, size_t len_a, const union mt_message *a,
+                       const uint8_t *data_b, size_t len_b, const union mt_message *b) {
+    if (len_a == len_b && memcmp(data_a, data_b, len_a) == 0) {
+        return; /* the cheap answer, and the usual one */
+    }
+    const pb_msgdesc_t *fields = mt_fields(key->tag);
+    if (fields == NULL) {
+        /* Canned messages and the ringtone: text, compared whole. */
+        struct mesh_radio_backup_change *change =
+            mesh_radio_backup_diff_add(diff, MESH_RADIO_BACKUP_CHANGED, key->topic, 0U, 0U);
+        if (change != NULL) {
+            mesh_radio_backup_value_text(&change->before, (const char *)data_a, len_a);
+            mesh_radio_backup_value_text(&change->after, (const char *)data_b, len_b);
+        }
+        return;
+    }
+    if (key->tag == MESH_RADIO_BACKUP_MT_CONFIG || key->tag == MESH_RADIO_BACKUP_MT_MODULE) {
+        const pb_msgdesc_t *variant_a = NULL;
+        const pb_msgdesc_t *variant_b = NULL;
+        const void *va = NULL;
+        const void *vb = NULL;
+        pb_size_t tag_a = 0;
+        pb_size_t tag_b = 0;
+        if (mt_variant(fields, a, &variant_a, &va, &tag_a) &&
+            mt_variant(fields, b, &variant_b, &vb, &tag_b) && variant_a == variant_b) {
+            mt_walk(diff, key, 0U, 0U, variant_a, va, vb);
+        }
+        return;
+    }
+    mt_walk(diff, key, 0U, 0U, fields, a, b);
+}
+
+/* A section only one side has: one line for the whole of it. */
+static void mt_one_sided(struct mesh_radio_backup_diff *diff, const struct mt_key *key,
+                         uint8_t kind) {
+    struct mesh_radio_backup_change *change =
+        mesh_radio_backup_diff_add(diff, kind, key->topic, key->index, 0U);
+    if (change != NULL) {
+        mesh_radio_backup_value_opaque(kind == MESH_RADIO_BACKUP_ADDED ? &change->after
+                                                                       : &change->before);
+    }
+}
+
+/* Sections past this are not compared; a Meshtastic backup has about forty. */
+#define MT_DIFF_SECTIONS 96U
+
+int mesh_radio_backup_meshtastic_diff(const struct mesh_radio_backup *a,
+                                      const struct mesh_radio_backup *b,
+                                      struct mesh_radio_backup_diff *out) {
+    if (a == NULL || b == NULL || out == NULL) {
+        return -EINVAL;
+    }
+    mesh_radio_backup_diff_reset(out, MESH_RADIO_BACKUP_MESHTASTIC);
+    if (a->header.protocol != MESH_RADIO_BACKUP_MESHTASTIC ||
+        b->header.protocol != MESH_RADIO_BACKUP_MESHTASTIC) {
+        return -EPROTO;
+    }
+    union mt_message *message_a = malloc(2U * sizeof *message_a);
+    if (message_a == NULL) {
+        return -ENOMEM;
+    }
+    union mt_message *message_b = message_a + 1;
+    /* Both sides' keys first, since finding a section's partner means knowing what each is. */
+    struct mt_key keys_b[MT_DIFF_SECTIONS];
+    bool matched[MT_DIFF_SECTIONS] = {false};
+    const uint8_t *data = NULL;
+    const struct mesh_radio_backup_section *section = NULL;
+    size_t count_b = 0U;
+    for (; count_b < MT_DIFF_SECTIONS &&
+           (section = mesh_radio_backup_section_at(b, count_b, &data)) != NULL;
+         ++count_b) {
+        keys_b[count_b] = mt_key_of(section->tag, data, section->len, message_b);
+    }
+
+    for (size_t i = 0;
+         i < MT_DIFF_SECTIONS && (section = mesh_radio_backup_section_at(a, i, &data)) != NULL;
+         ++i) {
+        const struct mt_key key = mt_key_of(section->tag, data, section->len, message_a);
+        if (!key.ok) {
+            continue;
+        }
+        size_t j = 0U;
+        while (j < count_b && (matched[j] || !keys_b[j].ok || keys_b[j].tag != key.tag ||
+                               keys_b[j].index != key.index)) {
+            ++j;
+        }
+        if (j == count_b) {
+            mt_one_sided(out, &key, MESH_RADIO_BACKUP_REMOVED);
+            continue;
+        }
+        matched[j] = true;
+        const uint8_t *data_b = NULL;
+        const struct mesh_radio_backup_section *other = mesh_radio_backup_section_at(b, j, &data_b);
+        (void)mt_key_of(other->tag, data_b, other->len, message_b);
+        mt_compare(out, &key, data, section->len, message_a, data_b, other->len, message_b);
+    }
+    free(message_a);
+    for (size_t j = 0; j < count_b; ++j) {
+        if (!matched[j] && keys_b[j].ok) {
+            mt_one_sided(out, &keys_b[j], MESH_RADIO_BACKUP_ADDED);
         }
     }
     return 0;

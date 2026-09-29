@@ -334,6 +334,49 @@ MESH_TEST_CASE(radio_backup_store_orders_by_sequence_not_clock, unit) {
     record_success(test_name);
 }
 
+MESH_TEST_CASE(radio_backup_store_lists_radios_and_removes_one_backup, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!backup_tempdir(dir, sizeof dir), "mkdtemp failed");
+    char root[96];
+    snprintf(root, sizeof root, "%s/backups", dir);
+    struct mesh_radio_backup_store store;
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_radio_backup_store_init(&store, root) != 0,
+                              mesh_test_remove_tree(dir), "store init failed");
+
+    backup_fill(&g_backup, MESH_RADIO_BACKUP_MANUAL);
+    bool saved = mesh_radio_backup_store_save(&store, &g_backup, NULL) == 0;
+    saved = saved && mesh_radio_backup_store_save(&store, &g_backup, NULL) == 0;
+    g_backup.header.node_id = 0x01020304U;
+    saved = saved && mesh_radio_backup_store_save(&store, &g_backup, NULL) == 0;
+    /* A stray directory that is not a radio, and one that is named like one but is empty. */
+    char stray[160];
+    snprintf(stray, sizeof stray, "%s/notes", root);
+    mkdir(stray, 0700);
+    snprintf(stray, sizeof stray, "%s/0000beef", root);
+    mkdir(stray, 0700);
+
+    uint32_t radios[4] = {0};
+    const int count = mesh_radio_backup_store_radios(&store, radios, 4U);
+    const int removed = mesh_radio_backup_store_remove(&store, 0xa1b2c3d4U, 1U);
+    const int again = mesh_radio_backup_store_remove(&store, 0xa1b2c3d4U, 1U);
+    struct mesh_radio_backup_entry left[4];
+    const int remaining = mesh_radio_backup_store_list(&store, 0xa1b2c3d4U, left, 4U);
+    const int second = mesh_radio_backup_store_remove(&store, 0x01020304U, 1U);
+    const int after = mesh_radio_backup_store_radios(&store, radios + 2, 2U);
+    mesh_test_remove_tree(dir);
+
+    MESH_TEST_FAIL_IF(!saved, "a save failed");
+    MESH_TEST_FAIL_IF(count != 2 || !((radios[0] == 0xa1b2c3d4U && radios[1] == 0x01020304U) ||
+                                      (radios[1] == 0xa1b2c3d4U && radios[0] == 0x01020304U)),
+                      "the two radios were not listed, or something else was");
+    MESH_TEST_FAIL_IF(removed != 0 || again != -ENOENT, "a backup did not remove exactly once");
+    MESH_TEST_FAIL_IF(remaining != 1 || left[0].sequence != 2U, "the wrong backup went");
+    /* A radio whose last backup went is no longer a radio with backups. */
+    MESH_TEST_FAIL_IF(second != 0 || after != 1 || radios[2] != 0xa1b2c3d4U,
+                      "a radio with no backups left was still listed");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(radio_backup_store_prunes_automatic_and_keeps_manual, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!backup_tempdir(dir, sizeof dir), "mkdtemp failed");
@@ -554,5 +597,143 @@ MESH_TEST_CASE(radio_backup_meshtastic_refuses_another_protocols_backup, unit) {
     g_backup.header.protocol = MESH_RADIO_BACKUP_MESHCORE;
     MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_read(&g_backup, &g_restored, NULL) != -EPROTO,
                       "a MeshCore backup was read as Meshtastic settings");
+    record_success(test_name);
+}
+
+/* ---- comparing ----------------------------------------------------------------------------- */
+
+static struct mesh_radio_backup_diff g_diff;
+
+MESH_TEST_CASE(radio_backup_meshtastic_diff_of_the_same_radio_is_empty, unit) {
+    mesh_test_backup_radio(&g_settings, &g_status);
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup) != 0,
+                      "capture failed");
+    /* A second capture a day later: a new time, a new reason, the same radio. */
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_read) != 0,
+                      "second capture failed");
+    g_read.header.saved_at = 86400U;
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_diff(&g_backup, &g_read, &g_diff) != 0,
+                      "the diff failed");
+    MESH_TEST_FAIL_IF(g_diff.count != 0U || g_diff.total != 0U,
+                      "an unchanged radio was reported as changed");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(radio_backup_meshtastic_diff_names_the_one_field_changed, unit) {
+    mesh_test_backup_radio(&g_settings, &g_status);
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
+    g_settings.lora.hop_limit = 3U;
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_read);
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_diff(&g_backup, &g_read, &g_diff) != 0,
+                      "the diff failed");
+    /* One field, not "the LoRa section": the reader wants the line, not the paragraph. */
+    MESH_TEST_FAIL_IF(g_diff.count != 1U || g_diff.total != 1U, "not exactly one change");
+    const struct mesh_radio_backup_change *change = &g_diff.changes[0];
+    MESH_TEST_FAIL_IF(change->kind != MESH_RADIO_BACKUP_CHANGED ||
+                          change->topic != MESH_RADIO_BACKUP_TOPIC_LORA ||
+                          change->field != meshtastic_Config_LoRaConfig_hop_limit_tag,
+                      "the change does not name the LoRa hop limit");
+    MESH_TEST_FAIL_IF(change->before.kind != MESH_RADIO_BACKUP_VALUE_UINT ||
+                          change->before.number != 5 || change->after.number != 3,
+                      "the values are not the backup's and the radio's");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(radio_backup_meshtastic_diff_reaches_inside_a_channel, unit) {
+    mesh_test_backup_radio(&g_settings, &g_status);
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
+    snprintf(g_settings.channels[2].settings.name, sizeof g_settings.channels[2].settings.name,
+             "%s", "Field");
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_read);
+    mesh_radio_backup_meshtastic_diff(&g_backup, &g_read, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.count != 1U, "a renamed channel was not one change");
+    const struct mesh_radio_backup_change *change = &g_diff.changes[0];
+    MESH_TEST_FAIL_IF(change->topic != MESH_RADIO_BACKUP_TOPIC_CHANNEL || change->index != 2U ||
+                          change->field != meshtastic_Channel_settings_tag * 100U +
+                                               meshtastic_ChannelSettings_name_tag,
+                      "the change does not name slot 2's name");
+    MESH_TEST_FAIL_IF(strcmp(change->before.text, "Ops") != 0 ||
+                          strcmp(change->after.text, "Field") != 0,
+                      "the names are not the backup's and the radio's");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(radio_backup_meshtastic_diff_pairs_sections_by_what_they_are, unit) {
+    mesh_test_backup_radio(&g_settings, &g_status);
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
+    /* The same radio with its canned messages gone: one section fewer, and every section after
+       it one place earlier - which must not read as every one of them changed. */
+    g_settings.has_canned_messages = false;
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_read);
+    mesh_radio_backup_meshtastic_diff(&g_backup, &g_read, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.count != 1U || g_diff.changes[0].kind != MESH_RADIO_BACKUP_REMOVED ||
+                          g_diff.changes[0].topic != MESH_RADIO_BACKUP_TOPIC_CANNED,
+                      "a missing section was not one removal");
+    /* And the other way round is an addition. */
+    mesh_radio_backup_meshtastic_diff(&g_read, &g_backup, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.count != 1U || g_diff.changes[0].kind != MESH_RADIO_BACKUP_ADDED,
+                      "a new section was not one addition");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(radio_backup_meshtastic_diff_counts_past_what_it_keeps, unit) {
+    mesh_test_backup_radio(&g_settings, &g_status);
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
+    for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++i) {
+        g_settings.channels[i].role = meshtastic_Channel_Role_SECONDARY;
+        g_settings.channels[i].has_settings = true;
+        snprintf(g_settings.channels[i].settings.name, sizeof g_settings.channels[i].settings.name,
+                 "n%zu", i);
+        g_settings.channels[i].settings.channel_num = 40U + (uint32_t)i;
+        g_settings.channels[i].settings.id = 70U + (uint32_t)i;
+        g_settings.channels[i].settings.uplink_enabled =
+            !g_settings.channels[i].settings.uplink_enabled;
+        g_settings.channels[i].settings.downlink_enabled =
+            !g_settings.channels[i].settings.downlink_enabled;
+        g_settings.channels[i].settings.psk.size = 1U;
+        g_settings.channels[i].settings.psk.bytes[0] = (uint8_t)(9U + i);
+        g_settings.channels[i].settings.has_module_settings = true;
+        g_settings.channels[i].settings.module_settings.position_precision = 13U;
+        g_settings.channels[i].settings.module_settings.is_muted = true;
+    }
+    meshtastic_Config_LoRaConfig *lora = &g_settings.lora;
+    lora->hop_limit = 1U;
+    lora->tx_power = 3;
+    lora->use_preset = !lora->use_preset;
+    lora->bandwidth = 250U;
+    lora->spread_factor = 9U;
+    lora->coding_rate = 6U;
+    lora->channel_num = 3U;
+    lora->tx_enabled = !lora->tx_enabled;
+    lora->override_duty_cycle = !lora->override_duty_cycle;
+    lora->ignore_mqtt = !lora->ignore_mqtt;
+    lora->config_ok_to_mqtt = !lora->config_ok_to_mqtt;
+    lora->sx126x_rx_boosted_gain = !lora->sx126x_rx_boosted_gain;
+    g_settings.display.screen_on_secs = 77U;
+    g_settings.power.ls_secs = 3U;
+    g_settings.power.min_wake_secs = 4U;
+    g_settings.power.wait_bluetooth_secs = 5U;
+    g_settings.bluetooth.fixed_pin = 123456U;
+    g_settings.device.node_info_broadcast_secs = 999U;
+    g_settings.position.position_broadcast_secs = 61U;
+    g_settings.position.gps_update_interval = 62U;
+    g_settings.display.flip_screen = !g_settings.display.flip_screen;
+    snprintf(g_settings.owner.long_name, sizeof g_settings.owner.long_name, "%s", "Other");
+    snprintf(g_settings.owner.short_name, sizeof g_settings.owner.short_name, "%s", "OTH");
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_read);
+    mesh_radio_backup_meshtastic_diff(&g_backup, &g_read, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.count != MESH_RADIO_BACKUP_DIFF_MAX ||
+                          g_diff.total <= MESH_RADIO_BACKUP_DIFF_MAX,
+                      "a long list was not kept to its bound with the rest counted");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(radio_backup_meshtastic_diff_refuses_another_protocol, unit) {
+    mesh_test_backup_radio(&g_settings, &g_status);
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_read);
+    g_read.header.protocol = MESH_RADIO_BACKUP_MESHCORE;
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_diff(&g_backup, &g_read, &g_diff) != -EPROTO,
+                      "a MeshCore backup was compared as Meshtastic");
     record_success(test_name);
 }

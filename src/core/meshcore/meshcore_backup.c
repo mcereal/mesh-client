@@ -1,7 +1,10 @@
 #include "mesh/core/meshcore_backup.h"
 
+#include "inkwell/base/text.h"
+
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /*
@@ -263,4 +266,246 @@ int mesh_meshcore_backup_read(const struct mesh_radio_backup *backup,
         }
     }
     return 0;
+}
+
+/* ---- comparing ----------------------------------------------------------------------------- */
+
+static struct mesh_radio_backup_change *mc_change(struct mesh_radio_backup_diff *diff,
+                                                  uint8_t topic, uint16_t index, uint16_t field) {
+    return mesh_radio_backup_diff_add(diff, MESH_RADIO_BACKUP_CHANGED, topic, index, field);
+}
+
+static void mc_diff_uint(struct mesh_radio_backup_diff *diff, uint8_t topic, uint16_t field,
+                         uint64_t a, uint64_t b) {
+    if (a == b) {
+        return;
+    }
+    struct mesh_radio_backup_change *change = mc_change(diff, topic, 0U, field);
+    if (change != NULL) {
+        mesh_radio_backup_value_uint(&change->before, a);
+        mesh_radio_backup_value_uint(&change->after, b);
+    }
+}
+
+static void mc_diff_bool(struct mesh_radio_backup_diff *diff, uint8_t topic, uint16_t field, bool a,
+                         bool b) {
+    if (a == b) {
+        return;
+    }
+    struct mesh_radio_backup_change *change = mc_change(diff, topic, 0U, field);
+    if (change != NULL) {
+        mesh_radio_backup_value_bool(&change->before, a);
+        mesh_radio_backup_value_bool(&change->after, b);
+    }
+}
+
+static void mc_diff_degrees(struct mesh_radio_backup_diff *diff, uint16_t field, int32_t a,
+                            int32_t b) {
+    if (a == b) {
+        return;
+    }
+    struct mesh_radio_backup_change *change =
+        mc_change(diff, MESH_RADIO_BACKUP_TOPIC_POSITION, 0U, field);
+    if (change != NULL) {
+        mesh_radio_backup_value_decimal(&change->before, a, 6U);
+        mesh_radio_backup_value_decimal(&change->after, b, 6U);
+    }
+}
+
+static void mc_diff_self(struct mesh_radio_backup_diff *diff,
+                         const struct mesh_meshcore_self_info *a,
+                         const struct mesh_meshcore_self_info *b) {
+    if (strcmp(a->name, b->name) != 0) {
+        struct mesh_radio_backup_change *change =
+            mc_change(diff, MESH_RADIO_BACKUP_TOPIC_OWNER, 0U, MESH_MESHCORE_BACKUP_FIELD_NAME);
+        if (change != NULL) {
+            mesh_radio_backup_value_text(&change->before, a->name, sizeof a->name);
+            mesh_radio_backup_value_text(&change->after, b->name, sizeof b->name);
+        }
+    }
+    const uint8_t lora = MESH_RADIO_BACKUP_TOPIC_LORA;
+    mc_diff_uint(diff, lora, MESH_MESHCORE_BACKUP_FIELD_FREQUENCY, a->frequency_khz,
+                 b->frequency_khz);
+    mc_diff_uint(diff, lora, MESH_MESHCORE_BACKUP_FIELD_BANDWIDTH, a->bandwidth_hz,
+                 b->bandwidth_hz);
+    mc_diff_uint(diff, lora, MESH_MESHCORE_BACKUP_FIELD_SPREADING, a->spreading_factor,
+                 b->spreading_factor);
+    mc_diff_uint(diff, lora, MESH_MESHCORE_BACKUP_FIELD_CODING, a->coding_rate, b->coding_rate);
+    mc_diff_uint(diff, lora, MESH_MESHCORE_BACKUP_FIELD_TX_POWER, a->tx_power_dbm, b->tx_power_dbm);
+    mc_diff_degrees(diff, MESH_MESHCORE_BACKUP_FIELD_LATITUDE, a->latitude_e6, b->latitude_e6);
+    mc_diff_degrees(diff, MESH_MESHCORE_BACKUP_FIELD_LONGITUDE, a->longitude_e6, b->longitude_e6);
+    mc_diff_uint(diff, MESH_RADIO_BACKUP_TOPIC_POSITION, MESH_MESHCORE_BACKUP_FIELD_ADVERT_LOCATION,
+                 a->advert_loc_policy, b->advert_loc_policy);
+    const uint8_t device = MESH_RADIO_BACKUP_TOPIC_DEVICE;
+    mc_diff_bool(diff, device, MESH_MESHCORE_BACKUP_FIELD_MANUAL_ADD, a->manual_add_contacts != 0U,
+                 b->manual_add_contacts != 0U);
+    mc_diff_uint(diff, device, MESH_MESHCORE_BACKUP_FIELD_TELEMETRY, a->telemetry_modes,
+                 b->telemetry_modes);
+    mc_diff_uint(diff, device, MESH_MESHCORE_BACKUP_FIELD_MULTI_ACKS, a->multi_acks, b->multi_acks);
+    if (memcmp(a->public_key, b->public_key, sizeof a->public_key) != 0) {
+        struct mesh_radio_backup_change *change = mc_change(
+            diff, MESH_RADIO_BACKUP_TOPIC_SECURITY, 0U, MESH_MESHCORE_BACKUP_FIELD_PUBLIC_KEY);
+        if (change != NULL) {
+            mesh_radio_backup_value_opaque(&change->before);
+            mesh_radio_backup_value_opaque(&change->after);
+        }
+    }
+}
+
+static void mc_diff_channel(struct mesh_radio_backup_diff *diff, uint16_t slot, bool in_a,
+                            const struct mesh_meshcore_channel *a, bool in_b,
+                            const struct mesh_meshcore_channel *b) {
+    in_a = in_a && mc_channel_used(a);
+    in_b = in_b && mc_channel_used(b);
+    if (!in_a && !in_b) {
+        return;
+    }
+    if (in_a != in_b) {
+        struct mesh_radio_backup_change *change = mesh_radio_backup_diff_add(
+            diff, in_a ? MESH_RADIO_BACKUP_REMOVED : MESH_RADIO_BACKUP_ADDED,
+            MESH_RADIO_BACKUP_TOPIC_CHANNEL, slot, MESH_MESHCORE_BACKUP_FIELD_CHANNEL_NAME);
+        if (change != NULL) {
+            const struct mesh_meshcore_channel *there = in_a ? a : b;
+            inkwell_str_copy(change->subject, sizeof change->subject, there->name);
+            mesh_radio_backup_value_text(in_a ? &change->before : &change->after, there->name,
+                                         sizeof there->name);
+        }
+        return;
+    }
+    if (strcmp(a->name, b->name) != 0) {
+        struct mesh_radio_backup_change *change = mc_change(
+            diff, MESH_RADIO_BACKUP_TOPIC_CHANNEL, slot, MESH_MESHCORE_BACKUP_FIELD_CHANNEL_NAME);
+        if (change != NULL) {
+            inkwell_str_copy(change->subject, sizeof change->subject, b->name);
+            mesh_radio_backup_value_text(&change->before, a->name, sizeof a->name);
+            mesh_radio_backup_value_text(&change->after, b->name, sizeof b->name);
+        }
+    }
+    if (memcmp(a->secret, b->secret, sizeof a->secret) != 0) {
+        struct mesh_radio_backup_change *change = mc_change(
+            diff, MESH_RADIO_BACKUP_TOPIC_CHANNEL, slot, MESH_MESHCORE_BACKUP_FIELD_CHANNEL_SECRET);
+        if (change != NULL) {
+            inkwell_str_copy(change->subject, sizeof change->subject, b->name);
+            mesh_radio_backup_value_opaque(&change->before);
+            mesh_radio_backup_value_opaque(&change->after);
+        }
+    }
+}
+
+static const struct mesh_meshcore_contact *
+mc_find_contact(const struct mesh_meshcore_backup_contents *contents, const uint8_t *key) {
+    for (size_t i = 0; i < contents->contact_count; ++i) {
+        if (memcmp(contents->contacts[i].public_key, key, MESH_MESHCORE_PUBKEY_LEN) == 0) {
+            return &contents->contacts[i];
+        }
+    }
+    return NULL;
+}
+
+static struct mesh_radio_backup_change *mc_contact_change(struct mesh_radio_backup_diff *diff,
+                                                          uint8_t kind, uint16_t field,
+                                                          const struct mesh_meshcore_contact *c) {
+    struct mesh_radio_backup_change *change =
+        mesh_radio_backup_diff_add(diff, kind, MESH_RADIO_BACKUP_TOPIC_CONTACT, 0U, field);
+    if (change != NULL) {
+        inkwell_str_copy(change->subject, sizeof change->subject, c->name);
+    }
+    return change;
+}
+
+static void mc_diff_contacts(struct mesh_radio_backup_diff *diff,
+                             const struct mesh_meshcore_backup_contents *a,
+                             const struct mesh_meshcore_backup_contents *b) {
+    for (size_t i = 0; i < a->contact_count; ++i) {
+        const struct mesh_meshcore_contact *was = &a->contacts[i];
+        const struct mesh_meshcore_contact *now = mc_find_contact(b, was->public_key);
+        if (now == NULL) {
+            struct mesh_radio_backup_change *change =
+                mc_contact_change(diff, MESH_RADIO_BACKUP_REMOVED, 0U, was);
+            if (change != NULL) {
+                mesh_radio_backup_value_text(&change->before, was->name, sizeof was->name);
+            }
+            continue;
+        }
+        if (strcmp(was->name, now->name) != 0) {
+            struct mesh_radio_backup_change *change = mc_contact_change(
+                diff, MESH_RADIO_BACKUP_CHANGED, MESH_MESHCORE_BACKUP_FIELD_NAME, now);
+            if (change != NULL) {
+                mesh_radio_backup_value_text(&change->before, was->name, sizeof was->name);
+                mesh_radio_backup_value_text(&change->after, now->name, sizeof now->name);
+            }
+        }
+        if (was->type != now->type) {
+            struct mesh_radio_backup_change *change = mc_contact_change(
+                diff, MESH_RADIO_BACKUP_CHANGED, MESH_MESHCORE_BACKUP_FIELD_CONTACT_TYPE, now);
+            if (change != NULL) {
+                mesh_radio_backup_value_uint(&change->before, was->type);
+                mesh_radio_backup_value_uint(&change->after, now->type);
+            }
+        }
+        if (was->flags != now->flags) {
+            struct mesh_radio_backup_change *change = mc_contact_change(
+                diff, MESH_RADIO_BACKUP_CHANGED, MESH_MESHCORE_BACKUP_FIELD_CONTACT_FLAGS, now);
+            if (change != NULL) {
+                mesh_radio_backup_value_uint(&change->before, was->flags);
+                mesh_radio_backup_value_uint(&change->after, now->flags);
+            }
+        }
+    }
+    for (size_t i = 0; i < b->contact_count; ++i) {
+        const struct mesh_meshcore_contact *now = &b->contacts[i];
+        if (mc_find_contact(a, now->public_key) == NULL) {
+            struct mesh_radio_backup_change *change =
+                mc_contact_change(diff, MESH_RADIO_BACKUP_ADDED, 0U, now);
+            if (change != NULL) {
+                mesh_radio_backup_value_text(&change->after, now->name, sizeof now->name);
+            }
+        }
+    }
+}
+
+int mesh_meshcore_backup_diff(const struct mesh_radio_backup *a, const struct mesh_radio_backup *b,
+                              struct mesh_radio_backup_diff *out) {
+    if (a == NULL || b == NULL || out == NULL) {
+        return -EINVAL;
+    }
+    mesh_radio_backup_diff_reset(out, MESH_RADIO_BACKUP_MESHCORE);
+    if (a->header.protocol != MESH_RADIO_BACKUP_MESHCORE ||
+        b->header.protocol != MESH_RADIO_BACKUP_MESHCORE) {
+        return -EPROTO;
+    }
+    struct mesh_meshcore_backup_contents *contents = malloc(2U * sizeof *contents);
+    if (contents == NULL) {
+        return -ENOMEM;
+    }
+    struct mesh_meshcore_backup_contents *was = &contents[0];
+    struct mesh_meshcore_backup_contents *now = &contents[1];
+    int result = mesh_meshcore_backup_read(a, was);
+    if (result == 0) {
+        result = mesh_meshcore_backup_read(b, now);
+    }
+    if (result == 0) {
+        if (was->has_self && now->has_self) {
+            mc_diff_self(out, &was->self, &now->self);
+        }
+        if (was->has_pin != now->has_pin || was->ble_pin != now->ble_pin) {
+            struct mesh_radio_backup_change *change = mc_change(
+                out, MESH_RADIO_BACKUP_TOPIC_BLUETOOTH, 0U, MESH_MESHCORE_BACKUP_FIELD_PIN);
+            if (change != NULL) {
+                if (was->has_pin) {
+                    mesh_radio_backup_value_uint(&change->before, was->ble_pin);
+                }
+                if (now->has_pin) {
+                    mesh_radio_backup_value_uint(&change->after, now->ble_pin);
+                }
+            }
+        }
+        for (uint16_t slot = 0U; slot < MESH_MESHCORE_CHANNELS_KEPT; ++slot) {
+            mc_diff_channel(out, slot, was->has_channel[slot], &was->channels[slot],
+                            now->has_channel[slot], &now->channels[slot]);
+        }
+        mc_diff_contacts(out, was, now);
+    }
+    free(contents);
+    return result;
 }
