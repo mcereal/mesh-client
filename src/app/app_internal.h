@@ -106,6 +106,9 @@ void mesh_app_profile_rescan(struct mesh_app *app);
 void mesh_app_profile_publish(const struct mesh_app *app, struct mesh_ui_profiles *out);
 /* A profile compared with the radio on the link; the answer is published with the listing. */
 void mesh_app_profile_compare(struct mesh_app *app, uint32_t sequence);
+/* The same comparison into `diff`, published nowhere: 0, or why it could not be made. */
+int mesh_app_profile_diff(struct mesh_app *app, uint32_t sequence,
+                          struct mesh_radio_backup_diff *diff);
 /* Puts a profile on the radio on the link, through the restore (see app_backup.c). */
 void mesh_app_profile_apply(struct mesh_app *app, uint32_t sequence);
 /* Whether profile `sequence` is being applied still - sent, and not yet judged. */

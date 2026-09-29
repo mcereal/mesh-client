@@ -500,6 +500,17 @@ MESH_TEST_CASE(radio_profile_cfg_channel_link_is_the_whole_table, unit) {
     record_success(test_name);
 }
 
+/* Position alone - the one part an export leaves out - is no file at all, not an empty one. */
+MESH_TEST_CASE(radio_profile_cfg_of_nothing_it_carries_is_refused, unit) {
+    profile_capture();
+    const struct mesh_radio_backup_parts position = profile_of(MESH_RADIO_BACKUP_TOPIC_POSITION);
+    MESH_TEST_FAIL_IF(mesh_radio_profile_make(&g_backup, &position, "Pos", &g_profile) != 0,
+                      "the profile was not made");
+    MESH_TEST_FAIL_IF(mesh_radio_profile_cfg_encode(&g_profile, g_cfg, sizeof g_cfg) != -ENODATA,
+                      "a profile of nothing a .cfg carries encoded");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(radio_profile_cfg_file_round_trips, unit) {
     profile_capture();
     const struct mesh_radio_backup_parts lora = profile_of(MESH_RADIO_BACKUP_TOPIC_LORA);

@@ -208,6 +208,11 @@ int mesh_radio_profile_cfg_encode(const struct mesh_radio_backup *profile, uint8
         } else {
             result = -ENOSPC;
         }
+        /* Only parts a DeviceProfile has no room for - Position, the UI, a table of no
+           channels: an empty file, which would import as nothing. */
+        if (result == 0 && written == 0U) {
+            result = -ENODATA;
+        }
     }
     free(device);
     free(channels);

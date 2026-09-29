@@ -6532,7 +6532,8 @@ static struct mesh_radio_backup g_profile_scratch;
  * another role, another hop limit: the transaction is the LoRa section and nothing else, and once
  * the radio has restarted and been read again the profile is judged applied, with the radio's
  * owner and role as they were. The profile cannot be deleted while it is out: judging the apply
- * reads it again.
+ * reads it again. Nor does its judgement take the screen from another profile's comparison,
+ * opened while it was out.
  */
 MESH_TEST_CASE(app_profile_made_from_a_backup_applies_only_its_parts, unit) {
     char home[APP_TEST_HOME_CAP];
@@ -6558,6 +6559,15 @@ MESH_TEST_CASE(app_profile_made_from_a_backup_applies_only_its_parts, unit) {
     const bool compared = app.profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE &&
                           app.profile_listing.diff.total == 1U &&
                           app.profile_listing.diff.changes[0].topic == MESH_RADIO_BACKUP_TOPIC_LORA;
+    mesh_app_profile_draft(&app, 0x0badcafeU, 1U);
+    app_profile_keep_only(&app, MESH_RADIO_BACKUP_TOPIC_DEVICE);
+    mesh_app_profile_make(&app, "Device only");
+    uint32_t other = 0U;
+    for (size_t i = 0; app.profile_listing.count == 2U && i < 2U; ++i) {
+        if (app.profile_listing.items[i].sequence != profile) {
+            other = app.profile_listing.items[i].sequence;
+        }
+    }
 
     mesh_app_profile_apply(&app, profile);
     bool sent = app.backup_restore.stage != 0U && radio->queue_len == 4U &&
@@ -6569,9 +6579,10 @@ MESH_TEST_CASE(app_profile_made_from_a_backup_applies_only_its_parts, unit) {
     mesh_app_profile_delete(&app, profile);
     const bool kept =
         mesh_radio_profile_store_load(&app.profiles, profile, &g_profile_scratch) == 0 &&
-        app.profile_listing.count == 1U &&
+        app.profile_listing.count == 2U &&
         strcmp(app.ui_store.nav.toast.text,
                "Still applying this profile; delete it once it is done") == 0;
+    mesh_app_profile_compare(&app, other);
 
     app_restore_radio_answered(&app);
     radio->lora.hop_limit = 5U;
@@ -6579,9 +6590,12 @@ MESH_TEST_CASE(app_profile_made_from_a_backup_applies_only_its_parts, unit) {
     mesh_app_backup_tick(&app);
     mesh_app_backup_tick(&app);
     const bool judged = app.backup_restore.stage == 0U &&
-                        app.profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE &&
-                        app.profile_listing.diff.total == 0U &&
                         strcmp(app.ui_store.nav.toast.text, "Profile applied to the radio") == 0;
+    const bool left_open = app.profile_listing.compare_sequence == other &&
+                           app.profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE;
+    mesh_app_profile_compare(&app, profile);
+    const bool matches = app.profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE &&
+                         app.profile_listing.diff.total == 0U;
     const bool untouched = strcmp(radio->owner.long_name, "Valley") == 0 &&
                            radio->device.role == meshtastic_Config_DeviceConfig_Role_CLIENT;
 
@@ -6592,8 +6606,11 @@ MESH_TEST_CASE(app_profile_made_from_a_backup_applies_only_its_parts, unit) {
     MESH_TEST_FAIL_IF(!made, "the profile was not saved under its trimmed name");
     MESH_TEST_FAIL_IF(!compared, "the comparison listed more than the profile's one part");
     MESH_TEST_FAIL_IF(!sent, "the apply was not the LoRa section inside one transaction");
+    MESH_TEST_FAIL_IF(other == 0U, "the second profile was not made");
     MESH_TEST_FAIL_IF(!kept, "the profile being applied was deleted");
-    MESH_TEST_FAIL_IF(!judged, "a radio matching the profile afterwards was not reported");
+    MESH_TEST_FAIL_IF(!judged || !matches,
+                      "a radio matching the profile afterwards was not reported");
+    MESH_TEST_FAIL_IF(!left_open, "the apply's judgement replaced another profile's comparison");
     MESH_TEST_FAIL_IF(!untouched, "the apply reached past its parts");
     record_success(test_name);
 }
@@ -6652,6 +6669,31 @@ MESH_TEST_CASE(app_profile_cfg_goes_out_to_the_card_and_back_in, unit) {
     MESH_TEST_FAIL_IF(!beside, "a second export wrote over the first file");
     MESH_TEST_FAIL_IF(!imported || !named, "the .cfg did not come back in as a profile");
     MESH_TEST_FAIL_IF(!refused, "a name outside the folder was imported");
+    record_success(test_name);
+}
+
+/* A profile of nothing a .cfg carries writes no file, and says so. */
+MESH_TEST_CASE(app_profile_cfg_of_nothing_it_carries_is_not_written, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    mesh_app_backup_tick(&app);
+    mesh_app_profile_draft(&app, 0x0badcafeU, 1U);
+    app_profile_keep_only(&app, MESH_RADIO_BACKUP_TOPIC_POSITION);
+    mesh_app_profile_make(&app, "Position");
+    const uint32_t profile =
+        app.profile_listing.count == 1U ? app.profile_listing.items[0].sequence : 0U;
+    mesh_app_profile_export(&app, profile);
+    const bool refused =
+        app.profile_listing.cfg_count == 0U &&
+        strcmp(app.ui_store.nav.toast.text, "Nothing in this profile goes in a .cfg file") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(profile == 0U, "the profile was not made");
+    MESH_TEST_FAIL_IF(!refused, "an empty .cfg was written");
     record_success(test_name);
 }
 

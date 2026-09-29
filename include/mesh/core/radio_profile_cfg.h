@@ -38,7 +38,9 @@ extern "C" {
 
 /*
  * `profile` as a DeviceProfile into `out`. How many bytes, or -EINVAL for a profile that is not
- * one or not Meshtastic's, -EBADMSG for a section that does not decode, -ENOSPC.
+ * one or not Meshtastic's, -EBADMSG for a section that does not decode, -ENOSPC, and -ENODATA
+ * for one whose parts are all ones a DeviceProfile has no room for (Position, the UI, a table of
+ * no channels) - the empty file it would make imports as nothing.
  */
 int mesh_radio_profile_cfg_encode(const struct mesh_radio_backup *profile, uint8_t *out,
                                   size_t out_len);

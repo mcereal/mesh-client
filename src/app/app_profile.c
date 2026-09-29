@@ -147,19 +147,15 @@ void mesh_app_profile_publish(const struct mesh_app *app, struct mesh_ui_profile
     }
 }
 
-void mesh_app_profile_compare(struct mesh_app *app, uint32_t sequence) {
-    if (app == NULL) {
-        return;
+int mesh_app_profile_diff(struct mesh_app *app, uint32_t sequence,
+                          struct mesh_radio_backup_diff *diff) {
+    if (app == NULL || diff == NULL) {
+        return -EINVAL;
     }
-    struct mesh_ui_profiles *listing = &app->profile_listing;
-    listing->compare_sequence = sequence;
-    listing->compare_state = MESH_UI_BACKUP_COMPARE_FAILED;
-    listing->compare_error = 0;
-    mesh_radio_backup_diff_reset(&listing->diff, MESH_RADIO_BACKUP_PROTOCOL_NONE);
+    mesh_radio_backup_diff_reset(diff, MESH_RADIO_BACKUP_PROTOCOL_NONE);
     struct mesh_radio_backup *pair = malloc(2U * sizeof *pair);
     if (pair == NULL) {
-        listing->compare_error = -ENOMEM;
-        return;
+        return -ENOMEM;
     }
     struct mesh_radio_backup *profile = &pair[0];
     struct mesh_radio_backup *live = &pair[1];
@@ -168,22 +164,33 @@ void mesh_app_profile_compare(struct mesh_app *app, uint32_t sequence) {
         result = mesh_app_backup_capture_live(app, live);
     }
     if (result == 0) {
-        result = mesh_radio_profile_diff(profile, live, &listing->diff);
+        result = mesh_radio_profile_diff(profile, live, diff);
     }
     free(pair);
     if (result != 0) {
         inkwell_log_warn("app", "Comparing profile %u failed: %d", (unsigned)sequence, result);
-        listing->compare_error = (int16_t)result;
-        return;
+        return result;
     }
     /* A module is named by the section that edits it, as a backup's comparison is. */
-    for (size_t i = 0; i < listing->diff.count; ++i) {
-        struct mesh_radio_backup_change *change = &listing->diff.changes[i];
+    for (size_t i = 0; i < diff->count; ++i) {
+        struct mesh_radio_backup_change *change = &diff->changes[i];
         if (change->topic == MESH_RADIO_BACKUP_TOPIC_MODULE && change->index < 32U) {
-            change->index = listing->module_names[change->index];
+            change->index = app->profile_listing.module_names[change->index];
         }
     }
-    listing->compare_state = MESH_UI_BACKUP_COMPARE_DONE;
+    return 0;
+}
+
+void mesh_app_profile_compare(struct mesh_app *app, uint32_t sequence) {
+    if (app == NULL) {
+        return;
+    }
+    struct mesh_ui_profiles *listing = &app->profile_listing;
+    listing->compare_sequence = sequence;
+    const int result = mesh_app_profile_diff(app, sequence, &listing->diff);
+    listing->compare_error = (int16_t)result;
+    listing->compare_state =
+        result == 0 ? MESH_UI_BACKUP_COMPARE_DONE : MESH_UI_BACKUP_COMPARE_FAILED;
 }
 
 void mesh_app_profile_delete(struct mesh_app *app, uint32_t sequence) {
@@ -393,6 +400,12 @@ void mesh_app_profile_export(struct mesh_app *app, uint32_t sequence) {
     }
     if (result == 0) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_PROFILE_EXPORTED, file);
+    } else if (result == -ENODATA) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_PROFILE_EXPORT_EMPTY));
+        inkwell_log_warn("app", "Profile %u has nothing a .cfg carries", (unsigned)sequence);
+        free(profile);
+        app_profile_toast(app, toast);
+        return;
         inkwell_log_info("app", "Profile %u written to %s", (unsigned)sequence, file);
     } else {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_PROFILE_EXPORT_FAILED, result);

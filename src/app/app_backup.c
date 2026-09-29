@@ -640,10 +640,20 @@ static void app_backup_restore_end(struct mesh_app *app) {
 }
 
 /* Compares again whatever was restored or applied: the backup, or the profile. The listing
-   holding the answer is the one its screen reads. */
-static const struct mesh_radio_backup_diff *app_restore_compare(struct mesh_app *app, uint32_t node,
-                                                                uint32_t sequence, uint32_t profile,
-                                                                bool *done, int16_t *error) {
+   holding the answer is the one its screen reads - unless another profile's comparison has been
+   opened there since, which is left as it is: the apply is judged into `scratch` instead, and
+   is not judged when there is none. */
+static const struct mesh_radio_backup_diff k_restore_no_diff;
+
+static const struct mesh_radio_backup_diff *
+app_restore_compare(struct mesh_app *app, uint32_t node, uint32_t sequence, uint32_t profile,
+                    struct mesh_radio_backup_diff *scratch, bool *done, int16_t *error) {
+    if (profile != 0U && app->profile_listing.compare_sequence != profile) {
+        const int result = scratch != NULL ? mesh_app_profile_diff(app, profile, scratch) : -ENOMEM;
+        *done = result == 0;
+        *error = (int16_t)result;
+        return scratch != NULL ? scratch : &k_restore_no_diff;
+    }
     if (profile != 0U) {
         mesh_app_profile_compare(app, profile);
         *done = app->profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE;
@@ -674,8 +684,9 @@ static void app_backup_restore_judge(struct mesh_app *app) {
     app_backup_restore_end(app);
     bool done = false;
     int16_t error = 0;
+    struct mesh_radio_backup_diff *scratch = malloc(sizeof *scratch);
     const struct mesh_radio_backup_diff *diff =
-        app_restore_compare(app, node, sequence, profile, &done, &error);
+        app_restore_compare(app, node, sequence, profile, scratch, &done, &error);
     /* Contacts come last in a comparison, so every setting ahead of them is in the list that
        was kept, and the ones after are not what "still differs" counts: a restore leaves a
        contact only the radio has, and one it changed since, where they are. Nor is a whole
@@ -720,6 +731,7 @@ static void app_backup_restore_judge(struct mesh_app *app) {
                      profile != 0U ? "profile" : "backup",
                      (unsigned)(profile != 0U ? profile : sequence), (unsigned)node, diff->total,
                      (unsigned)sent, (unsigned)planned, (unsigned)unwritten);
+    free(scratch);
     mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
 }
 
@@ -834,7 +846,7 @@ static void app_backup_restore_tick(struct mesh_app *app) {
             app_backup_restore_end(app);
             bool done = false;
             int16_t error = 0;
-            (void)app_restore_compare(app, node, sequence, profile, &done, &error);
+            (void)app_restore_compare(app, node, sequence, profile, NULL, &done, &error);
             mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
             return;
         }
@@ -867,7 +879,9 @@ static void app_backup_restore_tick(struct mesh_app *app) {
             inkwell_log_warn("app", "Restore of 0x%08x not judged: 0x%08x connected instead",
                              (unsigned)app->backup_restore.node, (unsigned)ready);
             if (app->backup_restore.profile != 0U) {
-                app->profile_listing.compare_state = MESH_UI_BACKUP_COMPARE_NONE;
+                if (app->profile_listing.compare_sequence == app->backup_restore.profile) {
+                    app->profile_listing.compare_state = MESH_UI_BACKUP_COMPARE_NONE;
+                }
             } else {
                 app->backup_listing.compare_state = MESH_UI_BACKUP_COMPARE_NONE;
             }
