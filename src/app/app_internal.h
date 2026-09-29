@@ -73,6 +73,17 @@ void mesh_app_backup_before(struct mesh_app *app, uint8_t reason);
    yet. Called every turn; cheap until a radio is ready. */
 void mesh_app_backup_tick(struct mesh_app *app);
 
+/* Reads the card into `backup_listing` again: every radio, its newest backups' headers. */
+void mesh_app_backup_rescan(struct mesh_app *app);
+
+/* Fills the Backups section's live half - which radio could be compared or saved now - and
+   copies the listing in. Called on every publish; reads nothing off the card. */
+void mesh_app_backup_publish(struct mesh_app *app, struct mesh_ui_backups *out);
+
+/* The two presses on one backup: compare it with the radio, and delete it. */
+void mesh_app_backup_compare(struct mesh_app *app, uint32_t node, uint32_t sequence);
+void mesh_app_backup_delete(struct mesh_app *app, uint32_t node, uint32_t sequence);
+
 /* ---- app_actions.c ---------------------------------------------------------------------- */
 
 /* What the UI asked for; installed on the UI controller as its action handler. */
@@ -180,6 +191,9 @@ struct mesh_ui_mqtt_state;
 void mesh_app_mqtt_publish_state(const struct mesh_app *app, struct mesh_ui_mqtt_state *out);
 
 /* ---- app_settings.c --------------------------------------------------------------------- */
+
+/* Which admin ModuleConfigType a settings section is; false for a section that is no module. */
+bool mesh_app_module_admin_type(enum mesh_ui_settings_section section, uint32_t *out_type);
 
 /* Queues the admin write a MESH_UI_ACTION_SAVE_SETTINGS asks for and toasts the outcome. */
 /* MeshCore's Bluetooth PIN from a save's two rows: `pairing` is -1 when that row was not

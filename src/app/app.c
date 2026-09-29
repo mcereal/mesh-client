@@ -1441,6 +1441,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
             snprintf(backups_dir, sizeof backups_dir, "%s.backups", app->ui_preferences_path);
         if (backups_written > 0 && backups_written < (int)sizeof backups_dir) {
             const int backups_result = mesh_radio_backup_store_init(&app->backups, backups_dir);
+            mesh_app_backup_rescan(app);
             if (backups_result < 0) {
                 inkwell_log_warn("app", "Radio backups unavailable: %d", backups_result);
             }

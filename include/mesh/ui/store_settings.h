@@ -12,6 +12,8 @@
  * screen in the client. See mesh/ui/store.h for the whole.
  */
 
+#include "mesh/core/radio_backup.h"
+#include "mesh/core/radio_backup_diff.h"
 #include "mesh/ui/store_channel.h"
 
 #include <stdbool.h>
@@ -443,6 +445,66 @@ struct mesh_ui_maps_group {
     char name[MESH_UI_MAPS_NAME_MAX];
     uint8_t count;
     bool update;
+};
+
+/*
+ * The backups on the card, as the Backups section lists them (MESH_UI_SETTINGS_BACKUPS).
+ *
+ * Read off the card by the app when it starts and again after anything it writes there - a
+ * backup taken, a backup deleted - rather than on every publish, because reading one means
+ * checking its digest and a MeshCore backup is a hundred kilobytes of text. Nothing else writes
+ * to that directory, so the copy here is the card.
+ *
+ * `radios` are the radios with backups, newest first; `entries` are their backups, a radio's
+ * together and newest first, each naming its radio by index. The header of each is carried
+ * whole: the detail screen is every fact in it, and the list rows are four of them. The bounds
+ * are what one card holds in practice - ten automatic backups a radio and a few asked for - kept
+ * low because this record is copied with every snapshot of the store.
+ */
+#define MESH_UI_BACKUP_RADIOS_MAX 12U
+#define MESH_UI_BACKUP_ENTRIES_MAX 40U
+
+/* A radio, as its newest backup that reads describes it. */
+struct mesh_ui_backup_radio {
+    uint32_t node;
+    /* How many backups it has on the card, and how many of those are in `entries`. */
+    uint16_t count;
+    uint16_t listed;
+    uint8_t protocol; /* enum mesh_radio_backup_protocol */
+    char name[MESH_RADIO_BACKUP_TEXT];
+    char device[MESH_RADIO_BACKUP_DEVICE];
+};
+
+struct mesh_ui_backup_entry {
+    uint8_t radio; /* index into `radios` */
+    uint32_t sequence;
+    struct mesh_radio_backup_header header;
+};
+
+/* Where a comparison is: asked for, answered, or refused - and for which backup. */
+enum mesh_ui_backup_compare_state {
+    MESH_UI_BACKUP_COMPARE_NONE = 0,
+    MESH_UI_BACKUP_COMPARE_DONE,
+    MESH_UI_BACKUP_COMPARE_FAILED,
+};
+
+struct mesh_ui_backups {
+    /* The card is there and the directory could be made. */
+    bool enabled;
+    /* The radio on the link, once it has been read far enough to back up - 0 until then, and 0
+       while the Settings tab administers another node. Compare and "save now" need it. */
+    uint32_t live_node;
+    uint8_t live_protocol; /* enum mesh_radio_backup_protocol */
+    uint8_t radio_count;
+    uint8_t entry_count;
+    struct mesh_ui_backup_radio radios[MESH_UI_BACKUP_RADIOS_MAX];
+    struct mesh_ui_backup_entry entries[MESH_UI_BACKUP_ENTRIES_MAX];
+    /* The last comparison: which backup it was of, how it went, and what differed. */
+    uint8_t compare_state; /* enum mesh_ui_backup_compare_state */
+    int16_t compare_error; /* the negative errno, when FAILED */
+    uint32_t compare_node;
+    uint32_t compare_sequence;
+    struct mesh_radio_backup_diff diff;
 };
 
 struct mesh_ui_settings {
@@ -990,6 +1052,8 @@ struct mesh_ui_settings {
     struct mesh_ui_maps_row maps_rows[MESH_UI_MAPS_ROWS_MAX];
     uint8_t maps_group_count;
     struct mesh_ui_maps_group maps_groups[MESH_UI_MAPS_GROUPS_MAX];
+
+    struct mesh_ui_backups backups;
 };
 
 #ifdef __cplusplus

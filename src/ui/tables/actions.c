@@ -680,17 +680,27 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
      */
     /* Maps is the same shape: nothing from the radio, and A is the row's own verb - a delete on
        a pack that is installed, which the bar names so, and "run" on the rest. */
+    /* And Backups, whose rows open a level, run a verb, or delete - by row, as here. */
     if (nav->settings_section == MESH_UI_SETTINGS_ABOUT ||
-        nav->settings_section == MESH_UI_SETTINGS_MAPS) {
+        nav->settings_section == MESH_UI_SETTINGS_MAPS ||
+        nav->settings_section == MESH_UI_SETTINGS_BACKUPS) {
         struct mesh_ui_settings_item item;
+        const uint8_t level = nav->settings_section == MESH_UI_SETTINGS_BACKUPS
+                                  ? mesh_ui_nav_open_channel(nav)
+                                  : MESH_UI_SETTINGS_NO_CHANNEL;
         if (snapshot != NULL &&
             mesh_ui_settings_item(&snapshot->settings,
                                   snapshot->handshake_valid ? &snapshot->handshake : NULL, NULL, 0U,
-                                  (enum mesh_ui_settings_section)nav->settings_section,
-                                  MESH_UI_SETTINGS_NO_CHANNEL, nav->cursor[nav->screen], &item) &&
+                                  (enum mesh_ui_settings_section)nav->settings_section, level,
+                                  nav->cursor[nav->screen], &item) &&
             item.kind == INKSTAND_FORM_ACTION) {
-            if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
+            const enum mesh_ui_settings_action verb = (enum mesh_ui_settings_action)item.number;
+            if (verb == MESH_UI_SETTINGS_ACTION_MAPS_DELETE ||
+                verb == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE) {
                 command_add(bar, MESH_UI_COMMAND_DELETE, MESH_STR_ACTION_DELETE, INKCELL_BUTTON_A);
+            } else if (verb == MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO ||
+                       verb == MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY) {
+                command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
             } else if (item.cycle) {
                 command_add(bar, MESH_UI_COMMAND_EDIT, MESH_STR_ACTION_EDIT, INKCELL_BUTTON_A);
             } else {

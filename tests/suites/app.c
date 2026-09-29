@@ -5840,3 +5840,52 @@ MESH_TEST_CASE(app_backup_refuses_a_radio_not_yet_read, unit) {
     MESH_TEST_FAIL_IF(total != 0, "a half-read radio was written to the card");
     record_success(test_name);
 }
+
+MESH_TEST_CASE(app_backup_listing_compares_and_deletes, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_backup_open(&app, home, sizeof home, "backup_listing");
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+
+    mesh_app_backup_tick(&app); /* the first-connect backup, sequence 1 */
+    const struct mesh_ui_backups *listing = &app.backup_listing;
+    const bool listed = listing->enabled && listing->radio_count == 1U &&
+                        listing->entry_count == 1U && listing->radios[0].node == 0x0badcafeU &&
+                        strcmp(listing->radios[0].name, "Ridge relay") == 0 &&
+                        listing->entries[0].sequence == 1U;
+
+    struct mesh_ui_backups published;
+    mesh_app_backup_publish(&app, &published);
+    const bool live = published.live_node == 0x0badcafeU &&
+                      published.live_protocol == MESH_RADIO_BACKUP_MESHTASTIC;
+
+    /* The radio as it was: nothing to say. Then one field moved on the radio: one line. */
+    mesh_app_backup_compare(&app, 0x0badcafeU, 1U);
+    const bool same =
+        listing->compare_state == MESH_UI_BACKUP_COMPARE_DONE && listing->diff.total == 0U;
+    mesh_session_model_settings(&app.session)->lora.hop_limit = 3U;
+    mesh_app_backup_compare(&app, 0x0badcafeU, 1U);
+    const bool one = listing->compare_state == MESH_UI_BACKUP_COMPARE_DONE &&
+                     listing->diff.count == 1U &&
+                     listing->diff.changes[0].topic == MESH_RADIO_BACKUP_TOPIC_LORA;
+    /* A backup that is not there is a comparison that failed, not one that found nothing. */
+    mesh_app_backup_compare(&app, 0x0badcafeU, 9U);
+    const bool missing = listing->compare_state == MESH_UI_BACKUP_COMPARE_FAILED &&
+                         listing->compare_error == -ENOENT;
+
+    mesh_app_backup_delete(&app, 0x0badcafeU, 1U);
+    const bool gone = listing->radio_count == 0U && listing->entry_count == 0U &&
+                      app_backup_count(&app, NULL, 0U) == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+
+    MESH_TEST_FAIL_IF(!listed, "the card's backup was not listed with its radio");
+    MESH_TEST_FAIL_IF(!live, "the radio on the link was not offered for comparison");
+    MESH_TEST_FAIL_IF(!same, "an unchanged radio compared as different");
+    MESH_TEST_FAIL_IF(!one, "one changed LoRa field was not one LoRa change");
+    MESH_TEST_FAIL_IF(!missing, "a missing backup did not fail its comparison");
+    MESH_TEST_FAIL_IF(!gone, "a deleted backup stayed on the card or in the list");
+    record_success(test_name);
+}

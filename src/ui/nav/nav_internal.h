@@ -204,6 +204,17 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui
 bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
 /* B out of an open section, or off the section list. False when there is nowhere to go. */
 bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav);
+/*
+ * The Backups section's levels (see `backups_node` in nav.h): a row pressed that opens one,
+ * B stepping back out of one, and the published list moving under them. The press answers
+ * true when `which` was one of its rows; the compare fills `action` as well.
+ */
+bool mesh_ui_nav_backups_press(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                               enum mesh_ui_settings_action which, const char *text,
+                               struct mesh_ui_action *action);
+bool mesh_ui_nav_backups_back(struct mesh_ui_nav *nav);
+bool mesh_ui_nav_backups_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
+void mesh_ui_nav_backups_reset(struct mesh_ui_nav *nav);
 /* Drops every pending settings edit and stands the discard question down. */
 void mesh_ui_nav_edits_clear(struct mesh_ui_nav *nav);
 /* The open section's rows as built, on whichever tab shows one (mesh_ui_nav_open_section());

@@ -961,7 +961,7 @@ static bool mesh_app_build_canned_list(const char *held, const struct mesh_ui_ac
  * the module table in radio_settings.c, so the type and the tag can no longer be typed apart
  * and disagree. A section that is not a module answers 0 and falls through to the switch.
  */
-static bool module_admin_type(enum mesh_ui_settings_section section, uint32_t *out_type) {
+bool mesh_app_module_admin_type(enum mesh_ui_settings_section section, uint32_t *out_type) {
     switch (section) {
     case MESH_UI_SETTINGS_MQTT:
         *out_type = meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG;
@@ -1019,7 +1019,7 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
        tag and the bytes. -ENOENT when the radio has not sent that section, exactly as the
        hand-written arms reported it. */
     uint32_t admin_type = 0U;
-    if (module_admin_type((enum mesh_ui_settings_section)action->section, &admin_type)) {
+    if (mesh_app_module_admin_type((enum mesh_ui_settings_section)action->section, &admin_type)) {
         const struct mesh_module_binding *binding = mesh_radio_module_for_type(admin_type);
         if (binding == NULL) {
             return -ENOTSUP;

@@ -139,6 +139,7 @@ add_library(meshclient_core
     src/ui/tables/mqtt.c
     src/ui/tables/trend.c
     src/ui/tables/actions.c
+    src/ui/tables/backups.c
     src/ui/views/channel_share.c
     src/ui/views/contact_share.c
     src/ui/views/firmware_progress.c

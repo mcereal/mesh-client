@@ -28,6 +28,7 @@
 #include "mesh/core/updater.h"
 #include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/backups.h"
 #include "mesh/ui/channel_share.h"
 #include "mesh/ui/units.h"
 
@@ -911,6 +912,267 @@ static void build_maps(const struct mesh_ui_settings *s, uint8_t channel, struct
         if (list->count > before) {
             snprintf(list->items[before].text, sizeof list->items[before].text, "%u", (unsigned)g);
         }
+    }
+}
+
+/*
+ * Backups: four levels of one section, told apart by the byte every row builder is handed (see
+ * mesh/ui/backups.h). Nothing here reaches the radio but the two verbs that read it - "save now"
+ * and the comparison - and both are offered only while the radio in question is on the link.
+ */
+static void backups_pair(char *out, size_t out_len, const char *a, const char *b) {
+    if (b == NULL || b[0] == '\0') {
+        inkwell_str_copy(out, out_len, a);
+    } else if (a == NULL || a[0] == '\0') {
+        inkwell_str_copy(out, out_len, b);
+    } else {
+        inkcell_str_format(out, out_len, MESH_STR_BACKUPS_PAIR, a, b);
+    }
+}
+
+/* "Save settings to card", when the radio it would save is the one on the link. */
+static void backups_save_row(const struct mesh_ui_backups *b, uint32_t node,
+                             struct item_list *list) {
+    if (b->live_node != 0U && (node == 0U || node == b->live_node)) {
+        item_verb(list, MESH_STR_ACTION_SAVE_BACKUP, MESH_UI_SETTINGS_ACTION_SAVE_BACKUP);
+    }
+}
+
+static void build_backups_radios(const struct mesh_ui_backups *b, struct item_list *list) {
+    if (!b->enabled) {
+        item_str(list, MESH_STR_BACKUPS_NO_CARD, INKSTAND_FORM_INFO, INKCELL_STR_NONE);
+        return;
+    }
+    backups_save_row(b, 0U, list);
+    if (b->radio_count == 0U) {
+        item_str(list, MESH_STR_BACKUPS_EMPTY, INKSTAND_FORM_INFO, MESH_STR_BACKUPS_EMPTY_VALUE);
+        return;
+    }
+    item_heading(list, MESH_STR_BACKUPS_HEAD_RADIOS);
+    for (uint8_t r = 0U; r < b->radio_count && r < MESH_UI_BACKUP_RADIOS_MAX; ++r) {
+        const struct mesh_ui_backup_radio *radio = &b->radios[r];
+        char name[MESH_UI_SETTINGS_LABEL_MAX];
+        mesh_ui_backups_radio_name(radio, name, sizeof name);
+        char count[32];
+        inkcell_str_format_plural(count, sizeof count, MESH_STR_BACKUPS_COUNT_ONE, radio->count,
+                                  (unsigned)radio->count);
+        /* The radio on the link says so where the others say which firmware they ran. */
+        const char *which = radio->node == b->live_node
+                                ? inkcell_str(MESH_STR_BACKUPS_CONNECTED)
+                                : inkcell_str(mesh_ui_backups_protocol(radio->protocol));
+        char value[MESH_UI_SETTINGS_VALUE_MAX];
+        backups_pair(value, sizeof value, which, count);
+        const size_t before = list->count;
+        item_action_named(list, name, value, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO);
+        if (list->count > before) {
+            snprintf(list->items[before].text, sizeof list->items[before].text, "%u", (unsigned)r);
+        }
+    }
+}
+
+static void build_backups_radio(const struct mesh_ui_backups *b, uint8_t r,
+                                struct item_list *list) {
+    if (r >= b->radio_count) {
+        return;
+    }
+    const struct mesh_ui_backup_radio *radio = &b->radios[r];
+    backups_save_row(b, radio->node, list);
+    item_heading(list, MESH_STR_BACKUPS_HEAD_LIST);
+    for (uint8_t e = 0U; e < b->entry_count && e < MESH_UI_BACKUP_ENTRIES_MAX; ++e) {
+        if (!mesh_ui_backups_listed_under(b, r, e)) {
+            continue;
+        }
+        const struct mesh_ui_backup_entry *entry = &b->entries[e];
+        char when[MESH_UI_SETTINGS_LABEL_MAX];
+        mesh_ui_backups_when(&entry->header, entry->sequence, when, sizeof when);
+        /* Why it was taken, and what the radio ran - or, for one taken under the other
+           firmware, which firmware that was: the one fact that changes what it can be used for. */
+        const char *why = inkcell_str(mesh_ui_backups_reason(entry->header.reason));
+        const char *second = entry->header.protocol != radio->protocol
+                                 ? inkcell_str(mesh_ui_backups_protocol(entry->header.protocol))
+                                 : entry->header.firmware;
+        char value[MESH_UI_SETTINGS_VALUE_MAX];
+        backups_pair(value, sizeof value, why, second);
+        const size_t before = list->count;
+        item_action_named(list, when, value, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY);
+        if (list->count > before) {
+            snprintf(list->items[before].text, sizeof list->items[before].text, "%u", (unsigned)e);
+        }
+    }
+}
+
+static void item_fact(struct item_list *list, inkcell_str_id label, const char *value) {
+    if (value != NULL && value[0] != '\0') {
+        item_text(list, label, INKSTAND_FORM_INFO, value);
+    }
+}
+
+static void build_backups_entry(const struct mesh_ui_backups *b, uint8_t e,
+                                struct item_list *list) {
+    if (e >= b->entry_count) {
+        return;
+    }
+    const struct mesh_ui_backup_entry *entry = &b->entries[e];
+    const struct mesh_radio_backup_header *h = &entry->header;
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+
+    item_heading(list, MESH_STR_BACKUPS_HEAD_BACKUP);
+    mesh_ui_backups_when(h, entry->sequence, value, sizeof value);
+    item_fact(list, MESH_STR_BACKUPS_TAKEN, value);
+    item_str(list, MESH_STR_BACKUPS_WHY, INKSTAND_FORM_INFO, mesh_ui_backups_reason(h->reason));
+    item_fact(list, MESH_STR_BACKUPS_NAME, h->name);
+    snprintf(value, sizeof value, "!%08" PRIx32, h->node_id);
+    item_fact(list, MESH_STR_BACKUPS_NODE, value);
+    item_str(list, MESH_STR_BACKUPS_PROTOCOL, INKSTAND_FORM_INFO,
+             mesh_ui_backups_protocol(h->protocol));
+    item_fact(list, MESH_STR_BACKUPS_MODEL, h->model);
+    item_fact(list, MESH_STR_BACKUPS_FIRMWARE, h->firmware);
+    item_fact(list, MESH_STR_BACKUPS_DEVICE, h->device);
+    if (h->has_nodes_heard) {
+        snprintf(value, sizeof value, "%" PRIu32, h->nodes_heard);
+        item_fact(list, MESH_STR_BACKUPS_NODES_HEARD, value);
+    }
+    if (h->has_contacts) {
+        snprintf(value, sizeof value, "%" PRIu32, h->contacts);
+        item_fact(list, MESH_STR_BACKUPS_CONTACTS, value);
+    }
+
+    if (h->has_radio) {
+        item_heading(list, MESH_STR_BACKUPS_HEAD_RADIO);
+        item_fact(list, MESH_STR_SETTINGS_FIELD_LORA_REGION, h->region);
+        item_fact(list, MESH_STR_SETTINGS_FIELD_LORA_PRESET, h->preset);
+        if (h->frequency_khz != 0U) {
+            inkcell_str_format(value, sizeof value, MESH_STR_BACKUPS_FREQUENCY_VALUE,
+                               (unsigned)(h->frequency_khz / 1000U),
+                               (unsigned)(h->frequency_khz % 1000U));
+            item_fact(list, MESH_STR_SETTINGS_FIELD_LORA_FREQUENCY, value);
+        }
+        if (h->bandwidth_hz != 0U) {
+            inkcell_str_format(value, sizeof value, MESH_STR_BACKUPS_BANDWIDTH_VALUE,
+                               (unsigned)(h->bandwidth_hz / 1000U),
+                               (unsigned)((h->bandwidth_hz % 1000U) / 100U));
+            item_fact(list, MESH_STR_SETTINGS_FIELD_LORA_BANDWIDTH, value);
+        }
+        if (h->spreading_factor != 0U) {
+            snprintf(value, sizeof value, "%u", (unsigned)h->spreading_factor);
+            item_fact(list, MESH_STR_SETTINGS_FIELD_LORA_SPREAD, value);
+        }
+        if (h->coding_rate != 0U) {
+            inkcell_str_format(value, sizeof value, MESH_STR_BACKUPS_CODING_VALUE,
+                               (unsigned)h->coding_rate);
+            item_fact(list, MESH_STR_SETTINGS_FIELD_LORA_CODING, value);
+        }
+        inkcell_str_format(value, sizeof value, MESH_STR_VALUE_DBM, (int)h->tx_power_dbm);
+        item_fact(list, MESH_STR_SETTINGS_FIELD_LORA_TX_POWER, value);
+    }
+
+    if (h->channel_count > 0U) {
+        item_heading(list, MESH_STR_BACKUPS_HEAD_CHANNELS);
+        for (uint8_t c = 0U; c < h->channel_count && c < MESH_RADIO_BACKUP_CHANNELS; ++c) {
+            char label[MESH_UI_SETTINGS_LABEL_MAX];
+            inkcell_str_format(label, sizeof label, MESH_STR_SETTINGS_TITLE_CHANNEL, (unsigned)c);
+            struct mesh_ui_settings_item *item = item_add_named(list, label, INKSTAND_FORM_INFO);
+            if (item != NULL) {
+                inkwell_str_copy(item->value, sizeof item->value,
+                                 h->channel_names[c][0] != '\0'
+                                     ? h->channel_names[c]
+                                     : inkcell_str(MESH_STR_BACKUPS_CHANNEL_UNNAMED));
+            }
+        }
+    }
+
+    item_heading(list, MESH_STR_BACKUPS_HEAD_ACTIONS);
+    if (mesh_ui_backups_can_compare(b, e)) {
+        item_verb(list, MESH_STR_BACKUPS_COMPARE, MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE);
+    } else {
+        /* Why not: the radio is not here, or it is here running the other firmware - which no
+           comparison can bridge, since the two keep different things. */
+        const int live = mesh_ui_backups_find_radio(b, b->live_node);
+        const bool other = h->node_id == b->live_node ||
+                           (live >= 0 && mesh_ui_backups_listed_under(b, (size_t)live, e));
+        item_action_off(list, MESH_STR_BACKUPS_COMPARE,
+                        other ? MESH_STR_BACKUPS_COMPARE_OFF_OTHER
+                              : MESH_STR_BACKUPS_COMPARE_OFF_LINK,
+                        MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE);
+    }
+    backups_save_row(b, h->node_id, list);
+    item_verb(list, MESH_STR_BACKUPS_DELETE, MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE);
+}
+
+static void build_backups_compare(const struct mesh_ui_backups *b, uint8_t e,
+                                  struct item_list *list) {
+    if (e >= b->entry_count) {
+        return;
+    }
+    const struct mesh_ui_backup_entry *entry = &b->entries[e];
+    const bool ours =
+        b->compare_node == entry->header.node_id && b->compare_sequence == entry->sequence;
+    if (!ours || b->compare_state == MESH_UI_BACKUP_COMPARE_NONE) {
+        item_meter(list, MESH_STR_BACKUPS_COMPARING, "", INKSTAND_FORM_METER_UNKNOWN);
+        return;
+    }
+    if (b->compare_state == MESH_UI_BACKUP_COMPARE_FAILED) {
+        char value[MESH_UI_SETTINGS_VALUE_MAX];
+        inkcell_str_format(value, sizeof value, MESH_STR_BACKUPS_COMPARE_ERROR,
+                           (int)b->compare_error);
+        item_text(list, MESH_STR_BACKUPS_COMPARE_FAILED, INKSTAND_FORM_INFO, value);
+        return;
+    }
+    const struct mesh_radio_backup_diff *diff = &b->diff;
+    if (diff->total == 0U) {
+        item_str(list, MESH_STR_BACKUPS_SAME, INKSTAND_FORM_INFO, MESH_STR_BACKUPS_SAME_VALUE);
+        return;
+    }
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    inkcell_str_format_plural(value, sizeof value, MESH_STR_BACKUPS_DIFFERENCES_ONE,
+                              (uint32_t)diff->total, (unsigned)diff->total);
+    item_text(list, MESH_STR_BACKUPS_DIFFERENCES_LABEL, INKSTAND_FORM_INFO, value);
+
+    /* A heading wherever the topic changes, and one row per change under it. Two rows are kept
+       back at the end of the list for the count of what did not fit. */
+    char heading[MESH_UI_SETTINGS_LABEL_MAX] = "";
+    size_t shown = 0U;
+    for (size_t i = 0; i < diff->count && list->count + 3U <= MESH_UI_SETTINGS_ITEMS_MAX; ++i) {
+        const struct mesh_radio_backup_change *change = &diff->changes[i];
+        char topic[MESH_UI_SETTINGS_LABEL_MAX];
+        mesh_ui_backups_topic(change, topic, sizeof topic);
+        if (strcmp(topic, heading) != 0) {
+            inkwell_str_copy(heading, sizeof heading, topic);
+            item_add_named(list, heading, INKSTAND_FORM_HEADING);
+        }
+        char label[MESH_UI_SETTINGS_LABEL_MAX];
+        mesh_ui_backups_field(diff->protocol, change, label, sizeof label);
+        struct mesh_ui_settings_item *item = item_add_named(list, label, INKSTAND_FORM_INFO);
+        if (item != NULL) {
+            mesh_ui_backups_change(diff->protocol, change, item->value, sizeof item->value);
+            ++shown;
+        }
+    }
+    if (diff->total > shown) {
+        const uint32_t more = (uint32_t)(diff->total - shown);
+        inkcell_str_format_plural(value, sizeof value, MESH_STR_BACKUPS_MORE_ONE, more,
+                                  (unsigned)more);
+        item_add_named(list, value, INKSTAND_FORM_INFO);
+    }
+}
+
+static void build_backups(const struct mesh_ui_settings *s, uint8_t view, struct item_list *list) {
+    const struct mesh_ui_backups *b = &s->backups;
+    uint8_t index = 0U;
+    switch (mesh_ui_backups_level_of(view, &index)) {
+    case MESH_UI_BACKUPS_RADIO:
+        build_backups_radio(b, index, list);
+        break;
+    case MESH_UI_BACKUPS_ENTRY:
+        build_backups_entry(b, index, list);
+        break;
+    case MESH_UI_BACKUPS_COMPARE:
+        build_backups_compare(b, index, list);
+        break;
+    case MESH_UI_BACKUPS_RADIOS:
+    default:
+        build_backups_radios(b, list);
+        break;
     }
 }
 
@@ -2787,6 +3049,9 @@ static void build_section(const struct mesh_ui_settings *settings,
         break;
     case MESH_UI_SETTINGS_MAPS:
         build_maps(settings, channel, list);
+        break;
+    case MESH_UI_SETTINGS_BACKUPS:
+        build_backups(settings, channel, list);
         break;
     case MESH_UI_SETTINGS_RADIO:
         build_radio(settings, handshake, list);

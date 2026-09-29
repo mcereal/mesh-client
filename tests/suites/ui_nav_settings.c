@@ -2384,14 +2384,16 @@ MESH_TEST_CASE(ui_nav_settings_root_steps_over_its_heading, unit) {
     (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     uint32_t *const cursor = &store.nav.cursor[MESH_UI_SCREEN_SETTINGS];
     const uint32_t about = mesh_ui_settings_root_count(&store.settings) - 1U;
-    const uint32_t maps = about - 1U;
+    const uint32_t backups = about - 1U;
+    const uint32_t maps = backups - 1U;
     const uint32_t heading = maps - 1U;
     if (*cursor != 0U || mesh_ui_settings_root_is_heading(&store.settings, 0U) ||
         mesh_ui_settings_root_at(&store.settings, about) != MESH_UI_SETTINGS_ABOUT ||
+        mesh_ui_settings_root_at(&store.settings, backups) != MESH_UI_SETTINGS_BACKUPS ||
         mesh_ui_settings_root_at(&store.settings, maps) != MESH_UI_SETTINGS_MAPS ||
         !mesh_ui_settings_root_is_heading(&store.settings, heading)) {
         failure = "the list should open on a radio section and end with the heading over the "
-                  "client's two rows";
+                  "client's three rows";
         goto cleanup;
     }
     *cursor = heading - 1U;
@@ -2571,7 +2573,7 @@ MESH_TEST_CASE(ui_nav_settings_maps_rows_carry_their_pack, unit) {
 
     struct mesh_ui_action action;
     (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
-    const uint32_t maps_row = mesh_ui_settings_root_count(&store.settings) - 2U;
+    const uint32_t maps_row = mesh_ui_settings_root_count(&store.settings) - 3U;
     if (!mesh_test_settings_cursor_to(&store, maps_row)) {
         failure = "the walk should reach Maps";
         goto cleanup;

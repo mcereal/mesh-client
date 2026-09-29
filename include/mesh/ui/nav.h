@@ -867,6 +867,31 @@ struct mesh_ui_nav {
        which is the slot every section row builder is already handed. */
     uint8_t maps_group;
     uint32_t maps_group_list_cursor;
+    /*
+     * Backups: which radio is open, which of its backups, and whether that backup is being
+     * compared with the radio - the section's three levels past its list of radios.
+     *
+     * Held by what they are about, a node number and a sequence number, rather than by row: a
+     * backup taken or pruned while the reader is in here re-orders the published list, and a
+     * row index would then be somebody else's backup. mesh_ui_nav_clamp() works the published
+     * indices out again every frame (`backups_radio`, `backups_entry`) and the byte the rows
+     * are built from (`backups_view`, see mesh/ui/backups.h), and steps back out of a level
+     * whose radio or backup has gone - which is what a delete looks like from here.
+     *
+     * `backups_entry_node` is the backup's own radio, which is the open radio's or, for one
+     * taken under the other firmware, that firmware's node number for the same device.
+     */
+    uint32_t backups_node;
+    uint32_t backups_entry_node;
+    uint32_t backups_sequence;
+    bool backups_compare;
+    uint8_t backups_radio;
+    uint8_t backups_entry;
+    uint8_t backups_view;
+    /* Where each level was when the one over it opened, for B to put back. */
+    uint32_t backups_radios_cursor;
+    uint32_t backups_list_cursor;
+    uint32_t backups_entry_cursor;
     /* A contact link that has been typed and parsed, waiting on the sheet in front of it.
        Its own buffer beside the channel one, for that buffer's reason: the keyboard closes
        before the sheet opens, and closing it is what puts the parked Compose draft back. */
@@ -1119,6 +1144,13 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_MAPS_DOWNLOAD,
     MESH_UI_ACTION_MAPS_CANCEL,
     MESH_UI_ACTION_MAPS_DELETE,
+    /*
+     * Backups on the card: compare the backup `number` (its sequence) of radio `dest` with the
+     * radio on the link, and delete it. Neither changes the radio. The comparison's answer is
+     * published into the Backups section, which is already showing its screen.
+     */
+    MESH_UI_ACTION_BACKUP_COMPARE,
+    MESH_UI_ACTION_BACKUP_DELETE,
     /* Not a verb: how many there are. It is what pins the dispatch table in
        src/app/app_actions.c to this list - a verb added above and not given a row there is a
        press that reaches the app and does nothing, with nothing to see at the seam. */

@@ -1978,6 +1978,14 @@ static void on_maps_delete(struct mesh_app *app, const struct mesh_ui_action *ac
     }
 }
 
+static void on_backup_compare(struct mesh_app *app, const struct mesh_ui_action *action) {
+    mesh_app_backup_compare(app, action->dest, action->number);
+}
+
+static void on_backup_delete(struct mesh_app *app, const struct mesh_ui_action *action) {
+    mesh_app_backup_delete(app, action->dest, action->number);
+}
+
 static void on_cycle_firmware_channel(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
@@ -2700,6 +2708,8 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_MAPS_DOWNLOAD, on_maps_download, false},
     {MESH_UI_ACTION_MAPS_CANCEL, on_maps_cancel, false},
     {MESH_UI_ACTION_MAPS_DELETE, on_maps_delete, false},
+    {MESH_UI_ACTION_BACKUP_COMPARE, on_backup_compare, false},
+    {MESH_UI_ACTION_BACKUP_DELETE, on_backup_delete, false},
 };
 
 /*
