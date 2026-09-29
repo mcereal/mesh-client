@@ -164,7 +164,9 @@ bool mesh_crash_report_parse(const char *text, size_t len, struct mesh_crash_rep
         copy[line_len] = '\0';
         const char *const line = copy;
         const char *const end = copy + line_len;
-        next = newline + 1;
+        /* Past the newline, or to the end when the last line has none: `stop + 1` is not a
+           pointer C lets this compute, even to compare it. */
+        next = newline < stop ? newline + 1 : stop;
 
         if (line_len >= 4U && strncmp(line, "--- ", 4U) == 0) {
             if (strncmp(line, "--- where", 9U) == 0) {
