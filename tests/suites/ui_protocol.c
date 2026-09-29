@@ -1182,12 +1182,24 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
         strstr(text, inkcell_str(MESH_STR_CONFIRM_TEXT_RESTORE_ROUTES_KEEP)) == NULL ||
             strstr(text, inkcell_str(MESH_STR_CONFIRM_TEXT_RESTORE_NEWER_REPLACE)) == NULL,
         "the sheet did not say the choices as they now stand");
-    /* The overlay holds 256 bytes, and a backup from other firmware adds a sentence after. */
-    char longest[512];
-    mesh_ui_settings_confirm_for_protocol(&settings, MESH_UI_SETTINGS_BACKUPS,
-                                          MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE, longest,
-                                          sizeof longest);
-    MESH_TEST_FAIL_IF(strlen(longest) > 200U, "the restore sheet leaves no room for its note");
+    /* The overlay holds 256 bytes, and a backup from other firmware adds a sentence after:
+       the whole sheet, with the longest firmware names the note takes, fits in every language. */
+    static const char *const locales[] = {"en", "es"};
+    const char *const version = "12345678901234567890";
+    size_t longest = 0U;
+    for (size_t l = 0; l < sizeof locales / sizeof locales[0]; ++l) {
+        (void)inkcell_i18n_set_locale(locales[l]);
+        char sheet[512];
+        mesh_ui_settings_confirm_for_protocol(&settings, MESH_UI_SETTINGS_BACKUPS,
+                                              MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE, sheet,
+                                              sizeof sheet);
+        const size_t at = strlen(sheet);
+        inkcell_str_format(sheet + at, sizeof sheet - at, MESH_STR_CONFIRM_TEXT_RESTORE_FIRMWARE,
+                           version, version);
+        longest = strlen(sheet) > longest ? strlen(sheet) : longest;
+    }
+    (void)inkcell_i18n_set_locale("en");
+    MESH_TEST_FAIL_IF(longest >= 256U, "the restore sheet and its note do not fit the overlay");
     settings.protocol_lacks = 0U;
     mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_LORA, MESH_UI_SETTINGS_ACTION_NONE, text,
                                   sizeof text);

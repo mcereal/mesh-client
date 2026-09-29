@@ -2563,12 +2563,12 @@ MESH_STR_ENTRY(CONFIRM_TEXT_RM_BACKUP,    "The saved copy is erased from the rad
 MESH_STR_ENTRY(CONFIRM_TEXT_MAPS_DELETE,  "The map comes off the card and stops being drawn. It can be downloaded again from this screen.")
 MESH_STR_ENTRY(CONFIRM_TEXT_BACKUPS_DELETE, "The copy comes off the card. The radio is untouched, and its other backups stay.")
 MESH_STR_ENTRY(CONFIRM_TEXT_BACKUPS_RESTORE, "What differs goes back on the radio, which then restarts. It keeps its own keys, and a copy of it as it is now is saved first.")
-MESH_STR_ENTRY(CONFIRM_TEXT_BACKUPS_RESTORE_PLAIN, "What differs goes back on the radio, with no restart; contacts only on the radio stay. A copy of it as it is now is saved first.")
+MESH_STR_ENTRY(CONFIRM_TEXT_BACKUPS_RESTORE_PLAIN, "What differs goes back, with no restart; contacts only on the radio stay. A copy is saved first.")
 /* Joined to the sheet above, after a space: the two choices its contacts are written under. */
-MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_ROUTES_CLEAR, " Routes are learned again.")
-MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_ROUTES_KEEP, " Routes are the backup's.")
-MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_NEWER_KEEP, " Contacts changed since stay.")
-MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_NEWER_REPLACE, " Contacts changed since are replaced.")
+MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_ROUTES_CLEAR, " Routes: learned again.")
+MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_ROUTES_KEEP, " Routes: the backup's.")
+MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_NEWER_KEEP, " Changed since: kept.")
+MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_NEWER_REPLACE, " Changed since: replaced.")
 /* Joined to the sheet above, after a space: the firmware the backup was taken on, then the one
    the radio runs now. */
 MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_FIRMWARE, " Taken on firmware %.20s; the radio runs %.20s now.")

@@ -1893,13 +1893,12 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Lo que difiere vuelve a la radio, que luego se reinicia. Conserva sus claves, y antes se "
         "guarda una copia de cómo está ahora.",
     [MESH_STR_CONFIRM_TEXT_BACKUPS_RESTORE_PLAIN] =
-        "Lo que difiere vuelve a la radio, sin reinicio; se quedan los contactos que solo tiene "
-        "ella. Antes se guarda una copia.",
-    [MESH_STR_CONFIRM_TEXT_RESTORE_ROUTES_CLEAR] = " Las rutas se aprenden de nuevo.",
-    [MESH_STR_CONFIRM_TEXT_RESTORE_ROUTES_KEEP] = " Las rutas son las de la copia.",
-    [MESH_STR_CONFIRM_TEXT_RESTORE_NEWER_KEEP] = " Se conservan los contactos cambiados después.",
-    [MESH_STR_CONFIRM_TEXT_RESTORE_NEWER_REPLACE] =
-        " Se reemplazan los contactos cambiados después.",
+        "Lo que difiere vuelve, sin reinicio; quedan los contactos solo de la radio. Antes se "
+        "guarda una copia.",
+    [MESH_STR_CONFIRM_TEXT_RESTORE_ROUTES_CLEAR] = " Rutas: se aprenden de nuevo.",
+    [MESH_STR_CONFIRM_TEXT_RESTORE_ROUTES_KEEP] = " Rutas: las de la copia.",
+    [MESH_STR_CONFIRM_TEXT_RESTORE_NEWER_KEEP] = " Cambiados después: se quedan.",
+    [MESH_STR_CONFIRM_TEXT_RESTORE_NEWER_REPLACE] = " Cambiados después: se reemplazan.",
     [MESH_STR_CONFIRM_TEXT_RESTORE_FIRMWARE] =
         " Hecha con el firmware %.20s; la radio usa ahora %.20s.",
     [MESH_STR_BACKUPS_RESTORE] = "Restaurar en la radio",
