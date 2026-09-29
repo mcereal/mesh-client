@@ -1413,7 +1413,7 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
         failure = "the farthest direct hearing should be a distance, in the radio's units";
         goto cleanup;
     }
-    char day[16];
+    char day[32];
     const time_t stamp = (time_t)stats->since;
     struct tm when;
     MESH_TEST_FAIL_IF(localtime_r(&stamp, &when) == NULL, "localtime_r failed");
@@ -1421,6 +1421,29 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     if ((value = stats_value_of(&store, "Counting since", &item)) == NULL ||
         strcmp(value, day) != 0) {
         failure = "the page should name the day the counting started";
+        goto cleanup;
+    }
+    /* Who set a record sits under it, and only when there is somebody to name: a record off a
+       card from before holders were kept is still a record, with no row under it. */
+    if (stats_value_of(&store, "Set by", &item) != NULL) {
+        failure = "a record with nobody to name should have no holder row";
+        goto cleanup;
+    }
+    snprintf(stats->farthest_direct_holder.name, sizeof stats->farthest_direct_holder.name, "%s",
+             "!00002222");
+    mesh_ui_store_set_settings(&store, &settings);
+    if ((value = stats_value_of(&store, "Set by", &item)) == NULL ||
+        strcmp(value, "!00002222") != 0 || item.kind != INKSTAND_FORM_INFO) {
+        failure = "a holder set with no clock should be named without a day";
+        goto cleanup;
+    }
+    snprintf(stats->most_hops_holder.name, sizeof stats->most_hops_holder.name, "%s", "ALFA");
+    stats->most_hops_holder.at = stats->since;
+    mesh_ui_store_set_settings(&store, &settings);
+    char held[64];
+    snprintf(held, sizeof held, "ALFA, %s", day);
+    if ((value = stats_value_of(&store, "Set by", &item)) == NULL || strcmp(value, held) != 0) {
+        failure = "a holder should be named with the day it set the record";
         goto cleanup;
     }
     /* And a distance measured at 0 - two radios at one spot - is a record, not "none yet". */

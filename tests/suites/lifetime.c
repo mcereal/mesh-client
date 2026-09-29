@@ -333,6 +333,92 @@ MESH_TEST_CASE(lifetime_a_record_from_an_older_card_reads_as_measured, unit) {
 }
 
 /*
+ * A record names who set it and when, and keeps the first to reach it.
+ *
+ * A tie is not a new record: a record that changed hands whenever somebody matched it would name
+ * whoever was heard last. The holder goes on the card beside the record and comes back with it.
+ */
+MESH_TEST_CASE(lifetime_a_record_names_its_holder, unit) {
+    char dir[64];
+    inkwell_time_wall_set_fixed(1750000000U);
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    uint32_t node = 0U;
+    uint32_t at = 0U;
+    MESH_TEST_FAIL_IF(mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_MOST_HOPS, &node, &at),
+                      "nothing measured has nobody to name");
+    MESH_TEST_FAIL_IF(mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_MESSAGES_SENT, &node, &at),
+                      "a count has no holder");
+
+    const struct mesh_node_summary peer = lt_summary(LT_PEER);
+    const struct mesh_node_summary other = lt_summary(LT_OTHER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, true, 3U);
+    inkwell_time_wall_set_fixed(1760000000U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &other, false, true, 3U);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_MOST_HOPS, &node, &at) ||
+                          node != LT_PEER || at != 1750000000U,
+                      "a tie keeps the node that got there first, and its day");
+
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &other, false, true, 5U);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_MOST_HOPS, &node, &at) ||
+                          node != LT_OTHER || at != 1760000000U,
+                      "a new record changes hands");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    node = 0U;
+    at = 0U;
+    MESH_TEST_FAIL_IF(!mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_MOST_HOPS, &node, &at) ||
+                          node != LT_OTHER || at != 1760000000U,
+                      "the holder comes back from the card");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_reset(&g_lifetime) != 0, "the reset failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_MOST_HOPS, &node, &at),
+                      "a reset leaves nobody holding anything");
+    inkwell_time_wall_set_fixed(0U);
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/*
+ * A holder line is believed only while it names the record the card holds.
+ *
+ * A build that does not know the holder carries its line through untouched while raising the
+ * record itself, so the line can outlive the record it was about. Crediting the new record to
+ * the old holder would be a wrong name; no name is merely a missing one.
+ */
+MESH_TEST_CASE(lifetime_a_holder_of_an_older_record_is_dropped, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    char path[128];
+    snprintf(path, sizeof path, "%s/totals.stats", dir);
+    FILE *file = fopen(path, "w");
+    MESH_TEST_FAIL_IF(file == NULL, "could not write the totals");
+    /* The holder line first, so it is read before the value it is checked against. */
+    fputs("farthest_direct_m.holder=00002222,900,1750000000\n"
+          "most_hops.holder=00003333,4,1750000000\n"
+          "most_hops=6\nmost_hops.measured=1\n"
+          "farthest_direct_m=900\nfarthest_direct_m.measured=1\n",
+          file);
+    fclose(file);
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    uint32_t node = 0U;
+    uint32_t at = 0U;
+    MESH_TEST_FAIL_IF(mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_MOST_HOPS, &node, &at),
+                      "a holder of 4 hops does not hold a record of 6");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MOST_HOPS) != 6U ||
+                          !mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_MOST_HOPS),
+                      "and the record itself stands");
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M, &node, &at) ||
+            node != LT_PEER || at != 1750000000U,
+        "a holder of the record it names is believed");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/*
  * A fact whose append failed is still counted, and is written by the next flush that can: the
  * set values are not in the totals, so a fact that never reached the seen file would be gone at
  * the next launch, and a node already in the set is never fresh enough to be written again.

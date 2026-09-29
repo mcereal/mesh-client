@@ -235,7 +235,11 @@ They are read on the **Stats** page, the `stats` verb on the Status tab's Mesh c
 since every value on it is this client's. The app copies the values out by name into
 `struct mesh_ui_lifetime_stats` on the About facts, so a stat added to `lifetime.def` reaches the
 page only once it has a field there and a row in `build_stats()`. A record nothing has set yet reads
-"none yet" rather than 0. Its one verb, Reset stats, goes behind a confirm sheet and reaches the app
+"none yet" rather than 0. A record that has been set has a "Set by" row under it naming the node
+and the day: the core keeps the node number (`mesh_lifetime_holder()`, a `<key>.holder` line in
+`totals` that is believed only while it names the record's current value), and the app turns it
+into a name out of the roster on every publish, so a node that introduces itself later is renamed
+in place. A tie keeps the holder it has. The page's one verb, Reset stats, goes behind a confirm sheet and reaches the app
 as `MESH_UI_ACTION_RESET_STATS`, which deletes both files as well as zeroing the counts.
 
 ### The radios' settings

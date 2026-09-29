@@ -3913,6 +3913,24 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
         failure = "the page should carry the node counts and the records";
         goto cleanup;
     }
+    /* The record's holder by name, out of the roster at publish time: a node the roster has
+       not met is its id, and one it learns later is renamed on the next publish. */
+    if (strcmp(page->most_hops_holder.name, "!61000002") != 0 ||
+        page->farthest_direct_holder.name[0] != '\0') {
+        failure = "a holder the roster cannot name should be its id, and no record no holder";
+        goto cleanup;
+    }
+    struct mesh_node_summary *listed = &app.session.handshake.nodes[0];
+    *listed = node;
+    snprintf(listed->short_name, sizeof listed->short_name, "%s", "BRAV");
+    app.session.handshake.node_count = 1U;
+    mesh_app_publish_ui_state(&app);
+    page = &app.ui_store.settings.client.lifetime;
+    if (strcmp(page->most_hops_holder.name, "BRAV") != 0) {
+        failure = "a holder the roster has named should be drawn by its name";
+        goto cleanup;
+    }
+    app.session.handshake.node_count = 0U;
     if (mesh_lifetime_flush(&app.lifetime) != 0) {
         failure = "the counts should reach the card before the reset, or it proves nothing";
         goto cleanup;

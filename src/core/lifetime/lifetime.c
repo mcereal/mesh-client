@@ -32,6 +32,16 @@
  * does not know, and a card written before it existed still reads: see lifetime_read_legacy().
  */
 #define LIFETIME_MEASURED_SUFFIX ".measured"
+/*
+ * And "<key>.holder=<node hex>,<value>,<second>": who set the record, and when.
+ *
+ * The line carries the value it was the holder *of*, and is believed only while that is still
+ * the record. The totals are rewritten whole by whichever build has the card, and one that
+ * does not know this key carries it through untouched - so a record such a build raised
+ * would otherwise be credited to the node that held the old one. A holder that no longer
+ * matches is dropped rather than guessed at.
+ */
+#define LIFETIME_HOLDER_SUFFIX ".holder"
 #define LIFETIME_LINE_MAX 128U
 
 /* What the set knows about a node. Each is one line in the seen file, keyed by its name. */
@@ -241,23 +251,27 @@ static void lifetime_bump(struct mesh_lifetime *lifetime, enum mesh_lifetime_sta
     lifetime_changed(lifetime);
 }
 
+/* Raises a MAX to `value` when it beats the record, or is the first measurement, and credits
+   `holder` with it. A tie is not a new record: see mesh_lifetime_holder(). */
 static void lifetime_raise(struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat,
-                           uint64_t value) {
+                           uint64_t value, uint32_t holder) {
     if (value > lifetime->values[stat] || !lifetime->measured[stat]) {
         if (value > lifetime->values[stat]) {
             lifetime->values[stat] = value;
         }
         lifetime->measured[stat] = true;
+        lifetime->holders[stat] = holder;
+        lifetime->held_at[stat] = inkwell_time_wall_credible_s();
         lifetime->dirty = true;
         lifetime_changed(lifetime);
     }
 }
 
-/* "<key>.measured" for a MAX, or false: whether `key` is a record's measured marker. */
-static bool lifetime_measured_key(const char *key, size_t *out_stat) {
+/* "<key><suffix>" for a MAX, or false: whether `key` is one of a record's own lines. */
+static bool lifetime_record_key(const char *key, const char *suffix_text, size_t *out_stat) {
     const size_t len = strlen(key);
-    const size_t suffix = sizeof LIFETIME_MEASURED_SUFFIX - 1U;
-    if (len <= suffix || strcmp(key + len - suffix, LIFETIME_MEASURED_SUFFIX) != 0) {
+    const size_t suffix = strlen(suffix_text);
+    if (len <= suffix || strcmp(key + len - suffix, suffix_text) != 0) {
         return false;
     }
     for (size_t i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
@@ -280,8 +294,53 @@ static void lifetime_read_legacy(struct mesh_lifetime *lifetime) {
     }
 }
 
+/* A holder line read off the card, held until every line is in: the value it names may come
+   after it, and is what decides whether it is believed. */
+struct lifetime_totals_read {
+    struct mesh_lifetime *lifetime;
+    uint64_t holder_values[MESH_LIFETIME_STAT_COUNT];
+    bool holder_read[MESH_LIFETIME_STAT_COUNT];
+};
+
+/* "<node hex>,<value>,<second>" into its three parts. False on anything else. */
+static bool lifetime_parse_holder(const char *text, uint32_t *out_node, uint64_t *out_value,
+                                  uint32_t *out_at) {
+    char *end = NULL;
+    const unsigned long node = strtoul(text, &end, 16);
+    if (end == text || *end != ',' || node == 0UL || node > UINT32_MAX) {
+        return false;
+    }
+    const char *next = end + 1;
+    const unsigned long long value = strtoull(next, &end, 10);
+    if (end == next || *end != ',') {
+        return false;
+    }
+    next = end + 1;
+    const unsigned long long at = strtoull(next, &end, 10);
+    if (end == next || *end != '\0' || at > UINT32_MAX) {
+        return false;
+    }
+    *out_node = (uint32_t)node;
+    *out_value = value;
+    *out_at = (uint32_t)at;
+    return true;
+}
+
+/* Keeps a holder only where it names the record the card now holds. */
+static void lifetime_settle_holders(struct lifetime_totals_read *read) {
+    struct mesh_lifetime *lifetime = read->lifetime;
+    for (size_t i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
+        if (!read->holder_read[i] || !lifetime->measured[i] ||
+            read->holder_values[i] != lifetime->values[i]) {
+            lifetime->holders[i] = 0U;
+            lifetime->held_at[i] = 0U;
+        }
+    }
+}
+
 static void lifetime_read_totals(void *context, const char *key, char *value) {
-    struct mesh_lifetime *lifetime = context;
+    struct lifetime_totals_read *read = context;
+    struct mesh_lifetime *lifetime = read->lifetime;
     if (strcmp(key, LIFETIME_KEY_SINCE) == 0) {
         char *end = NULL;
         const unsigned long long since = strtoull(value, &end, 10);
@@ -294,9 +353,15 @@ static void lifetime_read_totals(void *context, const char *key, char *value) {
         lifetime->full = strcmp(value, "1") == 0;
         return;
     }
-    size_t measured = 0U;
-    if (lifetime_measured_key(key, &measured)) {
-        lifetime->measured[measured] = strcmp(value, "1") == 0;
+    size_t record = 0U;
+    if (lifetime_record_key(key, LIFETIME_MEASURED_SUFFIX, &record)) {
+        lifetime->measured[record] = strcmp(value, "1") == 0;
+        return;
+    }
+    if (lifetime_record_key(key, LIFETIME_HOLDER_SUFFIX, &record)) {
+        read->holder_read[record] =
+            lifetime_parse_holder(value, &lifetime->holders[record], &read->holder_values[record],
+                                  &lifetime->held_at[record]);
         return;
     }
     for (size_t i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
@@ -331,6 +396,12 @@ static void lifetime_write_totals(FILE *file, void *context) {
         if (k_stat_kinds[i] == MESH_LIFETIME_MAX && lifetime->measured[i]) {
             fprintf(file, "%s%s=1\n", k_stat_keys[i], LIFETIME_MEASURED_SUFFIX);
         }
+        if (k_stat_kinds[i] == MESH_LIFETIME_MAX && lifetime->measured[i] &&
+            lifetime->holders[i] != 0U) {
+            fprintf(file, "%s%s=%08" PRIx32 ",%" PRIu64 ",%" PRIu32 "\n", k_stat_keys[i],
+                    LIFETIME_HOLDER_SUFFIX, lifetime->holders[i], lifetime->values[i],
+                    lifetime->held_at[i]);
+        }
     }
     for (uint32_t i = 0; i < lifetime->foreign_count; ++i) {
         fprintf(file, "%s=", lifetime->foreign_keys[i]);
@@ -348,12 +419,14 @@ int mesh_lifetime_init(struct mesh_lifetime *lifetime, const char *dir) {
     memset(lifetime, 0, sizeof *lifetime);
     const int opened = inkstand_journal_init(&lifetime->journal, dir, LIFETIME_SUFFIX, 0U);
     char line[LIFETIME_LINE_MAX];
+    struct lifetime_totals_read read = {.lifetime = lifetime};
     int result = inkstand_journal_read(&lifetime->journal, LIFETIME_TOTALS, line, sizeof line,
-                                       lifetime_read_totals, lifetime);
+                                       lifetime_read_totals, &read);
     if (result < 0 && result != -ENOENT) {
         inkwell_log_warn("lifetime", "Could not read the totals: %d", result);
     }
     lifetime_read_legacy(lifetime);
+    lifetime_settle_holders(&read);
     result = inkstand_journal_read(&lifetime->journal, LIFETIME_SEEN, line, sizeof line,
                                    lifetime_read_seen, lifetime);
     if (result < 0 && result != -ENOENT) {
@@ -441,10 +514,10 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
     if (event->kind != MESH_SESSION_EVENT_NODE_HEARD || event->via_mqtt || !event->has_hops) {
         return;
     }
-    lifetime_raise(lifetime, MESH_LIFETIME_MOST_HOPS, event->hops);
+    lifetime_raise(lifetime, MESH_LIFETIME_MOST_HOPS, event->hops, node->node_id);
     uint64_t distance_m = 0U;
     if (event->hops == 0U && lifetime_distance(session, node, &distance_m)) {
-        lifetime_raise(lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M, distance_m);
+        lifetime_raise(lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M, distance_m, node->node_id);
     }
 }
 
@@ -469,6 +542,22 @@ bool mesh_lifetime_measured(const struct mesh_lifetime *lifetime, enum mesh_life
         return false;
     }
     return k_stat_kinds[stat] != MESH_LIFETIME_MAX || lifetime->measured[stat];
+}
+
+bool mesh_lifetime_holder(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat,
+                          uint32_t *out_node, uint32_t *out_at) {
+    if (lifetime == NULL || (unsigned)stat >= MESH_LIFETIME_STAT_COUNT ||
+        k_stat_kinds[stat] != MESH_LIFETIME_MAX || !lifetime->measured[stat] ||
+        lifetime->holders[stat] == 0U) {
+        return false;
+    }
+    if (out_node != NULL) {
+        *out_node = lifetime->holders[stat];
+    }
+    if (out_at != NULL) {
+        *out_at = lifetime->held_at[stat];
+    }
+    return true;
 }
 
 bool mesh_lifetime_complete(const struct mesh_lifetime *lifetime) {
