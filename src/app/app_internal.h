@@ -48,6 +48,31 @@ void mesh_app_on_ui_context(void *userdata, uint32_t target, int x, int y);
    reconnect goes back to the radio you just left. */
 void mesh_app_note_connected_device(struct mesh_app *app, const char *identifier, uint8_t kind);
 
+/* ---- app_backup.c ----------------------------------------------------------------------- */
+
+/*
+ * Takes a backup of the radio on the link, whichever protocol it speaks, and saves it on the
+ * card. 1 when one was written; 0 when an automatic one was skipped because the radio's newest
+ * backup already holds exactly these settings; -EAGAIN when the radio has not finished telling
+ * us about itself; -ENODEV with no card to write to; another negative errno from the write.
+ *
+ * Only an automatic reason is ever skipped as unchanged: a manual press always writes, because
+ * somebody asked for one by name and a list that did not grow would read as the press failing.
+ */
+int mesh_app_backup_take(struct mesh_app *app, uint8_t reason);
+
+/*
+ * The same, for the moments just before something changes or erases the radio's settings: a
+ * save, an import, a factory reset, a firmware install. Never refuses what follows - a radio
+ * whose settings cannot be kept can still be written to - so the outcome is logged, not
+ * returned.
+ */
+void mesh_app_backup_before(struct mesh_app *app, uint8_t reason);
+
+/* The first-connect backup: once per radio per run, and only for a radio with none on the card
+   yet. Called every turn; cheap until a radio is ready. */
+void mesh_app_backup_tick(struct mesh_app *app);
+
 /* ---- app_actions.c ---------------------------------------------------------------------- */
 
 /* What the UI asked for; installed on the UI controller as its action handler. */

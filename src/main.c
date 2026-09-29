@@ -1418,7 +1418,14 @@ int main(int argc, char **argv) {
        is here rather than there - the launcher does not ship through self-update and this does. */
     inkwell_log_file_compact_default();
 
-    struct mesh_app app;
+    /*
+     * Static, not on main()'s stack: the app is a megabyte and a half - every conversation, the
+     * roster, a radio's contact book - and a stack is whatever the platform hands the main
+     * thread. MinGW's linker gives it 2 MB, which the app alone was already most of; the next
+     * struct to grow crashed the Windows build before its first frame. One app per process is
+     * what this was anyway, and mesh_app_init() clears it.
+     */
+    static struct mesh_app app;
     int result = mesh_app_init(&app, &config);
     if (result < 0) {
         inkwell_log_error("main", "Failed to initialise mesh client: %d", result);

@@ -57,8 +57,8 @@ buys is the other kind of reader — `trust.h` wants a node, `devices.h` wants a
 ## What the client remembers
 
 There are three files on the card that the UI store keeps, and they answer different questions.
-A fourth, the lifetime stats, is below them and is not the store's at all: see
-[The lifetime stats](#the-lifetime-stats).
+Two more are below them and are not the store's at all: see
+[The lifetime stats](#the-lifetime-stats) and [The radios' settings](#the-radios-settings).
 
 | | `…prefs.handshake` | `…prefs.messages/` | `…prefs.trends/` |
 |---|---|---|---|
@@ -229,6 +229,32 @@ never announced as news; MeshCore writes the model through `mesh_session_model_l
 
 Unlike the trend log it does **not** start again on a radio swap: a second radio adds to the
 same numbers, and a radio that has ever been attached is left out of the node counts.
+
+### The radios' settings
+
+`…prefs.backups/` is a copy of each radio's configuration: one directory per node number, one
+file per backup, `00000007.before_write.backup`. The container and the store are
+`src/core/backup/radio_backup.c`; what goes into a Meshtastic backup is `radio_backup_meshtastic.c`
+beside it, and a MeshCore one `src/core/meshcore/meshcore_backup.c`. The reasoning, including why
+a backup is text and why it is not Meshtastic's `DeviceProfile`, is in
+`include/mesh/core/radio_backup.h`.
+
+| | Meshtastic | MeshCore |
+|---|---|---|
+| Sections | every `Config` and `ModuleConfig`, eight `Channel`s, the owner, the UI config, canned messages, ringtone, a fixed position | SELF_INFO's settings and public key, the Bluetooth PIN, every channel slot, every contact record whole |
+| Counted | nodes the radio has heard | contacts the radio keeps |
+| Never kept | the private key | (the protocol never reports one) |
+
+A backup is taken the first time a radio is read (and only if it has none), just before a
+settings save, an import, a factory reset or a restore from flash, and just before a radio
+firmware install - `src/app/app_backup.c` - and on Actions' **Save settings to card**. An automatic
+one identical to the radio's newest backup is skipped; a pressed one never is. Ten automatic
+backups are kept per radio, and manual ones are never pruned.
+
+**A backup reads whole or not at all.** Its last line is a SHA-256 over every record before it,
+so a file cut off by a pulled battery is refused rather than read back as a radio with fewer
+channels than it had. The client keeps and lists backups; nothing in it writes one back to a
+radio.
 
 ## Input
 

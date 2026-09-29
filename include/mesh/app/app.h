@@ -18,6 +18,7 @@
 #include "mesh/core/map_packs.h"
 #include "mesh/core/meshcore.h"
 #include "mesh/core/protocol.h"
+#include "mesh/core/radio_backup.h"
 #include "mesh/core/session.h"
 #include "mesh/core/updater.h"
 #include "mesh/transport/transport.h"
@@ -247,6 +248,13 @@ struct mesh_app {
      * cache's two-second window.
      */
     struct mesh_lifetime lifetime;
+    /*
+     * The radios' settings, kept on the card (mesh/core/radio_backup.h), and the one radio the
+     * first-connect check has already been made for: a node is looked up once per run, not once
+     * a turn. See src/app/app_backup.c.
+     */
+    struct mesh_radio_backup_store backups;
+    uint32_t backup_checked_node;
     /* The node whose trend was last read off the card, so the read happens when the reader moves
        rather than on every publish. 0 when no detail screen is open. */
     uint32_t ui_trend_node;

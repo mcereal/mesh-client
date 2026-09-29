@@ -1433,6 +1433,20 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         } else {
             inkwell_log_warn("app", "Lifetime stats path truncated; not keeping them");
         }
+
+        /* And the radios' settings, on the same shrug: a client that cannot keep backups is
+           still a client, and the radio still has its settings. */
+        char backups_dir[sizeof app->ui_preferences_path + 16];
+        const int backups_written =
+            snprintf(backups_dir, sizeof backups_dir, "%s.backups", app->ui_preferences_path);
+        if (backups_written > 0 && backups_written < (int)sizeof backups_dir) {
+            const int backups_result = mesh_radio_backup_store_init(&app->backups, backups_dir);
+            if (backups_result < 0) {
+                inkwell_log_warn("app", "Radio backups unavailable: %d", backups_result);
+            }
+        } else {
+            inkwell_log_warn("app", "Radio backup path truncated; not keeping backups");
+        }
     }
 
     result = mesh_ui_store_init(&app->ui_store);
@@ -1854,6 +1868,7 @@ int mesh_app_run(struct mesh_app *app) {
                already cleared the config sync that this reads to decide whether to stay
                connected at all. */
             mesh_app_mqtt_tick(app, inkwell_time_monotonic_ms());
+            mesh_app_backup_tick(app);
             /* Before auto-connect, not after: a retry starts the link over and clears the
                reason the last attempt failed. */
             (void)mesh_app_report_link_errors(app);

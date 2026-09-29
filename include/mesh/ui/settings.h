@@ -607,6 +607,15 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG,
     MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP,
     /*
+     * The other kind of backup: this client's copy of the radio's settings, on the card
+     * (mesh/core/radio_backup.h). Offered for either protocol, where the three above are
+     * Meshtastic's alone, and not behind the sheet - it reads the radio and writes a file
+     * beside the others, and nothing it does can be regretted. Not offered while another node
+     * is being administered: what the tab holds then is that node's, and a backup is of the
+     * radio on the link.
+     */
+    MESH_UI_SETTINGS_ACTION_SAVE_BACKUP,
+    /*
      * Store & Forward: ask a router for the traffic that arrived while this client was off.
      *
      * A radio action in the sense that matters - it puts a packet on the air and the answer

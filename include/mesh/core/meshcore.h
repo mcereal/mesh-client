@@ -413,6 +413,16 @@ uint32_t mesh_meshcore_node_id(const uint8_t *key, size_t key_len);
 /* ------------------------------------------------------------------------ conversation */
 
 #define MESH_MESHCORE_QUEUE_LEN 16U
+/*
+ * How many of the radio's contact records are kept whole: every one a radio can have. DEVICE_INFO
+ * reports its limit as one byte of half the count, so no companion firmware can say more than
+ * 510, and the book is sized past that rather than to what today's builds happen to keep. A
+ * record that still arrives with the book full is counted in `contacts_unkept`, and a backup is
+ * refused rather than written short.
+ */
+#define MESH_MESHCORE_CONTACTS_MAX 512U
+/* Channel slots kept whole: as many as the session shows, which the walk never goes past. */
+#define MESH_MESHCORE_CHANNELS_KEPT 8U
 #define MESH_MESHCORE_PENDING_SENDS 8U
 #define MESH_MESHCORE_HEARD_ADVERTS 16U
 /* A command the radio has not answered in this long is given up on, and two in a row is a link
@@ -533,6 +543,22 @@ struct mesh_meshcore {
     struct mesh_meshcore_self_info self;
     uint32_t self_node;
     uint8_t channel_probe;
+    /*
+     * The radio's contact list and channel slots, record for record, as it last said them.
+     *
+     * The roster is a projection of these - a name, a position, a hop count - and drops what a
+     * screen does not draw: the route the radio learned, the advert stamp, the flags above the
+     * favourite, a channel's full 31-byte name. A backup needs exactly those, because on a
+     * MeshCore companion the contact list is state the radio *keeps* and a reset loses. So the
+     * records are kept here as they arrive (RESP_CONTACT, and an add or update the radio
+     * accepted) and dropped as they leave (a removal it accepted, CONTACT_DELETED), and a fresh
+     * connection starts them again, as it starts `contacts_since`.
+     */
+    struct mesh_meshcore_contact contacts[MESH_MESHCORE_CONTACTS_MAX];
+    size_t contact_count;
+    uint32_t contacts_unkept; /* records that arrived with the book full */
+    bool has_channel[MESH_MESHCORE_CHANNELS_KEPT];
+    struct mesh_meshcore_channel channels[MESH_MESHCORE_CHANNELS_KEPT];
     /* The contact list's newest lastmod, so a refresh asks only for what changed. */
     uint32_t contacts_since;
     /* The newest adverts from nodes the radio did not add, as they arrived: adding one sends
@@ -619,6 +645,11 @@ void mesh_meshcore_init(struct mesh_meshcore *meshcore, struct mesh_session *mod
 /* This conversation as a link carries it: MeshCore's framing, the Nordic UART profile. */
 struct mesh_protocol mesh_meshcore_protocol(struct mesh_meshcore *meshcore);
 bool mesh_meshcore_ready(const struct mesh_meshcore *meshcore);
+
+/* The radio's contact records as last synced, whole; see `contacts` above. */
+size_t mesh_meshcore_contact_count(const struct mesh_meshcore *meshcore);
+const struct mesh_meshcore_contact *mesh_meshcore_contact_at(const struct mesh_meshcore *meshcore,
+                                                             size_t index);
 
 /*
  * The most bytes of text a message to `dest` may carry. MESH_MESHCORE_TEXT_MAX for a node; for a
