@@ -23,6 +23,7 @@
 #include "inkwell/base/time.h"
 #include "mesh/core/meshcore_backup.h"
 #include "mesh/core/radio_backup_meshtastic.h"
+#include "mesh/core/radio_profile.h"
 #include "mesh/ui/backups.h"
 
 #include <errno.h>
@@ -119,6 +120,16 @@ static uint32_t app_backup_ready_node(struct mesh_app *app) {
         return 0U;
     }
     return status->my_info.my_node_num;
+}
+
+int mesh_app_backup_capture_live(struct mesh_app *app, struct mesh_radio_backup *out) {
+    if (app == NULL || out == NULL) {
+        return -EINVAL;
+    }
+    if (app_backup_ready_node(app) == 0U) {
+        return -ENODEV;
+    }
+    return app_backup_capture(app, out);
 }
 
 static void app_backup_restore_tick(struct mesh_app *app);
@@ -418,10 +429,13 @@ enum {
     APP_RESTORE_READING,
 };
 
-void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t sequence) {
-    if (app == NULL) {
-        return;
-    }
+/*
+ * A restore of the backup `sequence` of radio `node`, or - `profile` not 0 - an apply of that
+ * profile to whichever radio is on the link. One routine for both, because past the plan they
+ * are the same thing: the radio saved to the card first, the writes sent the same way, and the
+ * result judged by comparing again once the radio has been read back.
+ */
+static void app_restore(struct mesh_app *app, uint32_t node, uint32_t sequence, uint32_t profile) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
     struct mesh_radio_backup *backup = malloc(sizeof *backup);
@@ -431,11 +445,22 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
     if (result == 0 && app->backup_restore.stage != APP_RESTORE_NONE) {
         result = -ENOSPC; /* one restore at a time */
     }
-    if (result == 0 && app_backup_ready_node(app) != node) {
+    const uint32_t live = app_backup_ready_node(app);
+    if (profile != 0U) {
+        node = live; /* a profile goes on whichever radio is there */
+        sequence = 0U;
+    }
+    if (result == 0 && (live == 0U || live != node)) {
         result = -ENODEV; /* not the radio on the link */
     }
     if (result == 0) {
-        result = app_backup_load(app, node, sequence, backup);
+        result = profile != 0U ? mesh_radio_profile_store_load(&app->profiles, profile, backup)
+                               : app_backup_load(app, node, sequence, backup);
+    }
+    const uint8_t live_protocol =
+        app->meshcore_bound ? MESH_RADIO_BACKUP_MESHCORE : MESH_RADIO_BACKUP_MESHTASTIC;
+    if (result == 0 && backup->header.protocol != live_protocol) {
+        result = -EPROTO; /* no profile crosses from one protocol to the other */
     }
     int planned = 0;
     int contacts = 0;
@@ -443,10 +468,14 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
     struct mesh_meshcore_contact_plan_notes notes = {0};
     bool said = false; /* the toast already says why */
     if (result == 0 && app->meshcore_bound) {
-        planned = mesh_meshcore_backup_plan(backup, &app->meshcore, app->backup_restore.steps,
-                                            MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable);
+        planned = profile != 0U
+                      ? mesh_meshcore_backup_plan_profile(
+                            backup, &app->meshcore, app->backup_restore.steps,
+                            MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable)
+                      : mesh_meshcore_backup_plan(backup, &app->meshcore, app->backup_restore.steps,
+                                                  MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable);
         result = planned < 0 ? planned : 0;
-        if (result == 0) {
+        if (result == 0 && profile == 0U) {
             app->backup_restore.contacts =
                 malloc(MESH_MESHCORE_CONTACTS_MAX * sizeof *app->backup_restore.contacts);
             contacts = app->backup_restore.contacts == NULL
@@ -471,6 +500,7 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
         inkwell_str_copy(toast, sizeof toast,
                          inkcell_str(unwritable > 0U    ? MESH_STR_TOAST_RESTORE_UNWRITABLE
                                      : notes.newer > 0U ? MESH_STR_TOAST_RESTORE_NEWER
+                                     : profile != 0U    ? MESH_STR_TOAST_PROFILE_SAME
                                                         : MESH_STR_TOAST_RESTORE_SAME));
     } else if (result == 0) {
         /*
@@ -480,10 +510,11 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
          *
          * The backup being restored is protected from the prune that save may run: at ten
          * automatic backups the save would otherwise push out the oldest, and that can be this
-         * one - still needed to judge the restore, and to try it again.
+         * one - still needed to judge the restore, and to try it again. A profile is in a
+         * directory no prune reaches.
          */
-        app->backups.protect_node = node;
-        app->backups.protect_sequence = sequence;
+        app->backups.protect_node = profile == 0U ? node : 0U;
+        app->backups.protect_sequence = profile == 0U ? sequence : 0U;
         const int saved = mesh_app_backup_take(app, MESH_RADIO_BACKUP_BEFORE_WRITE);
         if (saved < 0) {
             result = saved;
@@ -517,18 +548,29 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
         if (result > 0) {
             app->backup_restore.node = node;
             app->backup_restore.sequence = sequence;
+            app->backup_restore.profile = profile;
             app->backup_restore.stage = APP_RESTORE_SENT;
             app->backup_restore.reboot_generation = app->session.reboot_generation;
             app->backup_restore.transactions_failed =
                 mesh_session_settings(&app->session)->transactions_failed;
-            app->backup_listing.compare_node = node;
-            app->backup_listing.compare_sequence = sequence;
-            app->backup_listing.compare_state = MESH_UI_BACKUP_COMPARE_RESTORING;
-            inkwell_str_copy(toast, sizeof toast,
-                             inkcell_str(app->meshcore_bound ? MESH_STR_TOAST_RESTORE_STARTED_PLAIN
-                                                             : MESH_STR_TOAST_RESTORE_STARTED));
-            inkwell_log_info("app", "Restoring backup %u of 0x%08x: %d sections, %d contacts",
-                             (unsigned)sequence, (unsigned)node, planned, contacts);
+            if (profile != 0U) {
+                app->profile_listing.compare_sequence = profile;
+                app->profile_listing.compare_state = MESH_UI_BACKUP_COMPARE_RESTORING;
+            } else {
+                app->backup_listing.compare_node = node;
+                app->backup_listing.compare_sequence = sequence;
+                app->backup_listing.compare_state = MESH_UI_BACKUP_COMPARE_RESTORING;
+            }
+            const inkcell_str_id started =
+                profile != 0U ? (app->meshcore_bound ? MESH_STR_TOAST_PROFILE_APPLYING_PLAIN
+                                                     : MESH_STR_TOAST_PROFILE_APPLYING)
+                              : (app->meshcore_bound ? MESH_STR_TOAST_RESTORE_STARTED_PLAIN
+                                                     : MESH_STR_TOAST_RESTORE_STARTED);
+            inkwell_str_copy(toast, sizeof toast, inkcell_str(started));
+            inkwell_log_info("app", "%s %u onto 0x%08x: %d sections, %d contacts",
+                             profile != 0U ? "Applying profile" : "Restoring backup",
+                             (unsigned)(profile != 0U ? profile : sequence), (unsigned)node,
+                             planned, contacts);
             result = 0;
         } else {
             app->backups.protect_node = 0U;
@@ -542,14 +584,33 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
         /* nothing to add */
     } else if (result == -ENOSPC) {
         inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_RESTORE_BUSY));
+    } else if (result == -EPROTO) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_PROFILE_OTHER_PROTOCOL));
+        inkwell_log_warn("app", "Profile %u refused: made for the other protocol",
+                         (unsigned)profile);
     } else if (result < 0) {
-        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESTORE_FAILED, result);
-        inkwell_log_warn("app", "Restoring backup %u of 0x%08x failed: %d", (unsigned)sequence,
-                         (unsigned)node, result);
+        inkcell_str_format(toast, sizeof toast,
+                           profile != 0U ? MESH_STR_TOAST_PROFILE_APPLY_FAILED
+                                         : MESH_STR_TOAST_RESTORE_FAILED,
+                           result);
+        inkwell_log_warn("app", "%s %u failed: %d", profile != 0U ? "Applying profile" : "Restore",
+                         (unsigned)(profile != 0U ? profile : sequence), result);
     }
     free(backup);
     free(writes);
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
+void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t sequence) {
+    if (app != NULL) {
+        app_restore(app, node, sequence, 0U);
+    }
+}
+
+void mesh_app_profile_apply(struct mesh_app *app, uint32_t sequence) {
+    if (app != NULL && sequence != 0U) {
+        app_restore(app, 0U, 0U, sequence);
+    }
 }
 
 void mesh_app_backup_restore_release(struct mesh_app *app) {
@@ -567,15 +628,34 @@ void mesh_app_backup_restore_release(struct mesh_app *app) {
 /* The restore is over, judged or abandoned: its backup is an ordinary one again. */
 static void app_backup_restore_end(struct mesh_app *app) {
     app->backup_restore.stage = APP_RESTORE_NONE;
+    app->backup_restore.profile = 0U;
     app->backups.protect_node = 0U;
     app->backups.protect_sequence = 0U;
     mesh_app_backup_restore_release(app);
+}
+
+/* Compares again whatever was restored or applied: the backup, or the profile. The listing
+   holding the answer is the one its screen reads. */
+static const struct mesh_radio_backup_diff *app_restore_compare(struct mesh_app *app, uint32_t node,
+                                                                uint32_t sequence, uint32_t profile,
+                                                                bool *done, int16_t *error) {
+    if (profile != 0U) {
+        mesh_app_profile_compare(app, profile);
+        *done = app->profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE;
+        *error = app->profile_listing.compare_error;
+        return &app->profile_listing.diff;
+    }
+    mesh_app_backup_compare(app, node, sequence);
+    *done = app->backup_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE;
+    *error = app->backup_listing.compare_error;
+    return &app->backup_listing.diff;
 }
 
 static void app_backup_restore_judge(struct mesh_app *app) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint32_t node = app->backup_restore.node;
     const uint32_t sequence = app->backup_restore.sequence;
+    const uint32_t profile = app->backup_restore.profile;
     /* A contact is judged by what this restore saw happen to it, before the end lets go of the
        plan: refused, before it went out or by the radio, left out for want of room, or never
        sent because the link went first. One Stop held back is not a failure; it was asked. */
@@ -587,30 +667,36 @@ static void app_backup_restore_judge(struct mesh_app *app) {
         (app->meshcore.contact_restores_refused - app->backup_restore.refused_before) +
         (uint32_t)app->backup_restore.notes.left_out + (stopped ? 0U : planned - sent);
     app_backup_restore_end(app);
-    mesh_app_backup_compare(app, node, sequence);
-    const struct mesh_ui_backups *listing = &app->backup_listing;
+    bool done = false;
+    int16_t error = 0;
+    const struct mesh_radio_backup_diff *diff =
+        app_restore_compare(app, node, sequence, profile, &done, &error);
     /* Contacts come last in a comparison, so every setting ahead of them is in the list that
        was kept, and the ones after are not what "still differs" counts: a restore leaves a
        contact only the radio has, and one it changed since, where they are. Nor is a whole
        section only the radio has, which it leaves too (mesh_ui_backups_change_restorable()). */
-    size_t settings_left = listing->diff.total;
+    size_t settings_left = diff->total;
     size_t kept_behind = 0U;
-    for (size_t i = 0; i < listing->diff.count; ++i) {
-        const struct mesh_radio_backup_change *change = &listing->diff.changes[i];
+    for (size_t i = 0; i < diff->count; ++i) {
+        const struct mesh_radio_backup_change *change = &diff->changes[i];
         if (change->topic == MESH_RADIO_BACKUP_TOPIC_CONTACT) {
             settings_left = i;
             break;
         }
-        if (!mesh_ui_backups_change_restorable(listing->diff.protocol, change)) {
+        if (!mesh_ui_backups_change_restorable(diff->protocol, change)) {
             ++kept_behind;
         }
     }
     settings_left -= kept_behind;
-    if (listing->compare_state != MESH_UI_BACKUP_COMPARE_DONE) {
-        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESTORE_FAILED,
-                           (int)listing->compare_error);
+    if (!done) {
+        inkcell_str_format(toast, sizeof toast,
+                           profile != 0U ? MESH_STR_TOAST_PROFILE_APPLY_FAILED
+                                         : MESH_STR_TOAST_RESTORE_FAILED,
+                           (int)error);
     } else if (settings_left > 0U) {
-        inkcell_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_RESTORE_PARTIAL_ONE,
+        inkcell_str_format_plural(toast, sizeof toast,
+                                  profile != 0U ? MESH_STR_TOAST_PROFILE_PARTIAL_ONE
+                                                : MESH_STR_TOAST_RESTORE_PARTIAL_ONE,
                                   (uint32_t)settings_left, (unsigned)settings_left);
     } else if (stopped) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESTORE_STOPPED, (unsigned)sent,
@@ -619,13 +705,16 @@ static void app_backup_restore_judge(struct mesh_app *app) {
         inkcell_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_RESTORE_CONTACTS_LEFT_ONE,
                                   unwritten, (unsigned)unwritten);
     } else {
-        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_RESTORE_DONE));
+        inkwell_str_copy(toast, sizeof toast,
+                         inkcell_str(profile != 0U ? MESH_STR_TOAST_PROFILE_APPLIED
+                                                   : MESH_STR_TOAST_RESTORE_DONE));
     }
     inkwell_log_info("app",
-                     "Restore of backup %u of 0x%08x: %zu differences left, %u of %u contacts "
+                     "Restore of %s %u onto 0x%08x: %zu differences left, %u of %u contacts "
                      "sent, %u not written",
-                     (unsigned)sequence, (unsigned)node, listing->diff.total, (unsigned)sent,
-                     (unsigned)planned, (unsigned)unwritten);
+                     profile != 0U ? "profile" : "backup",
+                     (unsigned)(profile != 0U ? profile : sequence), (unsigned)node, diff->total,
+                     (unsigned)sent, (unsigned)planned, (unsigned)unwritten);
     mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
 }
 
@@ -736,8 +825,11 @@ static void app_backup_restore_tick(struct mesh_app *app) {
                              (int)settings->last_transaction_error);
             const uint32_t node = app->backup_restore.node;
             const uint32_t sequence = app->backup_restore.sequence;
+            const uint32_t profile = app->backup_restore.profile;
             app_backup_restore_end(app);
-            mesh_app_backup_compare(app, node, sequence);
+            bool done = false;
+            int16_t error = 0;
+            (void)app_restore_compare(app, node, sequence, profile, &done, &error);
             mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
             return;
         }
@@ -769,8 +861,12 @@ static void app_backup_restore_tick(struct mesh_app *app) {
             /* Another radio came back on the link: this restore cannot be judged from here. */
             inkwell_log_warn("app", "Restore of 0x%08x not judged: 0x%08x connected instead",
                              (unsigned)app->backup_restore.node, (unsigned)ready);
+            if (app->backup_restore.profile != 0U) {
+                app->profile_listing.compare_state = MESH_UI_BACKUP_COMPARE_NONE;
+            } else {
+                app->backup_listing.compare_state = MESH_UI_BACKUP_COMPARE_NONE;
+            }
             app_backup_restore_end(app);
-            app->backup_listing.compare_state = MESH_UI_BACKUP_COMPARE_NONE;
             return;
         }
         app_backup_restore_judge(app);

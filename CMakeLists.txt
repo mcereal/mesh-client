@@ -68,6 +68,7 @@ add_library(meshclient_core
     src/app/app.c
     src/app/app_actions.c
     src/app/app_backup.c
+    src/app/app_profile.c
     src/app/app_mqtt.c
     src/app/app_probe.c
     src/app/app_publish.c
@@ -142,6 +143,7 @@ add_library(meshclient_core
     src/ui/tables/trend.c
     src/ui/tables/actions.c
     src/ui/tables/backups.c
+    src/ui/tables/profiles.c
     src/ui/views/channel_share.c
     src/ui/views/contact_share.c
     src/ui/views/firmware_progress.c

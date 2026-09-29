@@ -754,6 +754,9 @@ struct mesh_ui_nav {
      * does, which for a password is the point.
      */
     bool keyboard_login;
+    /* When the keyboard is typing a new profile's name, from the picker's Save row. Done hands
+       the name to the app with the picker's parts; the name starts as the backup's radio's. */
+    bool keyboard_profile_name;
     uint32_t login_node;
     /* In a published snapshot, where `draft` is masked: how many bytes the password really is,
        which is what its cap counts. mesh_ui_nav_draft_used() reads it. */
@@ -892,6 +895,22 @@ struct mesh_ui_nav {
     uint32_t backups_radios_cursor;
     uint32_t backups_list_cursor;
     uint32_t backups_entry_cursor;
+    /* The picker a profile is made in, over the open backup: its parts to tick, and the row to
+       name and save it. A fifth level of the section, entered from the backup's own screen. */
+    bool backups_pick;
+    uint32_t backups_pick_cursor;
+    /*
+     * Profiles: which profile is open, and whether it is being compared with the radio - held
+     * by its sequence number, for the Backups' reason, and worked back into the published index
+     * (`profiles_index`) and the byte the rows are built from (`profiles_view`, see
+     * mesh/ui/profiles.h) every frame by mesh_ui_nav_clamp().
+     */
+    uint32_t profiles_sequence;
+    bool profiles_compare;
+    uint8_t profiles_index;
+    uint8_t profiles_view;
+    uint32_t profiles_list_cursor;
+    uint32_t profiles_item_cursor;
     /* A contact link that has been typed and parsed, waiting on the sheet in front of it.
        Its own buffer beside the channel one, for that buffer's reason: the keyboard closes
        before the sheet opens, and closing it is what puts the parked Compose draft back. */
@@ -1159,6 +1178,20 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_BACKUP_RESTORE_OPTION,
     /* Stop the restore in flight after the contact being written; what was written stays. */
     MESH_UI_ACTION_BACKUP_RESTORE_STOP,
+    /*
+     * Profiles (mesh/core/radio_profile.h). DRAFT starts one out of backup `number` of radio
+     * `dest`, DRAFT_TOGGLE ticks its part `number`, and MAKE saves it named `text`. COMPARE,
+     * APPLY (behind its sheet), EXPORT and DELETE (behind its sheet) act on profile `number`;
+     * IMPORT reads the `.cfg` named `identifier` in as a profile. Only APPLY touches a radio.
+     */
+    MESH_UI_ACTION_PROFILE_DRAFT,
+    MESH_UI_ACTION_PROFILE_DRAFT_TOGGLE,
+    MESH_UI_ACTION_PROFILE_MAKE,
+    MESH_UI_ACTION_PROFILE_COMPARE,
+    MESH_UI_ACTION_PROFILE_APPLY,
+    MESH_UI_ACTION_PROFILE_EXPORT,
+    MESH_UI_ACTION_PROFILE_DELETE,
+    MESH_UI_ACTION_PROFILE_IMPORT,
     /* Not a verb: how many there are. It is what pins the dispatch table in
        src/app/app_actions.c to this list - a verb added above and not given a row there is a
        press that reaches the app and does nothing, with nothing to see at the seam. */

@@ -1994,6 +1994,38 @@ static void on_backup_restore_option(struct mesh_app *app, const struct mesh_ui_
     mesh_app_backup_restore_option(app, action->number);
 }
 
+static void on_profile_draft(struct mesh_app *app, const struct mesh_ui_action *action) {
+    mesh_app_profile_draft(app, action->dest, action->number);
+}
+
+static void on_profile_draft_toggle(struct mesh_app *app, const struct mesh_ui_action *action) {
+    mesh_app_profile_draft_toggle(app, action->number);
+}
+
+static void on_profile_make(struct mesh_app *app, const struct mesh_ui_action *action) {
+    mesh_app_profile_make(app, action->text);
+}
+
+static void on_profile_compare(struct mesh_app *app, const struct mesh_ui_action *action) {
+    mesh_app_profile_compare(app, action->number);
+}
+
+static void on_profile_apply(struct mesh_app *app, const struct mesh_ui_action *action) {
+    mesh_app_profile_apply(app, action->number);
+}
+
+static void on_profile_export(struct mesh_app *app, const struct mesh_ui_action *action) {
+    mesh_app_profile_export(app, action->number);
+}
+
+static void on_profile_delete(struct mesh_app *app, const struct mesh_ui_action *action) {
+    mesh_app_profile_delete(app, action->number);
+}
+
+static void on_profile_import(struct mesh_app *app, const struct mesh_ui_action *action) {
+    mesh_app_profile_import(app, action->identifier);
+}
+
 static void on_backup_restore_stop(struct mesh_app *app, const struct mesh_ui_action *action) {
     (void)action;
     mesh_app_backup_restore_stop(app);
@@ -2726,6 +2758,14 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_BACKUP_RESTORE, on_backup_restore, false},
     {MESH_UI_ACTION_BACKUP_RESTORE_OPTION, on_backup_restore_option, false},
     {MESH_UI_ACTION_BACKUP_RESTORE_STOP, on_backup_restore_stop, false},
+    {MESH_UI_ACTION_PROFILE_DRAFT, on_profile_draft, false},
+    {MESH_UI_ACTION_PROFILE_DRAFT_TOGGLE, on_profile_draft_toggle, false},
+    {MESH_UI_ACTION_PROFILE_MAKE, on_profile_make, false},
+    {MESH_UI_ACTION_PROFILE_COMPARE, on_profile_compare, false},
+    {MESH_UI_ACTION_PROFILE_APPLY, on_profile_apply, false},
+    {MESH_UI_ACTION_PROFILE_EXPORT, on_profile_export, false},
+    {MESH_UI_ACTION_PROFILE_DELETE, on_profile_delete, false},
+    {MESH_UI_ACTION_PROFILE_IMPORT, on_profile_import, false},
 };
 
 /*

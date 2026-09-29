@@ -3132,6 +3132,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_flatten_firmware(app, &ui_settings);
     mesh_app_flatten_maps(app, &ui_settings);
     mesh_app_backup_publish(app, &ui_settings.backups);
+    mesh_app_profile_publish(app, &ui_settings.profiles);
     /* MeshCore's DEVICE_INFO is its DeviceMetadata: which firmware, on which board. After the
        firmware's own flatten, which would otherwise have the last word on `fw_board`. */
     if (app->meshcore_bound && app->meshcore.has_device) {

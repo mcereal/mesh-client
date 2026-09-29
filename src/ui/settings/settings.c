@@ -44,6 +44,7 @@ static const inkcell_str_id k_section_labels[MESH_UI_SETTINGS_SECTION_COUNT] = {
     [MESH_UI_SETTINGS_ABOUT] = MESH_STR_SETTINGS_SECTION_ABOUT,
     [MESH_UI_SETTINGS_MAPS] = MESH_STR_SETTINGS_SECTION_MAPS,
     [MESH_UI_SETTINGS_BACKUPS] = MESH_STR_SETTINGS_SECTION_BACKUPS,
+    [MESH_UI_SETTINGS_PROFILES] = MESH_STR_SETTINGS_SECTION_PROFILES,
     [MESH_UI_SETTINGS_RADIO] = MESH_STR_SETTINGS_SECTION_RADIO,
     [MESH_UI_SETTINGS_USER] = MESH_STR_SETTINGS_SECTION_USER,
     [MESH_UI_SETTINGS_DEVICE] = MESH_STR_SETTINGS_SECTION_DEVICE,
@@ -99,6 +100,8 @@ static const enum inkcell_icon k_section_icons[MESH_UI_SETTINGS_SECTION_COUNT] =
     [MESH_UI_SETTINGS_ABOUT] = INKCELL_ICON_ABOUT,
     [MESH_UI_SETTINGS_MAPS] = INKCELL_ICON_MAP,
     [MESH_UI_SETTINGS_BACKUPS] = INKCELL_ICON_BACKUP,
+    /* Settings handed on to other radios. */
+    [MESH_UI_SETTINGS_PROFILES] = INKCELL_ICON_SHARE,
     /* Facts about the radio, which is what the Status tab's Radio card holds - the same
        sentence, so the same icon. */
     [MESH_UI_SETTINGS_RADIO] = INKCELL_ICON_RADIO,
@@ -238,6 +241,15 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES] = INKCELL_ICON_SWAP,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE] = INKCELL_ICON_SWAP,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_STOP] = INKCELL_ICON_CLOSE,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_MAKE_PROFILE] = INKCELL_ICON_SHARE,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_PART] = INKCELL_ICON_CHECK,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_SAVE] = INKCELL_ICON_BACKUP,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_OPEN] = INKCELL_ICON_SHARE,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_IMPORT] = INKCELL_ICON_IMPORT,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_COMPARE] = INKCELL_ICON_SWAP,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_APPLY] = INKCELL_ICON_RESTORE,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_EXPORT] = INKCELL_ICON_DOWNLOAD,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_DELETE] = INKCELL_ICON_DELETE,
 };
 
 /*
@@ -349,6 +361,16 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_STOP] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_MAKE_PROFILE] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_PART] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_SAVE] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_OPEN] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_IMPORT] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_COMPARE] = INKCELL_TONE_NORMAL,
+    /* Writes the radio, and restarts a Meshtastic one. */
+    [MESH_UI_SETTINGS_ACTION_PROFILES_APPLY] = INKCELL_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_EXPORT] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_PROFILES_DELETE] = INKCELL_TONE_WARNING,
 };
 
 enum inkcell_icon mesh_ui_settings_action_icon(enum mesh_ui_settings_action action) {
@@ -462,6 +484,7 @@ static const inkcell_str_id k_section_notes[MESH_UI_SETTINGS_SECTION_COUNT] = {
     [MESH_UI_SETTINGS_ABOUT] = MESH_STR_SETTINGS_NOTE_ABOUT,
     [MESH_UI_SETTINGS_MAPS] = MESH_STR_SETTINGS_NOTE_MAPS,
     [MESH_UI_SETTINGS_BACKUPS] = MESH_STR_SETTINGS_NOTE_BACKUPS,
+    [MESH_UI_SETTINGS_PROFILES] = MESH_STR_SETTINGS_NOTE_PROFILES,
     [MESH_UI_SETTINGS_RADIO] = MESH_STR_SETTINGS_NOTE_RADIO,
     [MESH_UI_SETTINGS_USER] = MESH_STR_SETTINGS_NOTE_USER,
     [MESH_UI_SETTINGS_DEVICE] = MESH_STR_SETTINGS_NOTE_DEVICE,
@@ -546,6 +569,8 @@ static const enum mesh_ui_settings_section k_root[] = {
     MESH_UI_SETTINGS_MAPS,
     /* And the copies of the radios' settings it keeps, which are the card's. */
     MESH_UI_SETTINGS_BACKUPS,
+    /* And the settings made out of them to put on other radios, which are the card's too. */
+    MESH_UI_SETTINGS_PROFILES,
     MESH_UI_SETTINGS_ABOUT,
 };
 
@@ -586,9 +611,10 @@ static bool root_row_is_remote_only(enum mesh_ui_settings_section section) {
    radio's numbers, a position and a channel table. */
 static bool root_row_is_core(enum mesh_ui_settings_section section) {
     return section == MESH_UI_SETTINGS_ABOUT || section == MESH_UI_SETTINGS_MAPS ||
-           section == MESH_UI_SETTINGS_BACKUPS || section == ROOT_HEADING ||
-           section == MESH_UI_SETTINGS_USER || section == MESH_UI_SETTINGS_LORA ||
-           section == MESH_UI_SETTINGS_POSITION || section == MESH_UI_SETTINGS_CHANNELS;
+           section == MESH_UI_SETTINGS_BACKUPS || section == MESH_UI_SETTINGS_PROFILES ||
+           section == ROOT_HEADING || section == MESH_UI_SETTINGS_USER ||
+           section == MESH_UI_SETTINGS_LORA || section == MESH_UI_SETTINGS_POSITION ||
+           section == MESH_UI_SETTINGS_CHANNELS;
 }
 
 /* Whether the top level lists `section` for these settings: a remote-only row only while a
@@ -729,6 +755,7 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
         return true;
     case MESH_UI_SETTINGS_MAPS:
     case MESH_UI_SETTINGS_BACKUPS:
+    case MESH_UI_SETTINGS_PROFILES:
         /* The card and the map server, neither of them the radio. */
         return true;
     case MESH_UI_SETTINGS_RADIO:
@@ -2971,6 +2998,8 @@ bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) 
            action == MESH_UI_SETTINGS_ACTION_MAPS_DELETE ||
            action == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE ||
            action == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE ||
+           action == MESH_UI_SETTINGS_ACTION_PROFILES_APPLY ||
+           action == MESH_UI_SETTINGS_ACTION_PROFILES_DELETE ||
            mesh_ui_settings_action_is_install_firmware(action) ||
            mesh_ui_settings_action_is_forget(action);
 }
@@ -3002,7 +3031,11 @@ bool mesh_ui_settings_action_opens(enum mesh_ui_settings_action action) {
            action == MESH_UI_SETTINGS_ACTION_MAPS_OPEN_GROUP ||
            action == MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO ||
            action == MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY ||
-           action == MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE;
+           action == MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE ||
+           action == MESH_UI_SETTINGS_ACTION_BACKUPS_MAKE_PROFILE ||
+           action == MESH_UI_SETTINGS_ACTION_PROFILES_SAVE ||
+           action == MESH_UI_SETTINGS_ACTION_PROFILES_OPEN ||
+           action == MESH_UI_SETTINGS_ACTION_PROFILES_COMPARE;
 }
 
 /*
@@ -3030,7 +3063,8 @@ bool mesh_ui_settings_action_is_cycle(enum mesh_ui_settings_action action) {
            action == MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES ||
            action == MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL ||
            action == MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES ||
-           action == MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE;
+           action == MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE ||
+           action == MESH_UI_SETTINGS_ACTION_PROFILES_PART;
 }
 
 /* The two firmware installs, which are one press with two sheets in front of it. Asked as a
@@ -3114,6 +3148,12 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
     case MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_BACKUPS_RESTORE));
         return;
+    case MESH_UI_SETTINGS_ACTION_PROFILES_APPLY:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_PROFILES_APPLY));
+        return;
+    case MESH_UI_SETTINGS_ACTION_PROFILES_DELETE:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_PROFILES_DELETE));
+        return;
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FW_USB));
         return;
@@ -3174,6 +3214,10 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_BACKUPS_DELETE);
     case MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE:
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_BACKUPS_RESTORE);
+    case MESH_UI_SETTINGS_ACTION_PROFILES_APPLY:
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_PROFILES_APPLY);
+    case MESH_UI_SETTINGS_ACTION_PROFILES_DELETE:
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_PROFILES_DELETE);
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB:
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FW_USB);
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
@@ -3213,7 +3257,9 @@ void mesh_ui_settings_confirm_add_subject(const struct mesh_ui_settings *setting
         mesh_ui_settings_action_is_install_firmware(action) ||
         action == MESH_UI_SETTINGS_ACTION_MAPS_DELETE ||
         action == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE ||
-        action == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE) {
+        action == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE ||
+        action == MESH_UI_SETTINGS_ACTION_PROFILES_APPLY ||
+        action == MESH_UI_SETTINGS_ACTION_PROFILES_DELETE) {
         return;
     }
     const size_t at = strlen(text);
@@ -3247,6 +3293,11 @@ void mesh_ui_settings_confirm_for_protocol(const struct mesh_ui_settings *settin
                                                     : MESH_STR_CONFIRM_TEXT_RESTORE_ROUTES_CLEAR),
                  inkcell_str(b->restore_replace_newer ? MESH_STR_CONFIRM_TEXT_RESTORE_NEWER_REPLACE
                                                       : MESH_STR_CONFIRM_TEXT_RESTORE_NEWER_KEEP));
+        return;
+    }
+    /* A profile the same: saves, no restart. */
+    if (action == MESH_UI_SETTINGS_ACTION_PROFILES_APPLY) {
+        snprintf(text, text_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_PROFILES_APPLY_PLAIN));
         return;
     }
     if (action != MESH_UI_SETTINGS_ACTION_NONE) {
@@ -3333,6 +3384,12 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
         return;
     case MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_BACKUPS_RESTORE));
+        return;
+    case MESH_UI_SETTINGS_ACTION_PROFILES_APPLY:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_PROFILES_APPLY));
+        return;
+    case MESH_UI_SETTINGS_ACTION_PROFILES_DELETE:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_PROFILES_DELETE));
         return;
     /* The one sheet here that is neither a reset nor an install: what it costs is the mesh the
        radio is on, because amateur rules require the encryption it turns off. */

@@ -1,7 +1,7 @@
 #pragma once
 
 /*
- * The Backups section's four screens, and the words for what a comparison found.
+ * The Backups section's screens, and the words for what a comparison found.
  *
  * **One section, four levels, one byte.** The radios, one radio's backups, one backup, and one
  * backup against the radio: the same shape as a Maps group, a level deeper. Every section's row
@@ -35,6 +35,7 @@ enum mesh_ui_backups_level {
     MESH_UI_BACKUPS_RADIO,      /* one radio's backups; the index is the radio's */
     MESH_UI_BACKUPS_ENTRY,      /* one backup; the index is the entry's */
     MESH_UI_BACKUPS_COMPARE,    /* that backup against the radio */
+    MESH_UI_BACKUPS_PICK,       /* the parts of that backup a profile is made of */
 };
 
 /* The byte for a level and an index, and back. The radio list is MESH_UI_SETTINGS_NO_CHANNEL,

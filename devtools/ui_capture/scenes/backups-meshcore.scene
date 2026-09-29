@@ -11,10 +11,10 @@ protocol meshcore
 config
 backups list
 
-# Backups is the row above About, which is the last.
+# Backups is two rows above About, which is the last; Profiles is between them.
 tab settings
 key down 24
-key up
+key up 2
 key a
 hold 1800
 

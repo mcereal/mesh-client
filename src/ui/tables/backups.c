@@ -17,14 +17,15 @@
 #include <string.h>
 #include <time.h>
 
-/* The byte, split three ways: 0..63 a radio, 64..127 a backup, 128..191 a comparison. The
-   radio list is 0xFF, which is past all three. */
+/* The byte, split four ways: 0..63 a radio, 64..127 a backup, 128..191 a comparison, and from
+   192 the profile picker over a backup. The radio list is 0xFF, which is past all four. */
 #define BACKUPS_VIEW_ENTRY 64U
 #define BACKUPS_VIEW_COMPARE 128U
+#define BACKUPS_VIEW_PICK 192U
 #define BACKUPS_VIEW_SPAN 64U
 
 _Static_assert(MESH_UI_BACKUP_RADIOS_MAX <= BACKUPS_VIEW_SPAN &&
-                   MESH_UI_BACKUP_ENTRIES_MAX <= BACKUPS_VIEW_SPAN,
+                   BACKUPS_VIEW_PICK + MESH_UI_BACKUP_ENTRIES_MAX <= MESH_UI_SETTINGS_NO_CHANNEL,
                "every radio and every backup has a view byte of its own");
 
 uint8_t mesh_ui_backups_view(enum mesh_ui_backups_level level, uint8_t index) {
@@ -37,6 +38,9 @@ uint8_t mesh_ui_backups_view(enum mesh_ui_backups_level level, uint8_t index) {
     case MESH_UI_BACKUPS_COMPARE:
         return index < BACKUPS_VIEW_SPAN ? (uint8_t)(BACKUPS_VIEW_COMPARE + index)
                                          : MESH_UI_SETTINGS_NO_CHANNEL;
+    case MESH_UI_BACKUPS_PICK:
+        return index < MESH_UI_BACKUP_ENTRIES_MAX ? (uint8_t)(BACKUPS_VIEW_PICK + index)
+                                                  : MESH_UI_SETTINGS_NO_CHANNEL;
     case MESH_UI_BACKUPS_RADIOS:
     default:
         return MESH_UI_SETTINGS_NO_CHANNEL;
@@ -52,9 +56,12 @@ enum mesh_ui_backups_level mesh_ui_backups_level_of(uint8_t view, uint8_t *index
     } else if (view < BACKUPS_VIEW_COMPARE) {
         level = MESH_UI_BACKUPS_ENTRY;
         at = (uint8_t)(view - BACKUPS_VIEW_ENTRY);
-    } else if (view < BACKUPS_VIEW_COMPARE + BACKUPS_VIEW_SPAN) {
+    } else if (view < BACKUPS_VIEW_PICK) {
         level = MESH_UI_BACKUPS_COMPARE;
         at = (uint8_t)(view - BACKUPS_VIEW_COMPARE);
+    } else if (view < BACKUPS_VIEW_PICK + MESH_UI_BACKUP_ENTRIES_MAX) {
+        level = MESH_UI_BACKUPS_PICK;
+        at = (uint8_t)(view - BACKUPS_VIEW_PICK);
     }
     if (index != NULL) {
         *index = at;
@@ -209,16 +216,21 @@ bool mesh_ui_backups_title(const struct mesh_ui_backups *backups, uint8_t view, 
         return true;
     }
     case MESH_UI_BACKUPS_ENTRY:
-    case MESH_UI_BACKUPS_COMPARE: {
+    case MESH_UI_BACKUPS_COMPARE:
+    case MESH_UI_BACKUPS_PICK: {
         if (index >= backups->entry_count) {
             return false;
         }
         const struct mesh_ui_backup_entry *entry = &backups->entries[index];
         char when[MESH_RADIO_BACKUP_TEXT];
         mesh_ui_backups_when(&entry->header, entry->sequence, when, sizeof when);
-        if (mesh_ui_backups_level_of(view, NULL) == MESH_UI_BACKUPS_COMPARE) {
+        const enum mesh_ui_backups_level level = mesh_ui_backups_level_of(view, NULL);
+        if (level == MESH_UI_BACKUPS_COMPARE || level == MESH_UI_BACKUPS_PICK) {
             inkwell_str_copy(parent, parent_len, when);
-            inkwell_str_copy(title, title_len, inkcell_str(MESH_STR_BACKUPS_COMPARE));
+            inkwell_str_copy(title, title_len,
+                             inkcell_str(level == MESH_UI_BACKUPS_PICK
+                                             ? MESH_STR_BACKUPS_MAKE_PROFILE
+                                             : MESH_STR_BACKUPS_COMPARE));
         } else {
             if (entry->radio < backups->radio_count) {
                 mesh_ui_backups_radio_name(&backups->radios[entry->radio], parent, parent_len);

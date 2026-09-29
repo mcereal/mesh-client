@@ -683,9 +683,11 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
     /* And Backups, whose rows open a level, run a verb, or delete - by row, as here. */
     if (nav->settings_section == MESH_UI_SETTINGS_ABOUT ||
         nav->settings_section == MESH_UI_SETTINGS_MAPS ||
-        nav->settings_section == MESH_UI_SETTINGS_BACKUPS) {
+        nav->settings_section == MESH_UI_SETTINGS_BACKUPS ||
+        nav->settings_section == MESH_UI_SETTINGS_PROFILES) {
         struct mesh_ui_settings_item item;
-        const uint8_t level = nav->settings_section == MESH_UI_SETTINGS_BACKUPS
+        const uint8_t level = nav->settings_section == MESH_UI_SETTINGS_BACKUPS ||
+                                      nav->settings_section == MESH_UI_SETTINGS_PROFILES
                                   ? mesh_ui_nav_open_channel(nav)
                                   : MESH_UI_SETTINGS_NO_CHANNEL;
         if (snapshot != NULL &&
@@ -696,10 +698,12 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
             item.kind == INKSTAND_FORM_ACTION) {
             const enum mesh_ui_settings_action verb = (enum mesh_ui_settings_action)item.number;
             if (verb == MESH_UI_SETTINGS_ACTION_MAPS_DELETE ||
-                verb == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE) {
+                verb == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE ||
+                verb == MESH_UI_SETTINGS_ACTION_PROFILES_DELETE) {
                 command_add(bar, MESH_UI_COMMAND_DELETE, MESH_STR_ACTION_DELETE, INKCELL_BUTTON_A);
             } else if (verb == MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO ||
-                       verb == MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY) {
+                       verb == MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY ||
+                       verb == MESH_UI_SETTINGS_ACTION_PROFILES_OPEN) {
                 command_add(bar, MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_OPEN, INKCELL_BUTTON_A);
             } else if (item.cycle) {
                 command_add(bar, MESH_UI_COMMAND_EDIT, MESH_STR_ACTION_EDIT, INKCELL_BUTTON_A);
@@ -1027,7 +1031,8 @@ static void commands_for_route(const struct mesh_ui_snapshot *snapshot,
            "send" over a link that goes to a radio setting rather than to anybody. */
         if (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
             nav->keyboard_network || nav->keyboard_verify || nav->keyboard_channel_url ||
-            nav->keyboard_contact_url || nav->keyboard_node_query || nav->keyboard_login) {
+            nav->keyboard_contact_url || nav->keyboard_node_query || nav->keyboard_login ||
+            nav->keyboard_profile_name) {
             command_add(out, MESH_UI_COMMAND_DONE, MESH_STR_ACTION_DONE, INKCELL_BUTTON_START);
         } else {
             command_add(out, MESH_UI_COMMAND_SEND, MESH_STR_ACTION_SEND, INKCELL_BUTTON_START);

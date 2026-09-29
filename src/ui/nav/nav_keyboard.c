@@ -107,7 +107,8 @@ bool mesh_ui_nav_kb_submit_finishes(const struct mesh_ui_nav *nav) {
     }
     return nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint ||
            nav->keyboard_network || nav->keyboard_verify || nav->keyboard_channel_url ||
-           nav->keyboard_contact_url || nav->keyboard_node_query || nav->keyboard_login;
+           nav->keyboard_contact_url || nav->keyboard_node_query || nav->keyboard_login ||
+           nav->keyboard_profile_name;
 }
 
 bool mesh_ui_nav_kb_node_search(const struct mesh_ui_nav *nav) {
@@ -202,6 +203,10 @@ size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
     if (nav->keyboard_login) {
         return MESH_UI_LOGIN_PASSWORD_MAX;
     }
+    if (nav->keyboard_profile_name) {
+        /* The header's name field less its terminator: a longer name would be cut on the card. */
+        return MESH_RADIO_BACKUP_TEXT - 1U;
+    }
     if (nav->keyboard_network) {
         /* The transport's own limit on a target, which is a full bracketed v6 literal with a
            port on it. A longer one is refused by mesh_tcp_target_split() after the typing, so
@@ -251,7 +256,7 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
                untouched - the passkey branch above never sets it - so it is still true for a
                keyboard that was naming a place, and sending it back to the Messages tab would
                drop the user somewhere they were not. */
-            if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
+            if (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_profile_name) {
                 nav->screen = MESH_UI_SCREEN_SETTINGS;
             } else if (nav->keyboard_waypoint && nav->waypoint_source_node == 0U) {
                 /* The places list raised it, and that is the Map tab. */
@@ -274,6 +279,14 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         nav->keyboard_field = MESH_UI_FIELD_NONE;
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
         nav->draft_saved[0] = '\0';
+        nav->screen = MESH_UI_SCREEN_SETTINGS;
+        return;
+    }
+    if (nav->keyboard_profile_name) {
+        nav->keyboard_profile_name = false;
+        snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
+        nav->draft_saved[0] = '\0';
+        /* Back on the picker it was raised from. */
         nav->screen = MESH_UI_SCREEN_SETTINGS;
         return;
     }
@@ -647,8 +660,51 @@ bool mesh_ui_nav_commit_contact_url(struct mesh_ui_nav *nav) {
     return true;
 }
 
+void mesh_ui_nav_open_profile_name_keyboard(struct mesh_ui_nav *nav, const char *name) {
+    if (nav == NULL) {
+        return;
+    }
+    /* The Compose draft parked, and the name to start from: the radio the backup is of, which
+       is most often the first word of what the profile will be called. */
+    snprintf(nav->draft_saved, sizeof nav->draft_saved, "%s", nav->draft);
+    inkwell_str_copy(nav->draft, MESH_RADIO_BACKUP_TEXT, name != NULL ? name : "");
+    nav->keyboard_profile_name = true;
+    nav->keyboard_login = false;
+    nav->keyboard_node_query = false;
+    nav->keyboard_contact_url = false;
+    nav->keyboard_channel_url = false;
+    nav->keyboard_network = false;
+    nav->keyboard_waypoint = false;
+    nav->keyboard_field = MESH_UI_FIELD_NONE;
+    nav->keyboard_open = true;
+    nav->compose_open = false;
+    inkcell_keyboard_reset(&nav->kb);
+    nav->screen = MESH_UI_SCREEN_SETTINGS;
+}
+
+/* Done on the name keyboard: the name goes to the app with the picker's parts, and the picker
+   closes onto the backup it was opened over - the parts it showed are spent. A blank name is
+   not a name, and stays on the keyboard. */
+static bool mesh_ui_nav_commit_profile_name(struct mesh_ui_nav *nav,
+                                            struct mesh_ui_action *action) {
+    const char *at = nav->draft;
+    while (*at == ' ') {
+        ++at;
+    }
+    if (*at == '\0') {
+        return true;
+    }
+    if (action != NULL) {
+        action->type = MESH_UI_ACTION_PROFILE_MAKE;
+        inkwell_str_copy(action->text, sizeof action->text, nav->draft);
+    }
+    mesh_ui_nav_keyboard_close(nav);
+    (void)mesh_ui_nav_backups_back(nav);
+    return true;
+}
+
 /*
- * The text is finished: whichever of the nine jobs this keyboard was opened for decides what
+ * The text is finished: whichever of the ten jobs this keyboard was opened for decides what
  * that means.
  *
  * One function for the submit key and for START, because they are one press to the user and
@@ -680,6 +736,9 @@ static bool mesh_ui_nav_keyboard_submit(struct mesh_ui_nav *nav, const struct me
     }
     if (nav->keyboard_login) {
         return mesh_ui_nav_commit_login(nav, action);
+    }
+    if (nav->keyboard_profile_name) {
+        return mesh_ui_nav_commit_profile_name(nav, action);
     }
     return nav->keyboard_waypoint ? mesh_ui_nav_commit_waypoint(nav, action)
                                   : mesh_ui_nav_send_draft(nav, action);

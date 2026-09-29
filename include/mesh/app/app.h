@@ -20,6 +20,7 @@
 #include "mesh/core/meshcore_backup.h"
 #include "mesh/core/protocol.h"
 #include "mesh/core/radio_backup.h"
+#include "mesh/core/radio_profile.h"
 #include "mesh/core/session.h"
 #include "mesh/core/updater.h"
 #include "mesh/transport/transport.h"
@@ -271,6 +272,9 @@ struct mesh_app {
     struct {
         uint32_t node;
         uint32_t sequence;
+        /* Not 0 when it is a profile being applied rather than a backup restored: the profile's
+           sequence, and then `sequence` is 0 and `node` whichever radio it went on. */
+        uint32_t profile;
         uint8_t stage;
         uint64_t reboot_generation;
         /* The admin queue's failed-transaction count when this one was queued. */
@@ -293,6 +297,13 @@ struct mesh_app {
         /* Stop was pressed: nothing more is sent once the write in flight is answered. */
         bool stopping;
     } backup_restore;
+    /*
+     * The profiles on the card (mesh/core/radio_profile.h) - a directory beside the preferences,
+     * with the Meshtastic `.cfg` files people copy there - and what the Profiles section lists,
+     * read when the store opens and after every write to it. See src/app/app_profile.c.
+     */
+    struct mesh_radio_profile_store profiles;
+    struct mesh_ui_profiles profile_listing;
     /* How the next MeshCore restore writes contacts back: the two choices over the comparison,
        zeroed - learn routes again, keep what the radio changed since - until somebody steps one. */
     struct mesh_meshcore_contact_options backup_contact_options;
