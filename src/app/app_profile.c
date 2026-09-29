@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 
 static void app_profile_toast(struct mesh_app *app, const char *text) {
     mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), text);
@@ -330,11 +331,11 @@ void mesh_app_profile_make(struct mesh_app *app, const char *name) {
 /*
  * A profile's name as a file name: what a card's filesystem - FAT, as often as not - and the
  * phone it goes to next will both take. A character either would refuse is a '_', and a name
- * with nothing left is "profile".
+ * with nothing left is "profile". `copy` above 1 is "-2" and on before the ".cfg".
  */
-static void app_profile_file_name(const char *name, char *out, size_t out_len) {
+static void app_profile_file_name(const char *name, unsigned copy, char *out, size_t out_len) {
     size_t used = 0U;
-    for (const char *c = name; *c != '\0' && used + 5U < out_len; ++c) {
+    for (const char *c = name; *c != '\0' && used + 9U < out_len; ++c) {
         const unsigned char byte = (unsigned char)*c;
         const bool refused = byte < 0x20U || strchr("/\\:*?\"<>|", *c) != NULL;
         if (used == 0U && (*c == '.' || *c == ' ')) {
@@ -350,7 +351,11 @@ static void app_profile_file_name(const char *name, char *out, size_t out_len) {
         inkwell_str_copy(out, out_len, "profile");
         used = strlen(out);
     }
-    snprintf(out + used, out_len - used, ".cfg");
+    if (copy > 1U) {
+        snprintf(out + used, out_len - used, "-%u.cfg", copy);
+    } else {
+        snprintf(out + used, out_len - used, ".cfg");
+    }
 }
 
 void mesh_app_profile_export(struct mesh_app *app, uint32_t sequence) {
@@ -363,11 +368,22 @@ void mesh_app_profile_export(struct mesh_app *app, uint32_t sequence) {
                                  : mesh_radio_profile_store_load(&app->profiles, sequence, profile);
     char file[MESH_RADIO_PROFILE_FILE_MAX] = "";
     if (result == 0) {
-        app_profile_file_name(profile->header.name, file, sizeof file);
+        /*
+         * Never over a file that is there. The likeliest one is the .cfg this profile was
+         * imported from, which still holds the names and keys an import leaves behind - and
+         * two names that come out the same once made safe would otherwise take turns erasing
+         * each other. So the first free name of "MPBC.cfg", "MPBC-2.cfg", ...
+         */
         char path[MESH_RADIO_BACKUP_PATH_MAX + MESH_RADIO_PROFILE_FILE_MAX];
-        result = mesh_radio_profile_store_path(&app->profiles, file, path, sizeof path)
-                     ? mesh_radio_profile_cfg_write(profile, path)
-                     : -ENAMETOOLONG;
+        result = -EEXIST;
+        for (unsigned copy = 1U; copy <= 99U && result == -EEXIST; ++copy) {
+            app_profile_file_name(profile->header.name, copy, file, sizeof file);
+            if (!mesh_radio_profile_store_path(&app->profiles, file, path, sizeof path)) {
+                result = -ENAMETOOLONG;
+            } else if (access(path, F_OK) != 0) {
+                result = mesh_radio_profile_cfg_write(profile, path);
+            }
+        }
     }
     if (result == 0) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_PROFILE_EXPORTED, file);

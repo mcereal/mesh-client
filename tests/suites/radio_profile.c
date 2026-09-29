@@ -299,6 +299,9 @@ MESH_TEST_CASE(radio_profile_store_round_trips_and_lists_cfgs, unit) {
     char cfgs[4][MESH_RADIO_PROFILE_FILE_MAX];
     const int cfg_count = mesh_radio_profile_store_cfgs(&store, cfgs, 4U);
     const int loaded = mesh_radio_profile_store_load(&store, second, &g_read);
+    /* Capped, the list keeps the newest: the one just saved is never the one left out. */
+    uint32_t capped[1];
+    const int capped_total = mesh_radio_profile_store_list(&store, capped, 1U);
     const int removed = mesh_radio_profile_store_remove(&store, first);
     const int after = mesh_radio_profile_store_list(&store, listed, 4U);
     const bool escape = mesh_radio_profile_store_path(&store, "../x.cfg", path, sizeof path) ||
@@ -308,6 +311,8 @@ MESH_TEST_CASE(radio_profile_store_round_trips_and_lists_cfgs, unit) {
     MESH_TEST_FAIL_IF(saved != 0 || first != 1U || second != 2U, "two saves were not 1 and 2");
     MESH_TEST_FAIL_IF(backup != -EINVAL, "a backup was saved as a profile");
     MESH_TEST_FAIL_IF(count != 2, "the store did not list both profiles");
+    MESH_TEST_FAIL_IF(capped_total != 2 || capped[0] != 2U,
+                      "a list cut to one kept an older profile than the newest");
     MESH_TEST_FAIL_IF(cfg_count != 1 || strcmp(cfgs[0], "Phone.CFG") != 0,
                       "the .cfg beside them was not listed");
     MESH_TEST_FAIL_IF(loaded != 0 || !mesh_radio_backup_same_payload(&g_read, &g_profile) ||

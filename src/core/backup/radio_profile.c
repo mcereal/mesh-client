@@ -259,8 +259,24 @@ static void radio_profile_collect(void *context, const char *name) {
     if (!radio_profile_parse_name(name, &sequence)) {
         return;
     }
-    if (listing->total < listing->max) {
-        listing->out[listing->total] = sequence;
+    /*
+     * The directory hands names over in no order, so a full list keeps the newest it has seen
+     * rather than the first: taking the first would drop a profile just saved, and it would
+     * vanish from the screen the moment it was made.
+     */
+    const size_t kept = listing->total < listing->max ? listing->total : listing->max;
+    if (kept < listing->max) {
+        listing->out[kept] = sequence;
+    } else if (listing->max > 0U) {
+        size_t oldest = 0U;
+        for (size_t i = 1; i < kept; ++i) {
+            if (listing->out[i] < listing->out[oldest]) {
+                oldest = i;
+            }
+        }
+        if (sequence > listing->out[oldest]) {
+            listing->out[oldest] = sequence;
+        }
     }
     ++listing->total;
     if (sequence > listing->highest) {
@@ -395,8 +411,21 @@ static void radio_profile_note_cfg(void *context, const char *name) {
     if (!radio_profile_is_cfg(name)) {
         return;
     }
-    if (cfgs->total < cfgs->max) {
-        inkwell_str_copy(cfgs->out[cfgs->total], MESH_RADIO_PROFILE_FILE_MAX, name);
+    /* A full list keeps the first by name, which is the order it is shown in - not whichever
+       the directory happened to hand over first. */
+    const size_t kept = cfgs->total < cfgs->max ? cfgs->total : cfgs->max;
+    if (kept < cfgs->max) {
+        inkwell_str_copy(cfgs->out[kept], MESH_RADIO_PROFILE_FILE_MAX, name);
+    } else if (cfgs->max > 0U) {
+        size_t last = 0U;
+        for (size_t i = 1; i < kept; ++i) {
+            if (strcmp(cfgs->out[i], cfgs->out[last]) > 0) {
+                last = i;
+            }
+        }
+        if (strcmp(name, cfgs->out[last]) < 0) {
+            inkwell_str_copy(cfgs->out[last], MESH_RADIO_PROFILE_FILE_MAX, name);
+        }
     }
     ++cfgs->total;
 }

@@ -19,6 +19,7 @@
 #include "inkwell/runtime/timer.h"
 
 #include "inkwell/base/array.h"
+#include "inkwell/base/file.h"
 #include "inkwell/ble/central.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
@@ -6603,7 +6604,24 @@ MESH_TEST_CASE(app_profile_cfg_goes_out_to_the_card_and_back_in, unit) {
     const bool listed = app.profile_listing.cfg_count == 1U &&
                         strcmp(app.profile_listing.cfgs[0], "Ridge_kit.cfg") == 0 &&
                         strcmp(app.ui_store.nav.toast.text, "Saved Ridge_kit.cfg to the card") == 0;
-    mesh_app_profile_import(&app, "Ridge_kit.cfg");
+    /* Exported again, it goes beside the first rather than over it: that file may be the one
+       a profile was imported from, holding what an import leaves behind. */
+    char first[APP_TEST_HOME_CAP + 64];
+    snprintf(first, sizeof first, "%s/Ridge_kit.cfg", app.profiles.dir);
+    FILE *mark = fopen(first, "ab");
+    if (mark != NULL) {
+        fputc(0x55, mark);
+        fclose(mark);
+    }
+    mesh_app_profile_export(&app, profile);
+    size_t first_len = 0U;
+    uint8_t *kept_bytes = inkwell_file_read(first, 65536U, &first_len);
+    const bool beside = app.profile_listing.cfg_count == 2U &&
+                        strcmp(app.profile_listing.cfgs[1], "Ridge_kit.cfg") == 0 &&
+                        strcmp(app.profile_listing.cfgs[0], "Ridge_kit-2.cfg") == 0 &&
+                        kept_bytes != NULL && kept_bytes[first_len - 1U] == 0x55;
+    free(kept_bytes);
+    mesh_app_profile_import(&app, "Ridge_kit-2.cfg");
     bool imported = app.profile_listing.count == 2U;
     for (size_t i = 0; imported && i < app.profile_listing.count; ++i) {
         const struct mesh_radio_backup_header *h = &app.profile_listing.items[i].header;
@@ -6611,7 +6629,7 @@ MESH_TEST_CASE(app_profile_cfg_goes_out_to_the_card_and_back_in, unit) {
                    mesh_radio_profile_parts_has(&h->parts, MESH_RADIO_BACKUP_TOPIC_LORA, 0U);
     }
     const bool named =
-        imported && strcmp(app.profile_listing.items[1].header.name, "Ridge_kit") == 0;
+        imported && strcmp(app.profile_listing.items[1].header.name, "Ridge_kit-2") == 0;
     /* And a name that walks out of the folder is not opened. */
     mesh_app_profile_import(&app, "../ui_prefs");
     const bool refused = app.profile_listing.count == 2U;
@@ -6621,6 +6639,7 @@ MESH_TEST_CASE(app_profile_cfg_goes_out_to_the_card_and_back_in, unit) {
     mesh_test_remove_tree(home);
     MESH_TEST_FAIL_IF(profile == 0U, "the profile was not made");
     MESH_TEST_FAIL_IF(!listed, "the .cfg was not written beside the profiles, or not listed");
+    MESH_TEST_FAIL_IF(!beside, "a second export wrote over the first file");
     MESH_TEST_FAIL_IF(!imported || !named, "the .cfg did not come back in as a profile");
     MESH_TEST_FAIL_IF(!refused, "a name outside the folder was imported");
     record_success(test_name);
