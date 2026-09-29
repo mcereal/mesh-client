@@ -83,6 +83,23 @@ enum mesh_radio_backup_reason {
     MESH_RADIO_BACKUP_BEFORE_WRITE = 3,
     /* Just before a firmware install or a switch to the other firmware, which erases it. */
     MESH_RADIO_BACKUP_BEFORE_FIRMWARE = 4,
+    /*
+     * Not a backup of a radio but a profile: settings to put on any radio of the protocol, with
+     * who the radio was taken out (mesh/core/radio_profile.h). Its node is 0 and its name is the
+     * profile's. It lives in a directory of its own, so no prune ever sees one.
+     */
+    MESH_RADIO_BACKUP_PROFILE = 5,
+};
+
+/*
+ * Which parts of a radio a profile carries, by the topics a comparison names them with
+ * (mesh/core/radio_backup_diff.h): a bit per `enum mesh_radio_backup_topic`, and for Meshtastic's
+ * modules a bit per ModuleConfig variant as well, since "MQTT and nothing else" is a profile
+ * somebody wants. The TOPIC_MODULE bit is set whenever a module bit is.
+ */
+struct mesh_radio_backup_parts {
+    uint32_t topics;
+    uint32_t modules;
 };
 
 /*
@@ -124,6 +141,8 @@ struct mesh_radio_backup_header {
     uint32_t nodes_heard;
     bool has_contacts;
     uint32_t contacts;
+    /* A profile's parts; zero on a backup, which carries every part its radio had. */
+    struct mesh_radio_backup_parts parts;
 };
 
 /* One section: a protocol's tag, and where its bytes sit in the payload. */
@@ -174,7 +193,7 @@ const char *mesh_radio_backup_protocol_key(uint8_t protocol);
 
 /*
  * Writes `backup` to `path` through a temporary, synced, then renamed over it. 0 or a negative
- * errno; -EINVAL for a backup with no protocol or no node.
+ * errno; -EINVAL for a backup with no protocol or no node - a profile, which has no node, aside.
  */
 int mesh_radio_backup_write_file(const struct mesh_radio_backup *backup, const char *path);
 

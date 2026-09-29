@@ -89,6 +89,8 @@ add_library(meshclient_core
     src/core/backup/radio_backup.c
     src/core/backup/radio_backup_diff.c
     src/core/backup/radio_backup_meshtastic.c
+    src/core/backup/radio_profile.c
+    src/core/backup/radio_profile_cfg.c
     src/core/protocol/protocol.c
     src/core/lifetime/lifetime.c
     src/core/meshcore/meshcore.c
@@ -440,6 +442,8 @@ set(MESH_PROTO_NAMES
     connection_status
     field_metadata
     storeforward
+    localonly
+    clientonly
 )
 
 set(MESH_PROTO_FILES)

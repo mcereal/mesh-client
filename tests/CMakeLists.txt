@@ -61,6 +61,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/mqtt_topic.c
     suites/protocol.c
     suites/radio_backup.c
+    suites/radio_profile.c
     suites/radio_settings.c
     suites/session.c
     suites/session_events.c

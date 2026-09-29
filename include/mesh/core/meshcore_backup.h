@@ -26,6 +26,7 @@
 #include "mesh/core/meshcore.h"
 #include "mesh/core/radio_backup.h"
 #include "mesh/core/radio_backup_diff.h"
+#include "mesh/core/radio_profile.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -149,6 +150,36 @@ int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
                               const struct mesh_meshcore *meshcore,
                               struct mesh_meshcore_settings_write *writes, size_t max,
                               size_t *unwritable);
+
+/*
+ * A profile (mesh/core/radio_profile.h) onto the radio `meshcore` holds: the same saves as
+ * mesh_meshcore_backup_plan(), for the groups the profile names and no other - the radio
+ * numbers and power, the other settings, the PIN, the channel slots. Whose radio it came from is
+ * not asked; the name, key and position are not in a profile to be written.
+ *
+ * How many saves, 0 when the radio already matches, -EINVAL for a backup that is not a profile,
+ * and mesh_meshcore_backup_plan()'s refusals otherwise - -EPROTO for a Meshtastic profile.
+ */
+int mesh_meshcore_backup_plan_profile(const struct mesh_radio_backup *profile,
+                                      const struct mesh_meshcore *meshcore,
+                                      struct mesh_meshcore_settings_write *writes, size_t max,
+                                      size_t *unwritable);
+
+/* The groups a profile made from `backup` could carry: LoRa (the radio numbers and power), the
+   other settings, the Bluetooth PIN, the channels. How many, or -EPROTO. */
+int mesh_meshcore_backup_offer(const struct mesh_radio_backup *backup,
+                               struct mesh_radio_profile_part *out, size_t max);
+
+/*
+ * `backup` cut down to `parts` into `out`, header and all: no contacts, the PIN and the channels
+ * when named, and the settings record - when LoRa or the other settings are named - with the
+ * radio's key, name, position and advert type emptied, and the groups not named emptied too. How
+ * a profile is made, and how the radio is cut down to compare with one. 0, -EPROTO, -EBADMSG,
+ * -ENOSPC.
+ */
+int mesh_meshcore_backup_keep(const struct mesh_radio_backup *backup,
+                              const struct mesh_radio_backup_parts *parts,
+                              struct mesh_radio_backup *out);
 
 /* How a restore writes contacts back. Zeroed is the default, and the safer one. */
 struct mesh_meshcore_contact_options {
