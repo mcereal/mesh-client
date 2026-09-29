@@ -518,6 +518,12 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot,
             inkcell_line_printf(&line, "%s", inkcell_str(MESH_STR_BUBBLE_SENSOR));
         }
         inkwell_str_copy(row->name, sizeof row->name, inkcell_line_text(&line));
+        /* In the tint the sender's disc wears in the Nodes and Messages lists - seeded by the
+           node number, as mesh_ui_nav_target_avatar() seeds it - so a speaker in a busy channel
+           is found by colour before the name is read. inkcell keeps the primary wherever that
+           tint would read worse than it on the bubble. */
+        row->bubble.name_tinted = !outbound;
+        row->bubble.name_seed = message->peer;
     }
 
     /*
