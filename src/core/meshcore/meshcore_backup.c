@@ -342,6 +342,7 @@ static void mc_diff_self(struct mesh_radio_backup_diff *diff,
     mc_diff_uint(diff, device, MESH_MESHCORE_BACKUP_FIELD_TELEMETRY, a->telemetry_modes,
                  b->telemetry_modes);
     mc_diff_uint(diff, device, MESH_MESHCORE_BACKUP_FIELD_MULTI_ACKS, a->multi_acks, b->multi_acks);
+    mc_diff_uint(diff, device, MESH_MESHCORE_BACKUP_FIELD_ADV_TYPE, a->adv_type, b->adv_type);
     if (memcmp(a->public_key, b->public_key, sizeof a->public_key) != 0) {
         struct mesh_radio_backup_change *change = mc_change(
             diff, MESH_RADIO_BACKUP_TOPIC_SECURITY, 0U, MESH_MESHCORE_BACKUP_FIELD_PUBLIC_KEY);

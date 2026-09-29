@@ -2597,6 +2597,15 @@ MESH_TEST_CASE(meshcore_backup_diff_names_the_one_setting_changed, unit) {
                           change->before.number != (int64_t)was ||
                           change->after.number != (int64_t)was + 125,
                       "the change is not the frequency, backup to radio");
+
+    /* And what the radio advertises itself as, which is a setting like any other. */
+    g_meshcore.self.frequency_khz = was;
+    g_meshcore.self.adv_type = (uint8_t)(g_meshcore.self.adv_type + 1U);
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup_read);
+    mesh_meshcore_backup_diff(&g_backup, &g_backup_read, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.count != 1U ||
+                          g_diff.changes[0].field != MESH_MESHCORE_BACKUP_FIELD_ADV_TYPE,
+                      "a changed advert type was not one change");
     record_success(test_name);
 }
 

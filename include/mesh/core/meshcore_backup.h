@@ -67,6 +67,7 @@ enum mesh_meshcore_backup_field {
     MESH_MESHCORE_BACKUP_FIELD_CHANNEL_SECRET,
     MESH_MESHCORE_BACKUP_FIELD_CONTACT_TYPE,
     MESH_MESHCORE_BACKUP_FIELD_CONTACT_FLAGS,
+    MESH_MESHCORE_BACKUP_FIELD_ADV_TYPE, /* what it advertises itself as: chat, repeater, room */
 };
 
 /* What a MeshCore backup holds, decoded. About sixty kilobytes: never on a stack. */
