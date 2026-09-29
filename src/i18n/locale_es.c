@@ -2038,6 +2038,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_IDENTITY_OTHER_RADIO] = "No es la radio de esta copia; no se cambió nada",
     [MESH_STR_TOAST_IDENTITY_RESTORED] = "Clave de identidad restaurada",
     [MESH_STR_TOAST_IDENTITY_NOT_TAKEN] = "La radio no aceptó la clave de identidad",
+    [MESH_STR_TOAST_IDENTITY_RADIO_CHANGED] = "Se conectó otra radio; no se cambió nada",
     [MESH_STR_TOAST_IDENTITY_RESTART] =
         "La radio aceptó la clave de identidad; reiníciala para terminar",
     [MESH_STR_TOAST_IDENTITY_UNJUDGED] = "La radio no volvió; no se comprobó la clave de identidad",

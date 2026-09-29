@@ -1995,7 +1995,8 @@ static void on_backup_restore(struct mesh_app *app, const struct mesh_ui_action 
 }
 
 static void on_backup_restore_identity(struct mesh_app *app, const struct mesh_ui_action *action) {
-    mesh_app_backup_restore_identity(app, action->dest, action->number, action->channel != 0U);
+    mesh_app_backup_restore_identity(app, action->dest, action->number, action->channel != 0U,
+                                     action->reply_id);
 }
 
 static void on_backup_restore_option(struct mesh_app *app, const struct mesh_ui_action *action) {

@@ -1893,10 +1893,15 @@ static void mesh_meshcore_tick(void *self, uint64_t now_ms) {
            answers - and its late OK, which names no command, would settle whatever went next.
            So nothing goes next: the link is called silent, to be dropped and synced again, and
            the sync is what says which key the radio holds. */
-        if (cmd == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY) {
-            inkwell_log_warn("meshcore", "Private key import unanswered; resyncing the radio");
+        /* An export's answer is a generic refusal as often as the key, and a late one would
+           settle the next command the same way: that link is resynced too. */
+        if (mesh_meshcore_is_identity(cmd)) {
+            inkwell_log_warn("meshcore", "Private key %s unanswered; resyncing the radio",
+                             cmd == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY ? "import" : "export");
             if (meshcore->identity_state == MESH_MESHCORE_IDENTITY_ASKED) {
-                meshcore->identity_state = MESH_MESHCORE_IDENTITY_UNKNOWN;
+                meshcore->identity_state = cmd == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY
+                                               ? MESH_MESHCORE_IDENTITY_UNKNOWN
+                                               : MESH_MESHCORE_IDENTITY_LOST;
             }
             meshcore->timeouts = 2U;
             return;

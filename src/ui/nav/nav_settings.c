@@ -411,6 +411,7 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
         action->dest = nav->backups_entry_node;
         action->number = nav->backups_sequence;
         action->channel = which == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER ? 1U : 0U;
+        action->reply_id = nav->backups_identity_node;
         return;
     }
     if (which == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE) {

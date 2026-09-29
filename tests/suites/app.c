@@ -6863,14 +6863,14 @@ MESH_TEST_CASE(app_backup_identity_restore_meshtastic_is_one_write_judged_by_the
     mesh_app_backup_take_identity(&app); /* backup 2: key 0xAB, public key 0x5C */
 
     /* A radio still holding the key is sent nothing. */
-    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false);
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false, mesh_app_backup_live_node(&app));
     const bool held =
         app.backup_identity.stage == 0U && radio->queue_len == 0U &&
         strcmp(app.ui_store.nav.toast.text, "The radio already has this identity") == 0;
 
     memset(radio->security.private_key.bytes, 0xCD, 32U);
     memset(radio->security.public_key.bytes, 0x77, 32U);
-    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false);
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false, mesh_app_backup_live_node(&app));
     bool one = app.backup_identity.stage != 0U && radio->queue_len == 4U;
     for (size_t i = 0; one && i < radio->queue_len; ++i) {
         const struct mesh_admin_request *write =
@@ -6896,7 +6896,7 @@ MESH_TEST_CASE(app_backup_identity_restore_meshtastic_is_one_write_judged_by_the
     /* A radio a factory reset left with no region holds no key pair to judge: settings first. */
     radio->lora.region = meshtastic_Config_LoRaConfig_RegionCode_UNSET;
     memset(radio->security.public_key.bytes, 0x77, 32U);
-    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false);
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false, mesh_app_backup_live_node(&app));
     const bool no_region =
         app.backup_identity.stage == 0U && radio->queue_len == 0U &&
         strcmp(app.ui_store.nav.toast.text,
@@ -6927,17 +6927,23 @@ MESH_TEST_CASE(app_backup_identity_onto_another_radio_needs_the_confirmation, un
 
     /* The same number on another board. */
     radio->metadata.hw_model = meshtastic_HardwareModel_TBEAM;
-    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false);
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false, mesh_app_backup_live_node(&app));
     const bool board =
         app.backup_identity.stage == 0U && radio->queue_len == 0U &&
         strcmp(app.ui_store.nav.toast.text, "Not this backup's radio; nothing was changed") == 0;
     radio->metadata.hw_model = meshtastic_HardwareModel_HELTEC_V3;
 
+    /* A sheet answered over one radio, and the link on another by the time it is: nothing. */
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, true, 0x0badcafeU + 1U);
+    const bool moved =
+        app.backup_identity.stage == 0U && radio->queue_len == 0U &&
+        strcmp(app.ui_store.nav.toast.text, "Another radio connected; nothing was changed") == 0;
+
     /* Another number. */
     app.session.handshake.my_info.my_node_num = 0x12345678U;
-    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false);
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false, mesh_app_backup_live_node(&app));
     const bool node = app.backup_identity.stage == 0U && radio->queue_len == 0U;
-    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, true);
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, true, mesh_app_backup_live_node(&app));
     const bool confirmed = app.backup_identity.stage != 0U && radio->queue_len == 4U;
 
     mesh_app_shutdown(&app);
@@ -6945,6 +6951,7 @@ MESH_TEST_CASE(app_backup_identity_onto_another_radio_needs_the_confirmation, un
     mesh_test_remove_tree(home);
     MESH_TEST_FAIL_IF(!board, "another board under the same number took the key unconfirmed");
     MESH_TEST_FAIL_IF(!node, "another node took the key unconfirmed");
+    MESH_TEST_FAIL_IF(!moved, "a key went onto a radio other than the one its sheet was about");
     MESH_TEST_FAIL_IF(!confirmed, "a confirmed restore onto another radio did not go out");
     record_success(test_name);
 }
@@ -6985,14 +6992,14 @@ MESH_TEST_CASE(app_backup_identity_meshcore_export_import_and_restart, unit) {
 
     /* The radio that holds it already needs nothing. */
     const size_t idle = g_restore_wire.count;
-    mesh_app_backup_restore_identity(&app, node, 2U, true);
+    mesh_app_backup_restore_identity(&app, node, 2U, true, mesh_app_backup_live_node(&app));
     const bool held = g_restore_wire.count == idle && app.backup_identity.stage == 0U;
 
     /* Reflashed: another key, so another node - refused until confirmed. */
     app.meshcore.self_node = 0x01020304U;
-    mesh_app_backup_restore_identity(&app, node, 2U, false);
+    mesh_app_backup_restore_identity(&app, node, 2U, false, mesh_app_backup_live_node(&app));
     const bool refused = g_restore_wire.count == idle && app.backup_identity.stage == 0U;
-    mesh_app_backup_restore_identity(&app, node, 2U, true);
+    mesh_app_backup_restore_identity(&app, node, 2U, true, mesh_app_backup_live_node(&app));
     const size_t sent = g_restore_wire.count - 1U;
     const bool imported = g_restore_wire.frames[sent][0] == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY &&
                           g_restore_wire.frames[sent][1] == 0x55 &&
@@ -7069,7 +7076,7 @@ MESH_TEST_CASE(app_backup_identity_meshcore_never_waits_for_ever, unit) {
     app.meshcore.self_node = 0x01020304U;
 
     /* Taken, then the restart refused. */
-    mesh_app_backup_restore_identity(&app, node, 2U, true);
+    mesh_app_backup_restore_identity(&app, node, 2U, true, mesh_app_backup_live_node(&app));
     const uint8_t ok = MESH_MESHCORE_RESP_OK;
     g_restore_wire.refuse = true;
     mesh_protocol_receive(&protocol, &ok, 1U);
@@ -7081,7 +7088,7 @@ MESH_TEST_CASE(app_backup_identity_meshcore_never_waits_for_ever, unit) {
 
     /* Taken and restarting, and the radio never comes back. */
     app.meshcore.self_node = 0x01020304U;
-    mesh_app_backup_restore_identity(&app, node, 2U, true);
+    mesh_app_backup_restore_identity(&app, node, 2U, true, mesh_app_backup_live_node(&app));
     mesh_protocol_receive(&protocol, &ok, 1U);
     mesh_app_backup_tick(&app);
     const bool waiting = app.backup_identity.stage != 0U;
@@ -7096,7 +7103,7 @@ MESH_TEST_CASE(app_backup_identity_meshcore_never_waits_for_ever, unit) {
     mesh_protocol_detach(&protocol);
     const bool resynced = mesh_test_meshcore_sync(&app.meshcore, &protocol, &g_restore_wire);
     app.meshcore.self_node = 0x01020304U;
-    mesh_app_backup_restore_identity(&app, node, 2U, true);
+    mesh_app_backup_restore_identity(&app, node, 2U, true, mesh_app_backup_live_node(&app));
     mesh_protocol_tick(&protocol, app.meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
     mesh_app_backup_tick(&app);
     const bool unanswered = app.backup_identity.stage != 0U && mesh_protocol_silent(&protocol);

@@ -906,8 +906,10 @@ struct mesh_ui_nav {
      * mesh/ui/profiles.h) every frame by mesh_ui_nav_clamp().
      */
     uint32_t profiles_sequence;
-    uint32_t profiles_apply_node; /* the radio the open profile was compared with, as its Apply
-                                     sheet opened: the one it is applied to */
+    uint32_t profiles_apply_node;   /* the radio the open profile was compared with, as its Apply
+                                       sheet opened: the one it is applied to */
+    uint32_t backups_identity_node; /* the radio on the link as a key-restore sheet opened: the
+                                       one the key goes onto, and no other */
     bool profiles_compare;
     uint8_t profiles_index;
     uint8_t profiles_view;
@@ -1182,7 +1184,8 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_BACKUP_RESTORE_STOP,
     /* Put the private key backup `number` of radio `dest` carries on the radio on the link, and
        restart it. `channel` is 1 when the sheet answered was the one asking whether the radio on
-       the link is that radio - the only way one that is not the backup's node gets the key. */
+       the link is that radio - the only way one that is not the backup's node gets the key - and
+       `reply_id` is the radio that sheet was asked about; the key goes onto that one or none. */
     MESH_UI_ACTION_BACKUP_RESTORE_IDENTITY,
     /*
      * Profiles (mesh/core/radio_profile.h). DRAFT starts one out of backup `number` of radio

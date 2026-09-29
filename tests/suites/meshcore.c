@@ -3095,7 +3095,9 @@ MESH_TEST_CASE(meshcore_identity_disabled_refused_and_lost_are_told_apart, unit)
 
     (void)mesh_meshcore_export_identity(&g_meshcore);
     mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
-    const bool lost = g_meshcore.identity_state == MESH_MESHCORE_IDENTITY_LOST;
+    /* And, unanswered, the link is resynced: a late refusal would settle the next command. */
+    const bool lost = g_meshcore.identity_state == MESH_MESHCORE_IDENTITY_LOST &&
+                      !g_meshcore.awaiting && mesh_protocol_silent(&protocol);
     MESH_TEST_FAIL_IF(!disabled, "a build without the command was not said to be one");
     MESH_TEST_FAIL_IF(!refused, "a refused key did not keep the radio's reason");
     MESH_TEST_FAIL_IF(!lost, "an unanswered export was left waiting");

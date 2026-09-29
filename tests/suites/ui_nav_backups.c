@@ -859,7 +859,7 @@ MESH_TEST_CASE(ui_nav_backups_identity_asks_with_the_sheet_that_fits_the_radio, 
     mesh_ui_store_handle_key(store, INKCELL_KEY_UP, &action);
     mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_BACKUP_RESTORE_IDENTITY || action.dest != RIDGE ||
-        action.number != 2U || action.channel != 0U) {
+        action.number != 2U || action.channel != 0U || action.reply_id != RIDGE) {
         failure = "the plain sheet should restore this backup's key, unconfirmed";
         goto cleanup;
     }
@@ -886,7 +886,7 @@ MESH_TEST_CASE(ui_nav_backups_identity_asks_with_the_sheet_that_fits_the_radio, 
     mesh_ui_store_handle_key(store, INKCELL_KEY_UP, &action);
     mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_BACKUP_RESTORE_IDENTITY || action.dest != VALLEY ||
-        action.number != 1U || action.channel != 1U) {
+        action.number != 1U || action.channel != 1U || action.reply_id != RIDGE) {
         failure = "only the answer to that sheet should carry the confirmation";
         goto cleanup;
     }

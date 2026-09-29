@@ -1171,7 +1171,7 @@ static int app_identity_restore_meshcore(struct mesh_app *app,
 }
 
 void mesh_app_backup_restore_identity(struct mesh_app *app, uint32_t node, uint32_t sequence,
-                                      bool other_device) {
+                                      bool other_device, uint32_t onto) {
     if (app == NULL) {
         return;
     }
@@ -1183,6 +1183,11 @@ void mesh_app_backup_restore_identity(struct mesh_app *app, uint32_t node, uint3
     const uint32_t live = app_backup_ready_node(app);
     if (result == 0 && live == 0U) {
         result = -ENODEV;
+    }
+    /* Onto the radio the sheet was answered over, and no other: a link that moved while it was
+       open - a handover to another radio of the same firmware - is not written. */
+    if (result == 0 && live != onto) {
+        result = -EHOSTUNREACH;
     }
     struct mesh_radio_backup *backup = result == 0 ? malloc(sizeof *backup) : NULL;
     if (result == 0 && backup == NULL) {
@@ -1231,6 +1236,11 @@ void mesh_app_backup_restore_identity(struct mesh_app *app, uint32_t node, uint3
                          other_device ? ", confirmed as the same device" : "");
     } else if (result == -ENOSPC) {
         inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_RESTORE_BUSY));
+    } else if (result == -EHOSTUNREACH) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_IDENTITY_RADIO_CHANGED));
+        inkwell_log_warn("app",
+                         "Identity of 0x%08x refused: asked about 0x%08x, 0x%08x is on the link",
+                         (unsigned)node, (unsigned)onto, (unsigned)live);
     } else if (result == -ENXIO) {
         inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_IDENTITY_NO_REGION));
     } else if (result == -EXDEV) {

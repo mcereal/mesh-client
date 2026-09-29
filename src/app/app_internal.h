@@ -109,10 +109,11 @@ void mesh_app_backup_take_identity(struct mesh_app *app);
  * Refused unless the radio on the link is the one backed up - the same node, and on Meshtastic
  * the same board - or `other_device` says somebody confirmed it is that radio, reset or reflashed.
  * A MeshCore radio is never "the same" by number: the number is the key, so a radio with another
- * key always needs the confirmation, and one with this key already needs nothing.
+ * key always needs the confirmation, and one with this key already needs nothing. `onto` is the
+ * radio the sheet was answered over; a link that has moved to another since is refused.
  */
 void mesh_app_backup_restore_identity(struct mesh_app *app, uint32_t node, uint32_t sequence,
-                                      bool other_device);
+                                      bool other_device, uint32_t onto);
 
 /* ---- app_profile.c ---------------------------------------------------------------------- */
 

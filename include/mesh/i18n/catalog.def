@@ -3468,6 +3468,7 @@ MESH_STR_ENTRY(TOAST_IDENTITY_RESTORING,  "Restoring the identity key; the radio
 MESH_STR_ENTRY(TOAST_IDENTITY_OTHER_RADIO, "Not this backup's radio; nothing was changed")
 MESH_STR_ENTRY(TOAST_IDENTITY_RESTORED,   "Identity key restored")
 MESH_STR_ENTRY(TOAST_IDENTITY_NOT_TAKEN,  "The radio did not take the identity key")
+MESH_STR_ENTRY(TOAST_IDENTITY_RADIO_CHANGED, "Another radio connected; nothing was changed")
 MESH_STR_ENTRY(TOAST_IDENTITY_RESTART,    "The radio took the identity key; restart it to finish")
 MESH_STR_ENTRY(TOAST_IDENTITY_UNJUDGED,   "The radio did not come back; the identity key was not checked")
 /* A factory-reset Meshtastic radio has no region, and holds no key pair until it has one. */
