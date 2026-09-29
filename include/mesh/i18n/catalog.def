@@ -3253,6 +3253,8 @@ MESH_STR_ENTRY(BACKUPS_CONNECTED,         "Connected")
 MESH_STR_ENTRY(BACKUPS_NUMBERED,          "Backup %u")
 /* When a backup was taken: the day, then the time. "Mon 3 Sep, 14:05". */
 MESH_STR_ENTRY(BACKUPS_WHEN,              "%s, %s")
+/* The same, for two backups taken in the same minute, told apart by number: "Mon 3 Sep, 14:05 · 7". */
+MESH_STR_ENTRY(BACKUPS_WHEN_NUMBERED,     "%s · %u")
 /* Why a backup was taken. */
 MESH_STR_ENTRY(BACKUPS_REASON_MANUAL,     "Saved by you")
 MESH_STR_ENTRY(BACKUPS_REASON_FIRST,      "First connection")

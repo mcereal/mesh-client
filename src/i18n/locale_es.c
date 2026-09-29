@@ -1838,6 +1838,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_BACKUPS_CONNECTED] = "Conectada",
     [MESH_STR_BACKUPS_NUMBERED] = "Copia %u",
     [MESH_STR_BACKUPS_WHEN] = "%s, %s",
+    [MESH_STR_BACKUPS_WHEN_NUMBERED] = "%s · %u",
     [MESH_STR_BACKUPS_REASON_MANUAL] = "Guardada por ti",
     [MESH_STR_BACKUPS_REASON_FIRST] = "Primera conexión",
     [MESH_STR_BACKUPS_REASON_WRITE] = "Antes de un cambio",

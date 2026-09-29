@@ -288,6 +288,43 @@ MESH_TEST_CASE(ui_nav_backups_a_radios_list_is_in_time_order_across_firmwares, u
     record_success(test_name);
 }
 
+/* A manual backup taken straight after a write's lands in the same minute, and two rows reading
+   "Tue 29 Sep, 14:20" are two rows nobody can tell apart; the number the card files them under
+   does. A backup alone in its minute keeps the plain time. */
+MESH_TEST_CASE(ui_nav_backups_two_in_one_minute_are_told_apart_by_number, unit) {
+    struct mesh_ui_settings *settings = calloc(1U, sizeof *settings);
+    MESH_TEST_FAIL_IF(settings == NULL, "memory");
+    backups_settings(settings);
+    struct mesh_ui_backups *b = &settings->backups;
+    b->entries[0].header.saved_at = 1790000130U; /* Ridge 2 */
+    b->entries[1].header.saved_at = 1790000100U; /* Ridge 1, the same minute */
+    b->entries[2].header.saved_at = 1790090000U; /* the MeshCore one, a day on */
+    char labels[4][MESH_UI_SETTINGS_LABEL_MAX];
+    size_t listed = 0U;
+    struct mesh_ui_settings_item item;
+    for (uint32_t row = 0U; row < 16U && listed < 4U; ++row) {
+        if (mesh_ui_settings_item(settings, NULL, NULL, 0U, MESH_UI_SETTINGS_BACKUPS,
+                                  mesh_ui_backups_view(MESH_UI_BACKUPS_RADIO, 0U), row, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY) {
+            snprintf(labels[listed++], sizeof labels[0], "%s", item.label);
+        }
+    }
+    char plain[MESH_UI_SETTINGS_LABEL_MAX];
+    char second[MESH_UI_SETTINGS_LABEL_MAX];
+    char first[MESH_UI_SETTINGS_LABEL_MAX];
+    mesh_ui_backups_when(&b->entries[2].header, 4U, plain, sizeof plain);
+    mesh_ui_backups_when(&b->entries[0].header, 2U, second, sizeof second);
+    inkcell_str_format(first, sizeof first, MESH_STR_BACKUPS_WHEN_NUMBERED, second, 1U);
+    char numbered[MESH_UI_SETTINGS_LABEL_MAX];
+    inkcell_str_format(numbered, sizeof numbered, MESH_STR_BACKUPS_WHEN_NUMBERED, second, 2U);
+    free(settings);
+    MESH_TEST_FAIL_IF(listed != 3U, "a backup was not listed");
+    MESH_TEST_FAIL_IF(strcmp(labels[0], plain) != 0, "a backup alone in its minute was numbered");
+    MESH_TEST_FAIL_IF(strcmp(labels[1], numbered) != 0 || strcmp(labels[2], first) != 0,
+                      "two backups in one minute read the same");
+    record_success(test_name);
+}
+
 /*
  * Seen on a Heltec V3 once the serial, canned-message, audio and remote-hardware modules were
  * kept: a backup from before listed all four as "Modules - All of it - Only on the radio", four
