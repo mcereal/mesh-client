@@ -1028,6 +1028,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_ZERO_DEFAULT] = "predeterminado",
     [MESH_STR_ZERO_NONE] = "ninguno",
     [MESH_STR_ZERO_NEVER] = "nunca",
+    [MESH_STR_ZERO_FROM_PRESET] = "del preajuste",
     [MESH_STR_ZERO_ONCE] = "una vez",
     [MESH_STR_VALUE_PLAIN] = "%u",
     [MESH_STR_VALUE_PRECISION_OFF] = "desactivado",

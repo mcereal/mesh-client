@@ -1696,7 +1696,7 @@ MESH_TEST_CASE(app_lora_security_write_build, unit) {
             mesh_ui_settings_number_step(MESH_UI_FIELD_LORA_TX_POWER, 0U, +1) != 2U ||
             !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
                                    MESH_UI_SETTINGS_NO_CHANNEL, 5U, &item) ||
-            strcmp(item.value, "4/0") != 0,
+            strcmp(item.value, inkcell_str(MESH_STR_ZERO_FROM_PRESET)) != 0,
         "LoRa rows are wrong");
     MESH_TEST_FAIL_IF(
         mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_SECURITY,
