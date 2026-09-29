@@ -124,11 +124,11 @@ struct mesh_lifetime {
      * The direct messages this run has counted as delivered or failed, and which: the only ones
      * a later change may move between the two. As long as the session's message log, which is
      * as far back as a message can still change - one it has evicted can no longer be found to
-     * be marked. Oldest overwritten first; not on the card, and emptied by a reset.
+     * be marked. A slot is reused only once its message has left the log, so every message the
+     * log still holds keeps its place. Not on the card, and emptied by a reset.
      */
     uint32_t settled_ids[MESH_MESSAGE_LOG_CAPACITY];
     uint8_t settled_in[MESH_MESSAGE_LOG_CAPACITY]; /* enum mesh_lifetime_stat, or 0xFF: neither */
-    uint32_t settled_next;
     /* `totals` differs from the card. */
     bool dirty;
     /* Moves whenever any value does, so a screen can ask whether to redraw. */

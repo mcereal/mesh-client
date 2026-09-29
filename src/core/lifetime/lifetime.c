@@ -542,6 +542,39 @@ static uint8_t *lifetime_settled(struct mesh_lifetime *lifetime, uint32_t packet
 }
 
 /*
+ * A slot for a message newly counted: an empty one, or one whose message the session's log no
+ * longer holds and so can never be marked again. Never a message still in the log - that one can
+ * still change its answer, and would find nothing to move. The log holds at most as many messages
+ * as there are slots, and the new one is among them, so a slot is always free.
+ */
+static uint8_t *lifetime_settle_slot(struct mesh_lifetime *lifetime,
+                                     const struct mesh_message_log *log, uint32_t **out_id) {
+    for (size_t i = 0; i < MESH_MESSAGE_LOG_CAPACITY; ++i) {
+        if (lifetime->settled_ids[i] == 0U) {
+            *out_id = &lifetime->settled_ids[i];
+            return &lifetime->settled_in[i];
+        }
+    }
+    for (size_t i = 0; i < MESH_MESSAGE_LOG_CAPACITY; ++i) {
+        const uint32_t id = lifetime->settled_ids[i];
+        bool held = false;
+        for (size_t n = 0; n < log->count && n < MESH_MESSAGE_LOG_CAPACITY; ++n) {
+            const struct mesh_message *entry =
+                &log->entries[(log->head + n) % MESH_MESSAGE_LOG_CAPACITY];
+            if (entry->packet_id == id && entry->direction == MESH_MESSAGE_OUTBOUND) {
+                held = true;
+                break;
+            }
+        }
+        if (!held) {
+            *out_id = &lifetime->settled_ids[i];
+            return &lifetime->settled_in[i];
+        }
+    }
+    return NULL;
+}
+
+/*
  * One of our direct messages changed delivery state.
  *
  * Counted when it leaves pending: it asked to be confirmed and now has an answer. A reaction is
@@ -556,6 +589,7 @@ static uint8_t *lifetime_settled(struct mesh_lifetime *lifetime, uint32_t packet
  * one counted before a restart or a reset would otherwise take a count that is another's.
  */
 static void lifetime_observe_delivery(struct mesh_lifetime *lifetime,
+                                      const struct mesh_session *session,
                                       const struct mesh_message *message, uint8_t previous) {
     if (message->to == MESH_MESSAGE_BROADCAST_ADDR || message->packet_id == 0U) {
         return;
@@ -566,10 +600,13 @@ static void lifetime_observe_delivery(struct mesh_lifetime *lifetime,
         if (previous != MESH_MESSAGE_ACK_PENDING || joined == LIFETIME_SETTLED_NEITHER) {
             return;
         }
-        const uint32_t at = lifetime->settled_next;
-        lifetime->settled_next = (at + 1U) % MESH_MESSAGE_LOG_CAPACITY;
-        lifetime->settled_ids[at] = message->packet_id;
-        lifetime->settled_in[at] = joined;
+        uint32_t *id = NULL;
+        uint8_t *slot = lifetime_settle_slot(lifetime, &session->messages, &id);
+        if (slot == NULL) {
+            return;
+        }
+        *id = message->packet_id;
+        *slot = joined;
         lifetime_bump(lifetime, (enum mesh_lifetime_stat)joined);
         return;
     }
@@ -608,7 +645,7 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
     }
     if (event->kind == MESH_SESSION_EVENT_DELIVERY) {
         if (event->message != NULL) {
-            lifetime_observe_delivery(lifetime, event->message, event->previous_ack);
+            lifetime_observe_delivery(lifetime, session, event->message, event->previous_ack);
         }
         return;
     }
