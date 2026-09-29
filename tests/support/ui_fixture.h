@@ -24,7 +24,8 @@ bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen)
 bool mesh_test_open_devices(struct mesh_ui_store *store);
 /* The Map tab's places list, turned to from the map with R2. */
 bool mesh_test_open_waypoints(struct mesh_ui_store *store);
-/* A Radio tab page - MESH_UI_SETTINGS_RADIO_DETAILS or _NODE_LISTS - opened from its card. */
+/* A Radio tab page - MESH_UI_SETTINGS_RADIO_DETAILS, _NODE_LISTS or _STATS - opened from its
+   card. */
 bool mesh_test_open_radio_page(struct mesh_ui_store *store, enum mesh_ui_settings_section section);
 
 /*

@@ -1070,6 +1070,25 @@ static void mesh_app_flatten_store_forward(const struct mesh_handshake_status *s
     dst->messages_max = src->messages_max;
 }
 
+/* The lifetime stats for the Stats page, by name. The MAXes are small by nature - a hop count
+   is a byte - so the narrowing is the clamp's, stated rather than assumed. */
+static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
+                                      struct mesh_ui_lifetime_stats *dst) {
+    dst->messages_sent = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_SENT);
+    dst->messages_received = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_RECEIVED);
+    dst->direct_sent = mesh_lifetime_value(lifetime, MESH_LIFETIME_DIRECT_SENT);
+    dst->direct_received = mesh_lifetime_value(lifetime, MESH_LIFETIME_DIRECT_RECEIVED);
+    dst->reactions_sent = mesh_lifetime_value(lifetime, MESH_LIFETIME_REACTIONS_SENT);
+    dst->reactions_received = mesh_lifetime_value(lifetime, MESH_LIFETIME_REACTIONS_RECEIVED);
+    dst->nodes_heard = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_NODES_HEARD);
+    dst->nodes_heard_rf = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_NODES_HEARD_RF);
+    dst->radios = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_RADIOS);
+    dst->nodes_floor = !mesh_lifetime_complete(lifetime);
+    dst->most_hops = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_MOST_HOPS);
+    dst->farthest_direct_m = mesh_lifetime_value(lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M);
+    dst->since = lifetime->since;
+}
+
 /* Flattens the transport's protobuf-typed view into the UI's plain struct. */
 /* The About section's data: this client rather than the radio. The updater's state is copied
    across as a byte and a line of text so store.h stays free of the updater, the same way the
@@ -1113,6 +1132,8 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     dst->crash_report_waiting = inkwell_crash_report_waiting();
     dst->crash_report_sendable = mesh_crash_upload_available(&app->crash_upload);
     dst->crash_report_sending = mesh_crash_upload_busy(&app->crash_upload);
+
+    mesh_app_flatten_lifetime(&app->lifetime, &dst->lifetime);
 
     /* The theme every backend draws this frame with. Published like any other fact about the
        client, so the switch needs no path of its own down to the renderer. */

@@ -93,6 +93,7 @@ enum mesh_ui_status_verb {
     MESH_UI_STATUS_VERB_TREND,      /* open the airtime history as a chart */
     MESH_UI_STATUS_VERB_DETAILS,    /* open the radio's facts and the verbs done to it */
     MESH_UI_STATUS_VERB_NODE_LISTS, /* open the radio's node database and this client's roster */
+    MESH_UI_STATUS_VERB_STATS,      /* open what this client has seen over its whole life */
     MESH_UI_STATUS_VERB_COUNT,      /* and "no verb", which is what an empty screen holds */
 };
 
@@ -105,7 +106,7 @@ struct mesh_ui_status_action {
 
 /* Above what the table can produce, so reaching it means the screen has grown a verb rather
    than that the list ran out. */
-#define MESH_UI_STATUS_ACTIONS_MAX 7U
+#define MESH_UI_STATUS_ACTIONS_MAX 8U
 
 struct mesh_ui_status_actions {
     struct mesh_ui_status_action items[MESH_UI_STATUS_ACTIONS_MAX];

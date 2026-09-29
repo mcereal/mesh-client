@@ -4848,7 +4848,8 @@ static const char *render_section(enum mesh_ui_settings_section section,
     }
     mesh_test_nav_populate(store);
     /* The Radio tab's pages are sections drawn by the same pane, reached from their cards. */
-    if (section == MESH_UI_SETTINGS_RADIO_DETAILS || section == MESH_UI_SETTINGS_NODE_LISTS) {
+    if (section == MESH_UI_SETTINGS_RADIO_DETAILS || section == MESH_UI_SETTINGS_NODE_LISTS ||
+        section == MESH_UI_SETTINGS_STATS) {
         if (!mesh_test_open_radio_page(store, section)) {
             return "the page could not be opened";
         }

@@ -230,6 +230,14 @@ never announced as news; MeshCore writes the model through `mesh_session_model_l
 Unlike the trend log it does **not** start again on a radio swap: a second radio adds to the
 same numbers, and a radio that has ever been attached is left out of the node counts.
 
+They are read on the **Stats** page, the `stats` verb on the Status tab's Mesh card: a section
+(`MESH_UI_SETTINGS_STATS`, built by `build_stats()` in `settings_rows.c`) that opens with no radio,
+since every value on it is this client's. The app copies the values out by name into
+`struct mesh_ui_lifetime_stats` on the About facts, so a stat added to `lifetime.def` reaches the
+page only once it has a field there and a row in `build_stats()`. A record nothing has set yet reads
+"none yet" rather than 0. Its one verb, Reset stats, goes behind a confirm sheet and reaches the app
+as `MESH_UI_ACTION_RESET_STATS`, which deletes both files as well as zeroing the counts.
+
 ### The radios' settings
 
 `…prefs.backups/` is a copy of each radio's configuration: one directory per node number, one

@@ -172,6 +172,7 @@ bool mesh_test_open_radio_page(struct mesh_ui_store *store, enum mesh_ui_setting
     store->nav.radio_page = MESH_UI_RADIO_PAGE_NONE;
     store->nav.status_verb =
         (uint8_t)(section == MESH_UI_SETTINGS_NODE_LISTS ? MESH_UI_STATUS_VERB_NODE_LISTS
+                  : section == MESH_UI_SETTINGS_STATS    ? MESH_UI_STATUS_VERB_STATS
                                                          : MESH_UI_STATUS_VERB_DETAILS);
     mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
     return mesh_ui_nav_open_section(&store->nav) == (uint8_t)section;

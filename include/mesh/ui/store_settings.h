@@ -74,6 +74,39 @@ extern "C" {
 #define MESH_UI_CLIENT_PATH_MAX 128U
 #define MESH_UI_CLIENT_MESSAGE_MAX 96U
 
+/*
+ * The lifetime stats (mesh/core/lifetime.h) as the Stats page reads them: every value the core
+ * keeps, copied out by name.
+ *
+ * By name rather than as the core's array, for the firmware limits' reason below: this header
+ * names no core module it can avoid, and a screen reading `messages_sent` says what it draws
+ * where one reading `values[0]` says only where it looks. A stat added to lifetime.def reaches
+ * the page by being given a field here and a row there - which is also the moment somebody
+ * decides what it is called on the screen.
+ *
+ * About the client rather than the radio, and so filled whether or not one is attached: a count
+ * that only goes up is most worth reading when nothing is.
+ */
+struct mesh_ui_lifetime_stats {
+    uint64_t messages_sent;
+    uint64_t messages_received;
+    uint64_t direct_sent;
+    uint64_t direct_received;
+    uint64_t reactions_sent;
+    uint64_t reactions_received;
+    uint32_t nodes_heard;
+    uint32_t nodes_heard_rf;
+    uint32_t radios;
+    /* The node set has turned one away, so the three counts above are at least what they say
+       rather than exactly it. */
+    bool nodes_floor;
+    uint32_t most_hops;
+    uint64_t farthest_direct_m;
+    /* The first credible wall-clock second the stats saw; 0 on a device that has never had a
+       clock, which is a page that cannot say since when rather than one that started today. */
+    uint32_t since;
+};
+
 struct mesh_ui_client_info {
     char version[MESH_UI_CLIENT_TEXT_MAX];  /* "1.12.0", or "dev" */
     char backend[MESH_UI_CLIENT_TEXT_MAX];  /* the UI backend actually in use */
@@ -173,6 +206,8 @@ struct mesh_ui_client_info {
        the verb into a fact until the answer comes back, so a second press has nothing to hit. */
     bool crash_report_sendable;
     bool crash_report_sending;
+    /* What this client has seen over its whole life, for the Stats page. */
+    struct mesh_ui_lifetime_stats lifetime;
 };
 
 /* A router's name is drawn in a settings row's value column, which is short. */

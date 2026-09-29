@@ -101,6 +101,8 @@ uint8_t mesh_ui_nav_radio_page_section(uint8_t page) {
         return (uint8_t)MESH_UI_SETTINGS_RADIO_DETAILS;
     case MESH_UI_RADIO_PAGE_NODE_LISTS:
         return (uint8_t)MESH_UI_SETTINGS_NODE_LISTS;
+    case MESH_UI_RADIO_PAGE_STATS:
+        return (uint8_t)MESH_UI_SETTINGS_STATS;
     case MESH_UI_RADIO_PAGE_NONE:
     default:
         return MESH_UI_SETTINGS_NO_SECTION;
@@ -2474,6 +2476,9 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return true;
         case MESH_UI_STATUS_VERB_NODE_LISTS:
             mesh_ui_nav_open_radio_page(nav, store, MESH_UI_RADIO_PAGE_NODE_LISTS);
+            return true;
+        case MESH_UI_STATUS_VERB_STATS:
+            mesh_ui_nav_open_radio_page(nav, store, MESH_UI_RADIO_PAGE_STATS);
             return true;
         case MESH_UI_STATUS_VERB_REFRESH:
         default:

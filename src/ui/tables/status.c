@@ -70,6 +70,11 @@ static const struct status_entry k_status_verbs[] = {
        to upstream rather than to the radio - and each says row by row what waits on one. */
     {(uint8_t)MESH_UI_STATUS_CARD_MESH, (uint8_t)MESH_UI_STATUS_VERB_NODE_LISTS,
      MESH_UI_COMMAND_OPEN, MESH_STR_ACTION_NODE_LISTS, 0U},
+    /* And the counts that are not a window, beside the lists that are. This client's, so it
+       needs even less than the node lists: every row on it is readable with no radio ever
+       attached, and the one verb on it touches nothing but the card. */
+    {(uint8_t)MESH_UI_STATUS_CARD_MESH, (uint8_t)MESH_UI_STATUS_VERB_STATS, MESH_UI_COMMAND_OPEN,
+     MESH_STR_ACTION_STATS, 0U},
     {(uint8_t)MESH_UI_STATUS_CARD_RADIO, (uint8_t)MESH_UI_STATUS_VERB_DETAILS, MESH_UI_COMMAND_OPEN,
      MESH_STR_ACTION_DETAILS, 0U},
     {(uint8_t)MESH_UI_STATUS_CARD_RADIO, (uint8_t)MESH_UI_STATUS_VERB_REFRESH,

@@ -131,12 +131,12 @@ MESH_TEST_CASE(status_mesh_card_is_live_on_the_run_after, unit) {
 MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
     struct mesh_ui_status_actions actions;
 
-    /* Nothing attached and nothing watched: the way to a radio, and the two pages - which are
+    /* Nothing attached and nothing watched: the way to a radio, and the three pages - which are
        most of the way readable with no link, and say row by row what waits on one. The device
        list is behind these cards, so a screen with no link has to be a screen with a way out
        of having none - and it is the Link card's, whose subject that is. */
     mesh_ui_status_actions(&actions, false, false, false);
-    MESH_TEST_FAIL_IF(actions.count != 3U ||
+    MESH_TEST_FAIL_IF(actions.count != 4U ||
                           actions.items[0].card != (uint8_t)MESH_UI_STATUS_CARD_LINK ||
                           actions.items[0].verb != (uint8_t)MESH_UI_STATUS_VERB_DEVICES ||
                           actions.items[0].command != MESH_UI_COMMAND_OPEN,
@@ -145,14 +145,18 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
                           actions.items[1].verb != (uint8_t)MESH_UI_STATUS_VERB_NODE_LISTS ||
                           actions.items[1].command != MESH_UI_COMMAND_OPEN,
                       "the node lists are the Mesh card's, whose counts they are");
-    MESH_TEST_FAIL_IF(actions.items[2].card != (uint8_t)MESH_UI_STATUS_CARD_RADIO ||
-                          actions.items[2].verb != (uint8_t)MESH_UI_STATUS_VERB_DETAILS ||
+    MESH_TEST_FAIL_IF(actions.items[2].card != (uint8_t)MESH_UI_STATUS_CARD_MESH ||
+                          actions.items[2].verb != (uint8_t)MESH_UI_STATUS_VERB_STATS ||
                           actions.items[2].command != MESH_UI_COMMAND_OPEN,
+                      "the lifetime stats are the Mesh card's, beside the lists that are windows");
+    MESH_TEST_FAIL_IF(actions.items[3].card != (uint8_t)MESH_UI_STATUS_CARD_RADIO ||
+                          actions.items[3].verb != (uint8_t)MESH_UI_STATUS_VERB_DETAILS ||
+                          actions.items[3].command != MESH_UI_COMMAND_OPEN,
                       "the radio's details are the Radio card's");
 
     /* Attached but still syncing: the link can be dropped as well. */
     mesh_ui_status_actions(&actions, true, false, false);
-    MESH_TEST_FAIL_IF(actions.count != 4U ||
+    MESH_TEST_FAIL_IF(actions.count != 5U ||
                           actions.items[1].card != (uint8_t)MESH_UI_STATUS_CARD_LINK ||
                           actions.items[1].verb != (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT ||
                           actions.items[1].command != MESH_UI_COMMAND_DISCONNECT,
@@ -162,13 +166,13 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
        air, so offering it with the link gone is offering a press whose only outcome is a
        complaint. */
     mesh_ui_status_actions(&actions, false, true, false);
-    MESH_TEST_FAIL_IF(actions.count != 3U, "a refresh with no link is a press that cannot work");
+    MESH_TEST_FAIL_IF(actions.count != 4U, "a refresh with no link is a press that cannot work");
 
     mesh_ui_status_actions(&actions, true, true, false);
-    MESH_TEST_FAIL_IF(actions.count != 5U, "a connected, synced radio offers five verbs");
-    MESH_TEST_FAIL_IF(actions.items[4].card != (uint8_t)MESH_UI_STATUS_CARD_RADIO ||
-                          actions.items[4].verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH ||
-                          actions.items[4].command != MESH_UI_COMMAND_REFRESH,
+    MESH_TEST_FAIL_IF(actions.count != 6U, "a connected, synced radio offers six verbs");
+    MESH_TEST_FAIL_IF(actions.items[5].card != (uint8_t)MESH_UI_STATUS_CARD_RADIO ||
+                          actions.items[5].verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH ||
+                          actions.items[5].command != MESH_UI_COMMAND_REFRESH,
                       "a synced radio should offer refresh on the Radio card");
 
     /*
@@ -181,7 +185,7 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
      * to the middle one.
      */
     mesh_ui_status_actions(&actions, true, true, true);
-    MESH_TEST_FAIL_IF(actions.count != 6U, "readings to draw should offer the trend as well");
+    MESH_TEST_FAIL_IF(actions.count != 7U, "readings to draw should offer the trend as well");
     MESH_TEST_FAIL_IF(actions.items[2].card != (uint8_t)MESH_UI_STATUS_CARD_MESH ||
                           actions.items[2].verb != (uint8_t)MESH_UI_STATUS_VERB_TREND ||
                           actions.items[2].command != MESH_UI_COMMAND_TREND,
@@ -197,7 +201,7 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
      * of a parked cursor. Nothing slides now: the cursor names a verb.
      */
     mesh_ui_status_actions(&actions, false, false, true);
-    MESH_TEST_FAIL_IF(actions.count != 4U ||
+    MESH_TEST_FAIL_IF(actions.count != 5U ||
                           actions.items[1].verb != (uint8_t)MESH_UI_STATUS_VERB_TREND,
                       "a trend outlives the radio, and so does the verb that opens it");
 
@@ -231,7 +235,8 @@ MESH_TEST_CASE(ui_status_verbs_stay_in_card_order, unit) {
     static const uint8_t order[] = {
         (uint8_t)MESH_UI_STATUS_VERB_DEVICES, (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT,
         (uint8_t)MESH_UI_STATUS_VERB_TREND,   (uint8_t)MESH_UI_STATUS_VERB_NODE_LISTS,
-        (uint8_t)MESH_UI_STATUS_VERB_DETAILS, (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
+        (uint8_t)MESH_UI_STATUS_VERB_STATS,   (uint8_t)MESH_UI_STATUS_VERB_DETAILS,
+        (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
     };
 
     for (int state = 0; state < 8; ++state) {
@@ -265,8 +270,9 @@ MESH_TEST_CASE(ui_status_verbs_stay_in_card_order, unit) {
         MESH_TEST_FAIL_IF(mesh_ui_status_find(&actions, MESH_UI_STATUS_VERB_DEVICES) == NULL,
                           "the device list is offered whatever the link is doing");
         MESH_TEST_FAIL_IF(mesh_ui_status_find(&actions, MESH_UI_STATUS_VERB_NODE_LISTS) == NULL ||
+                              mesh_ui_status_find(&actions, MESH_UI_STATUS_VERB_STATS) == NULL ||
                               mesh_ui_status_find(&actions, MESH_UI_STATUS_VERB_DETAILS) == NULL,
-                          "the two pages are offered whatever the link is doing");
+                          "the three pages are offered whatever the link is doing");
         MESH_TEST_FAIL_IF((mesh_ui_status_find(&actions, MESH_UI_STATUS_VERB_DISCONNECT) != NULL) !=
                               connected,
                           "disconnect is offered exactly when there is a link to drop");
@@ -330,6 +336,9 @@ MESH_TEST_CASE(ui_status_cursor_resolves_to_a_verb_on_offer, unit) {
                           MESH_UI_STATUS_VERB_NODE_LISTS,
                       "and along the Mesh card");
     MESH_TEST_FAIL_IF(mesh_ui_status_verb_step(&all, MESH_UI_STATUS_VERB_NODE_LISTS, +1) !=
+                          MESH_UI_STATUS_VERB_STATS,
+                      "and on to the Mesh card's last");
+    MESH_TEST_FAIL_IF(mesh_ui_status_verb_step(&all, MESH_UI_STATUS_VERB_STATS, +1) !=
                           MESH_UI_STATUS_VERB_DETAILS,
                       "and then the Radio card");
     MESH_TEST_FAIL_IF(mesh_ui_status_verb_step(&all, MESH_UI_STATUS_VERB_REFRESH, +1) !=
@@ -344,7 +353,7 @@ MESH_TEST_CASE(ui_status_cursor_resolves_to_a_verb_on_offer, unit) {
     /* Stepping from a verb that has gone starts from where the cursor is *drawn*, not from
        where it remembers being - the reader is moving away from a highlight they can see. */
     MESH_TEST_FAIL_IF(mesh_ui_status_verb_step(&trend_only, MESH_UI_STATUS_VERB_REFRESH, -1) !=
-                          MESH_UI_STATUS_VERB_NODE_LISTS,
+                          MESH_UI_STATUS_VERB_STATS,
                       "a step from a departed verb starts at the button on the frame");
     MESH_TEST_FAIL_IF(mesh_ui_status_verb_step(NULL, MESH_UI_STATUS_VERB_TREND, +1) !=
                           MESH_UI_STATUS_VERB_TREND,
@@ -364,12 +373,12 @@ MESH_TEST_CASE(ui_status_card_shares_are_slices_of_the_list, unit) {
     /* The Mesh card second and the Radio card third, which is the cards' own order - the flat
        list and the column now run the same way, and a card's share is a run of it. */
     MESH_TEST_FAIL_IF(mesh_ui_status_card_actions(&actions, MESH_UI_STATUS_CARD_MESH, &first) !=
-                              2U ||
+                              3U ||
                           first != 2U,
-                      "the Mesh card holds the trend and the node lists");
+                      "the Mesh card holds the trend, the node lists and the stats");
     MESH_TEST_FAIL_IF(mesh_ui_status_card_actions(&actions, MESH_UI_STATUS_CARD_RADIO, &first) !=
                               2U ||
-                          first != 4U,
+                          first != 5U,
                       "the Radio card holds the details and the refresh");
     /* Which is a property of the table rather than of this state, so it is checked as one:
        walking the cards in the order they draw walks the list in the order it is offered. */
@@ -435,8 +444,8 @@ MESH_TEST_CASE(ui_status_cursor_keeps_its_verb, unit) {
         }
     }
     /* A fresh cursor stands on the device list, the Link card's first verb, and the Radio card's
-       refresh is the last of the five. */
-    for (int i = 0; i < 4; ++i) {
+       refresh is the last of the six. */
+    for (int i = 0; i < 5; ++i) {
         (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
     if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH) {
@@ -457,7 +466,7 @@ MESH_TEST_CASE(ui_status_cursor_keeps_its_verb, unit) {
         failure = "expected a snapshot after the link dropped";
         goto cleanup;
     }
-    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 3U) {
+    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 4U) {
         failure = "a radio that has gone and nothing watched leaves the device list and the pages";
         goto cleanup;
     }
@@ -508,8 +517,8 @@ MESH_TEST_CASE(ui_status_a_new_verb_does_not_move_the_cursor, unit) {
         }
     }
     /* A fresh cursor stands on the device list, the Link card's first verb, and the Radio card's
-       refresh is the last of the five. */
-    for (int i = 0; i < 4; ++i) {
+       refresh is the last of the six. */
+    for (int i = 0; i < 5; ++i) {
         (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
     }
     if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH) {
@@ -529,7 +538,7 @@ MESH_TEST_CASE(ui_status_a_new_verb_does_not_move_the_cursor, unit) {
     mesh_ui_store_set_settings(&store, &settings);
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
 
-    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 6U) {
+    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 7U) {
         failure = "the readings should have added a verb";
         goto cleanup;
     }
@@ -586,8 +595,8 @@ MESH_TEST_CASE(ui_status_trend_opens_swallows_and_closes, unit) {
             goto cleanup;
         }
     }
-    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 6U) {
-        failure = "a synced radio with two reports should offer six verbs";
+    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 7U) {
+        failure = "a synced radio with two reports should offer seven verbs";
         goto cleanup;
     }
 

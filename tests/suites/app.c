@@ -3848,6 +3848,107 @@ cleanup:
 }
 
 /*
+ * The Stats page reads what the lifetime stats counted, and its reset starts them again - on
+ * the card as well as on the screen.
+ *
+ * The second half is the one that matters: the counts are written through to two files, so a
+ * reset that only zeroed the struct would draw zeros until the next launch read the old numbers
+ * back. The app is shut down and started again on the same home to prove the card was cleared.
+ */
+MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
+    const char *failure = NULL;
+    bool app_ready = false;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "stats_page")) {
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_SINGLE_POLL;
+    config.enable_serial = false;
+    config.enable_ble = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    /* One message out to a single node, one heard over the air, and a radio attached. */
+    struct mesh_message sent;
+    memset(&sent, 0, sizeof sent);
+    sent.direction = MESH_MESSAGE_OUTBOUND;
+    sent.to = 0x61000001U;
+    const struct mesh_session_event sent_event = {.kind = MESH_SESSION_EVENT_MESSAGE,
+                                                  .message = &sent};
+    mesh_lifetime_observe(&app.lifetime, &app.session, &sent_event);
+    struct mesh_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x61000002U;
+    const struct mesh_session_event heard_event = {
+        .kind = MESH_SESSION_EVENT_NODE_HEARD, .node = &node, .has_hops = true, .hops = 3U};
+    mesh_lifetime_observe(&app.lifetime, &app.session, &heard_event);
+    mesh_lifetime_note_radio(&app.lifetime, 0x61000003U);
+
+    /* Published with no radio attached: the page is this client's, and so is what is on it. */
+    mesh_app_publish_ui_state(&app);
+    const struct mesh_ui_lifetime_stats *page = &app.ui_store.settings.client.lifetime;
+    if (page->messages_sent != 1U || page->direct_sent != 1U || page->messages_received != 0U) {
+        failure = "the page should carry the message counts, by direction and by kind";
+        goto cleanup;
+    }
+    if (page->nodes_heard != 1U || page->nodes_heard_rf != 1U || page->radios != 1U ||
+        page->nodes_floor || page->most_hops != 3U) {
+        failure = "the page should carry the node counts and the records";
+        goto cleanup;
+    }
+    if (mesh_lifetime_flush(&app.lifetime) != 0) {
+        failure = "the counts should reach the card before the reset, or it proves nothing";
+        goto cleanup;
+    }
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_RESET_STATS;
+    mesh_app_on_ui_action(&app, &action);
+    page = &app.ui_store.settings.client.lifetime;
+    if (page->messages_sent != 0U || page->direct_sent != 0U || page->nodes_heard != 0U ||
+        page->radios != 0U || page->most_hops != 0U) {
+        failure = "the reset should publish a page of zeros on the press that asked for it";
+        goto cleanup;
+    }
+
+    /* And the card agrees: a second launch on the same home reads nothing back. */
+    mesh_app_shutdown(&app);
+    app_ready = false;
+    memset(&app, 0, sizeof app);
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app re-init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    if (mesh_lifetime_value(&app.lifetime, MESH_LIFETIME_MESSAGES_SENT) != 0U ||
+        mesh_lifetime_value(&app.lifetime, MESH_LIFETIME_NODES_HEARD) != 0U ||
+        mesh_lifetime_value(&app.lifetime, MESH_LIFETIME_RADIOS) != 0U) {
+        failure = "a reset stat came back on the next launch; the card was not cleared";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    if (!mesh_test_remove_tree(home_dir)) {
+        failure = failure != NULL ? failure : "cleanup failed";
+    }
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * A direct message announcing itself, and the two ways that must not misfire.
  *
  * The reporter is driven through mesh_app_publish_ui_state() rather than called directly,
