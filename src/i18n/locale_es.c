@@ -1313,6 +1313,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TITLE_RM_BACKUP] = "¿Borrar la copia?",
     [MESH_STR_CONFIRM_TITLE_MAPS_DELETE] = "¿Eliminar este mapa?",
     [MESH_STR_CONFIRM_TITLE_BACKUPS_DELETE] = "¿Eliminar esta copia?",
+    [MESH_STR_CONFIRM_TITLE_BACKUPS_RESTORE] = "¿Restaurar esta copia?",
     [MESH_STR_CONFIRM_TITLE_HAM_MODE] = "¿Pasar a modo ham?",
     [MESH_STR_CONFIRM_TITLE_FW_USB] = "¿Actualizar la radio por USB?",
     [MESH_STR_CONFIRM_TITLE_FW_BLE] = "¿Actualizar la radio por Bluetooth?",
@@ -1334,6 +1335,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_ACCEPT_RM_BACKUP] = "Borrar copia",
     [MESH_STR_CONFIRM_ACCEPT_MAPS_DELETE] = "Eliminar mapa",
     [MESH_STR_CONFIRM_ACCEPT_BACKUPS_DELETE] = "Eliminar copia",
+    [MESH_STR_CONFIRM_ACCEPT_BACKUPS_RESTORE] = "Restaurar",
     [MESH_STR_CONFIRM_ACCEPT_HAM_MODE] = "Pasar a modo ham",
     [MESH_STR_CONFIRM_ACCEPT_FW_USB] = "Actualizar por USB",
     [MESH_STR_CONFIRM_ACCEPT_FW_BLE] = "Actualizar por Bluetooth",
@@ -1887,6 +1889,24 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_BACKUPS_CHANGE_REMOVED] = "Solo en la copia",
     [MESH_STR_TOAST_BACKUP_DELETED] = "Copia eliminada de la tarjeta",
     [MESH_STR_TOAST_BACKUP_DELETE_FAILED] = "No se pudo eliminar la copia (%d)",
+    [MESH_STR_CONFIRM_TEXT_BACKUPS_RESTORE] =
+        "Lo que difiere vuelve a la radio, que luego se reinicia. Conserva sus claves, y antes se "
+        "guarda una copia de cómo está ahora.",
+    [MESH_STR_CONFIRM_TEXT_RESTORE_FIRMWARE] =
+        " Hecha con el firmware %.20s; la radio usa ahora %.20s.",
+    [MESH_STR_BACKUPS_RESTORE] = "Restaurar en la radio",
+    [MESH_STR_BACKUPS_RESTORING] = "Restaurando la radio",
+    [MESH_STR_BACKUPS_RESTORING_VALUE] = "Se reinicia para aplicarlos",
+    [MESH_STR_TOAST_RESTORE_STARTED] = "Restaurando la radio; se reinicia al terminar",
+    [MESH_STR_TOAST_RESTORE_SAME] = "La radio ya coincide con esta copia",
+    [MESH_STR_TOAST_RESTORE_UNWRITABLE] = "Lo que difiere no se puede escribir en esta radio",
+    [MESH_STR_TOAST_RESTORE_NO_COPY] = "No restaurada: no se pudo guardar antes la radio (%d)",
+    [MESH_STR_TOAST_RESTORE_BUSY] = "La radio está ocupada; inténtalo de nuevo en un momento",
+    [MESH_STR_TOAST_RESTORE_FAILED] = "No se pudo restaurar la copia (%d)",
+    [MESH_STR_TOAST_RESTORE_REFUSED] = "La radio rechazó la restauración (%d); no se cambió nada",
+    [MESH_STR_TOAST_RESTORE_DONE] = "Radio restaurada desde la copia",
+    [MESH_STR_TOAST_RESTORE_PARTIAL_ONE] = "Restaurada; %u ajuste sigue siendo distinto",
+    [MESH_STR_TOAST_RESTORE_PARTIAL_OTHER] = "Restaurada; %u ajustes siguen siendo distintos",
     [MESH_STR_SETTINGS_NOTE_BACKUPS] =
         "Copias de los ajustes de cada radio en esta tarjeta, hechas al leerla por primera vez y "
         "antes de cada cambio. Una comparación muestra el valor de la copia y luego el de la "

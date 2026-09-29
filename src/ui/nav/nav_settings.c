@@ -398,6 +398,12 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
         action->edit_count = 0U;
         return;
     }
+    if (which == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE) {
+        action->type = MESH_UI_ACTION_BACKUP_RESTORE;
+        action->dest = nav->backups_entry_node;
+        action->number = nav->backups_sequence;
+        return;
+    }
     if (which == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE) {
         action->type = MESH_UI_ACTION_BACKUP_DELETE;
         action->dest = nav->backups_entry_node;

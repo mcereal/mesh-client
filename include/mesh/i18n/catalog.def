@@ -2493,6 +2493,7 @@ MESH_STR_ENTRY(CONFIRM_TITLE_RESTORE,     "Restore the configuration?")
 MESH_STR_ENTRY(CONFIRM_TITLE_RM_BACKUP,   "Delete the backup?")
 MESH_STR_ENTRY(CONFIRM_TITLE_MAPS_DELETE, "Delete this map?")
 MESH_STR_ENTRY(CONFIRM_TITLE_BACKUPS_DELETE, "Delete this backup?")
+MESH_STR_ENTRY(CONFIRM_TITLE_BACKUPS_RESTORE, "Restore this backup?")
 MESH_STR_ENTRY(CONFIRM_TITLE_HAM_MODE,    "Switch to ham mode?")
 MESH_STR_ENTRY(CONFIRM_TITLE_FW_USB,      "Update the radio over USB?")
 MESH_STR_ENTRY(CONFIRM_TITLE_FW_BLE,      "Update the radio over Bluetooth?")
@@ -2517,6 +2518,7 @@ MESH_STR_ENTRY(CONFIRM_ACCEPT_RESTORE,    "Restore")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_RM_BACKUP,  "Delete backup")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_MAPS_DELETE, "Delete map")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_BACKUPS_DELETE, "Delete backup")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_BACKUPS_RESTORE, "Restore")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_HAM_MODE,   "Switch to ham mode")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_USB,     "Update over USB")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_BLE,     "Update over Bluetooth")
@@ -2560,6 +2562,10 @@ MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE,      "Every setting on the radio goes back 
 MESH_STR_ENTRY(CONFIRM_TEXT_RM_BACKUP,    "The saved copy is erased from the radio's flash. The settings it is running now are untouched, and there is nothing left to restore from.")
 MESH_STR_ENTRY(CONFIRM_TEXT_MAPS_DELETE,  "The map comes off the card and stops being drawn. It can be downloaded again from this screen.")
 MESH_STR_ENTRY(CONFIRM_TEXT_BACKUPS_DELETE, "The copy comes off the card. The radio is untouched, and its other backups stay.")
+MESH_STR_ENTRY(CONFIRM_TEXT_BACKUPS_RESTORE, "What differs goes back on the radio, which then restarts. It keeps its own keys, and a copy of it as it is now is saved first.")
+/* Joined to the sheet above, after a space: the firmware the backup was taken on, then the one
+   the radio runs now. */
+MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_FIRMWARE, " Taken on firmware %.20s; the radio runs %.20s now.")
 MESH_STR_ENTRY(CONFIRM_TEXT_BLUETOOTH,    "The radio will reboot. Changing the pairing mode or PIN invalidates the Brick's bond: forget the node in Devices (Y) and connect again to pair with the new PIN. Turning Bluetooth off cuts this client off entirely.")
 MESH_STR_ENTRY(CONFIRM_TEXT_CHANNELS,     "The radio will reboot. A new key or name moves this radio to a different channel: every other node needs the same settings to keep talking to it.")
 MESH_STR_ENTRY(CONFIRM_TEXT_LORA,         "The radio will reboot. A region or preset the other nodes do not share takes this radio off the mesh, and a wrong region may be illegal to transmit on. Transmit off makes it receive-only.")
@@ -3304,6 +3310,21 @@ MESH_STR_ENTRY(BACKUPS_CHANGE_ADDED,      "Only on the radio")
 MESH_STR_ENTRY(BACKUPS_CHANGE_REMOVED,    "Only in the backup")
 MESH_STR_ENTRY(TOAST_BACKUP_DELETED,      "Backup deleted from the card")
 MESH_STR_ENTRY(TOAST_BACKUP_DELETE_FAILED, "Could not delete the backup (%d)")
+/* Writing a backup's settings back to the radio. */
+MESH_STR_ENTRY(BACKUPS_RESTORE,           "Restore to the radio")
+MESH_STR_ENTRY(BACKUPS_RESTORING,         "Restoring the radio")
+MESH_STR_ENTRY(BACKUPS_RESTORING_VALUE,   "It restarts to apply them")
+MESH_STR_ENTRY(TOAST_RESTORE_STARTED,     "Restoring the radio; it restarts when done")
+MESH_STR_ENTRY(TOAST_RESTORE_SAME,        "The radio already matches this backup")
+MESH_STR_ENTRY(TOAST_RESTORE_UNWRITABLE,  "What differs cannot be written to this radio")
+/* The error number is for a bug report. */
+MESH_STR_ENTRY(TOAST_RESTORE_NO_COPY,     "Not restored: could not save the radio first (%d)")
+MESH_STR_ENTRY(TOAST_RESTORE_BUSY,        "The radio is busy; try again in a moment")
+MESH_STR_ENTRY(TOAST_RESTORE_FAILED,      "Could not restore the backup (%d)")
+/* The radio said no to the restore as a whole; the number is its reason, for a bug report. */
+MESH_STR_ENTRY(TOAST_RESTORE_REFUSED,     "The radio refused the restore (%d); nothing was changed")
+MESH_STR_ENTRY(TOAST_RESTORE_DONE,        "Radio restored from the backup")
+MESH_STR_PLURAL_ENTRY(TOAST_RESTORE_PARTIAL, "Restored; %u setting still differs", "Restored; %u settings still differ")
 
 /* ---- the radio's firmware ------------------------------------------------------------------ */
 

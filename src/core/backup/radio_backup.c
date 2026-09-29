@@ -584,6 +584,7 @@ static void radio_backup_note_highest(void *context, const char *name) {
  * listing above, because the ones to remove are exactly the ones a capped list would leave out.
  */
 struct radio_backup_prune {
+    uint32_t protected_sequence; /* 0 for none */
     uint32_t sequences[MESH_RADIO_BACKUP_KEEP_AUTOMATIC * 4U];
     char files[MESH_RADIO_BACKUP_KEEP_AUTOMATIC * 4U][64];
     size_t count;
@@ -592,7 +593,8 @@ struct radio_backup_prune {
 static void radio_backup_note_automatic(void *context, const char *name) {
     struct radio_backup_prune *prune = context;
     struct mesh_radio_backup_entry entry;
-    if (!radio_backup_parse_name(name, &entry) || entry.reason == MESH_RADIO_BACKUP_MANUAL) {
+    if (!radio_backup_parse_name(name, &entry) || entry.reason == MESH_RADIO_BACKUP_MANUAL ||
+        (prune->protected_sequence != 0U && entry.sequence == prune->protected_sequence)) {
         return;
     }
     size_t slot = prune->count;
@@ -615,10 +617,12 @@ static void radio_backup_note_automatic(void *context, const char *name) {
     snprintf(prune->files[slot], sizeof prune->files[slot], "%s", entry.file);
 }
 
-static void radio_backup_prune(const struct mesh_radio_backup_store *store, const char *dir) {
+static void radio_backup_prune(const struct mesh_radio_backup_store *store, uint32_t node_id,
+                               const char *dir) {
     struct radio_backup_prune prune;
     for (;;) {
         memset(&prune, 0, sizeof prune);
+        prune.protected_sequence = store->protect_node == node_id ? store->protect_sequence : 0U;
         if (inkwell_file_list(dir, radio_backup_note_automatic, &prune) < 0 ||
             prune.count <= store->keep_automatic) {
             return;
@@ -676,7 +680,7 @@ int mesh_radio_backup_store_save(struct mesh_radio_backup_store *store,
     if (result != 0) {
         return result;
     }
-    radio_backup_prune(store, dir);
+    radio_backup_prune(store, backup->header.node_id, dir);
     if (entry != NULL) {
         *entry = written;
     }

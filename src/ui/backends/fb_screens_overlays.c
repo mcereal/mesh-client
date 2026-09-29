@@ -15,6 +15,7 @@
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/backups.h"
 #include "mesh/ui/channel_share.h"
 #include "mesh/ui/contact_share.h"
 #include "mesh/ui/focus.h"
@@ -278,6 +279,11 @@ void fb_render_confirm(struct inkcell_draw_state *state, const struct mesh_ui_sn
            other frame is gone the moment this panel takes the body, so the sheet says it
            instead - in a sentence of settings.c's own, joined here rather than composed here. */
         mesh_ui_settings_confirm_add_subject(&snapshot->settings, confirmed, text, sizeof text);
+        /* A restore from other firmware than the radio runs says so, from the backups table. */
+        if (confirmed == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE) {
+            mesh_ui_backups_restore_note(&snapshot->settings, mesh_ui_nav_open_channel(nav), text,
+                                         sizeof text);
+        }
     }
 
     /*

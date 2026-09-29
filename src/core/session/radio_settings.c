@@ -66,6 +66,7 @@ void mesh_radio_settings_reset_session(struct mesh_radio_settings *settings) {
     settings->pending_sent_at_ms = 0U;
     settings->pending_is_write = false;
     settings->pending_dest = 0U;
+    settings->pending_kind = 0U;
     settings->timeouts = 0U;
     settings->remote_silence = 0U;
     settings->local_silence = 0U;
@@ -427,7 +428,8 @@ bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind) {
     return kind == MESH_ADMIN_SET_OWNER || kind == MESH_ADMIN_SET_CONFIG ||
            kind == MESH_ADMIN_SET_MODULE_CONFIG || kind == MESH_ADMIN_SET_CHANNEL ||
            kind == MESH_ADMIN_SET_FIXED_POSITION || kind == MESH_ADMIN_REMOVE_FIXED_POSITION ||
-           kind == MESH_ADMIN_SET_UI_CONFIG || kind == MESH_ADMIN_SET_CANNED_MESSAGES;
+           kind == MESH_ADMIN_SET_UI_CONFIG || kind == MESH_ADMIN_SET_CANNED_MESSAGES ||
+           kind == MESH_ADMIN_SET_RINGTONE;
 }
 
 bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind) {
@@ -443,7 +445,8 @@ bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind) {
            kind == MESH_ADMIN_FACTORY_RESET_DEVICE || kind == MESH_ADMIN_ENTER_DFU_MODE ||
            kind == MESH_ADMIN_BACKUP_PREFERENCES || kind == MESH_ADMIN_RESTORE_PREFERENCES ||
            kind == MESH_ADMIN_REMOVE_BACKUP_PREFERENCES || kind == MESH_ADMIN_OTA_REQUEST ||
-           kind == MESH_ADMIN_SET_HAM_MODE;
+           kind == MESH_ADMIN_SET_HAM_MODE || kind == MESH_ADMIN_BEGIN_EDIT ||
+           kind == MESH_ADMIN_COMMIT_EDIT;
 }
 
 static void mesh_radio_settings_record_write_result(struct mesh_radio_settings *settings,
@@ -453,6 +456,47 @@ static void mesh_radio_settings_record_write_result(struct mesh_radio_settings *
     } else {
         settings->writes_failed += 1U;
         settings->last_write_error = error;
+    }
+}
+
+/*
+ * An edit transaction that cannot go on: its begin was refused or went unanswered. What it had
+ * queued behind the begin - the writes and the commit - is dropped unsent, since each write
+ * outside a transaction is saved on its own and the first that restarts the radio takes the
+ * rest of the restore down with it. Anything queued after the commit stays.
+ */
+static void mesh_radio_settings_abort_transaction(struct mesh_radio_settings *settings,
+                                                  int32_t error) {
+    settings->transactions_failed += 1U;
+    settings->last_transaction_error = error;
+    size_t dropped = 0U;
+    while (settings->queue_len > 0U) {
+        const enum mesh_admin_request_kind kind = settings->queue[settings->queue_head].kind;
+        settings->queue_head = (settings->queue_head + 1U) % MESH_RADIO_SETTINGS_FETCH_MAX;
+        settings->queue_len -= 1U;
+        dropped += 1U;
+        if (kind == MESH_ADMIN_COMMIT_EDIT) {
+            break;
+        }
+    }
+    inkwell_log_warn("admin", "Edit transaction abandoned (%d): %zu requests dropped", (int)error,
+                     dropped);
+}
+
+/* What the answer to the request in flight means for an edit transaction, if it was one's. */
+static void mesh_radio_settings_transaction_result(struct mesh_radio_settings *settings,
+                                                   int32_t error) {
+    if (error == 0) {
+        return;
+    }
+    if (settings->pending_kind == (uint8_t)MESH_ADMIN_BEGIN_EDIT) {
+        mesh_radio_settings_abort_transaction(settings, error);
+    } else if (settings->pending_kind == (uint8_t)MESH_ADMIN_COMMIT_EDIT &&
+               error != MESH_RADIO_SETTINGS_WRITE_TIMEOUT) {
+        settings->transactions_failed += 1U;
+        settings->last_transaction_error = error;
+        inkwell_log_warn("admin", "Edit transaction's commit rejected: routing error %d",
+                         (int)error);
     }
 }
 
@@ -466,6 +510,8 @@ static bool mesh_radio_settings_finish_pending(struct mesh_radio_settings *setti
     if (settings->pending_is_write) {
         mesh_radio_settings_record_write_result(settings, error);
     }
+    mesh_radio_settings_transaction_result(settings, error);
+    settings->pending_kind = 0U;
     settings->pending_request_id = 0U;
     settings->pending_sent_at_ms = 0U;
     settings->pending_is_write = false;
@@ -886,6 +932,19 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         admin.which_payload_variant = meshtastic_AdminMessage_get_ringtone_request_tag;
         admin.get_ringtone_request = true;
         break;
+    case MESH_ADMIN_SET_RINGTONE:
+        admin.which_payload_variant = meshtastic_AdminMessage_set_ringtone_message_tag;
+        inkwell_str_copy(admin.set_ringtone_message, sizeof admin.set_ringtone_message,
+                         request->payload.ringtone);
+        break;
+    case MESH_ADMIN_BEGIN_EDIT:
+        admin.which_payload_variant = meshtastic_AdminMessage_begin_edit_settings_tag;
+        admin.begin_edit_settings = true;
+        break;
+    case MESH_ADMIN_COMMIT_EDIT:
+        admin.which_payload_variant = meshtastic_AdminMessage_commit_edit_settings_tag;
+        admin.commit_edit_settings = true;
+        break;
     case MESH_ADMIN_BACKUP_PREFERENCES:
         admin.which_payload_variant = meshtastic_AdminMessage_backup_preferences_tag;
         admin.backup_preferences = (meshtastic_AdminMessage_BackupLocation)request->type;
@@ -1012,9 +1071,9 @@ static bool mesh_radio_settings_queued(const struct mesh_radio_settings *setting
  * observe what a write or an action changed, so folding it into a request already sitting
  * ahead of that action answers with the value the action replaced.
  *
- * Only queue_ham_mode() uses it. queue_write() deliberately does not - the test on set_owner
- * pins that its passkey refresh and its read-back are one request - and changing that is a
- * decision about a shipped mechanism rather than a line in this one.
+ * queue_ham_mode() and queue_transaction() use it. queue_write() deliberately does not - the test
+ * on set_owner pins that its passkey refresh and its read-back are one request - and changing that
+ * is a decision about a shipped mechanism rather than a line in this one.
  */
 static size_t mesh_radio_settings_append(struct mesh_radio_settings *settings, uint32_t dest,
                                          enum mesh_admin_request_kind kind, uint32_t type) {
@@ -1090,6 +1149,9 @@ int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
     case MESH_ADMIN_SET_CANNED_MESSAGES:
         readback = MESH_ADMIN_GET_CANNED_MESSAGES;
         break;
+    case MESH_ADMIN_SET_RINGTONE:
+        readback = MESH_ADMIN_GET_RINGTONE;
+        break;
     case MESH_ADMIN_SET_FIXED_POSITION:
     case MESH_ADMIN_REMOVE_FIXED_POSITION:
         /* The firmware sets `position.fixed_position` itself, so the section this did not
@@ -1130,6 +1192,63 @@ int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
     added += 1U;
     added += mesh_radio_settings_enqueue(settings, settings->admin_dest, readback, write->type);
     return (int)added;
+}
+
+/* A section write a transaction may carry: what queue_write() takes, less the removal of a fixed
+   position, which a restore expresses as the Position section with the flag off. */
+static bool mesh_radio_settings_transaction_write_ok(const struct mesh_admin_request *write) {
+    switch (write->kind) {
+    case MESH_ADMIN_SET_OWNER:
+    case MESH_ADMIN_SET_UI_CONFIG:
+    case MESH_ADMIN_SET_CANNED_MESSAGES:
+    case MESH_ADMIN_SET_RINGTONE:
+        return true;
+    case MESH_ADMIN_SET_CONFIG:
+        return write->payload.config.which_payload_variant != 0U;
+    case MESH_ADMIN_SET_MODULE_CONFIG:
+        return write->payload.module_config.which_payload_variant != 0U;
+    case MESH_ADMIN_SET_CHANNEL:
+        return write->type < MESH_RADIO_SETTINGS_MAX_CHANNELS &&
+               write->payload.channel.index == (int8_t)write->type;
+    case MESH_ADMIN_SET_FIXED_POSITION:
+        return write->type == (uint32_t)meshtastic_AdminMessage_ConfigType_POSITION_CONFIG;
+    default:
+        return false;
+    }
+}
+
+int mesh_radio_settings_queue_transaction(struct mesh_radio_settings *settings,
+                                          const struct mesh_admin_request *writes, size_t count) {
+    if (settings == NULL || (writes == NULL && count > 0U) || settings->admin_dest != 0U) {
+        return -EINVAL;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (!mesh_radio_settings_transaction_write_ok(&writes[i])) {
+            return -EINVAL;
+        }
+    }
+    const size_t needed = 3U + count; /* passkey, begin, the writes, commit */
+    if (count > MESH_RADIO_SETTINGS_TRANSACTION_MAX ||
+        settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
+        return -ENOSPC;
+    }
+    /* Appended rather than enqueued: a passkey refresh already waiting further up the queue
+       would be spent on whatever is ahead of it, and this one has to be the one the
+       transaction's writes are sent under. */
+    (void)mesh_radio_settings_append(settings, 0U, MESH_ADMIN_GET_OWNER, 0U);
+    (void)mesh_radio_settings_append(settings, 0U, MESH_ADMIN_BEGIN_EDIT, 0U);
+    for (size_t i = 0; i < count; ++i) {
+        struct mesh_admin_request *slot =
+            &settings->queue[(settings->queue_head + settings->queue_len) %
+                             MESH_RADIO_SETTINGS_FETCH_MAX];
+        *slot = writes[i];
+        slot->dest = 0U;
+        slot->my_node = 0U;
+        slot->packet_id = 0U;
+        settings->queue_len += 1U;
+    }
+    (void)mesh_radio_settings_append(settings, 0U, MESH_ADMIN_COMMIT_EDIT, 0U);
+    return (int)needed;
 }
 
 /*
@@ -1495,6 +1614,11 @@ bool mesh_radio_settings_write_pending(const struct mesh_radio_settings *setting
 
 void mesh_radio_settings_mark_unsent(struct mesh_radio_settings *settings,
                                      const struct mesh_admin_request *request, int error) {
+    if (settings != NULL && request != NULL && request->kind == MESH_ADMIN_BEGIN_EDIT) {
+        /* A begin that never left: the transaction behind it must not go out without one. */
+        mesh_radio_settings_abort_transaction(settings, error != 0 ? (int32_t)error : -EIO);
+        return;
+    }
     if (settings == NULL || request == NULL || !mesh_admin_request_is_write(request->kind)) {
         return;
     }
@@ -1593,6 +1717,8 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
         if (settings->pending_is_write) {
             mesh_radio_settings_record_write_result(settings, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
         }
+        mesh_radio_settings_transaction_result(settings, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
+        settings->pending_kind = 0U;
         const bool give_up = settings->remote_silence >= MESH_RADIO_SETTINGS_REMOTE_GIVE_UP;
         const bool link_silent = settings->local_silence >= MESH_RADIO_SETTINGS_LOCAL_GIVE_UP;
         settings->pending_request_id = 0U;
@@ -1642,6 +1768,7 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
        correctly. The caller's mark_sent() confirms it actually left. */
     settings->pending_is_write = mesh_admin_request_is_write(out->kind);
     settings->pending_dest = out->dest;
+    settings->pending_kind = (uint8_t)out->kind;
     return true;
 }
 

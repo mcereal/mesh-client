@@ -79,6 +79,15 @@ inkcell_str_id mesh_ui_backups_protocol(uint8_t protocol);
 bool mesh_ui_backups_title(const struct mesh_ui_backups *backups, uint8_t view, char *title,
                            size_t title_len, char *parent, size_t parent_len);
 
+/*
+ * Appends to a restore sheet's text the sentence saying the backup came from other firmware than
+ * the radio runs now, when it did: a field the radio's firmware does not know is dropped by it,
+ * and the comparison after the restart will list it. Nothing is appended when the two match or
+ * either is unknown.
+ */
+void mesh_ui_backups_restore_note(const struct mesh_ui_settings *settings, uint8_t view, char *text,
+                                  size_t text_len);
+
 /* A comparison's heading for a change: its section's name, or "Channel 2", or "Contacts". */
 void mesh_ui_backups_topic(const struct mesh_radio_backup_change *change, char *out,
                            size_t out_len);

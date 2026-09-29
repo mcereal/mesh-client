@@ -1008,6 +1008,12 @@ int mesh_session_refresh_settings(struct mesh_session *session);
  */
 int mesh_session_set_admin_dest(struct mesh_session *session, uint32_t node_id);
 
+/* Queues a restore's writes as one edit transaction (mesh_radio_settings_queue_transaction()).
+   Returns the number of requests queued, -ENOTCONN before the handshake has my_info, -ENOSPC
+   when the queue cannot take all of it (nothing is queued), -EINVAL for a remote target. */
+int mesh_session_restore_settings(struct mesh_session *session,
+                                  const struct mesh_admin_request *writes, size_t count);
+
 /* Queues one settings write (see mesh_radio_settings_queue_write) behind a passkey refresh and
    ahead of a read-back. Returns the number of requests queued, -ENOTCONN before the handshake
    has my_info, -ENOSPC when the queue is full, -EINVAL for anything but a write. */

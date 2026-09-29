@@ -2977,6 +2977,7 @@ static const struct inkstand_scene_seed uicap_seeds[] = {
  *
  *   backups list              the card, with the demo radio on the link
  *   backups compare|same      a finished comparison of the newest backup with the radio
+ *   backups restoring         that backup being written back, before the radio is read again
  */
 static void uicap_backup_entry(struct mesh_ui_backups *b, uint8_t radio, uint32_t node,
                                uint32_t sequence, uint8_t protocol, uint8_t reason,
@@ -3044,7 +3045,7 @@ static int verb_backups(struct inkstand_scene *scene, char *rest, void *userdata
     struct uicap *cap = userdata;
     char *what = inkstand_scene_word(&rest);
     if (what == NULL) {
-        return inkstand_scene_fail(scene, "'backups' needs list, compare or same");
+        return inkstand_scene_fail(scene, "'backups' needs list, compare, restoring or same");
     }
     struct mesh_ui_settings settings = cap->store.settings;
     struct mesh_ui_backups *b = &settings.backups;
@@ -3075,6 +3076,10 @@ static int verb_backups(struct inkstand_scene *scene, char *rest, void *userdata
                            MESH_RADIO_BACKUP_BEFORE_WRITE, now - 86400U * 5U, "2.5.6.d55c08d");
         uicap_backup_entry(b, 2U, 0x22220002U, 1U, MESH_RADIO_BACKUP_MESHTASTIC,
                            MESH_RADIO_BACKUP_FIRST_CONNECT, now - 86400U * 30U, "2.5.4.8d2a7f1");
+    } else if (strcmp(what, "restoring") == 0) {
+        b->compare_node = node;
+        b->compare_sequence = 3U;
+        b->compare_state = MESH_UI_BACKUP_COMPARE_RESTORING;
     } else if (strcmp(what, "compare") == 0 || strcmp(what, "same") == 0) {
         b->compare_node = node;
         b->compare_sequence = 3U;
@@ -3099,7 +3104,7 @@ static int verb_backups(struct inkstand_scene *scene, char *rest, void *userdata
             }
         }
     } else {
-        return inkstand_scene_fail(scene, "'backups' is list, compare or same");
+        return inkstand_scene_fail(scene, "'backups' is list, compare, restoring or same");
     }
     mesh_ui_store_set_settings(&cap->store, &settings);
     return 0;

@@ -95,6 +95,35 @@ int mesh_radio_backup_meshtastic_diff(const struct mesh_radio_backup *a,
                                       const struct mesh_radio_backup *b,
                                       struct mesh_radio_backup_diff *out);
 
+/*
+ * The writes that would put `backup` back onto the radio `settings` describes: one per section
+ * whose encoded bytes differ from the radio's own, in the order the backup holds them (Config,
+ * modules, channels, owner, the UI config, canned messages, ringtone, then the fixed position,
+ * which has to follow the Position section it sets a flag in). A section the radio has and the
+ * backup does not is left alone - there is nothing to put back.
+ *
+ * **The radio keeps its own keys.** A backup never holds the private key, and writing its
+ * SecurityConfig as it stands would hand the radio an empty one, which the firmware answers by
+ * making a new key pair - a new identity on the mesh, and every node that trusted the old one
+ * refusing the new. So the Security write carries the radio's current key pair, and the owner
+ * write its current public key, whatever else they restore. A radio that has not reported its
+ * private key is not sent a Security write at all.
+ *
+ * `unwritable`, when not NULL, receives how many sections differ but have no write - a Security
+ * section with no key of the radio's own to carry, a module this build keeps no binding for -
+ * so a plan of 0 can be told apart from a radio that already matches.
+ *
+ * Returns how many writes were planned, -EPROTO for a
+ * backup of another protocol, -EAGAIN when the radio has not been read far enough to compare
+ * (mesh_radio_backup_meshtastic_capture()'s refusal), -ENOSPC when more than `max` sections
+ * differ, -ENOMEM.
+ */
+int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
+                                      const struct mesh_radio_settings *settings,
+                                      const struct mesh_handshake_status *status,
+                                      struct mesh_admin_request *writes, size_t max,
+                                      size_t *unwritable);
+
 #ifdef __cplusplus
 }
 #endif

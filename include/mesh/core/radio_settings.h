@@ -140,6 +140,20 @@ enum mesh_admin_request_kind {
      * finishes the job**: the loader has no way back.
      */
     MESH_ADMIN_OTA_REQUEST,
+    /*
+     * An edit transaction: the firmware holds back the save to flash - and the reboot a LoRa or
+     * Bluetooth write would otherwise make - from begin_edit_settings until commit_edit_settings,
+     * and then does both once. What lets a restore write thirty sections without the radio
+     * restarting after the first of them and dropping the other twenty-nine on the floor.
+     *
+     * Actions rather than writes: neither changes a section, neither is read back, and the
+     * commit is the one likely to be answered by the link dropping rather than by an ack.
+     */
+    MESH_ADMIN_BEGIN_EDIT,
+    MESH_ADMIN_COMMIT_EDIT,
+    /* The buzzer's RTTTL tune, payload.ringtone. A write like the canned messages beside it,
+       read back with MESH_ADMIN_GET_RINGTONE. */
+    MESH_ADMIN_SET_RINGTONE,
 };
 
 /* The length of an OTA hash: SHA-256, and the firmware refuses anything else. */
@@ -185,6 +199,7 @@ struct mesh_admin_request {
         /* The canned message list as one string, exactly as the wire carries it. Sized from
            the admin field rather than from a number here, so a protobuf bump moves both. */
         char text[sizeof(((meshtastic_AdminMessage *)0)->set_canned_message_module_messages)];
+        char ringtone[sizeof(((meshtastic_AdminMessage *)0)->set_ringtone_message)];
         uint8_t ota_hash[MESH_ADMIN_OTA_HASH_LEN];        /* MESH_ADMIN_OTA_REQUEST */
         meshtastic_SharedContact contact;                 /* MESH_ADMIN_ADD_CONTACT */
         meshtastic_KeyVerificationAdmin key_verification; /* MESH_ADMIN_KEY_VERIFICATION */
@@ -404,6 +419,9 @@ struct mesh_radio_settings {
        of the two deadlines above applies, and whether the reply may be folded into the
        sections this struct keeps. */
     uint32_t pending_dest;
+    /* The kind of the request in flight, for the two whose answer decides what happens to the
+       rest of the queue: an edit transaction's begin and commit. */
+    uint8_t pending_kind; /* enum mesh_admin_request_kind */
     unsigned timeouts;
     /* Consecutive unanswered *remote* requests, against MESH_RADIO_SETTINGS_REMOTE_GIVE_UP.
        Reset by any admin reply. */
@@ -422,6 +440,15 @@ struct mesh_radio_settings {
     uint32_t writes_failed;   /* Routing error, timeout, or the GATT write itself failed */
     int32_t last_write_error; /* meshtastic_Routing_Error, MESH_RADIO_SETTINGS_WRITE_TIMEOUT,
                                  or a negative errno from the transport */
+    /*
+     * Edit transactions that did not take, and why: a begin_edit_settings rejected or unanswered,
+     * in which case the transaction's writes and its commit are dropped from the queue unsent -
+     * sent outside a transaction, the first write that restarts the radio would lose the rest -
+     * or a commit_edit_settings rejected. A commit that goes unanswered is not counted: the
+     * radio restarting before it can ack is the commit working.
+     */
+    uint32_t transactions_failed;
+    int32_t last_transaction_error; /* as last_write_error */
 };
 
 /*
@@ -571,6 +598,27 @@ size_t mesh_radio_settings_queue_all(struct mesh_radio_settings *settings);
    -EINVAL for a non-write, -ENOSPC when the queue cannot take all three. */
 int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
                                     const struct mesh_admin_request *write);
+/*
+ * Queues a group of writes as one edit transaction: a get_owner for a fresh passkey,
+ * begin_edit_settings, every write in order, and commit_edit_settings - and **no read-back per
+ * write**, which is the whole difference from queue_write().
+ *
+ * A read-back per write is three slots a section, and a restore onto a factory-reset radio is
+ * some thirty-five sections: a hundred slots against a queue of 48, so it could never be queued
+ * at once, and fed in as answers arrived it would be spread across the reboot the commit brings.
+ * One refresh (queue_all()) after the commit reads everything back instead, and the caller makes
+ * it - usually after the link has dropped and come back, which is when it has to happen anyway.
+ *
+ * All or nothing: -ENOSPC before anything is queued when the queue cannot take the whole
+ * transaction, so a radio is never left with half a restore applied. -EINVAL for a request that
+ * is not a section write, or while another node is being administered - a transaction is for the
+ * radio on the end of the link, where a failed commit can still be seen and read back. Returns
+ * the number of requests queued.
+ */
+#define MESH_RADIO_SETTINGS_TRANSACTION_MAX (MESH_RADIO_SETTINGS_FETCH_MAX - 3U)
+int mesh_radio_settings_queue_transaction(struct mesh_radio_settings *settings,
+                                          const struct mesh_admin_request *writes, size_t count);
+
 /* Queues a clock push: a get_owner_request for a fresh passkey, then set_time_only carrying
    `epoch` (UTC seconds). There is no get_time, so nothing is read back. Always to the radio on
    the end of the link, whatever the admin target is: the clock is pushed once per connection

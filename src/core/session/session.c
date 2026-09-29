@@ -2522,6 +2522,22 @@ int mesh_session_set_admin_dest(struct mesh_session *session, uint32_t node_id) 
     return queued;
 }
 
+int mesh_session_restore_settings(struct mesh_session *session,
+                                  const struct mesh_admin_request *writes, size_t count) {
+    if (session == NULL) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    const int queued = mesh_radio_settings_queue_transaction(&session->settings, writes, count);
+    if (queued > 0) {
+        inkwell_log_info("session", "Queued a restore of %zu sections (%d requests)", count,
+                         queued);
+    }
+    return queued;
+}
+
 int mesh_session_write_settings(struct mesh_session *session,
                                 const struct mesh_admin_request *write) {
     if (session == NULL || write == NULL) {

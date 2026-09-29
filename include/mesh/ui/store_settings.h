@@ -486,6 +486,9 @@ enum mesh_ui_backup_compare_state {
     MESH_UI_BACKUP_COMPARE_NONE = 0,
     MESH_UI_BACKUP_COMPARE_DONE,
     MESH_UI_BACKUP_COMPARE_FAILED,
+    /* The backup is being written back to the radio: until the radio has restarted and been
+       read again, and compared once more, there is nothing to show but that it is happening. */
+    MESH_UI_BACKUP_COMPARE_RESTORING,
 };
 
 struct mesh_ui_backups {

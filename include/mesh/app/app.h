@@ -258,6 +258,19 @@ struct mesh_app {
     /* What the card holds, as the Backups section lists it, and the last comparison. Read when
        the store opens and after every write to it, never on a publish. See app_backup.c. */
     struct mesh_ui_backups backup_listing;
+    /*
+     * A restore in flight: which backup, and how far it has got - SENT while the transaction is
+     * in the admin queue, READING once the radio is being read again (after a restart, or a
+     * refresh when it did not restart), NONE once the result has been judged. See app_backup.c.
+     */
+    struct {
+        uint32_t node;
+        uint32_t sequence;
+        uint8_t stage;
+        uint64_t reboot_generation;
+        /* The admin queue's failed-transaction count when this one was queued. */
+        uint32_t transactions_failed;
+    } backup_restore;
     /* The node whose trend was last read off the card, so the read happens when the reader moves
        rather than on every publish. 0 when no detail screen is open. */
     uint32_t ui_trend_node;

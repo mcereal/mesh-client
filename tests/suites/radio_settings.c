@@ -1881,3 +1881,196 @@ MESH_TEST_CASE(radio_settings_remote_admin_does_not_cross_owners, unit) {
     MESH_TEST_FAIL_IF(settings.pending_request_id != 0U, "and the queue is released either way");
     record_success(test_name);
 }
+
+/*
+ * A restore's writes as one edit transaction: the passkey refresh, begin_edit_settings, the
+ * writes, commit_edit_settings - and no read-back between them, which is what lets a whole radio
+ * fit in the queue at once. All of it or none of it.
+ */
+static struct mesh_admin_request test_config_write(pb_size_t variant) {
+    struct mesh_admin_request write;
+    memset(&write, 0, sizeof write);
+    write.kind = MESH_ADMIN_SET_CONFIG;
+    write.payload.config.which_payload_variant = variant;
+    return write;
+}
+
+/* A Routing reply to request `id`, carrying `error` (0 for an ack). */
+static void test_routing_reply(struct mesh_radio_settings *settings, uint32_t id,
+                               meshtastic_Routing_Error error) {
+    meshtastic_Routing routing = meshtastic_Routing_init_default;
+    routing.which_variant = meshtastic_Routing_error_reason_tag;
+    routing.error_reason = error;
+    meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_default;
+    packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    packet.decoded.portnum = meshtastic_PortNum_ROUTING_APP;
+    packet.decoded.request_id = id;
+    pb_ostream_t out =
+        pb_ostream_from_buffer(packet.decoded.payload.bytes, sizeof packet.decoded.payload.bytes);
+    (void)pb_encode(&out, meshtastic_Routing_fields, &routing);
+    packet.decoded.payload.size = (pb_size_t)out.bytes_written;
+    (void)mesh_radio_settings_ingest(settings, &packet);
+}
+
+/* Sends requests until one of `kind` is in flight, as packet `id`; false if none comes. */
+static bool test_send_until(struct mesh_radio_settings *settings, enum mesh_admin_request_kind kind,
+                            uint32_t id, uint64_t *now) {
+    struct mesh_admin_request next;
+    while (mesh_radio_settings_next_request(settings, *now, &next)) {
+        mesh_radio_settings_mark_sent(settings, id, *now);
+        if (next.kind == kind) {
+            return true;
+        }
+        test_routing_reply(settings, id, meshtastic_Routing_Error_NONE);
+        *now += 10U;
+    }
+    return false;
+}
+
+MESH_TEST_CASE(radio_settings_transaction_wraps_the_writes_in_an_edit, unit) {
+    static struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+    struct mesh_admin_request writes[2] = {test_config_write(meshtastic_Config_lora_tag),
+                                           test_config_write(meshtastic_Config_display_tag)};
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_transaction(&settings, writes, 2U) != 5,
+                      "a passkey, begin, two writes and a commit");
+    const enum mesh_admin_request_kind expected[] = {MESH_ADMIN_GET_OWNER, MESH_ADMIN_BEGIN_EDIT,
+                                                     MESH_ADMIN_SET_CONFIG, MESH_ADMIN_SET_CONFIG,
+                                                     MESH_ADMIN_COMMIT_EDIT};
+    uint64_t now = 1000U;
+    for (size_t i = 0; i < sizeof expected / sizeof expected[0]; ++i) {
+        struct mesh_admin_request next;
+        MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, now, &next) ||
+                              next.kind != expected[i],
+                          "the transaction left the queue out of order");
+        mesh_radio_settings_mark_sent(&settings, (uint32_t)(100U + i), now);
+        test_routing_reply(&settings, (uint32_t)(100U + i), meshtastic_Routing_Error_NONE);
+        now += 10U;
+    }
+    MESH_TEST_FAIL_IF(settings.queue_len != 0U, "something was read back inside the transaction");
+
+    meshtastic_AdminMessage admin;
+    MESH_TEST_FAIL_IF(!test_admin_encodes(&settings, MESH_ADMIN_BEGIN_EDIT, 0U, &admin) ||
+                          admin.which_payload_variant !=
+                              meshtastic_AdminMessage_begin_edit_settings_tag ||
+                          !admin.begin_edit_settings,
+                      "begin did not encode as begin_edit_settings");
+    MESH_TEST_FAIL_IF(!test_admin_encodes(&settings, MESH_ADMIN_COMMIT_EDIT, 0U, &admin) ||
+                          admin.which_payload_variant !=
+                              meshtastic_AdminMessage_commit_edit_settings_tag ||
+                          !admin.commit_edit_settings,
+                      "commit did not encode as commit_edit_settings");
+    MESH_TEST_FAIL_IF(mesh_admin_request_is_write(MESH_ADMIN_COMMIT_EDIT) ||
+                          !mesh_admin_request_is_action(MESH_ADMIN_COMMIT_EDIT),
+                      "a commit answered by a reboot must not read as a failed save");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(radio_settings_transaction_refuses_what_it_cannot_finish, unit) {
+    static struct mesh_radio_settings settings;
+    static struct mesh_admin_request writes[MESH_RADIO_SETTINGS_FETCH_MAX];
+    mesh_radio_settings_reset(&settings);
+    for (size_t i = 0; i < MESH_RADIO_SETTINGS_FETCH_MAX; ++i) {
+        writes[i] = test_config_write(meshtastic_Config_lora_tag);
+    }
+    /* The most a whole radio needs fits an empty queue... */
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_transaction(&settings, writes,
+                                                            MESH_RADIO_SETTINGS_TRANSACTION_MAX) !=
+                          (int)MESH_RADIO_SETTINGS_FETCH_MAX,
+                      "a full-sized transaction did not fit an empty queue");
+    /* ...and one that would not fit behind what is already queued is refused whole. */
+    mesh_radio_settings_reset(&settings);
+    (void)mesh_radio_settings_queue_all(&settings);
+    const size_t before = settings.queue_len;
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_transaction(&settings, writes, 30U) != -ENOSPC ||
+                          settings.queue_len != before,
+                      "a transaction that could not fit was half queued");
+
+    /* Not a section write, or somebody else's radio: refused. */
+    mesh_radio_settings_reset(&settings);
+    struct mesh_admin_request reboot = {.kind = MESH_ADMIN_REBOOT};
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_transaction(&settings, &reboot, 1U) != -EINVAL,
+                      "an action was taken as a restore's write");
+    settings.admin_dest = 0x0a0b0c0dU;
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_transaction(&settings, writes, 1U) != -EINVAL,
+                      "a transaction was queued for a remote node");
+
+    /* And the ringtone has a write of its own now. */
+    mesh_radio_settings_reset(&settings);
+    meshtastic_AdminMessage admin;
+    struct mesh_admin_request ring;
+    memset(&ring, 0, sizeof ring);
+    ring.kind = MESH_ADMIN_SET_RINGTONE;
+    ring.my_node = 0x1234U;
+    ring.packet_id = 91U;
+    snprintf(ring.payload.ringtone, sizeof ring.payload.ringtone, "%s", "a:d=8,o=5,b=120:c,e");
+    uint8_t buffer[512];
+    size_t written = 0U;
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    bool ok =
+        mesh_radio_settings_encode_request(&settings, &ring, buffer, sizeof buffer, &written) == 0;
+    pb_istream_t in = pb_istream_from_buffer(buffer, written);
+    ok = ok && pb_decode(&in, meshtastic_ToRadio_fields, &to_radio);
+    admin = (meshtastic_AdminMessage)meshtastic_AdminMessage_init_default;
+    in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
+                                to_radio.packet.decoded.payload.size);
+    ok = ok && pb_decode(&in, meshtastic_AdminMessage_fields, &admin);
+    MESH_TEST_FAIL_IF(
+        !ok || admin.which_payload_variant != meshtastic_AdminMessage_set_ringtone_message_tag ||
+            strcmp(admin.set_ringtone_message, "a:d=8,o=5,b=120:c,e") != 0,
+        "the ringtone did not encode as set_ringtone_message");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(radio_settings_transaction_stops_when_its_begin_is_refused, unit) {
+    static struct mesh_radio_settings settings;
+    struct mesh_admin_request writes[2] = {test_config_write(meshtastic_Config_lora_tag),
+                                           test_config_write(meshtastic_Config_display_tag)};
+    uint64_t now = 1000U;
+
+    /* Refused: the writes and the commit behind it are dropped, and something queued after the
+       transaction still goes. */
+    mesh_radio_settings_reset(&settings);
+    mesh_radio_settings_queue_transaction(&settings, writes, 2U);
+    (void)mesh_radio_settings_queue_probe(&settings);
+    MESH_TEST_FAIL_IF(!test_send_until(&settings, MESH_ADMIN_BEGIN_EDIT, 50U, &now),
+                      "the begin never went out");
+    test_routing_reply(&settings, 50U, meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY);
+    struct mesh_admin_request next;
+    MESH_TEST_FAIL_IF(settings.transactions_failed != 1U ||
+                          settings.last_transaction_error !=
+                              (int32_t)meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY,
+                      "a refused begin was not counted as a failed transaction");
+    bool wrote = false;
+    while (mesh_radio_settings_next_request(&settings, now, &next)) {
+        wrote = wrote || next.kind == MESH_ADMIN_SET_CONFIG || next.kind == MESH_ADMIN_COMMIT_EDIT;
+        mesh_radio_settings_mark_sent(&settings, 51U, now);
+        test_routing_reply(&settings, 51U, meshtastic_Routing_Error_NONE);
+    }
+    MESH_TEST_FAIL_IF(wrote, "a write went out after its transaction's begin was refused");
+
+    /* Unanswered: the same. */
+    mesh_radio_settings_reset(&settings);
+    mesh_radio_settings_queue_transaction(&settings, writes, 2U);
+    test_send_until(&settings, MESH_ADMIN_BEGIN_EDIT, 60U, &now);
+    now += MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U;
+    (void)mesh_radio_settings_next_request(&settings, now, &next);
+    MESH_TEST_FAIL_IF(settings.transactions_failed != 1U || settings.queue_len != 0U,
+                      "an unanswered begin let its transaction go on");
+
+    /* A refused commit is a failed restore; an unanswered one is the radio restarting. */
+    mesh_radio_settings_reset(&settings);
+    mesh_radio_settings_queue_transaction(&settings, writes, 2U);
+    test_send_until(&settings, MESH_ADMIN_COMMIT_EDIT, 70U, &now);
+    now += MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U;
+    (void)mesh_radio_settings_next_request(&settings, now, &next);
+    MESH_TEST_FAIL_IF(settings.transactions_failed != 0U,
+                      "an unanswered commit was counted as a failure");
+    mesh_radio_settings_reset(&settings);
+    mesh_radio_settings_queue_transaction(&settings, writes, 2U);
+    test_send_until(&settings, MESH_ADMIN_COMMIT_EDIT, 80U, &now);
+    test_routing_reply(&settings, 80U, meshtastic_Routing_Error_BAD_REQUEST);
+    MESH_TEST_FAIL_IF(settings.transactions_failed != 1U,
+                      "a refused commit was not counted as a failed transaction");
+    record_success(test_name);
+}

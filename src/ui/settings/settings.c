@@ -234,6 +234,7 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY] = INKCELL_ICON_BACKUP,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE] = INKCELL_ICON_SWAP,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE] = INKCELL_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE] = INKCELL_ICON_RESTORE,
 };
 
 /*
@@ -341,6 +342,7 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE] = INKCELL_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE] = INKCELL_TONE_WARNING,
 };
 
 enum inkcell_icon mesh_ui_settings_action_icon(enum mesh_ui_settings_action action) {
@@ -2962,6 +2964,7 @@ bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) 
            action == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL ||
            action == MESH_UI_SETTINGS_ACTION_MAPS_DELETE ||
            action == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE ||
+           action == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE ||
            mesh_ui_settings_action_is_install_firmware(action) ||
            mesh_ui_settings_action_is_forget(action);
 }
@@ -3100,6 +3103,9 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
     case MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_BACKUPS_DELETE));
         return;
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_BACKUPS_RESTORE));
+        return;
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FW_USB));
         return;
@@ -3158,6 +3164,8 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_MAPS_DELETE);
     case MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE:
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_BACKUPS_DELETE);
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE:
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_BACKUPS_RESTORE);
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB:
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FW_USB);
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
@@ -3196,7 +3204,8 @@ void mesh_ui_settings_confirm_add_subject(const struct mesh_ui_settings *setting
     if (mesh_ui_settings_action_is_forget(action) ||
         mesh_ui_settings_action_is_install_firmware(action) ||
         action == MESH_UI_SETTINGS_ACTION_MAPS_DELETE ||
-        action == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE) {
+        action == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE ||
+        action == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE) {
         return;
     }
     const size_t at = strlen(text);
@@ -3301,6 +3310,9 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
         return;
     case MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_BACKUPS_DELETE));
+        return;
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_BACKUPS_RESTORE));
         return;
     /* The one sheet here that is neither a reset nor an install: what it costs is the mesh the
        radio is on, because amateur rules require the encryption it turns off. */
