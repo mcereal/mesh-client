@@ -724,6 +724,11 @@ void fb_body_route(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
     mesh_ui_route_under_layers(&thread, out);
 }
 
+bool fb_frame_is_split(const struct inkcell_draw_state *state) {
+    const struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+    return cache != NULL && cache->split;
+}
+
 bool fb_render_split_pair(const struct inkcell_draw_state *state, const struct mesh_ui_route *from,
                           const struct mesh_ui_route *to) {
     const struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;

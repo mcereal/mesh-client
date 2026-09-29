@@ -669,6 +669,16 @@ them follows. The frame turns the measure back on once that bar is drawn. On the
 compact and neither changes. `ui_click_a_wide_window_stands_the_status_cards_in_two_columns` and
 `ui_click_a_wide_window_puts_the_map_heading_over_the_whole_map` hold them.
 
+A **node's detail** does the same where it has the room: its cards stand in two columns, split at
+the heading that comes nearest to levelling them, and the measure is off for it and its heading
+(`fb_node_detail_columns()` in `src/ui/backends/fb_screens_nodes.c`). The room is asked of the
+frame as well as the pane, because a split's detail pane is as narrow as the Brick's whole panel:
+judged by its region alone the two cannot be told apart. Each column is a list of its own, so the
+cursor's column windows round the cursor and the other shows from its top; the d-pad walks the
+same stops in the same order, down the first column and on into the second. At the Brick's own
+scale the frame is compact and it is one column, as it was.
+`ui_capture_a_wide_window_stands_a_nodes_facts_in_two_columns` holds it.
+
 `make ui-capture` is still the way to *review* a UI change, because a picture in a pull request
 is reviewable and a window on somebody's desk is not.
 

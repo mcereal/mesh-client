@@ -190,6 +190,9 @@ enum fb_list_id {
     FB_LIST_CONVERSATIONS = 1,
     FB_LIST_NODES,
     FB_LIST_NODE_DETAIL,
+    /* The node detail's second column, on a pane wide enough for two - see fb_render_node_detail().
+     */
+    FB_LIST_NODE_DETAIL_SIDE,
     FB_LIST_NODE_ACTIONS,
     FB_LIST_NODE_SORT,
     FB_LIST_WAYPOINTS,

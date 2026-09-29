@@ -182,6 +182,14 @@ void fb_render_cache_free(struct inkcell_draw_state *state);
 struct inkcell_box fb_render_content(const struct inkcell_draw_state *state);
 
 /*
+ * Whether the frame being drawn stands a list and a detail side by side - asked from inside the
+ * detail, which cannot tell from its own region: a split's detail pane is as narrow as a
+ * handheld's panel, and a screen that sized itself by the region alone would lay out the pane
+ * of a wide window as if it were the Brick.
+ */
+bool fb_frame_is_split(const struct inkcell_draw_state *state);
+
+/*
  * Whether a move from `from` to `to` stays inside the two panes the last frame drew side by side
  * - the conversations and a thread, on a window wide enough for both. Such a move is not a place
  * arriving: both halves were already on the panel, so fb_app.c starts no slide for it, which
