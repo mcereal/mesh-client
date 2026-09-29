@@ -11,6 +11,7 @@
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
+#include "mesh/core/radio_settings.h"
 #include "mesh/ui/backups.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/route.h"
@@ -638,5 +639,94 @@ MESH_TEST_CASE(ui_backups_field_names_a_difference_by_its_settings_row, unit) {
                        (unsigned)change.field);
     MESH_TEST_FAIL_IF(strcmp(label, number) != 0,
                       "an unplaced module field took another module's label");
+    record_success(test_name);
+}
+
+/* A choice reads as the word its Settings row shows, not as the protobuf's number. */
+static bool backups_change_reads(const struct mesh_radio_backup_change *change, const char *before,
+                                 const char *after, const char *what) {
+    char expected[128];
+    char text[128];
+    inkcell_str_format(expected, sizeof expected, MESH_STR_BACKUPS_CHANGE_VALUE, before, after);
+    mesh_ui_backups_change(MESH_RADIO_BACKUP_MESHTASTIC, change, text, sizeof text);
+    if (strcmp(text, expected) != 0) {
+        fprintf(stderr, "%s: \"%s\", expected \"%s\"\n", what, text, expected);
+        return false;
+    }
+    return true;
+}
+
+static struct mesh_radio_backup_change backups_number_change(uint8_t topic, uint16_t index,
+                                                             uint16_t field, int64_t before,
+                                                             int64_t after) {
+    struct mesh_radio_backup_change change;
+    memset(&change, 0, sizeof change);
+    change.kind = MESH_RADIO_BACKUP_CHANGED;
+    change.topic = topic;
+    change.index = index;
+    change.field = field;
+    change.before.kind = MESH_RADIO_BACKUP_VALUE_UINT;
+    change.before.number = before;
+    change.after.kind = MESH_RADIO_BACKUP_VALUE_UINT;
+    change.after.number = after;
+    return change;
+}
+
+MESH_TEST_CASE(ui_backups_a_choice_is_named_as_its_settings_row_names_it, unit) {
+    struct mesh_radio_backup_change change = backups_number_change(
+        MESH_RADIO_BACKUP_TOPIC_LORA, meshtastic_Config_lora_tag,
+        meshtastic_Config_LoRaConfig_region_tag, meshtastic_Config_LoRaConfig_RegionCode_US,
+        meshtastic_Config_LoRaConfig_RegionCode_UNSET);
+    MESH_TEST_FAIL_IF(
+        !backups_change_reads(&change,
+                              mesh_radio_region_name(meshtastic_Config_LoRaConfig_RegionCode_US),
+                              mesh_radio_region_name(meshtastic_Config_LoRaConfig_RegionCode_UNSET),
+                              "a region is shown as a number"),
+        "a region is shown as a number");
+
+    change = backups_number_change(MESH_RADIO_BACKUP_TOPIC_DEVICE, meshtastic_Config_device_tag,
+                                   meshtastic_Config_DeviceConfig_role_tag,
+                                   meshtastic_Config_DeviceConfig_Role_CLIENT,
+                                   meshtastic_Config_DeviceConfig_Role_ROUTER);
+    MESH_TEST_FAIL_IF(!backups_change_reads(
+                          &change,
+                          mesh_ui_settings_enum_name(MESH_UI_FIELD_DEVICE_ROLE,
+                                                     meshtastic_Config_DeviceConfig_Role_CLIENT),
+                          mesh_ui_settings_enum_name(MESH_UI_FIELD_DEVICE_ROLE,
+                                                     meshtastic_Config_DeviceConfig_Role_ROUTER),
+                          "a role is shown as a number"),
+                      "a role is shown as a number");
+
+    /* The beacon's offered preset is one past itself on the Settings row; the backup holds the
+       protobuf's own number. */
+    change =
+        backups_number_change(MESH_RADIO_BACKUP_TOPIC_MODULE, MESH_UI_SETTINGS_BEACON,
+                              meshtastic_ModuleConfig_MeshBeaconConfig_broadcast_offer_preset_tag,
+                              meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST,
+                              meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_FAST);
+    MESH_TEST_FAIL_IF(
+        !backups_change_reads(
+            &change,
+            mesh_radio_modem_preset_name(meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST),
+            mesh_radio_modem_preset_name(meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_FAST),
+            "the beacon's offered preset is off by one"),
+        "the beacon's offered preset is off by one");
+
+    /* A value past the settings model's list - newer firmware's - stays a number. */
+    change = backups_number_change(MESH_RADIO_BACKUP_TOPIC_LORA, meshtastic_Config_lora_tag,
+                                   meshtastic_Config_LoRaConfig_region_tag, 1U, 250U);
+    MESH_TEST_FAIL_IF(
+        !backups_change_reads(&change,
+                              mesh_radio_region_name(meshtastic_Config_LoRaConfig_RegionCode_US),
+                              "250", "an unknown region is not shown as its number"),
+        "an unknown region is not shown as its number");
+
+    /* The same tag on another module is not a choice. */
+    change = backups_number_change(
+        MESH_RADIO_BACKUP_TOPIC_MODULE, MESH_UI_SETTINGS_RANGE_TEST,
+        meshtastic_ModuleConfig_MeshBeaconConfig_broadcast_offer_preset_tag, 1U, 2U);
+    MESH_TEST_FAIL_IF(
+        !backups_change_reads(&change, "1", "2", "another module's field was named as a choice"),
+        "another module's field was named as a choice");
     record_success(test_name);
 }
