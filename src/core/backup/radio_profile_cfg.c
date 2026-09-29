@@ -289,10 +289,13 @@ static int cfg_add_channels(struct mesh_radio_backup *out, const meshtastic_Chan
     for (size_t slot = 0; result == 0 && slot < MESH_RADIO_BACKUP_CHANNELS; ++slot) {
         meshtastic_Channel channel = meshtastic_Channel_init_zero;
         channel.index = (int8_t)slot;
+        /* A slot switched off still carries settings, empty ones: it is how the firmware reports
+           one (a Heltec V3 on 2.7.26), and how an import's own write clears one (channel_share.c).
+           Absent, every empty slot of the table compared as a difference with the radio. */
+        channel.has_settings = true;
         if (slot < set->settings_count) {
             channel.role =
                 slot == 0U ? meshtastic_Channel_Role_PRIMARY : meshtastic_Channel_Role_SECONDARY;
-            channel.has_settings = true;
             channel.settings = set->settings[slot];
         }
         result = cfg_add_channel(out, &channel);

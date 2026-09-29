@@ -316,6 +316,28 @@ ends the restore after the contact in flight. The toast is judged on what the re
 contacts refused or left out for want of room are counted, and a contact only on the radio, still
 listed afterwards, is not.
 
+### Profiles
+
+A profile is a backup with the radio taken out: settings to put on any radio of the same
+protocol. It is the backup container under the `profile` reason, with no node, the profile's
+name, and the parts it carries in the header (`include/mesh/core/radio_profile.h`). The owner,
+a fixed position and the Security section never go in one, nor do a MeshCore radio's name, key,
+position and contacts, whatever is ticked. PositionConfig's `fixed_position` is carried cleared
+and written back as the target radio's own.
+
+A profile is made on a backup's screen (**Make a profile**): a picker of the parts that backup
+offers, all ticked, then the name. **Settings > Profiles** lists them by name, with the `.cfg`
+files in the same folder, `profiles/` beside the preferences (`~/.meshclient/profiles`).
+Compared with a radio, the radio is cut down to the profile's parts first, so nothing outside
+them can differ; applied, it is the restore (above), and a profile for the other protocol is
+refused before anything is planned.
+
+A `.cfg` is Meshtastic's `DeviceProfile` (`src/core/backup/radio_profile_cfg.c`), which the
+official apps export. A press on one reads it in as a profile and writes no radio; **Save as a
+.cfg file** writes one out. The channels travel as a link, which is compact: a secondary after an
+empty slot comes back one slot up, as it does through the apps. An empty slot is carried with
+empty settings, which is how the firmware reports one.
+
 ## Input
 
 inkcell's `src/input/input.c` reads every `/dev/input/event*` and maps evdev codes to `enum inkcell_key`.

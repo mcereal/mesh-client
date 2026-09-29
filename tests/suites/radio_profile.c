@@ -332,6 +332,7 @@ MESH_TEST_CASE(radio_profile_cfg_round_trips_through_device_profile, unit) {
     g_settings.channels[1].index = 1;
     memset(&g_settings.channels[2], 0, sizeof g_settings.channels[2]);
     g_settings.channels[2].index = 2;
+    g_settings.channels[2].has_settings = true;
     (void)mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
     const struct mesh_radio_backup_parts every = profile_every();
     MESH_TEST_FAIL_IF(mesh_radio_profile_make(&g_backup, &every, "Ridge kit", &g_profile) != 0,
