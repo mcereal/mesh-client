@@ -1896,25 +1896,42 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Lo que difiere vuelve a la radio, que luego se reinicia. Conserva sus claves, y antes se "
         "guarda una copia de cómo está ahora.",
     [MESH_STR_CONFIRM_TEXT_BACKUPS_RESTORE_PLAIN] =
-        "Lo que difiere en sus ajustes y canales vuelve a la radio, sin reiniciarla. Sus contactos "
-        "quedan como están, y antes se guarda una copia de cómo está ahora.",
+        "Lo que difiere vuelve, sin reinicio; quedan los contactos solo de la radio. Antes se "
+        "guarda una copia.",
+    [MESH_STR_CONFIRM_TEXT_RESTORE_ROUTES_CLEAR] = " Rutas: se aprenden de nuevo.",
+    [MESH_STR_CONFIRM_TEXT_RESTORE_ROUTES_KEEP] = " Rutas: las de la copia.",
+    [MESH_STR_CONFIRM_TEXT_RESTORE_NEWER_KEEP] = " Cambiados después: se quedan.",
+    [MESH_STR_CONFIRM_TEXT_RESTORE_NEWER_REPLACE] = " Cambiados después: se reemplazan.",
     [MESH_STR_CONFIRM_TEXT_RESTORE_FIRMWARE] =
         " Hecha con el firmware %.20s; la radio usa ahora %.20s.",
     [MESH_STR_BACKUPS_RESTORE] = "Restaurar en la radio",
     [MESH_STR_BACKUPS_RESTORING] = "Restaurando la radio",
     [MESH_STR_BACKUPS_RESTORING_VALUE] = "Se reinicia para aplicarlos",
     [MESH_STR_BACKUPS_RESTORING_VALUE_PLAIN] = "Se relee sobre la marcha",
+    [MESH_STR_BACKUPS_RESTORING_CONTACTS] = "%u de %u contactos",
+    [MESH_STR_BACKUPS_RESTORING_STOPPING] = "Se detiene tras este contacto",
+    [MESH_STR_BACKUPS_STOP] = "Detener la restauración",
+    [MESH_STR_BACKUPS_ROUTES] = "Rutas de contactos",
+    [MESH_STR_BACKUPS_ROUTES_CLEAR] = "Aprender de nuevo",
+    [MESH_STR_BACKUPS_ROUTES_KEEP] = "Las de la copia",
+    [MESH_STR_BACKUPS_REPLACE] = "Cambiados después",
+    [MESH_STR_BACKUPS_REPLACE_KEEP] = "Los de la radio",
+    [MESH_STR_BACKUPS_REPLACE_ALL] = "Reemplazar todos",
     [MESH_STR_TOAST_RESTORE_STARTED] = "Restaurando la radio; se reinicia al terminar",
     [MESH_STR_TOAST_RESTORE_STARTED_PLAIN] = "Restaurando los ajustes de la radio",
     [MESH_STR_TOAST_RESTORE_SAME] = "La radio ya coincide con esta copia",
     [MESH_STR_TOAST_RESTORE_UNWRITABLE] = "Lo que difiere no se puede escribir en esta radio",
+    [MESH_STR_TOAST_RESTORE_NEWER] = "Contactos más nuevos en la radio; elige Reemplazar todos",
     [MESH_STR_TOAST_RESTORE_NO_COPY] = "No restaurada: no se pudo guardar antes la radio (%d)",
     [MESH_STR_TOAST_RESTORE_BUSY] = "La radio está ocupada; inténtalo de nuevo en un momento",
     [MESH_STR_TOAST_RESTORE_FAILED] = "No se pudo restaurar la copia (%d)",
     [MESH_STR_TOAST_RESTORE_REFUSED] = "La radio rechazó la restauración (%d); no se cambió nada",
     [MESH_STR_TOAST_RESTORE_DONE] = "Radio restaurada desde la copia",
-    [MESH_STR_TOAST_RESTORE_DONE_CONTACTS] =
-        "Ajustes restaurados; sus contactos quedan como estaban",
+    [MESH_STR_TOAST_RESTORE_STOPPING] = "Se detiene tras el contacto que se está escribiendo",
+    [MESH_STR_TOAST_RESTORE_STOPPED] = "Restauración detenida tras %u de %u contactos",
+    [MESH_STR_TOAST_RESTORE_CONTACTS_LEFT_ONE] = "Restaurada; %u contacto no se pudo escribir",
+    [MESH_STR_TOAST_RESTORE_CONTACTS_LEFT_OTHER] =
+        "Restaurada; %u contactos no se pudieron escribir",
     [MESH_STR_TOAST_RESTORE_PARTIAL_ONE] = "Restaurada; %u ajuste sigue siendo distinto",
     [MESH_STR_TOAST_RESTORE_PARTIAL_OTHER] = "Restaurada; %u ajustes siguen siendo distintos",
     [MESH_STR_SETTINGS_NOTE_BACKUPS] =

@@ -6256,3 +6256,257 @@ MESH_TEST_CASE(app_backup_restore_meshcore_reports_a_refused_group, unit) {
     MESH_TEST_FAIL_IF(!reported, "a refused group was not reported as still differing");
     record_success(test_name);
 }
+
+/* ---- restoring a MeshCore radio's contacts ------------------------------------------------- */
+
+/*
+ * The radio's book as a backup had it - Alice and `count` more - taken as a manual backup (the
+ * second on the card), and then the radio reset to Alice alone, as a factory reset leaves it.
+ */
+static void app_meshcore_contacts_lost(struct mesh_app *app, size_t count) {
+    for (size_t i = 0; i < count; ++i) {
+        struct mesh_meshcore_contact *contact = &app->meshcore.contacts[1U + i];
+        memset(contact, 0, sizeof *contact);
+        memset(contact->public_key, (int)(0x50U + i), MESH_MESHCORE_PUBKEY_LEN);
+        contact->type = MESH_MESHCORE_ADV_CHAT;
+        contact->out_path_len = 1U;
+        contact->out_path[0] = 0x33U;
+        snprintf(contact->name, sizeof contact->name, "Node %zu", i);
+        contact->lastmod = (uint32_t)(1000U + i);
+    }
+    app->meshcore.contact_count = 1U + count;
+    mesh_app_backup_take(app, MESH_RADIO_BACKUP_MANUAL);
+    app->meshcore.contact_count = 1U;
+}
+
+/*
+ * Answers OK to each contact the restore writes, ticking the app between as the loop would, until
+ * `limit` have been answered or the restore has nothing more on the wire. The wire keeps 32
+ * frames, so each answered one is dropped. `most_queued` is the deepest the conversation's queue
+ * went, which a restore feeding it one at a time keeps at one.
+ */
+static size_t app_meshcore_answer_contacts(struct mesh_app *app,
+                                           const struct mesh_protocol *protocol, size_t limit,
+                                           size_t *most_queued) {
+    size_t answered = 0U;
+    for (int guard = 0; guard < 400 && answered < limit && app->meshcore.awaiting; ++guard) {
+        if (app->meshcore.queue_count > *most_queued) {
+            *most_queued = app->meshcore.queue_count;
+        }
+        if (mesh_test_meshcore_wire_last(&g_restore_wire) != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT) {
+            break;
+        }
+        const uint8_t ok = MESH_MESHCORE_RESP_OK;
+        mesh_protocol_receive(protocol, &ok, 1U);
+        g_restore_wire.count = 0U;
+        ++answered;
+        mesh_app_backup_tick(app);
+    }
+    return answered;
+}
+
+static struct mesh_ui_backups g_restore_published;
+
+/*
+ * Forty contacts lost to a reset go back one ADD_UPDATE_CONTACT at a time, each sent once the
+ * last is answered - the queue never holds more than the one, so nothing is refused for want
+ * of room in it - and the screen counts them through. Their routes go back cleared.
+ */
+MESH_TEST_CASE(app_backup_restore_meshcore_writes_forty_contacts_one_at_a_time, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    app_meshcore_contacts_lost(&app, 40U);
+
+    mesh_app_backup_restore(&app, node, 2U);
+    const bool started =
+        app.backup_restore.stage != 0U && app.backup_restore.contact_count == 40U &&
+        mesh_test_meshcore_wire_last(&g_restore_wire) == MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT &&
+        app.meshcore.queue_count == 1U;
+    const uint8_t *first = g_restore_wire.frames[g_restore_wire.count - 1U];
+    const bool cleared = first[1U + MESH_MESHCORE_PUBKEY_LEN + 2U] == MESH_MESHCORE_PATH_NONE;
+
+    size_t most_queued = 0U;
+    size_t answered = app_meshcore_answer_contacts(&app, &protocol, 12U, &most_queued);
+    mesh_app_backup_publish(&app, &g_restore_published);
+    const bool counted = g_restore_published.restore_contacts_total == 40U &&
+                         g_restore_published.restore_contacts_done == 12U;
+    answered += app_meshcore_answer_contacts(&app, &protocol, 100U, &most_queued);
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool judged = app.backup_restore.stage == 0U && app.backup_restore.contacts == NULL &&
+                        app.meshcore.contact_count == 41U &&
+                        app.backup_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE &&
+                        app.backup_listing.diff.total == 0U &&
+                        strcmp(app.ui_store.nav.toast.text, "Radio restored from the backup") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!started, "the restore did not start with one contact");
+    MESH_TEST_FAIL_IF(!cleared, "a contact went back with its route by default");
+    MESH_TEST_FAIL_IF(!counted, "the screen was not told 12 of 40");
+    MESH_TEST_FAIL_IF(answered != 40U, "not every contact was written");
+    MESH_TEST_FAIL_IF(most_queued != 1U, "more than one contact was queued at once");
+    MESH_TEST_FAIL_IF(!judged, "forty contacts written back were not reported restored");
+    record_success(test_name);
+}
+
+/*
+ * Stop ends a restore after the contact being written: that one is answered and kept, nothing
+ * more goes out, and the restore is judged on what went.
+ */
+MESH_TEST_CASE(app_backup_restore_meshcore_stops_after_the_contact_in_flight, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    app_meshcore_contacts_lost(&app, 20U);
+
+    mesh_app_backup_restore(&app, node, 2U);
+    size_t most_queued = 0U;
+    app_meshcore_answer_contacts(&app, &protocol, 5U, &most_queued);
+    /* The sixth is on its way when Stop is pressed. */
+    const bool in_flight = app.meshcore.contact_restore_outstanding;
+    mesh_app_backup_restore_stop(&app);
+    const bool stopping =
+        strcmp(app.ui_store.nav.toast.text, "Stopping after the contact being written") == 0;
+    const size_t after = app_meshcore_answer_contacts(&app, &protocol, 100U, &most_queued);
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool stopped =
+        app.backup_restore.stage == 0U && !app.meshcore.awaiting &&
+        app.meshcore.contact_count == 7U &&
+        strcmp(app.ui_store.nav.toast.text, "Restore stopped after 6 of 20 contacts") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!in_flight, "no contact was on its way when stop was pressed");
+    MESH_TEST_FAIL_IF(!stopping, "stop was not acknowledged");
+    MESH_TEST_FAIL_IF(after != 1U, "more than the contact in flight went out after stop");
+    MESH_TEST_FAIL_IF(!stopped, "a stopped restore was not judged on what went");
+    record_success(test_name);
+}
+
+/*
+ * A contact the radio changed after the backup is the radio's: a restore that would write only
+ * it says so rather than claiming the radio matches, and Replace all is what writes over it.
+ */
+MESH_TEST_CASE(app_backup_restore_meshcore_keeps_a_contact_changed_since_unless_replacing, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    app_meshcore_contacts_lost(&app, 1U);
+    app.meshcore.contact_count = 2U;
+    snprintf(app.meshcore.contacts[1].name, sizeof app.meshcore.contacts[1].name, "%s", "Renamed");
+    app.meshcore.contacts[1].lastmod += 500U;
+
+    const size_t idle = g_restore_wire.count;
+    mesh_app_backup_restore(&app, node, 2U);
+    const bool kept = app.backup_restore.stage == 0U && g_restore_wire.count == idle &&
+                      strcmp(app.ui_store.nav.toast.text,
+                             "Contacts are newer on the radio; choose Replace all") == 0;
+
+    mesh_app_backup_restore_option(&app, (uint32_t)MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE);
+    mesh_app_backup_publish(&app, &g_restore_published);
+    const bool published = g_restore_published.restore_replace_newer;
+    mesh_app_backup_restore(&app, node, 2U);
+    const bool replacing =
+        app.backup_restore.stage != 0U && app.backup_restore.contact_count == 1U &&
+        mesh_test_meshcore_wire_last(&g_restore_wire) == MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT;
+    size_t most_queued = 0U;
+    app_meshcore_answer_contacts(&app, &protocol, 10U, &most_queued);
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool restored =
+        app.backup_restore.stage == 0U && strcmp(app.meshcore.contacts[1].name, "Node 0") == 0 &&
+        strcmp(app.ui_store.nav.toast.text, "Radio restored from the backup") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!kept, "a contact changed since was written over, or not said to be kept");
+    MESH_TEST_FAIL_IF(!published, "the choice was not published for the screen");
+    MESH_TEST_FAIL_IF(!replacing, "Replace all did not write the backup's record");
+    MESH_TEST_FAIL_IF(!restored, "the replaced contact was not restored");
+    record_success(test_name);
+}
+
+/*
+ * Stop stops contacts, never a save: with saves ahead of the contacts, nothing about contacts is
+ * published and Stop is not taken until the saves are through, and then every one goes.
+ */
+MESH_TEST_CASE(app_backup_restore_meshcore_offers_stop_only_once_the_saves_are_through, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    const uint8_t power = app.meshcore.self.tx_power_dbm;
+    app_meshcore_contacts_lost(&app, 3U);
+    app.meshcore.self.tx_power_dbm = 10U;
+
+    mesh_app_backup_restore(&app, node, 2U);
+    mesh_app_backup_publish(&app, &g_restore_published);
+    const bool quiet =
+        app.backup_restore.step_count == 1U &&
+        mesh_test_meshcore_wire_last(&g_restore_wire) == MESH_MESHCORE_CMD_SET_RADIO_TX_POWER &&
+        g_restore_published.restore_contacts_total == 0U;
+    mesh_app_backup_restore_stop(&app);
+    const bool ignored = !app.backup_restore.stopping;
+    /* The save and its read-back, then every contact, answered as they come. */
+    app_meshcore_answer(&app, &protocol, 0U, power);
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool restored =
+        app.backup_restore.stage == 0U && app.meshcore.contact_count == 4U &&
+        strcmp(app.ui_store.nav.toast.text, "Radio restored from the backup") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!quiet, "contacts were counted while a save was still going");
+    MESH_TEST_FAIL_IF(!ignored, "stop was taken during the saves");
+    MESH_TEST_FAIL_IF(!restored, "the saves and every contact were not restored");
+    record_success(test_name);
+}
+
+/* A contact the link refuses as it is written is one contact not written, not two. */
+MESH_TEST_CASE(app_backup_restore_meshcore_counts_a_refused_send_once, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    app_meshcore_contacts_lost(&app, 2U);
+
+    mesh_app_backup_restore(&app, node, 2U);
+    /* The first is answered; the link refuses the second outright. */
+    const uint8_t ok = MESH_MESHCORE_RESP_OK;
+    mesh_protocol_receive(&protocol, &ok, 1U);
+    g_restore_wire.refuse = true;
+    mesh_app_backup_tick(&app);
+    g_restore_wire.refuse = false;
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool counted =
+        app.backup_restore.stage == 0U &&
+        strcmp(app.ui_store.nav.toast.text, "Restored; 1 contact could not be written") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!counted, "one refused send was not counted as exactly one contact");
+    record_success(test_name);
+}

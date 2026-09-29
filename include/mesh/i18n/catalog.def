@@ -2570,7 +2570,12 @@ MESH_STR_ENTRY(CONFIRM_TEXT_RM_BACKUP,    "The saved copy is erased from the rad
 MESH_STR_ENTRY(CONFIRM_TEXT_MAPS_DELETE,  "The map comes off the card and stops being drawn. It can be downloaded again from this screen.")
 MESH_STR_ENTRY(CONFIRM_TEXT_BACKUPS_DELETE, "The copy comes off the card. The radio is untouched, and its other backups stay.")
 MESH_STR_ENTRY(CONFIRM_TEXT_BACKUPS_RESTORE, "What differs goes back on the radio, which then restarts. It keeps its own keys, and a copy of it as it is now is saved first.")
-MESH_STR_ENTRY(CONFIRM_TEXT_BACKUPS_RESTORE_PLAIN, "What differs in its settings and channels goes back on the radio, without a restart. Its contacts stay as they are, and a copy of it as it is now is saved first.")
+MESH_STR_ENTRY(CONFIRM_TEXT_BACKUPS_RESTORE_PLAIN, "What differs goes back, with no restart; contacts only on the radio stay. A copy is saved first.")
+/* Joined to the sheet above, after a space: the two choices its contacts are written under. */
+MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_ROUTES_CLEAR, " Routes: learned again.")
+MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_ROUTES_KEEP, " Routes: the backup's.")
+MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_NEWER_KEEP, " Changed since: kept.")
+MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_NEWER_REPLACE, " Changed since: replaced.")
 /* Joined to the sheet above, after a space: the firmware the backup was taken on, then the one
    the radio runs now. */
 MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_FIRMWARE, " Taken on firmware %.20s; the radio runs %.20s now.")
@@ -3323,10 +3328,22 @@ MESH_STR_ENTRY(BACKUPS_RESTORE,           "Restore to the radio")
 MESH_STR_ENTRY(BACKUPS_RESTORING,         "Restoring the radio")
 MESH_STR_ENTRY(BACKUPS_RESTORING_VALUE,   "It restarts to apply them")
 MESH_STR_ENTRY(BACKUPS_RESTORING_VALUE_PLAIN, "Read back as it goes")
+/* How far a restore's contacts have got: the radio has answered the first number of them. */
+MESH_STR_ENTRY(BACKUPS_RESTORING_CONTACTS, "%u of %u contacts")
+MESH_STR_ENTRY(BACKUPS_RESTORING_STOPPING, "Stopping after this contact")
+MESH_STR_ENTRY(BACKUPS_STOP,              "Stop restoring")
+/* The two choices a MeshCore restore writes its contacts under, stepped in place. */
+MESH_STR_ENTRY(BACKUPS_ROUTES,            "Contact routes")
+MESH_STR_ENTRY(BACKUPS_ROUTES_CLEAR,      "Learn again")
+MESH_STR_ENTRY(BACKUPS_ROUTES_KEEP,       "Keep the backup's")
+MESH_STR_ENTRY(BACKUPS_REPLACE,           "Changed since")
+MESH_STR_ENTRY(BACKUPS_REPLACE_KEEP,      "Keep the radio's")
+MESH_STR_ENTRY(BACKUPS_REPLACE_ALL,       "Replace all")
 MESH_STR_ENTRY(TOAST_RESTORE_STARTED,     "Restoring the radio; it restarts when done")
 MESH_STR_ENTRY(TOAST_RESTORE_STARTED_PLAIN, "Restoring the radio's settings")
 MESH_STR_ENTRY(TOAST_RESTORE_SAME,        "The radio already matches this backup")
 MESH_STR_ENTRY(TOAST_RESTORE_UNWRITABLE,  "What differs cannot be written to this radio")
+MESH_STR_ENTRY(TOAST_RESTORE_NEWER,       "Contacts are newer on the radio; choose Replace all")
 /* The error number is for a bug report. */
 MESH_STR_ENTRY(TOAST_RESTORE_NO_COPY,     "Not restored: could not save the radio first (%d)")
 MESH_STR_ENTRY(TOAST_RESTORE_BUSY,        "The radio is busy; try again in a moment")
@@ -3334,7 +3351,9 @@ MESH_STR_ENTRY(TOAST_RESTORE_FAILED,      "Could not restore the backup (%d)")
 /* The radio said no to the restore as a whole; the number is its reason, for a bug report. */
 MESH_STR_ENTRY(TOAST_RESTORE_REFUSED,     "The radio refused the restore (%d); nothing was changed")
 MESH_STR_ENTRY(TOAST_RESTORE_DONE,        "Radio restored from the backup")
-MESH_STR_ENTRY(TOAST_RESTORE_DONE_CONTACTS, "Settings restored; its contacts were left as they are")
+MESH_STR_ENTRY(TOAST_RESTORE_STOPPING,    "Stopping after the contact being written")
+MESH_STR_ENTRY(TOAST_RESTORE_STOPPED,     "Restore stopped after %u of %u contacts")
+MESH_STR_PLURAL_ENTRY(TOAST_RESTORE_CONTACTS_LEFT, "Restored; %u contact could not be written", "Restored; %u contacts could not be written")
 MESH_STR_PLURAL_ENTRY(TOAST_RESTORE_PARTIAL, "Restored; %u setting still differs", "Restored; %u settings still differ")
 
 /* ---- the radio's firmware ------------------------------------------------------------------ */

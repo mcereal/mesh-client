@@ -135,8 +135,9 @@ int mesh_meshcore_backup_diff(const struct mesh_radio_backup *a, const struct me
  * outside the range - would be refused anyway, and a group is never quietly written with a
  * value other than the backup's. Nor can the advert type, which a companion radio fixes itself,
  * an empty name, a channel name of the full 32 bytes (SET_CHANNEL needs room for its
- * terminator), a slot this radio does not have, or - not yet - a contact. Each such difference
- * adds one to `unwritable`; the comparison after the restore is where they show.
+ * terminator), or a slot this radio does not have. Each such difference adds one to
+ * `unwritable`; the comparison after the restore is where they show. Contacts are planned apart,
+ * by mesh_meshcore_backup_plan_contacts().
  *
  * How many saves were planned (0 when nothing writable differs), -EAGAIN before the radio has
  * finished syncing, -ENODEV for a backup of another radio (its public key is not this one's) or
@@ -148,6 +149,54 @@ int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
                               const struct mesh_meshcore *meshcore,
                               struct mesh_meshcore_settings_write *writes, size_t max,
                               size_t *unwritable);
+
+/* How a restore writes contacts back. Zeroed is the default, and the safer one. */
+struct mesh_meshcore_contact_options {
+    /*
+     * Write each contact's route as the backup has it. Off, every contact written goes with no
+     * route, so its first message floods and the radio learns the way again. A route is a chain
+     * of repeaters that was right on the day it was learned: restored onto a radio that has moved,
+     * or into a mesh whose repeaters have, it is a path to nowhere that every direct message tries
+     * first. No route costs one flood; a stale one costs a message.
+     */
+    bool keep_routes;
+    /* Write over a contact the radio has changed since the backup was taken. Off, the radio's
+       newer record is kept: somebody renamed or pinned it after the backup, on purpose. */
+    bool replace_newer;
+};
+
+/* What a contact plan left alone, and why. */
+struct mesh_meshcore_contact_plan_notes {
+    size_t newer;    /* the radio changed it after the backup, and it was kept */
+    size_t left_out; /* not on the radio, and no room left on it */
+};
+
+/*
+ * The contacts a restore of `backup` writes onto the radio `meshcore` holds: each one the backup
+ * has and the radio does not, and each one both have whose name, type or flags differ - the
+ * same test the comparison makes, so the plan is the list the compare screen showed. A contact
+ * only on the radio is left there; a restore puts back, it does not take away.
+ *
+ * **What the radio changed since is the radio's.** A contact both have whose record on the radio
+ * is newer than the backup's (`lastmod`, both on this radio's clock) is left as it is, unless
+ * `options->replace_newer`; each one so kept is counted in `notes->newer`.
+ *
+ * **The radio's book has a size.** A contact to add needs a place in it: DEVICE_INFO's
+ * max_contacts less what the radio holds now. When the backup has more to add than that, the
+ * ones added are its favourites first and then the most recently changed, and the rest are
+ * counted in `notes->left_out` - a contact that is only updated takes no new place.
+ *
+ * The plan is written into `out` in the order it should be sent, favourites first, with each
+ * contact's route cleared unless `options->keep_routes`. How many contacts were planned (0 when
+ * none needs writing), with the same refusals as mesh_meshcore_backup_plan(): -EAGAIN before the
+ * radio has finished syncing, -ENODEV for a backup of another radio or one that does not say
+ * whose it is, -EPROTO, -EBADMSG, -ENOSPC when `max` is short of the plan, -ENOMEM.
+ */
+int mesh_meshcore_backup_plan_contacts(const struct mesh_radio_backup *backup,
+                                       const struct mesh_meshcore *meshcore,
+                                       const struct mesh_meshcore_contact_options *options,
+                                       struct mesh_meshcore_contact *out, size_t max,
+                                       struct mesh_meshcore_contact_plan_notes *notes);
 
 #ifdef __cplusplus
 }

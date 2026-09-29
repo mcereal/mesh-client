@@ -1,8 +1,9 @@
 # Settings > Backups on a MeshCore radio: a backup compared with the radio, and put back.
 #
 # MeshCore takes a restore as ordinary saves - the settings, then each channel slot - with no
-# restart, and does not write contacts back yet: so the sheet says so, and the comparison after
-# the restore still lists the contact added since.
+# restart, and then its contacts, one at a time and counted through. How they go back is two
+# choices stepped in place under Restore, and the sheet repeats them. The comparison after the
+# restore still lists the contact added since, which a restore leaves where it is.
 scene demo
 clock 2026-09-29 14:20
 delay 160
@@ -31,17 +32,39 @@ hold 900
 backups compare
 hold 3400
 
-# Put back: the sheet first, then the saves going out, then the radio read again - matching,
-# but for the contact added since, which is listed and no longer offered to restore.
+# Under Restore, how its contacts go back: the routes stepped to the backup's, and back.
+key down
 key down
 hold 900
 key a
-hold 3400
+backups option routes
+hold 1800
+key a
+backups option routes
+hold 1200
+
+# Put back: the sheet first, then the saves, then the contacts counted through - with Stop
+# offered between two - and the radio compared again: matching, but for the contact added
+# since, which is listed and no longer offered to restore.
+key up
+hold 600
+key a
+hold 3800
 key up
 key a
 backups restoring
 toast Restoring the radio's settings
-hold 2200
+hold 1600
+backups contacts 0 23
+hold 700
+backups contacts 6 23
+hold 700
+backups contacts 12 23
+hold 1400
+backups contacts 19 23
+hold 700
+backups contacts 23 23
+hold 500
 backups left
-toast Settings restored; its contacts were left as they are
+toast Radio restored from the backup
 hold 3400

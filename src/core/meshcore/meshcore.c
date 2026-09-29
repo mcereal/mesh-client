@@ -82,6 +82,8 @@ static void mesh_meshcore_mark(struct mesh_meshcore *meshcore, uint32_t packet_i
 
 static bool mesh_meshcore_is_settings_write(uint8_t cmd);
 static void mesh_meshcore_settle_write(struct mesh_meshcore *meshcore, int32_t error);
+static void mesh_meshcore_settle_restore(struct mesh_meshcore *meshcore,
+                                         const struct mesh_meshcore_request *request, bool ok);
 static bool mesh_meshcore_is_remote(uint8_t cmd);
 static uint8_t mesh_meshcore_adv_type(uint32_t role);
 static void mesh_meshcore_request_ended(struct mesh_meshcore *meshcore, uint8_t answer);
@@ -109,6 +111,7 @@ static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
         meshcore->send_error = result;
         mesh_meshcore_mark(meshcore, request->packet_id, MESH_MESSAGE_ACK_FAILED);
         const uint8_t cmd = request->frame[0];
+        mesh_meshcore_settle_restore(meshcore, request, false);
         mesh_meshcore_pop(meshcore);
         if (mesh_meshcore_is_settings_write(cmd)) {
             mesh_meshcore_settle_write(meshcore, result);
@@ -122,7 +125,7 @@ static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
 
 static int mesh_meshcore_enqueue_tagged(struct mesh_meshcore *meshcore, const uint8_t *frame,
                                         int len, uint32_t packet_id, uint8_t favorite,
-                                        bool never_heard) {
+                                        bool never_heard, bool restore) {
     if (len < 0) {
         return len;
     }
@@ -139,6 +142,7 @@ static int mesh_meshcore_enqueue_tagged(struct mesh_meshcore *meshcore, const ui
     request->packet_id = packet_id;
     request->favorite = favorite;
     request->never_heard = never_heard;
+    request->restore = restore;
     meshcore->queue_count += 1U;
     /* Alone in an idle queue it is written now, and a link that refuses it outright leaves
        nothing on its way: that refusal is this call's answer, not a success. */
@@ -154,7 +158,7 @@ static int mesh_meshcore_enqueue_tagged(struct mesh_meshcore *meshcore, const ui
 static int mesh_meshcore_enqueue(struct mesh_meshcore *meshcore, const uint8_t *frame, int len,
                                  uint32_t packet_id) {
     return mesh_meshcore_enqueue_tagged(meshcore, frame, len, packet_id,
-                                        MESH_MESHCORE_FAVORITE_NONE, false);
+                                        MESH_MESHCORE_FAVORITE_NONE, false, false);
 }
 
 static bool mesh_meshcore_queued(const struct mesh_meshcore *meshcore, uint8_t cmd) {
@@ -516,6 +520,18 @@ static void mesh_meshcore_settle_write(struct mesh_meshcore *meshcore, int32_t e
         settings->writes_acked += 1U;
     }
     meshcore->write_error = 0;
+}
+
+/* A contact written back from a backup answered - OK, or anything else, which is a refusal. */
+static void mesh_meshcore_settle_restore(struct mesh_meshcore *meshcore,
+                                         const struct mesh_meshcore_request *request, bool ok) {
+    if (request == NULL || !request->restore || !meshcore->contact_restore_outstanding) {
+        return;
+    }
+    meshcore->contact_restore_outstanding = false;
+    if (!ok) {
+        meshcore->contact_restores_refused += 1U;
+    }
 }
 
 static bool mesh_meshcore_channel_used(const struct mesh_meshcore_channel *channel) {
@@ -1380,6 +1396,7 @@ static void mesh_meshcore_write_favorite(struct mesh_meshcore *meshcore,
     request->packet_id = 0U;
     request->favorite = MESH_MESHCORE_FAVORITE_NONE;
     request->never_heard = false;
+    request->restore = false;
     meshcore->queue_count += 1U;
 }
 
@@ -1423,6 +1440,7 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
     }
     mesh_meshcore_pop(meshcore);
     meshcore->timeouts = 0U;
+    mesh_meshcore_settle_restore(meshcore, request, code == MESH_MESHCORE_RESP_OK);
     if (favorite_intent != MESH_MESHCORE_FAVORITE_NONE) {
         mesh_meshcore_write_favorite(meshcore, &favorite_record, favorite_intent);
     }
@@ -1700,6 +1718,11 @@ static void mesh_meshcore_detach(void *self) {
     while (meshcore->writes_outstanding > 0U) {
         mesh_meshcore_settle_write(meshcore, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
     }
+    /* And a contact being written back: the next connection's restore is not held behind it. */
+    if (meshcore->contact_restore_outstanding) {
+        meshcore->contact_restore_outstanding = false;
+        meshcore->contact_restores_refused += 1U;
+    }
     /* And a request to another node: its answer can no longer reach us. Asked, it went
        unanswered; still queued, it was never sent. */
     mesh_meshcore_request_ended(meshcore, meshcore->request_until_ms != 0U
@@ -1788,6 +1811,7 @@ static void mesh_meshcore_tick(void *self, uint64_t now_ms) {
         struct mesh_meshcore_request *request = mesh_meshcore_head(meshcore);
         const uint8_t cmd = request->frame[0];
         const uint32_t packet_id = request->packet_id;
+        mesh_meshcore_settle_restore(meshcore, request, false);
         mesh_meshcore_pop(meshcore);
         /* A reboot is never answered: the radio is gone before it could be. Where the link
            outlives the restart - a USB-serial bridge keeps the port open while the ESP32 behind
@@ -2308,7 +2332,7 @@ int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
     uint8_t frame[MESH_MESHCORE_MAX_FRAME];
     const int result = mesh_meshcore_enqueue_tagged(
         meshcore, frame, mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U,
-        MESH_MESHCORE_FAVORITE_NONE, node == NULL);
+        MESH_MESHCORE_FAVORITE_NONE, node == NULL, false);
     return result < 0 ? result : 1;
 }
 
@@ -2360,7 +2384,37 @@ int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id,
         meshcore, frame,
         mesh_meshcore_encode_key(MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY, node->public_key, frame,
                                  sizeof frame),
-        0U, favorite ? MESH_MESHCORE_FAVORITE_SET : MESH_MESHCORE_FAVORITE_CLEAR, false);
+        0U, favorite ? MESH_MESHCORE_FAVORITE_SET : MESH_MESHCORE_FAVORITE_CLEAR, false, false);
+    return result < 0 ? result : 1;
+}
+
+int mesh_meshcore_restore_contact(struct mesh_meshcore *meshcore,
+                                  const struct mesh_meshcore_contact *contact) {
+    if (meshcore == NULL || contact == NULL) {
+        return -EINVAL;
+    }
+    if (!mesh_meshcore_ready(meshcore)) {
+        return -ENOTCONN;
+    }
+    if (memcmp(contact->public_key, meshcore->self.public_key, MESH_MESHCORE_PUBKEY_LEN) == 0) {
+        return -EINVAL;
+    }
+    if (meshcore->contact_restore_outstanding) {
+        return -EBUSY;
+    }
+    uint8_t frame[MESH_MESHCORE_MAX_FRAME];
+    const int len = mesh_meshcore_encode_contact(contact, frame, sizeof frame);
+    if (len < 0) {
+        return len;
+    }
+    if (meshcore->queue_count >= MESH_MESHCORE_QUEUE_LEN) {
+        return -ENOBUFS;
+    }
+    /* Marked before it is queued: an idle queue writes it at once, and a link that refuses it
+       there settles it - as refused - before the call returns. */
+    meshcore->contact_restore_outstanding = true;
+    const int result = mesh_meshcore_enqueue_tagged(meshcore, frame, len, 0U,
+                                                    MESH_MESHCORE_FAVORITE_NONE, true, true);
     return result < 0 ? result : 1;
 }
 

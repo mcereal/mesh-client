@@ -508,6 +508,15 @@ struct mesh_ui_backups {
     uint32_t compare_node;
     uint32_t compare_sequence;
     struct mesh_radio_backup_diff diff;
+    /* A MeshCore restore's contacts, while it is RESTORING: how many it writes, how many the
+       radio has answered, and whether Stop was pressed. 0 of 0 when it writes none. */
+    uint16_t restore_contacts_done;
+    uint16_t restore_contacts_total;
+    bool restore_stopping;
+    /* The two choices the next MeshCore restore writes its contacts under; see
+       struct mesh_meshcore_contact_options. */
+    bool restore_keep_routes;
+    bool restore_replace_newer;
 };
 
 struct mesh_ui_settings {

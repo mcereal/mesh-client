@@ -2538,6 +2538,7 @@ MESH_TEST_CASE(meshcore_backup_diff_lists_contacts_by_key_not_by_route, unit) {
 }
 
 static struct mesh_meshcore_settings_write g_plan[MESH_MESHCORE_BACKUP_PLAN_MAX];
+static struct mesh_meshcore_contact g_contact_plan[MESH_MESHCORE_CONTACTS_MAX];
 
 MESH_TEST_CASE(meshcore_backup_plan_of_an_unchanged_radio_sends_nothing, unit) {
     struct mesh_protocol protocol;
@@ -2647,13 +2648,20 @@ MESH_TEST_CASE(meshcore_backup_plan_refuses_another_radios_backup, unit) {
                                                 MESH_MESHCORE_BACKUP_PLAN_MAX,
                                                 &unwritable) != -ENODEV,
                       "a backup with no key to check was planned onto this radio");
-    /* And contacts are not written yet: one gone from the radio is counted, not planned. */
+    /* And the contact plan refuses both the same way. */
+    struct mesh_meshcore_contact_options options = {0};
+    struct mesh_meshcore_contact_plan_notes notes;
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_plan_contacts(&g_backup, &g_meshcore, &options,
+                                                         g_contact_plan, MESH_MESHCORE_CONTACTS_MAX,
+                                                         &notes) != -ENODEV,
+                      "contacts from a backup with no key to check were planned");
+    /* Contacts are planned apart: one gone from the radio is not the settings plan's. */
     mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
     g_meshcore.contact_count = 0U;
     MESH_TEST_FAIL_IF(mesh_meshcore_backup_plan(&g_backup, &g_meshcore, g_plan,
                                                 MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable) != 0 ||
-                          unwritable != 1U,
-                      "a missing contact was not counted unwritable");
+                          unwritable != 0U,
+                      "a missing contact was counted by the settings plan");
     record_success(test_name);
 }
 
@@ -2681,5 +2689,179 @@ MESH_TEST_CASE(meshcore_backup_plan_counts_names_its_commands_cannot_carry, unit
     MESH_TEST_FAIL_IF(unwritable != 2U, "the two names were not counted unwritable");
     MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &g_plan[0]) <= 0,
                       "what was planned did not encode");
+    record_success(test_name);
+}
+
+/* ------------------------------------------------------------------ restoring contacts */
+
+/* A contact in the radio's book, straight into it: key `lead`..., a two-hop route. */
+static struct mesh_meshcore_contact *book_contact(uint8_t lead, const char *name, uint8_t flags,
+                                                  uint32_t lastmod) {
+    struct mesh_meshcore_contact *contact = &g_meshcore.contacts[g_meshcore.contact_count++];
+    memset(contact, 0, sizeof *contact);
+    memset(contact->public_key, lead, MESH_MESHCORE_PUBKEY_LEN);
+    contact->type = MESH_MESHCORE_ADV_CHAT;
+    contact->flags = flags;
+    contact->out_path_len = 2U;
+    contact->out_path[0] = 0x11U;
+    contact->out_path[1] = 0x22U;
+    snprintf(contact->name, sizeof contact->name, "%s", name);
+    contact->lastmod = lastmod;
+    return contact;
+}
+
+static const struct mesh_meshcore_contact *planned_contact(size_t count, uint8_t lead) {
+    for (size_t i = 0; i < count; ++i) {
+        if (g_contact_plan[i].public_key[0] == lead) {
+            return &g_contact_plan[i];
+        }
+    }
+    return NULL;
+}
+
+/* A contact gone from the radio and one renamed on it are put back; one only on the radio is
+   left there. Each goes with no route unless the routes are kept. */
+MESH_TEST_CASE(meshcore_backup_plan_contacts_puts_back_what_is_missing_or_changed, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    g_meshcore.contact_count = 0U;
+    book_contact(0x51U, "Bob", 0U, 100U);
+    book_contact(0x52U, "Carol", 0U, 100U);
+    book_contact(0x53U, "Dave", 0U, 100U);
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_capture(&g_meshcore, &g_backup) != 0, "no backup");
+    /* Since: Bob is gone, Carol renamed before the backup's stamp, Erin new. */
+    g_meshcore.contacts[0] = g_meshcore.contacts[2];
+    g_meshcore.contact_count = 2U;
+    snprintf(g_meshcore.contacts[1].name, sizeof g_meshcore.contacts[1].name, "%s", "Caz");
+    g_meshcore.contacts[1].lastmod = 90U;
+    book_contact(0x54U, "Erin", 0U, 200U);
+
+    struct mesh_meshcore_contact_options options = {0};
+    struct mesh_meshcore_contact_plan_notes notes;
+    int planned = mesh_meshcore_backup_plan_contacts(
+        &g_backup, &g_meshcore, &options, g_contact_plan, MESH_MESHCORE_CONTACTS_MAX, &notes);
+    MESH_TEST_FAIL_IF(planned != 2, "not Bob and Carol");
+    const struct mesh_meshcore_contact *bob = planned_contact(2U, 0x51U);
+    const struct mesh_meshcore_contact *carol = planned_contact(2U, 0x52U);
+    MESH_TEST_FAIL_IF(bob == NULL || carol == NULL || strcmp(carol->name, "Carol") != 0,
+                      "the backup's records were not the plan");
+    MESH_TEST_FAIL_IF(planned_contact(2U, 0x54U) != NULL,
+                      "a contact only on the radio was planned");
+    MESH_TEST_FAIL_IF(bob->out_path_len != MESH_MESHCORE_PATH_NONE || bob->out_path[0] != 0U,
+                      "a route was restored by default");
+    MESH_TEST_FAIL_IF(notes.newer != 0U || notes.left_out != 0U, "something was left alone");
+
+    options.keep_routes = true;
+    planned = mesh_meshcore_backup_plan_contacts(&g_backup, &g_meshcore, &options, g_contact_plan,
+                                                 MESH_MESHCORE_CONTACTS_MAX, &notes);
+    bob = planned_contact((size_t)planned, 0x51U);
+    MESH_TEST_FAIL_IF(bob == NULL || bob->out_path_len != 2U || bob->out_path[1] != 0x22U,
+                      "the route kept was not the backup's");
+    record_success(test_name);
+}
+
+/* A contact the radio changed after the backup was taken is the radio's, unless replaced. */
+MESH_TEST_CASE(meshcore_backup_plan_contacts_keeps_what_the_radio_changed_since, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    g_meshcore.contact_count = 0U;
+    book_contact(0x52U, "Carol", 0U, 100U);
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    g_meshcore.contacts[0].flags = MESH_MESHCORE_CONTACT_FAVORITE;
+    g_meshcore.contacts[0].lastmod = 150U;
+
+    struct mesh_meshcore_contact_options options = {0};
+    struct mesh_meshcore_contact_plan_notes notes;
+    int planned = mesh_meshcore_backup_plan_contacts(
+        &g_backup, &g_meshcore, &options, g_contact_plan, MESH_MESHCORE_CONTACTS_MAX, &notes);
+    MESH_TEST_FAIL_IF(planned != 0 || notes.newer != 1U,
+                      "a contact pinned since the backup was written over");
+    options.replace_newer = true;
+    planned = mesh_meshcore_backup_plan_contacts(&g_backup, &g_meshcore, &options, g_contact_plan,
+                                                 MESH_MESHCORE_CONTACTS_MAX, &notes);
+    MESH_TEST_FAIL_IF(planned != 1 || notes.newer != 0U || g_contact_plan[0].flags != 0U,
+                      "replacing did not put the backup's record back");
+    record_success(test_name);
+}
+
+/* More to add than the radio has room for: favourites first, then the most recently changed,
+   and the rest counted. An update takes no room. */
+MESH_TEST_CASE(meshcore_backup_plan_contacts_fills_the_room_favourites_first, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    g_meshcore.contact_count = 0U;
+    book_contact(0x51U, "Old", 0U, 10U);
+    book_contact(0x52U, "Pinned", MESH_MESHCORE_CONTACT_FAVORITE, 5U);
+    book_contact(0x53U, "Newest", 0U, 300U);
+    book_contact(0x54U, "Newer", 0U, 200U);
+    book_contact(0x55U, "Kept", 0U, 50U);
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    /* The radio keeps only "Kept", renamed, and has room for three. */
+    g_meshcore.contacts[0] = g_meshcore.contacts[4];
+    g_meshcore.contact_count = 1U;
+    snprintf(g_meshcore.contacts[0].name, sizeof g_meshcore.contacts[0].name, "%s", "K");
+    g_meshcore.device.max_contacts = 3U;
+
+    struct mesh_meshcore_contact_options options = {0};
+    struct mesh_meshcore_contact_plan_notes notes;
+    const int planned = mesh_meshcore_backup_plan_contacts(
+        &g_backup, &g_meshcore, &options, g_contact_plan, MESH_MESHCORE_CONTACTS_MAX, &notes);
+    MESH_TEST_FAIL_IF(planned != 3, "not two adds and the update");
+    MESH_TEST_FAIL_IF(g_contact_plan[0].public_key[0] != 0x52U, "the favourite was not first");
+    MESH_TEST_FAIL_IF(g_contact_plan[1].public_key[0] != 0x53U,
+                      "the most recently changed was not next");
+    MESH_TEST_FAIL_IF(g_contact_plan[2].public_key[0] != 0x55U, "the update was not planned");
+    MESH_TEST_FAIL_IF(planned_contact(3U, 0x54U) != NULL || planned_contact(3U, 0x51U) != NULL ||
+                          notes.left_out != 2U,
+                      "what did not fit was not counted");
+    record_success(test_name);
+}
+
+/* One restore write at a time, each settled by its answer: OK lands it in the book, a refusal
+   is counted, and the next is refused until the last is answered. */
+MESH_TEST_CASE(meshcore_restore_contact_waits_for_its_answer, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    const size_t before = g_meshcore.contact_count;
+    struct mesh_meshcore_contact contact;
+    memset(&contact, 0, sizeof contact);
+    memset(contact.public_key, 0x61, MESH_MESHCORE_PUBKEY_LEN);
+    contact.type = MESH_MESHCORE_ADV_CHAT;
+    contact.out_path_len = MESH_MESHCORE_PATH_NONE;
+    snprintf(contact.name, sizeof contact.name, "%s", "Frank");
+
+    MESH_TEST_FAIL_IF(mesh_meshcore_restore_contact(&g_meshcore, &contact) != 1, "not asked");
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT,
+                      "not an ADD_UPDATE_CONTACT");
+    MESH_TEST_FAIL_IF(mesh_meshcore_restore_contact(&g_meshcore, &contact) != -EBUSY,
+                      "a second was taken before the first was answered");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(g_meshcore.contact_restore_outstanding, "the OK did not settle it");
+    MESH_TEST_FAIL_IF(g_meshcore.contact_count != before + 1U, "the contact is not in the book");
+    MESH_TEST_FAIL_IF(g_meshcore.contact_restores_refused != 0U, "an OK counted as refused");
+
+    contact.public_key[0] = 0x62U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_restore_contact(&g_meshcore, &contact) != 1, "not asked");
+    feed_code(&protocol, MESH_MESHCORE_RESP_ERR);
+    MESH_TEST_FAIL_IF(g_meshcore.contact_restore_outstanding ||
+                          g_meshcore.contact_restores_refused != 1U,
+                      "a refusal was not counted");
+
+    /* Its own key is never written as a contact. */
+    memcpy(contact.public_key, g_meshcore.self.public_key, MESH_MESHCORE_PUBKEY_LEN);
+    MESH_TEST_FAIL_IF(mesh_meshcore_restore_contact(&g_meshcore, &contact) != -EINVAL,
+                      "the radio's own key was written as a contact");
+
+    /* A write the link takes with it is counted too, and does not hold the next connection. */
+    contact.public_key[0] = 0x63U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_restore_contact(&g_meshcore, &contact) != 1, "not asked");
+    mesh_protocol_detach(&protocol);
+    MESH_TEST_FAIL_IF(g_meshcore.contact_restore_outstanding ||
+                          g_meshcore.contact_restores_refused != 2U,
+                      "a write lost with the link was not settled");
     record_success(test_name);
 }

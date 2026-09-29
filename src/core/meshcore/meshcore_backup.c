@@ -523,35 +523,6 @@ static bool mc_channel_same(const struct mesh_meshcore_channel *a, bool in_b,
     return strcmp(a->name, b->name) == 0 && memcmp(a->secret, b->secret, sizeof a->secret) == 0;
 }
 
-/* The contacts the radio and the backup disagree about, which this restore does not write. */
-static size_t mc_contacts_differing(const struct mesh_meshcore_backup_contents *saved,
-                                    const struct mesh_meshcore *meshcore) {
-    size_t differing = 0U;
-    for (size_t i = 0; i < saved->contact_count; ++i) {
-        const struct mesh_meshcore_contact *want = &saved->contacts[i];
-        const struct mesh_meshcore_contact *have = NULL;
-        for (size_t k = 0; k < meshcore->contact_count && have == NULL; ++k) {
-            if (memcmp(meshcore->contacts[k].public_key, want->public_key,
-                       MESH_MESHCORE_PUBKEY_LEN) == 0) {
-                have = &meshcore->contacts[k];
-            }
-        }
-        if (have == NULL || strcmp(have->name, want->name) != 0 || have->type != want->type ||
-            have->flags != want->flags) {
-            ++differing;
-        }
-    }
-    for (size_t k = 0; k < meshcore->contact_count; ++k) {
-        bool kept = false;
-        for (size_t i = 0; i < saved->contact_count && !kept; ++i) {
-            kept = memcmp(meshcore->contacts[k].public_key, saved->contacts[i].public_key,
-                          MESH_MESHCORE_PUBKEY_LEN) == 0;
-        }
-        differing += kept ? 0U : 1U;
-    }
-    return differing;
-}
-
 /* The settings groups that differ, into `write`; each one that cannot be written is counted. */
 static void mc_plan_self(const struct mesh_meshcore_backup_contents *saved,
                          const struct mesh_meshcore *meshcore,
@@ -619,6 +590,24 @@ static void mc_plan_self(const struct mesh_meshcore_backup_contents *saved,
     }
 }
 
+/* The backup read for a restore onto `meshcore`, once it is known to be this radio's. */
+static int mc_restore_read(const struct mesh_radio_backup *backup,
+                           const struct mesh_meshcore *meshcore,
+                           struct mesh_meshcore_backup_contents *saved) {
+    const int result = mesh_meshcore_backup_read(backup, saved);
+    if (result != 0) {
+        return result;
+    }
+    /* The key is the radio: a backup of another one is not restored onto this one, whatever
+       its node number says - and one that does not say whose it is cannot be checked, so it is
+       refused the same way. */
+    if (!saved->has_self ||
+        memcmp(saved->self.public_key, meshcore->self.public_key, MESH_MESHCORE_PUBKEY_LEN) != 0) {
+        return -ENODEV;
+    }
+    return 0;
+}
+
 int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
                               const struct mesh_meshcore *meshcore,
                               struct mesh_meshcore_settings_write *writes, size_t max,
@@ -637,15 +626,7 @@ int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
     if (saved == NULL) {
         return -ENOMEM;
     }
-    int result = mesh_meshcore_backup_read(backup, saved);
-    /* The key is the radio: a backup of another one is not restored onto this one, whatever
-       its node number says - and one that does not say whose it is cannot be checked, so it is
-       refused the same way. */
-    if (result == 0 &&
-        (!saved->has_self || memcmp(saved->self.public_key, meshcore->self.public_key,
-                                    MESH_MESHCORE_PUBKEY_LEN) != 0)) {
-        result = -ENODEV;
-    }
+    int result = mc_restore_read(backup, meshcore, saved);
     struct mesh_meshcore_settings_write planned[MESH_MESHCORE_BACKUP_PLAN_MAX];
     size_t count = 0U;
     size_t skipped = 0U;
@@ -678,7 +659,6 @@ int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
             memcpy(write->channel_name, saved->channels[slot].name, MESH_MESHCORE_NAME_LEN);
             memcpy(write->channel_secret, saved->channels[slot].secret, MESH_MESHCORE_SECRET_LEN);
         }
-        skipped += mc_contacts_differing(saved, meshcore);
         if (count > max) {
             result = -ENOSPC;
         }
@@ -689,5 +669,114 @@ int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
     }
     memcpy(writes, planned, count * sizeof *writes);
     *unwritable = skipped;
+    return (int)count;
+}
+
+static const struct mesh_meshcore_contact *mc_radio_contact(const struct mesh_meshcore *meshcore,
+                                                            const uint8_t *key) {
+    for (size_t k = 0; k < meshcore->contact_count; ++k) {
+        if (memcmp(meshcore->contacts[k].public_key, key, MESH_MESHCORE_PUBKEY_LEN) == 0) {
+            return &meshcore->contacts[k];
+        }
+    }
+    return NULL;
+}
+
+/* Favourites first, then the most recently changed: the order a restore sends them in, and the
+   order the radio's room is handed out in. */
+static int mc_contact_order(const void *a, const void *b) {
+    const struct mesh_meshcore_contact *left = a;
+    const struct mesh_meshcore_contact *right = b;
+    const bool left_pinned = (left->flags & MESH_MESHCORE_CONTACT_FAVORITE) != 0U;
+    const bool right_pinned = (right->flags & MESH_MESHCORE_CONTACT_FAVORITE) != 0U;
+    if (left_pinned != right_pinned) {
+        return left_pinned ? -1 : 1;
+    }
+    if (left->lastmod != right->lastmod) {
+        return left->lastmod > right->lastmod ? -1 : 1;
+    }
+    return memcmp(left->public_key, right->public_key, MESH_MESHCORE_PUBKEY_LEN);
+}
+
+int mesh_meshcore_backup_plan_contacts(const struct mesh_radio_backup *backup,
+                                       const struct mesh_meshcore *meshcore,
+                                       const struct mesh_meshcore_contact_options *options,
+                                       struct mesh_meshcore_contact *out, size_t max,
+                                       struct mesh_meshcore_contact_plan_notes *notes) {
+    if (backup == NULL || meshcore == NULL || options == NULL || out == NULL || notes == NULL) {
+        return -EINVAL;
+    }
+    memset(notes, 0, sizeof *notes);
+    if (backup->header.protocol != MESH_RADIO_BACKUP_MESHCORE) {
+        return -EPROTO;
+    }
+    if (!mesh_meshcore_backup_ready(meshcore)) {
+        return -EAGAIN;
+    }
+    struct mesh_meshcore_backup_contents *saved = malloc(sizeof *saved);
+    if (saved == NULL) {
+        return -ENOMEM;
+    }
+    int result = mc_restore_read(backup, meshcore, saved);
+    if (result != 0) {
+        free(saved);
+        return result;
+    }
+    /* The adds first, in the order the room is handed out, cut to the room there is; the
+       updates after them, which take none; then the whole plan in sending order. The backup's
+       own list is sorted in place for it - it is this call's copy. */
+    size_t limit = MESH_MESHCORE_CONTACTS_MAX;
+    if (meshcore->has_device && meshcore->device.max_contacts > 0U &&
+        meshcore->device.max_contacts < limit) {
+        limit = meshcore->device.max_contacts;
+    }
+    size_t room = meshcore->contact_count < limit ? limit - meshcore->contact_count : 0U;
+    qsort(saved->contacts, saved->contact_count, sizeof saved->contacts[0], mc_contact_order);
+    size_t count = 0U;
+    for (int pass = 0; pass < 2 && result == 0; ++pass) {
+        for (size_t i = 0; i < saved->contact_count; ++i) {
+            const struct mesh_meshcore_contact *want = &saved->contacts[i];
+            if (memcmp(want->public_key, meshcore->self.public_key, MESH_MESHCORE_PUBKEY_LEN) ==
+                0) {
+                continue;
+            }
+            const struct mesh_meshcore_contact *have = mc_radio_contact(meshcore, want->public_key);
+            if (pass == 0) {
+                if (have != NULL) {
+                    continue;
+                }
+                if (room == 0U) {
+                    notes->left_out++;
+                    continue;
+                }
+                room--;
+            } else {
+                if (have == NULL || (strcmp(have->name, want->name) == 0 &&
+                                     have->type == want->type && have->flags == want->flags)) {
+                    continue;
+                }
+                if (have->lastmod > want->lastmod && !options->replace_newer) {
+                    notes->newer++;
+                    continue;
+                }
+            }
+            if (count >= max) {
+                result = -ENOSPC;
+                break;
+            }
+            struct mesh_meshcore_contact *write = &out[count++];
+            *write = *want;
+            if (!options->keep_routes) {
+                write->out_path_len = MESH_MESHCORE_PATH_NONE;
+                memset(write->out_path, 0, sizeof write->out_path);
+            }
+        }
+    }
+    free(saved);
+    if (result != 0) {
+        memset(notes, 0, sizeof *notes);
+        return result;
+    }
+    qsort(out, count, sizeof *out, mc_contact_order);
     return (int)count;
 }
