@@ -697,3 +697,79 @@ int mesh_radio_backup_store_load(const struct mesh_radio_backup_store *store, ui
     snprintf(path, sizeof path, "%s/%08" PRIx32 "/%s", store->dir, node_id, entry->file);
     return mesh_radio_backup_read_file(backup, path);
 }
+
+/* Every subdirectory named like a node, holding at least one backup. */
+struct radio_backup_radios {
+    const struct mesh_radio_backup_store *store;
+    uint32_t *out;
+    size_t max;
+    size_t total;
+};
+
+static void radio_backup_note_radio(void *context, const char *name) {
+    struct radio_backup_radios *radios = context;
+    if (strlen(name) != 8U) {
+        return;
+    }
+    uint32_t node = 0U;
+    if (!radio_backup_u32(name, &node, 16) || node == 0U ||
+        mesh_radio_backup_store_list(radios->store, node, NULL, 0U) <= 0) {
+        return;
+    }
+    if (radios->total < radios->max) {
+        radios->out[radios->total] = node;
+    }
+    ++radios->total;
+}
+
+int mesh_radio_backup_store_radios(const struct mesh_radio_backup_store *store, uint32_t *out,
+                                   size_t max) {
+    if (!mesh_radio_backup_store_enabled(store)) {
+        return -ENODEV;
+    }
+    if (out == NULL && max > 0U) {
+        return -EINVAL;
+    }
+    struct radio_backup_radios radios = {.store = store, .out = out, .max = max};
+    const int result = inkwell_file_list(store->dir, radio_backup_note_radio, &radios);
+    return result < 0 ? result : (int)radios.total;
+}
+
+/* The file in a directory carrying one sequence number, whatever its reason. */
+struct radio_backup_find {
+    uint32_t sequence;
+    struct mesh_radio_backup_entry entry;
+    bool found;
+};
+
+static void radio_backup_note_sequence(void *context, const char *name) {
+    struct radio_backup_find *find = context;
+    struct mesh_radio_backup_entry entry;
+    if (!find->found && radio_backup_parse_name(name, &entry) && entry.sequence == find->sequence) {
+        find->entry = entry;
+        find->found = true;
+    }
+}
+
+int mesh_radio_backup_store_remove(struct mesh_radio_backup_store *store, uint32_t node_id,
+                                   uint32_t sequence) {
+    if (!mesh_radio_backup_store_enabled(store)) {
+        return -ENODEV;
+    }
+    char dir[MESH_RADIO_BACKUP_PATH_MAX];
+    radio_backup_node_dir(store, node_id, dir, sizeof dir);
+    if (!inkwell_file_is_dir(dir)) {
+        return -ENOENT;
+    }
+    struct radio_backup_find find = {.sequence = sequence};
+    const int listed = inkwell_file_list(dir, radio_backup_note_sequence, &find);
+    if (listed < 0) {
+        return listed;
+    }
+    if (!find.found) {
+        return -ENOENT;
+    }
+    char path[MESH_RADIO_BACKUP_PATH_MAX + 80U];
+    snprintf(path, sizeof path, "%s/%s", dir, find.entry.file);
+    return remove(path) == 0 ? 0 : -errno;
+}

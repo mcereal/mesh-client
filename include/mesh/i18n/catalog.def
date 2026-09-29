@@ -1195,6 +1195,7 @@ MESH_STR_ENTRY(SETTINGS_SECTION_BEACON,                   "Mesh beacon")
 MESH_STR_ENTRY(SETTINGS_SECTION_RADIO_DETAILS,            "Radio details")
 MESH_STR_ENTRY(SETTINGS_SECTION_NODE_LISTS,               "Node lists")
 MESH_STR_ENTRY(SETTINGS_SECTION_MAPS,                     "Maps")
+MESH_STR_ENTRY(SETTINGS_SECTION_BACKUPS,                  "Backups")
 
 /* ---- the help screen -------------------------------------------------------------------------- */
 
@@ -1240,6 +1241,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_ACTIONS,                     "Things the node being
 MESH_STR_ENTRY(SETTINGS_NOTE_RADIO_DETAILS,               "What the radio on the link says about itself, the firmware upstream publishes for its board, and the things it can be asked to do. A reboot comes back on its own; the factory resets do not.")
 MESH_STR_ENTRY(SETTINGS_NOTE_NODE_LISTS,                  "Two lists of nodes. The radio's own database is short and trims itself; resetting it empties the radio. This client keeps a longer one, and the forget rows clear only that.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MAPS,                        "The maps under the Map tab, downloaded over Wi-Fi. The world map sits under every region. A download needs the antenna Bluetooth uses, so the radio disconnects until it ends.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BACKUPS,                     "Copies of each radio's settings on this card, taken when a radio is first read and before each change made to it. A comparison shows the backup's value, then the radio's.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MODULES,                     "The optional features this radio's firmware can run. Each row opens that module's own settings, and its value says whether the module is currently enabled.")
 MESH_STR_ENTRY(SETTINGS_NOTE_NEIGHBOR_INFO,               "Reports which nodes this radio hears directly, so the mesh can map its own shape. The firmware floors the interval at four hours because it is a lot of traffic.")
 MESH_STR_ENTRY(SETTINGS_NOTE_RANGE_TEST,                  "Sends numbered packets on a timer so you can walk away and find where reception stops. It transmits to everyone on the channel, so turn it off when you are done.")
@@ -2490,6 +2492,7 @@ MESH_STR_ENTRY(CONFIRM_TITLE_BACKUP,      "Back up the configuration?")
 MESH_STR_ENTRY(CONFIRM_TITLE_RESTORE,     "Restore the configuration?")
 MESH_STR_ENTRY(CONFIRM_TITLE_RM_BACKUP,   "Delete the backup?")
 MESH_STR_ENTRY(CONFIRM_TITLE_MAPS_DELETE, "Delete this map?")
+MESH_STR_ENTRY(CONFIRM_TITLE_BACKUPS_DELETE, "Delete this backup?")
 MESH_STR_ENTRY(CONFIRM_TITLE_HAM_MODE,    "Switch to ham mode?")
 MESH_STR_ENTRY(CONFIRM_TITLE_FW_USB,      "Update the radio over USB?")
 MESH_STR_ENTRY(CONFIRM_TITLE_FW_BLE,      "Update the radio over Bluetooth?")
@@ -2513,6 +2516,7 @@ MESH_STR_ENTRY(CONFIRM_ACCEPT_BACKUP,     "Back up")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_RESTORE,    "Restore")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_RM_BACKUP,  "Delete backup")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_MAPS_DELETE, "Delete map")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_BACKUPS_DELETE, "Delete backup")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_HAM_MODE,   "Switch to ham mode")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_USB,     "Update over USB")
 MESH_STR_ENTRY(CONFIRM_ACCEPT_FW_BLE,     "Update over Bluetooth")
@@ -2555,6 +2559,7 @@ MESH_STR_ENTRY(CONFIRM_TEXT_BACKUP,       "The radio copies every setting it hol
 MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE,      "Every setting on the radio goes back to whatever the backup holds, this client's own settings excepted. The radio restarts; without a backup nothing happens.")
 MESH_STR_ENTRY(CONFIRM_TEXT_RM_BACKUP,    "The saved copy is erased from the radio's flash. The settings it is running now are untouched, and there is nothing left to restore from.")
 MESH_STR_ENTRY(CONFIRM_TEXT_MAPS_DELETE,  "The map comes off the card and stops being drawn. It can be downloaded again from this screen.")
+MESH_STR_ENTRY(CONFIRM_TEXT_BACKUPS_DELETE, "The copy comes off the card. The radio is untouched, and its other backups stay.")
 MESH_STR_ENTRY(CONFIRM_TEXT_BLUETOOTH,    "The radio will reboot. Changing the pairing mode or PIN invalidates the Brick's bond: forget the node in Devices (Y) and connect again to pair with the new PIN. Turning Bluetooth off cuts this client off entirely.")
 MESH_STR_ENTRY(CONFIRM_TEXT_CHANNELS,     "The radio will reboot. A new key or name moves this radio to a different channel: every other node needs the same settings to keep talking to it.")
 MESH_STR_ENTRY(CONFIRM_TEXT_LORA,         "The radio will reboot. A region or preset the other nodes do not share takes this radio off the mesh, and a wrong region may be illegal to transmit on. Transmit off makes it receive-only.")
@@ -3206,6 +3211,99 @@ MESH_STR_ENTRY(TOAST_MAPS_BUSY,           "One download at a time")
 MESH_STR_ENTRY(TOAST_MAPS_FULL,           "The map draws %u maps at most. Delete one first.")
 /* The %s is the C library's own description of an errno and arrives untranslated. */
 MESH_STR_ENTRY(TOAST_MAPS_FAILED,         "Maps: %s")
+
+/* ---- the radios' backups on the card ------------------------------------------------------- */
+
+/*
+ * The Backups section: the radios this client has kept a copy of the settings of, each radio's
+ * copies, one copy, and one copy compared with the radio as it is now. "Backup" is always the
+ * file on this device's card, never the radio's own flash backup under Radio actions.
+ */
+MESH_STR_ENTRY(BACKUPS_HEAD_RADIOS,       "Radios")
+MESH_STR_ENTRY(BACKUPS_HEAD_LIST,         "On the card")
+MESH_STR_ENTRY(BACKUPS_EMPTY,             "No backups yet")
+MESH_STR_ENTRY(BACKUPS_EMPTY_VALUE,       "Connect a radio to take one")
+MESH_STR_ENTRY(BACKUPS_NO_CARD,           "No card to keep backups on")
+/* How many backups a radio has, beside its name. */
+MESH_STR_PLURAL_ENTRY(BACKUPS_COUNT,      "%u backup", "%u backups")
+/* Two facts in a row's value column: "MeshCore, 3 backups", "Before a change, 2.5.6". */
+MESH_STR_ENTRY(BACKUPS_PAIR,              "%s, %s")
+/* In place of a firmware family, for the radio that is connected now. */
+MESH_STR_ENTRY(BACKUPS_CONNECTED,         "Connected")
+/* A backup taken with no clock on the device, by its number: "Backup 7". */
+MESH_STR_ENTRY(BACKUPS_NUMBERED,          "Backup %u")
+/* When a backup was taken: the day, then the time. "Mon 3 Sep, 14:05". */
+MESH_STR_ENTRY(BACKUPS_WHEN,              "%s, %s")
+/* Why a backup was taken. */
+MESH_STR_ENTRY(BACKUPS_REASON_MANUAL,     "Saved by you")
+MESH_STR_ENTRY(BACKUPS_REASON_FIRST,      "First connection")
+MESH_STR_ENTRY(BACKUPS_REASON_WRITE,      "Before a change")
+MESH_STR_ENTRY(BACKUPS_REASON_FIRMWARE,   "Before a firmware install")
+/* The two firmware families. Product names; most languages leave them as they are. */
+MESH_STR_ENTRY(BACKUPS_PROTOCOL_MESHTASTIC, "Meshtastic")
+MESH_STR_ENTRY(BACKUPS_PROTOCOL_MESHCORE, "MeshCore")
+/* One backup's rows. */
+MESH_STR_ENTRY(BACKUPS_HEAD_BACKUP,       "This backup")
+MESH_STR_ENTRY(BACKUPS_HEAD_RADIO,        "Radio")
+MESH_STR_ENTRY(BACKUPS_HEAD_CHANNELS,     "Channels")
+MESH_STR_ENTRY(BACKUPS_HEAD_ACTIONS,      "Do with it")
+MESH_STR_ENTRY(BACKUPS_TAKEN,             "Taken")
+MESH_STR_ENTRY(BACKUPS_WHY,               "Why")
+MESH_STR_ENTRY(BACKUPS_NAME,              "Name")
+MESH_STR_ENTRY(BACKUPS_NODE,              "Node")
+MESH_STR_ENTRY(BACKUPS_PROTOCOL,          "Firmware family")
+MESH_STR_ENTRY(BACKUPS_MODEL,             "Board")
+MESH_STR_ENTRY(BACKUPS_FIRMWARE,          "Firmware")
+/* The link the radio was on when the backup was taken: a Bluetooth address, a port. */
+MESH_STR_ENTRY(BACKUPS_DEVICE,            "Connected over")
+MESH_STR_ENTRY(BACKUPS_NODES_HEARD,       "Nodes heard")
+MESH_STR_ENTRY(BACKUPS_CONTACTS,          "Contacts kept")
+/* A LoRa bandwidth in kilohertz, which may have a fraction: "62.5 kHz". */
+MESH_STR_ENTRY(BACKUPS_BANDWIDTH_VALUE,   "%u.%u kHz")
+/* A frequency in megahertz to three places: "869.525 MHz". */
+MESH_STR_ENTRY(BACKUPS_FREQUENCY_VALUE,   "%u.%03u MHz")
+/* LoRa's coding rate, written the way the radio community writes it: "4/5". */
+MESH_STR_ENTRY(BACKUPS_CODING_VALUE,      "4/%u")
+/* A channel slot with no name uses the radio's default one. */
+MESH_STR_ENTRY(BACKUPS_CHANNEL_UNNAMED,   "Default name")
+MESH_STR_ENTRY(BACKUPS_COMPARE,           "Compare with the radio")
+MESH_STR_ENTRY(BACKUPS_COMPARE_OFF_LINK,  "Connect this radio first")
+MESH_STR_ENTRY(BACKUPS_COMPARE_OFF_OTHER, "Taken under the other firmware")
+MESH_STR_ENTRY(BACKUPS_DELETE,            "Delete this backup")
+/* The comparison's rows. */
+MESH_STR_ENTRY(BACKUPS_COMPARING,         "Reading the radio")
+MESH_STR_ENTRY(BACKUPS_COMPARE_FAILED,    "Could not compare")
+/* The error number is for a bug report. */
+MESH_STR_ENTRY(BACKUPS_COMPARE_ERROR,     "Error %d")
+MESH_STR_ENTRY(BACKUPS_SAME,              "Same as the radio")
+MESH_STR_ENTRY(BACKUPS_SAME_VALUE,        "Nothing has changed")
+/* How many differences there are, over the list of them. */
+MESH_STR_PLURAL_ENTRY(BACKUPS_DIFFERENCES, "%u difference", "%u differences")
+MESH_STR_ENTRY(BACKUPS_DIFFERENCES_LABEL, "Differences")
+/* Past what one screen lists: "12 more not shown". */
+MESH_STR_PLURAL_ENTRY(BACKUPS_MORE,       "%u more not shown", "%u more not shown")
+/* Headings for a difference that is not in any of the Settings sections. */
+MESH_STR_ENTRY(BACKUPS_TOPIC_CONTACTS,    "Contacts")
+MESH_STR_ENTRY(BACKUPS_TOPIC_RINGTONE,    "Ringtone")
+MESH_STR_ENTRY(BACKUPS_TOPIC_OTHER,       "Other")
+/* Labels for a difference in a field the Settings tab has no row for. */
+MESH_STR_ENTRY(BACKUPS_FIELD_PUBLIC_KEY,  "Public key")
+MESH_STR_ENTRY(BACKUPS_FIELD_CONTACT_TYPE, "Type")
+MESH_STR_ENTRY(BACKUPS_FIELD_CONTACT_FLAGS, "Flags")
+/* A whole section or channel that one side has and the other does not. */
+MESH_STR_ENTRY(BACKUPS_FIELD_WHOLE,       "All of it")
+/* A field this client has no name for, by the firmware's own number for it. */
+MESH_STR_ENTRY(BACKUPS_FIELD_NUMBER,      "Field %u")
+/* A value that is set but has nothing to show, like a key; and one that is not set at all. */
+MESH_STR_ENTRY(BACKUPS_VALUE_SET,         "set")
+MESH_STR_ENTRY(BACKUPS_VALUE_ABSENT,      "not set")
+MESH_STR_ENTRY(BACKUPS_VALUE_EMPTY,       "empty")
+/* What the backup held, then what the radio holds now: "5 → 3". */
+MESH_STR_ENTRY(BACKUPS_CHANGE_VALUE,      "%s → %s")
+MESH_STR_ENTRY(BACKUPS_CHANGE_ADDED,      "Only on the radio")
+MESH_STR_ENTRY(BACKUPS_CHANGE_REMOVED,    "Only in the backup")
+MESH_STR_ENTRY(TOAST_BACKUP_DELETED,      "Backup deleted from the card")
+MESH_STR_ENTRY(TOAST_BACKUP_DELETE_FAILED, "Could not delete the backup (%d)")
 
 /* ---- the radio's firmware ------------------------------------------------------------------ */
 

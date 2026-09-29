@@ -87,6 +87,7 @@ add_library(meshclient_core
     src/core/firmware/firmware_serial.c
     src/core/firmware/firmware_update.c
     src/core/backup/radio_backup.c
+    src/core/backup/radio_backup_diff.c
     src/core/backup/radio_backup_meshtastic.c
     src/core/protocol/protocol.c
     src/core/lifetime/lifetime.c
@@ -138,6 +139,7 @@ add_library(meshclient_core
     src/ui/tables/mqtt.c
     src/ui/tables/trend.c
     src/ui/tables/actions.c
+    src/ui/tables/backups.c
     src/ui/views/channel_share.c
     src/ui/views/contact_share.c
     src/ui/views/firmware_progress.c

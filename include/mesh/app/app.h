@@ -255,6 +255,9 @@ struct mesh_app {
      */
     struct mesh_radio_backup_store backups;
     uint32_t backup_checked_node;
+    /* What the card holds, as the Backups section lists it, and the last comparison. Read when
+       the store opens and after every write to it, never on a publish. See app_backup.c. */
+    struct mesh_ui_backups backup_listing;
     /* The node whose trend was last read off the card, so the read happens when the reader moves
        rather than on every publish. 0 when no detail screen is open. */
     uint32_t ui_trend_node;

@@ -115,6 +115,9 @@ uint8_t mesh_ui_nav_open_channel(const struct mesh_ui_nav *nav) {
         return nav->maps_group != 0U ? (uint8_t)(nav->maps_group - 1U)
                                      : MESH_UI_SETTINGS_NO_CHANNEL;
     }
+    if (nav->settings_section == MESH_UI_SETTINGS_BACKUPS) {
+        return nav->backups_view;
+    }
     return nav->settings_channel;
 }
 
@@ -536,6 +539,7 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
     nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
+    nav->backups_view = MESH_UI_SETTINGS_NO_CHANNEL;
     nav->radio_page = MESH_UI_RADIO_PAGE_NONE;
     /* Not zero, which is the narrowest span: a chart opens on everything it has, which is what
        it drew before there was a picker - see `trend_span`. */
@@ -981,6 +985,8 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
        behind. It runs after the node detail's close so a map closing under an open detail takes
        the detail with it rather than stranding it one level up from nowhere. */
     moved = mesh_ui_nav_map_clamp(nav, store) || moved;
+    /* And a backup, or a radio's last backup, deleted or pruned from under its screen. */
+    moved = mesh_ui_nav_backups_clamp(nav, store) || moved;
     /*
      * And a chart with nothing left to draw, which is the map's clamp one screen along: a radio
      * swap empties the history the way it empties the roster, and a picture of a reading nobody
@@ -2065,6 +2071,10 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
             mesh_ui_nav_open_contact_url_keyboard(nav);
             return true;
         }
+        /* A radio's backups, one backup, or that backup against the radio. */
+        if (mesh_ui_nav_backups_press(nav, store, which, item.text, action)) {
+            return true;
+        }
         /* A catalog group, opened to its packs; B comes back to the row it was opened from. */
         if (which == MESH_UI_SETTINGS_ACTION_MAPS_OPEN_GROUP) {
             const unsigned long index = strtoul(item.text, NULL, 10);
@@ -2366,6 +2376,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         nav->settings_list_cursor = cursor;
         nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
         nav->maps_group = 0U;
+        mesh_ui_nav_backups_reset(nav);
         nav->settings_section = (uint8_t)mesh_ui_settings_root_at(&store->settings, cursor);
         mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
         return true;

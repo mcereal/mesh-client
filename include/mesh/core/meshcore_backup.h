@@ -25,6 +25,7 @@
 
 #include "mesh/core/meshcore.h"
 #include "mesh/core/radio_backup.h"
+#include "mesh/core/radio_backup_diff.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -39,6 +40,34 @@ enum mesh_meshcore_backup_tag {
     MESH_MESHCORE_BACKUP_PIN = 2,     /* the Bluetooth PIN, u32 little-endian */
     MESH_MESHCORE_BACKUP_CHANNEL = 3, /* slot, name[32], secret[16] */
     MESH_MESHCORE_BACKUP_CONTACT = 4, /* a RESP_CONTACT record, 148 bytes */
+};
+
+/*
+ * The fields a MeshCore comparison names (struct mesh_radio_backup_change's `field`). Numbers of
+ * this client's choosing - the companion protocol numbers none of them - and never written to a
+ * file, so they are free to move.
+ */
+enum mesh_meshcore_backup_field {
+    MESH_MESHCORE_BACKUP_FIELD_NONE = 0,
+    MESH_MESHCORE_BACKUP_FIELD_NAME,
+    MESH_MESHCORE_BACKUP_FIELD_FREQUENCY, /* kHz */
+    MESH_MESHCORE_BACKUP_FIELD_BANDWIDTH, /* Hz */
+    MESH_MESHCORE_BACKUP_FIELD_SPREADING,
+    MESH_MESHCORE_BACKUP_FIELD_CODING,
+    MESH_MESHCORE_BACKUP_FIELD_TX_POWER, /* dBm */
+    MESH_MESHCORE_BACKUP_FIELD_LATITUDE,
+    MESH_MESHCORE_BACKUP_FIELD_LONGITUDE,
+    MESH_MESHCORE_BACKUP_FIELD_ADVERT_LOCATION,
+    MESH_MESHCORE_BACKUP_FIELD_MANUAL_ADD,
+    MESH_MESHCORE_BACKUP_FIELD_TELEMETRY,
+    MESH_MESHCORE_BACKUP_FIELD_MULTI_ACKS,
+    MESH_MESHCORE_BACKUP_FIELD_PUBLIC_KEY,
+    MESH_MESHCORE_BACKUP_FIELD_PIN,
+    MESH_MESHCORE_BACKUP_FIELD_CHANNEL_NAME,
+    MESH_MESHCORE_BACKUP_FIELD_CHANNEL_SECRET,
+    MESH_MESHCORE_BACKUP_FIELD_CONTACT_TYPE,
+    MESH_MESHCORE_BACKUP_FIELD_CONTACT_FLAGS,
+    MESH_MESHCORE_BACKUP_FIELD_ADV_TYPE, /* what it advertises itself as: chat, repeater, room */
 };
 
 /* What a MeshCore backup holds, decoded. About sixty kilobytes: never on a stack. */
@@ -74,6 +103,21 @@ int mesh_meshcore_backup_capture(const struct mesh_meshcore *meshcore,
  */
 int mesh_meshcore_backup_read(const struct mesh_radio_backup *backup,
                               struct mesh_meshcore_backup_contents *out);
+
+/*
+ * What differs between two MeshCore backups: the settings in the groups a screen shows them in
+ * (the name under the owner, the four radio numbers and the power under LoRa, the position, the
+ * other bytes, the PIN), each channel slot, and then the contacts - added, removed, or changed in
+ * name, type or flags, matched by public key.
+ *
+ * A contact's route and its timestamps are not compared. Both move whenever the radio hears the
+ * contact again, so a comparison that counted them would call every contact changed a day
+ * later, and the point of the list is what somebody changed.
+ *
+ * 0, -EPROTO when either backup is not MeshCore's, -EBADMSG for one that does not read, -ENOMEM.
+ */
+int mesh_meshcore_backup_diff(const struct mesh_radio_backup *a, const struct mesh_radio_backup *b,
+                              struct mesh_radio_backup_diff *out);
 
 #ifdef __cplusplus
 }

@@ -1735,13 +1735,14 @@ MESH_TEST_CASE(ui_settings_about, unit) {
 
     struct mesh_ui_action action;
     (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
-    /* About is the last row, under the client's own heading with Maps between them. */
+    /* About is the last row, under the client's own heading with Maps and Backups between. */
     const uint32_t about_row = mesh_ui_settings_root_count(&store.settings) - 1U;
     if (store.nav.screen != MESH_UI_SCREEN_SETTINGS ||
         mesh_ui_settings_root_at(&store.settings, about_row) != MESH_UI_SETTINGS_ABOUT ||
-        mesh_ui_settings_root_at(&store.settings, about_row - 1U) != MESH_UI_SETTINGS_MAPS ||
-        !mesh_ui_settings_root_is_heading(&store.settings, about_row - 2U)) {
-        failure = "Settings should end with the client's heading, then Maps and About";
+        mesh_ui_settings_root_at(&store.settings, about_row - 1U) != MESH_UI_SETTINGS_BACKUPS ||
+        mesh_ui_settings_root_at(&store.settings, about_row - 2U) != MESH_UI_SETTINGS_MAPS ||
+        !mesh_ui_settings_root_is_heading(&store.settings, about_row - 3U)) {
+        failure = "Settings should end with the client's heading, then Maps, Backups and About";
         goto cleanup;
     }
     store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = about_row;

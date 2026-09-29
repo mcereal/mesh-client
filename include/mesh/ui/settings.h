@@ -140,6 +140,14 @@ enum mesh_ui_settings_section {
      * download is best done, since one holds the antenna the radio's link would use.
      */
     MESH_UI_SETTINGS_MAPS,
+    /*
+     * The radios' settings this client has kept on the card (mesh/core/radio_backup.h): the
+     * radios, one radio's backups, one backup, and one backup against the radio as it is now -
+     * four levels of one section, walked as the Maps groups are (see mesh/ui/backups.h). This
+     * client's like Maps, and it opens with nothing connected: a backup is most wanted when the
+     * radio it came from is not there.
+     */
+    MESH_UI_SETTINGS_BACKUPS,
     MESH_UI_SETTINGS_SECTION_COUNT,
 };
 
@@ -761,6 +769,16 @@ enum mesh_ui_settings_action {
     /* One of the catalog's groups, opened to its packs: the row's `text` is the group's index in
        `maps_groups`. The nav's alone, like the share rows - nothing is asked of the app. */
     MESH_UI_SETTINGS_ACTION_MAPS_OPEN_GROUP,
+    /*
+     * Backups: open a radio's list (the row's `text` is its index in `backups.radios`), open one
+     * backup (its index in `backups.entries`), compare that backup with the radio, and delete it
+     * behind a sheet. The first two are the nav's alone; the compare opens its screen and asks
+     * the app for the answer; the delete is the sheet's answer.
+     */
+    MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO,
+    MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY,
+    MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE,
+    MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE,
     /* Not an action: what the two verb tables below are sized by, so a row added above without
        a symbol or a weight is a hole in an array rather than a row that quietly draws nothing.
        Last, so no existing value moves - nav->confirm.subject carries one in a uint8_t. */

@@ -13,10 +13,12 @@
 
 #include "nav_internal.h"
 
+#include "mesh/ui/backups.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/settings.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* ---- settings edits ----------------------------------------------------------------------- */
@@ -396,6 +398,12 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
         action->edit_count = 0U;
         return;
     }
+    if (which == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE) {
+        action->type = MESH_UI_ACTION_BACKUP_DELETE;
+        action->dest = nav->backups_entry_node;
+        action->number = nav->backups_sequence;
+        return;
+    }
     if (which == MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
         action->type = MESH_UI_ACTION_MAPS_DELETE;
         snprintf(action->identifier, sizeof action->identifier, "%s", nav->maps_pending);
@@ -466,6 +474,16 @@ bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store
      * says "edits kept". A clear confirmed with no link would have erased nothing and thrown away
      * the user's typing anyway.
      */
+    /* A deleted backup takes its screen with it: back to the radio's list, where the row it was
+       opened from will be gone by the time the app has answered. */
+    if (confirmed == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE) {
+        nav->backups_compare = false;
+        nav->backups_sequence = 0U;
+        nav->backups_entry_node = 0U;
+        nav->backups_view = mesh_ui_backups_view(MESH_UI_BACKUPS_RADIO, nav->backups_radio);
+        nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->backups_list_cursor;
+        return true;
+    }
     if (confirmed == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL ||
         confirmed == MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
         nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
@@ -482,6 +500,9 @@ bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav) {
         return false;
     }
     mesh_ui_nav_edits_clear(nav);
+    if (nav->settings_section == MESH_UI_SETTINGS_BACKUPS && mesh_ui_nav_backups_back(nav)) {
+        return true;
+    }
     if (nav->settings_section == MESH_UI_SETTINGS_MAPS && nav->maps_group != 0U) {
         nav->maps_group = 0U;
         nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->maps_group_list_cursor;
@@ -554,4 +575,138 @@ bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh
         *handled = false;
         return false;
     }
+}
+
+/* ---- Backups ------------------------------------------------------------------------------- */
+
+void mesh_ui_nav_backups_reset(struct mesh_ui_nav *nav) {
+    nav->backups_node = 0U;
+    nav->backups_entry_node = 0U;
+    nav->backups_sequence = 0U;
+    nav->backups_compare = false;
+    nav->backups_radio = 0U;
+    nav->backups_entry = 0U;
+    nav->backups_view = MESH_UI_SETTINGS_NO_CHANNEL;
+}
+
+/* The row's own index, as the row builder wrote it into `text`; false past the list. */
+static bool backups_row_index(const char *text, size_t count, uint8_t *out) {
+    char *end = NULL;
+    const unsigned long index = strtoul(text, &end, 10);
+    if (end == text || index >= count) {
+        return false;
+    }
+    *out = (uint8_t)index;
+    return true;
+}
+
+bool mesh_ui_nav_backups_press(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                               enum mesh_ui_settings_action which, const char *text,
+                               struct mesh_ui_action *action) {
+    const struct mesh_ui_backups *b = &store->settings.backups;
+    uint32_t *cursor = &nav->cursor[MESH_UI_SCREEN_SETTINGS];
+    uint8_t index = 0U;
+    switch (which) {
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO:
+        if (backups_row_index(text, b->radio_count, &index)) {
+            nav->backups_radios_cursor = *cursor;
+            nav->backups_node = b->radios[index].node;
+            nav->backups_radio = index;
+            nav->backups_view = mesh_ui_backups_view(MESH_UI_BACKUPS_RADIO, index);
+            mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
+        }
+        return true;
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY:
+        if (backups_row_index(text, b->entry_count, &index)) {
+            nav->backups_list_cursor = *cursor;
+            nav->backups_entry_node = b->entries[index].header.node_id;
+            nav->backups_sequence = b->entries[index].sequence;
+            nav->backups_entry = index;
+            nav->backups_view = mesh_ui_backups_view(MESH_UI_BACKUPS_ENTRY, index);
+            mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
+        }
+        return true;
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE:
+        /* The screen opens now and says it is reading the radio; the app's answer fills it. */
+        nav->backups_entry_cursor = *cursor;
+        nav->backups_compare = true;
+        nav->backups_view = mesh_ui_backups_view(MESH_UI_BACKUPS_COMPARE, nav->backups_entry);
+        mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_BACKUP_COMPARE;
+            action->dest = nav->backups_entry_node;
+            action->number = nav->backups_sequence;
+        }
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool mesh_ui_nav_backups_back(struct mesh_ui_nav *nav) {
+    uint32_t *cursor = &nav->cursor[MESH_UI_SCREEN_SETTINGS];
+    if (nav->backups_compare) {
+        nav->backups_compare = false;
+        nav->backups_view = mesh_ui_backups_view(MESH_UI_BACKUPS_ENTRY, nav->backups_entry);
+        *cursor = nav->backups_entry_cursor;
+        return true;
+    }
+    if (nav->backups_sequence != 0U) {
+        nav->backups_sequence = 0U;
+        nav->backups_entry_node = 0U;
+        nav->backups_view = mesh_ui_backups_view(MESH_UI_BACKUPS_RADIO, nav->backups_radio);
+        *cursor = nav->backups_list_cursor;
+        return true;
+    }
+    if (nav->backups_node != 0U) {
+        const uint32_t row = nav->backups_radios_cursor;
+        mesh_ui_nav_backups_reset(nav);
+        *cursor = row;
+        return true;
+    }
+    return false;
+}
+
+bool mesh_ui_nav_backups_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
+    if (nav->settings_section != MESH_UI_SETTINGS_BACKUPS) {
+        return false;
+    }
+    const struct mesh_ui_backups *b = &store->settings.backups;
+    uint32_t *cursor = &nav->cursor[MESH_UI_SCREEN_SETTINGS];
+    bool moved = false;
+    uint8_t view = MESH_UI_SETTINGS_NO_CHANNEL;
+    if (nav->backups_node != 0U) {
+        const int radio = mesh_ui_backups_find_radio(b, nav->backups_node);
+        if (radio < 0) {
+            /* Its last backup went: back to the radios, on the row it was opened from. */
+            const uint32_t row = nav->backups_radios_cursor;
+            mesh_ui_nav_backups_reset(nav);
+            *cursor = row;
+            moved = true;
+        } else {
+            nav->backups_radio = (uint8_t)radio;
+            view = mesh_ui_backups_view(MESH_UI_BACKUPS_RADIO, (uint8_t)radio);
+        }
+    }
+    if (nav->backups_sequence != 0U) {
+        const int entry =
+            mesh_ui_backups_find_entry(b, nav->backups_entry_node, nav->backups_sequence);
+        if (entry < 0) {
+            nav->backups_sequence = 0U;
+            nav->backups_entry_node = 0U;
+            nav->backups_compare = false;
+            *cursor = nav->backups_list_cursor;
+            moved = true;
+        } else {
+            nav->backups_entry = (uint8_t)entry;
+            view = mesh_ui_backups_view(nav->backups_compare ? MESH_UI_BACKUPS_COMPARE
+                                                             : MESH_UI_BACKUPS_ENTRY,
+                                        (uint8_t)entry);
+        }
+    }
+    if (view != nav->backups_view) {
+        nav->backups_view = view;
+        moved = true;
+    }
+    return moved;
 }

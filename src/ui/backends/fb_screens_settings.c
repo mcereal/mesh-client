@@ -13,6 +13,7 @@
 #include "inkcell/ui/widgets.h"
 
 #include "fb_screens_internal.h"
+#include "mesh/ui/backups.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/focus.h"
@@ -133,6 +134,7 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
      */
     struct inkcell_fb_app_bar bar = {.title = inkcell_str(MESH_STR_SETTINGS_TITLE)};
     char title[96];
+    char parent[64];
     char unsaved[32];
     if (section_open) {
         /*
@@ -143,8 +145,19 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
          * "Channels" over one channel - which is exactly where the breadcrumb was earning its
          * keep and nowhere else.
          */
-        if (section == MESH_UI_SETTINGS_MAPS && view->channel != MESH_UI_SETTINGS_NO_CHANNEL &&
-            view->channel < settings->maps_group_count) {
+        if (section == MESH_UI_SETTINGS_BACKUPS &&
+            mesh_ui_backups_title(&settings->backups, view->channel, title, sizeof title, parent,
+                                  sizeof parent)) {
+            /* A radio, one of its backups, or that backup against the radio: under the section,
+               and under whichever of the others is between them. */
+            bar.trail[bar.trail_count++] = mesh_ui_settings_section_name(MESH_UI_SETTINGS_BACKUPS);
+            if (parent[0] != '\0') {
+                bar.trail[bar.trail_count++] = parent;
+            }
+            bar.title = title;
+        } else if (section == MESH_UI_SETTINGS_MAPS &&
+                   view->channel != MESH_UI_SETTINGS_NO_CHANNEL &&
+                   view->channel < settings->maps_group_count) {
             /* One group of the catalog, out of Maps: the group's name, under the section's. */
             bar.trail[bar.trail_count++] = mesh_ui_settings_section_name(MESH_UI_SETTINGS_MAPS);
             bar.title = settings->maps_groups[view->channel].name;
@@ -187,8 +200,8 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
         section == MESH_UI_SETTINGS_RADIO_DETAILS && settings->fw_silent_port[0] != '\0';
     if (!settings->loaded && (handshake == NULL || !handshake->has_my_info) && section_open &&
         section != MESH_UI_SETTINGS_ABOUT && section != MESH_UI_SETTINGS_MAPS &&
-        section != MESH_UI_SETTINGS_MODULES && section != MESH_UI_SETTINGS_NODE_LISTS &&
-        !silent_radio) {
+        section != MESH_UI_SETTINGS_BACKUPS && section != MESH_UI_SETTINGS_MODULES &&
+        section != MESH_UI_SETTINGS_NODE_LISTS && !silent_radio) {
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_SETTINGS,
                               inkcell_str(MESH_STR_SETTINGS_EMPTY_DISCONNECT));
         return;

@@ -25,6 +25,7 @@
  */
 
 #include "mesh/core/radio_backup.h"
+#include "mesh/core/radio_backup_diff.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
 
@@ -77,6 +78,22 @@ int mesh_radio_backup_meshtastic_capture(const struct mesh_radio_settings *setti
 int mesh_radio_backup_meshtastic_read(const struct mesh_radio_backup *backup,
                                       struct mesh_radio_settings *settings,
                                       meshtastic_Position *position);
+
+/*
+ * What differs between two Meshtastic backups, section by section and then field by field.
+ *
+ * Sections are paired by what they are - a Config by its variant, a module by its, a channel by
+ * its slot - rather than by position, so a backup from a firmware that sends its modules in
+ * another order still pairs up. Identical bytes are the same section and cost one comparison;
+ * only a pair that differs is decoded and walked, through nanopb's field iterator, so a field
+ * the protobufs gain is compared the day they are regenerated. A field's number in the change is
+ * its protobuf tag; one inside a nested message is the parent's times 100 plus its own.
+ *
+ * 0, -EPROTO when either backup is not Meshtastic's, -ENOMEM.
+ */
+int mesh_radio_backup_meshtastic_diff(const struct mesh_radio_backup *a,
+                                      const struct mesh_radio_backup *b,
+                                      struct mesh_radio_backup_diff *out);
 
 #ifdef __cplusplus
 }

@@ -256,6 +256,23 @@ so a file cut off by a pulled battery is refused rather than read back as a radi
 channels than it had. The client keeps and lists backups; nothing in it writes one back to a
 radio.
 
+**Settings > Backups** is four levels of one section: the radios, one radio's backups, one
+backup's header, and that backup compared with the radio on the link. A radio's list also holds
+the backups taken of the same device under the other firmware, marked with it; those, and a
+backup of a radio that is not connected, say why they cannot be compared. The levels are told
+apart by the one byte every section's rows are built from (`include/mesh/ui/backups.h`), and the
+nav holds them by node and sequence number, so a backup taken or pruned while the reader is in
+there does not move the screen onto another. The app reads the card into
+`struct mesh_ui_backups` when the store opens and after each backup it writes or deletes, never
+on a publish.
+
+A comparison is between two backups - the one on the card and the radio captured again - and is
+each protocol's (`mesh_radio_backup_meshtastic_diff()`, `mesh_meshcore_backup_diff()`). It lists
+a topic, the protocol's number for the field, and both values, and `src/ui/tables/backups.c`
+names them with the Settings tab's own labels, or by the field's number when there is no row for
+it. A MeshCore comparison matches contacts by key and leaves out routes and timestamps, which move
+every time the radio hears a contact again.
+
 ## Input
 
 inkcell's `src/input/input.c` reads every `/dev/input/event*` and maps evdev codes to `enum inkcell_key`.
@@ -1265,6 +1282,7 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `airtime BUSY [TX]`, `airtime history MINUTES` | the airtime row and meter; a chart's worth of it |
 | `update check\|download [PCT]\|available\|ready` | the self-updater's state |
 | `firmware ... `, `firmware-channel stable\|alpha` | what the client knows about the *radio's* firmware |
+| `backups list\|compare\|same` | the backups on the card as the app publishes them; a finished comparison of the newest |
 | `syncing on\|off` | put the config handshake back in flight |
 | `link up\|down` | attach or drop the radio, leaving the roster and config alone |
 | `offradio NAME\|all` | mark nodes the radio's NodeDB no longer carries |

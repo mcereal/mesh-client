@@ -991,8 +991,8 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
                           root_lists(&settings, MESH_UI_SETTINGS_BLUETOOTH) ||
                           root_lists(&settings, MESH_UI_SETTINGS_SECURITY),
                       "and Meshtastic's other sections are not");
-    /* The heading, Maps, About and the four. */
-    MESH_TEST_FAIL_IF(mesh_ui_settings_root_count(&settings) != 7U, "nothing else is either");
+    /* The heading, Maps, Backups, About and the four. */
+    MESH_TEST_FAIL_IF(mesh_ui_settings_root_count(&settings) != 8U, "nothing else is either");
 
     uint16_t fields[16];
     size_t n = section_fields(&settings, &handshake, MESH_UI_SETTINGS_LORA, fields, 16U);

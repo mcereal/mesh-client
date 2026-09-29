@@ -64,6 +64,12 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         if (nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
             depth++; /* one channel slot, reached through the Channels section */
         }
+        if (nav->settings_section == MESH_UI_SETTINGS_BACKUPS) {
+            /* A radio, one of its backups, and that backup against the radio: one level each. */
+            depth = (uint8_t)(depth + (nav->backups_node != 0U ? 1U : 0U) +
+                              (nav->backups_sequence != 0U ? 1U : 0U) +
+                              (nav->backups_compare ? 1U : 0U));
+        }
         if (nav->share_open) {
             depth++; /* the share sheet, reached through a row of the Channels section */
         }
@@ -182,6 +188,10 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
         }
         out->level = MESH_UI_ROUTE_SECTION;
         out->slot = nav->settings_section;
+        /* Which backup, when one is open: two backups are two places at the same depth. */
+        if (nav->settings_section == MESH_UI_SETTINGS_BACKUPS) {
+            out->subject = nav->backups_sequence != 0U ? nav->backups_sequence : nav->backups_node;
+        }
         return;
     case MESH_UI_SCREEN_RADIO:
         if (nav->firmware_open) {

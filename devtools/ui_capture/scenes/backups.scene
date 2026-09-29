@@ -1,0 +1,48 @@
+# Settings > Backups: the radios whose settings are on the card, one radio's backups, one
+# backup, and that backup compared with the radio on the link.
+#
+# Three radios, because each says something the others cannot: the demo radio is connected and
+# so offers "save" and "compare"; "Ridge" is the same device before it was switched to MeshCore,
+# listed under the demo radio as well as on its own row; and the third is not here, so its
+# backups can be read but not compared.
+scene demo
+clock 2026-09-29 14:20
+delay 160
+config
+backups list
+
+# Backups is the row above About, which is the last.
+tab settings
+key down 24
+key up
+key a
+hold 2200
+
+# The connected radio's backups: its own three, and the one from before the switch.
+key down
+key a
+hold 2400
+
+# The newest backup: every fact its header holds, and at the bottom what can be done with it.
+key down
+key a
+hold 2400
+key down 40
+hold 1600
+key up 2
+hold 1400
+
+# Compared with the radio. The first frame says it is reading the radio, which is what the app
+# is doing until it answers; then what differs, the backup's value first.
+key a
+hold 900
+backups compare
+hold 3400
+
+# Back out, each level landing on the row it was opened from.
+key b
+hold 900
+key b
+hold 900
+key b
+hold 1400
