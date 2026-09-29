@@ -1166,6 +1166,59 @@ MESH_TEST_CASE(ui_click_the_back_arrow_on_help_closes_it, unit) {
     click_close(&store, capture);
 }
 
+/*
+ * Help on a window with a rail reads in one column: its paragraphs start where its heading
+ * does. Help is the one body scrolled by the pixel, and the viewport it scrolls in used to move
+ * its paragraphs right by the rail's width a second time - nothing on the Brick, whose frame
+ * starts at the panel's edge, and a body standing a rail's width off its own heading on a window.
+ */
+MESH_TEST_CASE(ui_click_a_wide_window_puts_help_under_its_heading, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    struct mesh_ui_action action;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_NODES,
+                  &action),
+        click_close(&store, capture), "the rail drew no box for Nodes");
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_SELECT, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.help_open, click_close(&store, capture),
+                              "Select should open help on the Nodes tab");
+    click_settle(&store);
+
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect arrow;
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_rect_of(map, INKCELL_FOCUS_KEY(INKCELL_KEY_B), &arrow),
+                              click_close(&store, capture), "help should draw its back arrow");
+    /* The paragraphs register no boxes, so the probe is the panel: the leading edge of whatever
+       is drawn in the band under the heading, looked for from a little before the arrow so the
+       rail is not in it. The first paragraph is the cursor's, so its fill is in that band. */
+    const struct inkcell_rgb ground =
+        inkcell_fb_color(inkcell_capture_state(capture), INKCELL_COLOR_BG);
+    uint32_t w = 0U;
+    uint32_t h = 0U;
+    size_t stride = 0U;
+    const uint8_t *px = inkcell_capture_pixels(capture, &w, &h, &stride);
+    int leading = (int)w;
+    for (int y = arrow.y + arrow.h; px != NULL && y < arrow.y + 5 * arrow.h && y < (int)h; ++y) {
+        for (int x = arrow.x - 2 * arrow.w; x >= 0 && x < leading; ++x) {
+            const uint8_t *p = px + (size_t)y * stride + (size_t)x * 4U;
+            if (p[0] != ground.b || p[1] != ground.g || p[2] != ground.r) {
+                leading = x;
+                break;
+            }
+        }
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(leading > arrow.x + arrow.w / 2, click_close(&store, capture),
+                              "help's paragraphs should start in the column its heading starts in");
+    click_close(&store, capture);
+    record_success(test_name);
+}
+
 /* Whether this frame drew a heading button for `command`. */
 static bool click_heading_has(const struct inkcell_focus_map *map,
                               enum mesh_ui_command_id command) {
