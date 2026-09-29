@@ -109,6 +109,10 @@ struct mesh_ui_lifetime_stats {
     uint64_t direct_received;
     uint64_t reactions_sent;
     uint64_t reactions_received;
+    /* Of the messages received, those that came over MQTT rather than our radio's own air, and
+       of the direct ones, those encrypted with our key rather than a channel's. */
+    uint64_t received_mqtt;
+    uint64_t direct_received_private;
     /* Of the direct messages sent, how many were confirmed and how many failed. One still waiting
        is in neither, so the two need not add up to anything else on the page. */
     uint64_t messages_delivered;
@@ -119,15 +123,22 @@ struct mesh_ui_lifetime_stats {
     /* The node set has turned one away, so the three counts above are at least what they say
        rather than exactly it. */
     bool nodes_floor;
-    /* The two records, and whether anything has set each: 0 is a real record for both - a node
-       only ever heard straight to us, two radios at one spot - so the value cannot say "none
-       yet" by itself (mesh_lifetime_measured()). */
+    /* The records, and whether anything has set each: 0 is a real record for all of them - a
+       node only ever heard straight to us, two radios at one spot, a packet decoded exactly at
+       the noise - so the value cannot say "none yet" by itself (mesh_lifetime_measured()). */
     uint32_t most_hops;
     bool most_hops_measured;
     uint64_t farthest_direct_m;
     bool farthest_direct_measured;
+    uint64_t farthest_heard_m;
+    bool farthest_heard_measured;
+    /* The weakest signal decoded, in quarters of a dB, below zero when it was under the noise. */
+    int32_t weakest_snr_qdb;
+    bool weakest_snr_measured;
     struct mesh_ui_lifetime_holder most_hops_holder;
     struct mesh_ui_lifetime_holder farthest_direct_holder;
+    struct mesh_ui_lifetime_holder farthest_heard_holder;
+    struct mesh_ui_lifetime_holder weakest_snr_holder;
     /* The first credible wall-clock second the stats saw; 0 on a device that has never had a
        clock, which is a page that cannot say since when rather than one that started today. */
     uint32_t since;

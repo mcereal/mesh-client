@@ -15,11 +15,11 @@
  * session's observer (struct mesh_session_event) and nothing else feeds it - the session says a
  * thing once, at the moment it records it, and never for a record it was handed back.
  *
- * Stats come in three kinds (mesh/core/lifetime.def), and the kind is what decides how much the
+ * Stats come in four kinds (mesh/core/lifetime.def), and the kind is what decides how much the
  * "once" matters:
  *
  *   - A COUNT is not idempotent: told twice, it is wrong. It relies on the session entirely.
- *   - A MAX is: the largest of a value seen twice is the same value.
+ *   - A MAX is: the largest of a value seen twice is the same value. So is a MIN, the smallest.
  *   - A SET is too: a node heard twice is one node. Its number is a count of the seen file.
  *
  * **Two files, in one directory, over inkstand's journal**, so a card that cannot hold the
@@ -56,6 +56,16 @@
  * taking a count that is some other message's. "Delivered" is what the bubble says, which for a
  * direct message may be a relay's acknowledgement rather than the recipient's.
  *
+ * **A record is a MAX or a MIN**, and both are kept the same way: whether one has been set, who
+ * set it and when. A MIN is the one kind that is signed - the weakest signal decoded is a
+ * signal-to-noise ratio, which is below zero when a packet is decoded from under the noise - so
+ * its value is read with mesh_lifetime_signed() and written to the card with its sign.
+ *
+ * **A signal belongs to whoever transmitted it**, which for a relayed packet is the last relay
+ * rather than the node it is from. So the weakest-signal record takes only packets that came
+ * straight to our radio, where the node the record names is the one that was that faint; the
+ * farthest-heard record takes any hop count, since a distance is between the two ends.
+ *
  * What is deliberately not counted: a node the radio lists with no heard time (a contact typed
  * in from a link), a Store & Forward replay as a hearing of its author, hops or distance over
  * MQTT (neither says anything about this radio's reach), and our own radio's echo of a send.
@@ -85,6 +95,7 @@ enum mesh_lifetime_kind {
     MESH_LIFETIME_COUNT = 0,
     MESH_LIFETIME_MAX,
     MESH_LIFETIME_SET,
+    MESH_LIFETIME_MIN,
 };
 
 /*
@@ -102,11 +113,13 @@ enum mesh_lifetime_kind {
 
 struct mesh_lifetime {
     struct inkstand_journal journal;
-    uint64_t values[MESH_LIFETIME_STAT_COUNT]; /* COUNT and MAX; a SET's slot is unused */
-    /* A MAX something has set, even to 0; unused for the other kinds. */
+    /* COUNT, MAX and MIN - a MIN's as an int64_t, which mesh_lifetime_signed() reads back; a
+       SET's slot is unused. */
+    uint64_t values[MESH_LIFETIME_STAT_COUNT];
+    /* A record (a MAX or a MIN) something has set, even to 0; unused for the other kinds. */
     bool measured[MESH_LIFETIME_STAT_COUNT];
-    /* A MAX's holder: the node that set it, and the credible second it did (0 when there was no
-       clock). A holder of 0 is one this card cannot name. Unused for the other kinds. */
+    /* A record's holder: the node that set it, and the credible second it did (0 when there was
+       no clock). A holder of 0 is one this card cannot name. Unused for the other kinds. */
     uint32_t holders[MESH_LIFETIME_STAT_COUNT];
     uint32_t held_at[MESH_LIFETIME_STAT_COUNT];
     uint32_t since; /* first credible wall-clock second, or 0 */
@@ -151,20 +164,23 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
    the radio it talked to. */
 void mesh_lifetime_note_radio(struct mesh_lifetime *lifetime, uint32_t node_num);
 
+/* A COUNT, a MAX or a SET. A MIN is signed and reads as 0 here: see mesh_lifetime_signed(). */
 uint64_t mesh_lifetime_value(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat);
+/* A MIN, with its sign; 0 for every other kind, and for a MIN nothing has set yet. */
+int64_t mesh_lifetime_signed(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat);
 enum mesh_lifetime_kind mesh_lifetime_kind_of(enum mesh_lifetime_stat stat);
 /* The stat's key on the card, for logs and tests. NULL out of range. */
 const char *mesh_lifetime_key(enum mesh_lifetime_stat stat);
 
 /*
- * Whether a MAX has ever been set, which its value cannot say: 0 is both "not yet" and a real
- * record (a node only ever heard straight to us is a most-hops of 0). Always true for a COUNT and
- * a SET, whose 0 means none. Kept across a restart; a reset clears it.
+ * Whether a record (a MAX or a MIN) has ever been set, which its value cannot say: 0 is both
+ * "not yet" and a real record (a node only ever heard straight to us is a most-hops of 0). Always
+ * true for a COUNT and a SET, whose 0 means none. Kept across a restart; a reset clears it.
  */
 bool mesh_lifetime_measured(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat);
 
 /*
- * Who set a MAX and when: the node the record came from, and the wall-clock second it was set,
+ * Who set a record and when: the node the record came from, and the wall-clock second it was set,
  * or 0 when the device had no credible clock then. False when there is nobody to name - a
  * COUNT or a SET, a record not measured yet, or one read off a card written before holders
  * were kept.

@@ -1415,6 +1415,37 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
         failure = "every count has its own row";
         goto cleanup;
     }
+    if ((value = stats_value_of(&store, "Farthest heard", &item)) == NULL ||
+        strcmp(value, "none yet") != 0 ||
+        (value = stats_value_of(&store, "Weakest signal", &item)) == NULL ||
+        strcmp(value, "none yet") != 0) {
+        failure = "a record nothing has set should say so";
+        goto cleanup;
+    }
+    stats->received_mqtt = 3U;
+    stats->direct_received_private = 4U;
+    stats->farthest_heard_m = 55600U;
+    stats->farthest_heard_measured = true;
+    stats->weakest_snr_qdb = -29; /* -7.25 dB: under the noise */
+    stats->weakest_snr_measured = true;
+    mesh_ui_store_set_settings(&store, &settings);
+    if ((value = stats_value_of(&store, "Received over MQTT", &item)) == NULL ||
+        strcmp(value, "3") != 0 ||
+        (value = stats_value_of(&store, "Private direct received", &item)) == NULL ||
+        strcmp(value, "4") != 0) {
+        failure = "the MQTT and private counts each have a row";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Farthest heard", &item)) == NULL ||
+        strcmp(value, "55.6 km") != 0) {
+        failure = "the farthest node heard should be a distance";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Weakest signal", &item)) == NULL ||
+        strcmp(value, "-7.25 dB") != 0) {
+        failure = "the weakest signal should be drawn in dB, with its sign";
+        goto cleanup;
+    }
     if ((value = stats_value_of(&store, "Heard", &item)) == NULL ||
         strcmp(value, "at least 8192") != 0) {
         failure = "a capped node set should say its count is a floor";

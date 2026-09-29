@@ -207,8 +207,9 @@ detail came to describe itself with the first node's trace.
 ### The lifetime stats
 
 `…prefs.lifetime/` is what the client has seen over its whole life - messages and direct
-messages each way, reactions, distinct nodes heard, radios attached, the most hops and the
-farthest direct distance a packet has come. It is `mesh_lifetime` in `src/core/lifetime/`, a
+messages each way, reactions, messages received over MQTT and private direct messages received,
+distinct nodes heard, radios attached, and four records: the most hops, the farthest direct
+distance and the farthest node heard at any hop count, and the weakest signal decoded. It is `mesh_lifetime` in `src/core/lifetime/`, a
 core module rather than a store file, because nothing about it is a screen's: the reasoning is in
 `include/mesh/core/lifetime.h`, and the stat list is `include/mesh/core/lifetime.def`.
 
@@ -246,7 +247,10 @@ and the day: the core keeps the node number (`mesh_lifetime_holder()`, `<key>.ho
 `totals`, short enough for an older build to carry through, and believed only while
 `held_value` is still the record), and the app turns it
 into a name out of the roster on every publish, so a node that introduces itself later is renamed
-in place. A tie keeps the holder it has. The page's one verb, Reset stats, goes behind a confirm sheet and reaches the app
+in place. A tie keeps the holder it has. The weakest signal is the one record that is a MIN rather
+than a MAX, and signed - an SNR below zero is a packet decoded from under the noise - so it is
+read with `mesh_lifetime_signed()`, kept in quarters of a dB, and takes only packets that came
+straight to our radio, since a relayed packet's SNR is the relay's rather than its sender's. The page's one verb, Reset stats, goes behind a confirm sheet and reaches the app
 as `MESH_UI_ACTION_RESET_STATS`, which deletes both files as well as zeroing the counts.
 
 ### The radios' settings

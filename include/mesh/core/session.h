@@ -654,10 +654,15 @@ struct mesh_session_event {
     uint8_t previous_ack;
     /* NODE_*: the roster record, after this update. Valid only for the call. */
     const struct mesh_node_summary *node;
-    /* NODE_HEARD: how this one packet arrived. */
+    /* NODE_HEARD, and a MESSAGE received: how this one packet arrived. */
     bool via_mqtt;
+    /* NODE_HEARD: */
     bool has_hops;
     uint8_t hops;
+    /* NODE_HEARD: the signal-to-noise ratio our radio decoded this packet at, in dB, when it
+       measured one. Never over MQTT, where a reading would be somebody else's antenna. */
+    bool has_snr;
+    float snr;
     /* RADIO: the attached radio's node number. */
     uint32_t radio;
 };

@@ -1095,6 +1095,9 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
     dst->direct_received = mesh_lifetime_value(lifetime, MESH_LIFETIME_DIRECT_RECEIVED);
     dst->reactions_sent = mesh_lifetime_value(lifetime, MESH_LIFETIME_REACTIONS_SENT);
     dst->reactions_received = mesh_lifetime_value(lifetime, MESH_LIFETIME_REACTIONS_RECEIVED);
+    dst->received_mqtt = mesh_lifetime_value(lifetime, MESH_LIFETIME_RECEIVED_MQTT);
+    dst->direct_received_private =
+        mesh_lifetime_value(lifetime, MESH_LIFETIME_DIRECT_RECEIVED_PRIVATE);
     dst->messages_delivered = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_DELIVERED);
     dst->messages_failed = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_FAILED);
     dst->nodes_heard = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_NODES_HEARD);
@@ -1109,6 +1112,19 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
     mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_MOST_HOPS, &dst->most_hops_holder);
     mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_FARTHEST_DIRECT_M,
                             &dst->farthest_direct_holder);
+    dst->farthest_heard_m = mesh_lifetime_value(lifetime, MESH_LIFETIME_FARTHEST_HEARD_M);
+    dst->farthest_heard_measured = mesh_lifetime_measured(lifetime, MESH_LIFETIME_FARTHEST_HEARD_M);
+    mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_FARTHEST_HEARD_M,
+                            &dst->farthest_heard_holder);
+    /* An SNR is a few dozen dB either side of zero; the clamp is only against a hand-edited card.
+     */
+    const int64_t weakest = mesh_lifetime_signed(lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB);
+    dst->weakest_snr_qdb = (int32_t)(weakest < INT32_MIN   ? INT32_MIN
+                                     : weakest > INT32_MAX ? INT32_MAX
+                                                           : weakest);
+    dst->weakest_snr_measured = mesh_lifetime_measured(lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB);
+    mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_WEAKEST_SNR_QDB,
+                            &dst->weakest_snr_holder);
     dst->since = lifetime->since;
 }
 

@@ -167,13 +167,14 @@ static void mesh_session_emit(struct mesh_session *session,
     }
 }
 
+/* A record appended; `via_mqtt` is how the packet that made a received one arrived. */
 static void mesh_session_emit_message(struct mesh_session *session,
-                                      const struct mesh_message *message) {
+                                      const struct mesh_message *message, bool via_mqtt) {
     if (message == NULL) {
         return;
     }
-    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_MESSAGE,
-                                             .message = message};
+    const struct mesh_session_event event = {
+        .kind = MESH_SESSION_EVENT_MESSAGE, .message = message, .via_mqtt = via_mqtt};
     mesh_session_emit(session, &event);
 }
 
@@ -961,7 +962,7 @@ struct mesh_message *mesh_session_model_log_message(struct mesh_session *session
         return NULL;
     }
     struct mesh_message *appended = mesh_message_log_append(&session->messages, message);
-    mesh_session_emit_message(session, appended);
+    mesh_session_emit_message(session, appended, false);
     return appended;
 }
 
@@ -1134,12 +1135,16 @@ static void mesh_session_announce_heard(struct mesh_session *session,
         return;
     }
     const bool has_hops = packet->hop_start != 0U && packet->hop_start >= packet->hop_limit;
+    /* 0.0 is the firmware's "no measurement", as mesh_session_touch_node_from_packet() reads it. */
+    const bool has_snr = !packet->via_mqtt && packet->rx_snr != 0.0f;
     const struct mesh_session_event event = {
         .kind = MESH_SESSION_EVENT_NODE_HEARD,
         .node = summary,
         .via_mqtt = packet->via_mqtt,
         .has_hops = has_hops,
-        .hops = has_hops ? (uint8_t)(packet->hop_start - packet->hop_limit) : 0U};
+        .hops = has_hops ? (uint8_t)(packet->hop_start - packet->hop_limit) : 0U,
+        .has_snr = has_snr,
+        .snr = has_snr ? packet->rx_snr : 0.0f};
     mesh_session_emit(session, &event);
 }
 
@@ -1353,7 +1358,7 @@ static void mesh_session_handle_store_forward(struct mesh_session *session,
     if (appended == NULL) {
         return;
     }
-    mesh_session_emit_message(session, appended);
+    mesh_session_emit_message(session, appended, false);
     mesh_store_forward_stored(&session->store_forward);
     inkwell_log_info("session", "Store & Forward replayed a message from 0x%08x on channel %u",
                      replayed.from, (unsigned)replayed.channel);
@@ -1853,7 +1858,8 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         if (mesh_message_ingest(&session->messages, &message.packet,
                                 handshake->has_my_info ? handshake->my_info.my_node_num : 0U) ==
             1) {
-            mesh_session_emit_message(session, mesh_session_newest_message(session));
+            mesh_session_emit_message(session, mesh_session_newest_message(session),
+                                      message.packet.via_mqtt);
         }
         if (answered != NULL && answered->direction == MESH_MESSAGE_OUTBOUND) {
             mesh_session_announce_delivery(session, answered, answered_was);
@@ -2456,7 +2462,7 @@ static int mesh_session_send_text_packet(struct mesh_session *session, uint32_t 
     record.reply_id = reply_id;
     record.is_reaction = is_reaction;
     snprintf(record.text, sizeof record.text, "%s", text);
-    mesh_session_emit_message(session, mesh_message_log_append(&session->messages, &record));
+    mesh_session_emit_message(session, mesh_message_log_append(&session->messages, &record), false);
 
     int result = mesh_session_send_raw(session, payload, written, request.packet_id);
     if (result < 0) {
