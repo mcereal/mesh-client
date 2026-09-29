@@ -14,6 +14,7 @@
 
 #include "mesh/core/radio_backup.h"
 #include "mesh/core/radio_backup_diff.h"
+#include "mesh/core/radio_profile.h"
 #include "mesh/ui/store_channel.h"
 
 #include <stdbool.h>
@@ -524,6 +525,59 @@ struct mesh_ui_backups {
        struct mesh_meshcore_contact_options. */
     bool restore_keep_routes;
     bool restore_replace_newer;
+};
+
+/*
+ * The profiles on the card, as the Profiles section lists them (MESH_UI_SETTINGS_PROFILES), and
+ * the one being made out of a backup.
+ *
+ * Read off the card the way the backups are: when the store opens and after anything the app
+ * writes or removes there, never on a publish. `cfgs` are the Meshtastic `.cfg` files in the same
+ * directory, which a press imports. A profile's header is carried whole, as a backup's is.
+ */
+#define MESH_UI_PROFILES_MAX 16U
+#define MESH_UI_PROFILE_CFGS_MAX 8U
+
+struct mesh_ui_profile {
+    uint32_t sequence;
+    struct mesh_radio_backup_header header;
+};
+
+struct mesh_ui_profiles {
+    bool enabled;
+    /* Where the directory is, so the screen can say where a `.cfg` goes - cut to fit. */
+    char folder[128];
+    /*
+     * A module's name, by its ModuleConfig variant tag: the Settings section that edits it, or
+     * MESH_UI_BACKUPS_MODULE_UNPLACED plus the tag for one no section edits - the form a
+     * comparison's module change is named in. Filled by the app, which knows which section edits
+     * which module, once when the store opens.
+     */
+    uint16_t module_names[32];
+    uint8_t count;
+    struct mesh_ui_profile items[MESH_UI_PROFILES_MAX];
+    uint8_t cfg_count;
+    char cfgs[MESH_UI_PROFILE_CFGS_MAX][MESH_RADIO_PROFILE_FILE_MAX];
+    /* The last comparison with the radio on the link, which profile it was of and which radio it
+       was made with: the backups' states (enum mesh_ui_backup_compare_state), RESTORING while one
+       is being applied. An apply names the radio, so it lands on the one that was compared. */
+    uint8_t compare_state;
+    int16_t compare_error;
+    uint32_t compare_sequence;
+    uint32_t compare_node;
+    struct mesh_radio_backup_diff diff;
+    /*
+     * A profile being made out of the backup `draft_sequence` of radio `draft_node`: the parts
+     * that backup has to offer, in the order the picker lists them, and which are ticked - all of
+     * them to start with. Held by the app, as the restore's two choices are, so a tick is a press
+     * the app answers rather than state the nav keeps in step with a list it cannot read.
+     */
+    uint32_t draft_node;
+    uint32_t draft_sequence;
+    uint8_t draft_protocol; /* enum mesh_radio_backup_protocol */
+    uint8_t draft_count;
+    struct mesh_radio_profile_part draft_parts[MESH_RADIO_PROFILE_PARTS_MAX];
+    struct mesh_radio_backup_parts draft_picked;
 };
 
 struct mesh_ui_settings {
@@ -1073,6 +1127,7 @@ struct mesh_ui_settings {
     struct mesh_ui_maps_group maps_groups[MESH_UI_MAPS_GROUPS_MAX];
 
     struct mesh_ui_backups backups;
+    struct mesh_ui_profiles profiles;
 };
 
 #ifdef __cplusplus

@@ -1459,6 +1459,8 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         } else {
             inkwell_log_warn("app", "Radio backup path truncated; not keeping backups");
         }
+        /* And the profiles made from them, in a folder of their own beside the preferences. */
+        mesh_app_profile_init(app);
     }
 
     result = mesh_ui_store_init(&app->ui_store);

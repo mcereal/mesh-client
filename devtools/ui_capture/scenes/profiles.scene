@@ -1,0 +1,97 @@
+# Profiles: a radio's settings with the radio taken out, made from a backup and put on any radio
+# of the same firmware.
+#
+# First the making, on the backup's own screen: the parts it offers, all ticked, two left out,
+# and a name. Then Settings > Profiles: the two on the card - one for each firmware, so the one
+# for the other firmware says why it cannot be compared - and a .cfg from a phone to read in.
+# Then one profile, compared with the radio on the link and applied.
+scene demo
+clock 2026-09-29 14:20
+delay 160
+config
+backups list
+profiles list
+
+# Backups is two rows above About; its connected radio, and that radio's newest backup.
+tab settings
+key down 24
+key up 2
+key a
+key down
+key a
+key down
+key a
+hold 1200
+
+# "Make a profile" is under the backup's facts. The picker reads the backup first.
+key down 40
+key up 2
+hold 1200
+key a
+hold 700
+profiles draft
+hold 2400
+
+# Position and Bluetooth left out: this is for another radio in the same place on the mesh.
+key down
+key a
+profiles tick 1
+hold 700
+key down 5
+key a
+profiles tick 6
+hold 1600
+
+# Named, starting from the radio's own name.
+key down 40
+hold 900
+key a
+hold 2000
+key start
+hold 1400
+toast Profile saved: Ridge relay
+hold 1800
+
+# Out to the Settings list, and into Profiles, the row above About.
+key b
+hold 500
+key b
+hold 500
+key b
+hold 700
+key down 24
+key up
+key a
+hold 2600
+
+# The Meshtastic one: what it sets, and what can be done with it.
+key down
+key a
+hold 2400
+key down 40
+hold 1600
+key up 2
+hold 900
+
+# Compared with the radio: only its parts can differ.
+key a
+hold 900
+profiles compare
+hold 3200
+
+# Applied: the sheet, then the profile going on, then the radio read back and matching.
+key down
+hold 900
+key a
+hold 2800
+key up
+key a
+profiles applying
+hold 2200
+profiles same
+hold 2200
+
+key b
+hold 900
+key b
+hold 1400

@@ -118,6 +118,9 @@ uint8_t mesh_ui_nav_open_channel(const struct mesh_ui_nav *nav) {
     if (nav->settings_section == MESH_UI_SETTINGS_BACKUPS) {
         return nav->backups_view;
     }
+    if (nav->settings_section == MESH_UI_SETTINGS_PROFILES) {
+        return nav->profiles_view;
+    }
     return nav->settings_channel;
 }
 
@@ -540,6 +543,7 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
     nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
     nav->backups_view = MESH_UI_SETTINGS_NO_CHANNEL;
+    nav->profiles_view = MESH_UI_SETTINGS_NO_CHANNEL;
     nav->radio_page = MESH_UI_RADIO_PAGE_NONE;
     /* Not zero, which is the narrowest span: a chart opens on everything it has, which is what
        it drew before there was a picker - see `trend_span`. */
@@ -987,6 +991,7 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
     moved = mesh_ui_nav_map_clamp(nav, store) || moved;
     /* And a backup, or a radio's last backup, deleted or pruned from under its screen. */
     moved = mesh_ui_nav_backups_clamp(nav, store) || moved;
+    moved = mesh_ui_nav_profiles_clamp(nav, store) || moved;
     /*
      * And a chart with nothing left to draw, which is the map's clamp one screen along: a radio
      * swap empties the history the way it empties the roster, and a picture of a reading nobody
@@ -2040,6 +2045,11 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
         if (which == MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
             inkwell_str_copy(nav->maps_pending, sizeof nav->maps_pending, item.text);
         }
+        if (which == MESH_UI_SETTINGS_ACTION_PROFILES_APPLY) {
+            const struct mesh_ui_profiles *p = &store->settings.profiles;
+            nav->profiles_apply_node =
+                p->compare_sequence == nav->profiles_sequence ? p->compare_node : 0U;
+        }
         if (mesh_ui_settings_action_needs_confirm(which)) {
             /* Cancel under the cursor, so a repeated press changes nothing. */
             inkstand_dialog_open(&nav->confirm, (uint16_t)which);
@@ -2073,6 +2083,10 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
         }
         /* A radio's backups, one backup, or that backup against the radio. */
         if (mesh_ui_nav_backups_press(nav, store, which, item.text, action)) {
+            return true;
+        }
+        /* A profile, a .cfg to read in, or a profile against the radio. */
+        if (mesh_ui_nav_profiles_press(nav, store, which, item.text, action)) {
             return true;
         }
         /* A catalog group, opened to its packs; B comes back to the row it was opened from. */
@@ -2377,8 +2391,14 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
         nav->maps_group = 0U;
         mesh_ui_nav_backups_reset(nav);
+        mesh_ui_nav_profiles_reset(nav);
         nav->settings_section = (uint8_t)mesh_ui_settings_root_at(&store->settings, cursor);
         mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
+        /* The profiles folder is the one a person copies files into behind the client's back,
+           so opening it is reading it again. */
+        if (nav->settings_section == MESH_UI_SETTINGS_PROFILES && action != NULL) {
+            action->type = MESH_UI_ACTION_PROFILE_RESCAN;
+        }
         return true;
     }
     case MESH_UI_SCREEN_RADIO:

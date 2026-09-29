@@ -646,6 +646,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_SETTINGS_SECTION_NODE_LISTS] = "Listas de nodos",
     [MESH_STR_SETTINGS_SECTION_MAPS] = "Mapas",
     [MESH_STR_SETTINGS_SECTION_BACKUPS] = "Copias",
+    [MESH_STR_SETTINGS_SECTION_PROFILES] = "Perfiles",
     [MESH_STR_HELP_TITLE] = "Ayuda",
     [MESH_STR_HELP_OVERVIEW] = "Sobre esta pantalla",
     /* The help screen's subjects and paragraph headings. The paragraphs themselves are notes and
@@ -1318,6 +1319,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TITLE_MAPS_DELETE] = "¿Eliminar este mapa?",
     [MESH_STR_CONFIRM_TITLE_BACKUPS_DELETE] = "¿Eliminar esta copia?",
     [MESH_STR_CONFIRM_TITLE_BACKUPS_RESTORE] = "¿Restaurar esta copia?",
+    [MESH_STR_CONFIRM_TITLE_PROFILES_APPLY] = "¿Aplicar este perfil?",
+    [MESH_STR_CONFIRM_TITLE_PROFILES_DELETE] = "¿Eliminar este perfil?",
     [MESH_STR_CONFIRM_TITLE_HAM_MODE] = "¿Pasar a modo ham?",
     [MESH_STR_CONFIRM_TITLE_FW_USB] = "¿Actualizar la radio por USB?",
     [MESH_STR_CONFIRM_TITLE_FW_BLE] = "¿Actualizar la radio por Bluetooth?",
@@ -1340,6 +1343,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_ACCEPT_MAPS_DELETE] = "Eliminar mapa",
     [MESH_STR_CONFIRM_ACCEPT_BACKUPS_DELETE] = "Eliminar copia",
     [MESH_STR_CONFIRM_ACCEPT_BACKUPS_RESTORE] = "Restaurar",
+    [MESH_STR_CONFIRM_ACCEPT_PROFILES_APPLY] = "Aplicar",
+    [MESH_STR_CONFIRM_ACCEPT_PROFILES_DELETE] = "Eliminar perfil",
     [MESH_STR_CONFIRM_ACCEPT_HAM_MODE] = "Pasar a modo ham",
     [MESH_STR_CONFIRM_ACCEPT_FW_USB] = "Actualizar por USB",
     [MESH_STR_CONFIRM_ACCEPT_FW_BLE] = "Actualizar por Bluetooth",
@@ -1943,6 +1948,75 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Restaurada; %u contactos no se pudieron escribir",
     [MESH_STR_TOAST_RESTORE_PARTIAL_ONE] = "Restaurada; %u ajuste sigue siendo distinto",
     [MESH_STR_TOAST_RESTORE_PARTIAL_OTHER] = "Restaurada; %u ajustes siguen siendo distintos",
+
+    /* Perfiles: ajustes para cualquier radio del mismo firmware. */
+    [MESH_STR_SETTINGS_NOTE_PROFILES] =
+        "Ajustes para poner en cualquier radio del mismo firmware, hechos a partir de una copia o "
+        "leídos de un archivo .cfg de Meshtastic. Un perfil nunca guarda el nombre, la posición, "
+        "las claves ni los contactos de una radio.",
+    [MESH_STR_CONFIRM_TEXT_PROFILES_APPLY] =
+        "Lo que difiere en sus ajustes pasa a la radio, que luego se reinicia. Su nombre, "
+        "posición, claves y nodos se quedan, y antes se guarda una copia.",
+    [MESH_STR_CONFIRM_TEXT_PROFILES_APPLY_PLAIN] =
+        "Lo que difiere pasa a la radio, sin reinicio. Su nombre, clave y contactos se quedan; "
+        "antes se guarda una copia.",
+    [MESH_STR_CONFIRM_TEXT_PROFILES_DELETE] =
+        "El perfil sale de la tarjeta. Ninguna radio cambia, y un .cfg guardado de él se queda.",
+    [MESH_STR_BACKUPS_MAKE_PROFILE] = "Hacer un perfil",
+    [MESH_STR_PROFILES_PICK_READING] = "Leyendo la copia",
+    [MESH_STR_PROFILES_PART_IN] = "Incluido",
+    [MESH_STR_PROFILES_PART_OUT] = "Fuera",
+    [MESH_STR_PROFILES_NEVER] = "Nunca incluido",
+    [MESH_STR_PROFILES_NEVER_MESHTASTIC] = "Dueño, posición, claves",
+    [MESH_STR_PROFILES_NEVER_MESHCORE] = "Nombre, clave, contactos",
+    [MESH_STR_PROFILES_SAVE] = "Nombrar y guardar",
+    [MESH_STR_PROFILES_SAVE_OFF] = "Incluye algo primero",
+    [MESH_STR_PROFILES_NAME_PROMPT] = "Nombre del perfil",
+    [MESH_STR_PROFILES_NO_CARD] = "No hay tarjeta para guardar perfiles",
+    [MESH_STR_PROFILES_EMPTY] = "Aún no hay perfiles",
+    [MESH_STR_PROFILES_EMPTY_VALUE] = "Haz uno desde una copia",
+    [MESH_STR_PROFILES_PARTS_ONE] = "%u parte",
+    [MESH_STR_PROFILES_PARTS_OTHER] = "%u partes",
+    [MESH_STR_PROFILES_HEAD_FILES] = "Archivos de Meshtastic",
+    [MESH_STR_PROFILES_IMPORT] = "Importar",
+    [MESH_STR_PROFILES_FOLDER] = "Carpeta",
+    [MESH_STR_PROFILES_HEAD_PROFILE] = "Este perfil",
+    [MESH_STR_PROFILES_MADE] = "Hecho",
+    [MESH_STR_PROFILES_FROM] = "Hecho de",
+    [MESH_STR_PROFILES_HEAD_PARTS] = "Lo que ajusta",
+    [MESH_STR_PROFILES_COMPARE_OFF_LINK] = "Conecta una radio primero",
+    [MESH_STR_PROFILES_COMPARE_OFF_OTHER] = "Para el otro firmware",
+    [MESH_STR_PROFILES_EXPORT] = "Guardar como .cfg",
+    [MESH_STR_PROFILES_DELETE] = "Eliminar este perfil",
+    [MESH_STR_PROFILES_APPLY] = "Aplicar a la radio",
+    [MESH_STR_PROFILES_APPLYING] = "Aplicando el perfil",
+    [MESH_STR_PROFILES_SAME_VALUE] = "Nada que aplicar",
+    [MESH_STR_PROFILES_CHANGE_REMOVED] = "Solo en el perfil",
+    [MESH_STR_TOAST_PROFILE_DRAFT_FAILED] = "No se pudo leer la copia (%d)",
+    [MESH_STR_TOAST_PROFILE_NOTHING] = "Incluye al menos una parte",
+    [MESH_STR_TOAST_PROFILE_SAVED] = "Perfil guardado: %s",
+    [MESH_STR_TOAST_PROFILE_SAVE_FAILED] = "No se pudo guardar el perfil (%d)",
+    [MESH_STR_TOAST_PROFILE_DELETED] = "Perfil eliminado de la tarjeta",
+    [MESH_STR_TOAST_PROFILE_DELETE_FAILED] = "No se pudo eliminar el perfil (%d)",
+    [MESH_STR_TOAST_PROFILE_DELETE_APPLYING] =
+        "Aún se está aplicando este perfil; elimínalo cuando termine",
+    [MESH_STR_TOAST_PROFILE_EXPORTED] = "%s guardado en la tarjeta",
+    [MESH_STR_TOAST_PROFILE_EXPORT_FAILED] = "No se pudo escribir el archivo (%d)",
+    [MESH_STR_TOAST_PROFILE_OTHER_RADIO] =
+        "Hay otra radio conectada; compara el perfil con ella antes",
+    [MESH_STR_TOAST_PROFILE_UNJUDGED] = "Se conectó otra radio; no se comprobó el perfil",
+    [MESH_STR_TOAST_RESTORE_UNJUDGED] = "Se conectó otra radio; no se comprobó la restauración",
+    [MESH_STR_TOAST_PROFILE_EXPORT_EMPTY] = "Nada de este perfil cabe en un archivo .cfg",
+    [MESH_STR_TOAST_PROFILE_IMPORTED] = "%s importado como perfil",
+    [MESH_STR_TOAST_PROFILE_IMPORT_FAILED] = "No se pudo importar el archivo (%d)",
+    [MESH_STR_TOAST_PROFILE_OTHER_PROTOCOL] = "Este perfil es para el otro firmware",
+    [MESH_STR_TOAST_PROFILE_APPLYING] = "Aplicando el perfil; la radio se reinicia al terminar",
+    [MESH_STR_TOAST_PROFILE_APPLYING_PLAIN] = "Aplicando el perfil",
+    [MESH_STR_TOAST_PROFILE_SAME] = "La radio ya coincide con este perfil",
+    [MESH_STR_TOAST_PROFILE_APPLIED] = "Perfil aplicado a la radio",
+    [MESH_STR_TOAST_PROFILE_APPLY_FAILED] = "No se pudo aplicar el perfil (%d)",
+    [MESH_STR_TOAST_PROFILE_PARTIAL_ONE] = "Aplicado; %u ajuste sigue siendo distinto",
+    [MESH_STR_TOAST_PROFILE_PARTIAL_OTHER] = "Aplicado; %u ajustes siguen siendo distintos",
     [MESH_STR_SETTINGS_NOTE_BACKUPS] =
         "Copias de los ajustes de cada radio en esta tarjeta, hechas al leerla por primera vez y "
         "antes de cada cambio. Una comparación muestra el valor de la copia y luego el de la "

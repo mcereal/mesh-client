@@ -19,12 +19,14 @@
 #include "inkwell/runtime/timer.h"
 
 #include "inkwell/base/array.h"
+#include "inkwell/base/file.h"
 #include "inkwell/ble/central.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
 #include "mesh/core/meshcore.h"
 #include "mesh/core/message.h"
 #include "mesh/core/radio_backup.h"
+#include "mesh/core/radio_profile.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
 #include "mesh/i18n/strings.h"
@@ -6508,5 +6510,299 @@ MESH_TEST_CASE(app_backup_restore_meshcore_counts_a_refused_send_once, unit) {
     unsetenv("MESHCLIENT_UI_BACKEND");
     mesh_test_remove_tree(home);
     MESH_TEST_FAIL_IF(!counted, "one refused send was not counted as exactly one contact");
+    record_success(test_name);
+}
+
+/* ---- profiles ------------------------------------------------------------------------------ */
+
+/* The draft's parts ticked down to `topic` alone. */
+static void app_profile_keep_only(struct mesh_app *app, uint8_t topic) {
+    const struct mesh_ui_profiles *listing = &app->profile_listing;
+    for (uint32_t i = 0U; i < listing->draft_count; ++i) {
+        if (listing->draft_parts[i].topic != topic) {
+            mesh_app_profile_draft_toggle(app, i);
+        }
+    }
+}
+
+static struct mesh_radio_backup g_profile_scratch;
+
+/*
+ * A profile of LoRa, made from this radio's backup, put on "another" radio - another owner,
+ * another role, another hop limit: the transaction is the LoRa section and nothing else, and once
+ * the radio has restarted and been read again the profile is judged applied, with the radio's
+ * owner and role as they were. The profile cannot be deleted while it is out: judging the apply
+ * reads it again. Nor does its judgement take the screen from another profile's comparison,
+ * opened while it was out.
+ */
+MESH_TEST_CASE(app_profile_made_from_a_backup_applies_only_its_parts, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    struct mesh_radio_settings *radio = mesh_session_model_settings(&app.session);
+    mesh_app_backup_tick(&app); /* backup 1 */
+
+    mesh_app_profile_draft(&app, 0x0badcafeU, 1U);
+    const bool drafted = app.profile_listing.draft_count > 3U;
+    app_profile_keep_only(&app, MESH_RADIO_BACKUP_TOPIC_LORA);
+    mesh_app_profile_make(&app, "  LoRa only ");
+    const bool made = app.profile_listing.count == 1U &&
+                      strcmp(app.profile_listing.items[0].header.name, "LoRa only") == 0 &&
+                      app.profile_listing.draft_count == 0U;
+    const uint32_t profile = app.profile_listing.items[0].sequence;
+
+    radio->lora.hop_limit = 3U;
+    radio->device.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
+    snprintf(radio->owner.long_name, sizeof radio->owner.long_name, "Valley");
+    mesh_app_profile_compare(&app, profile);
+    const bool compared = app.profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE &&
+                          app.profile_listing.diff.total == 1U &&
+                          app.profile_listing.diff.changes[0].topic == MESH_RADIO_BACKUP_TOPIC_LORA;
+    mesh_app_profile_draft(&app, 0x0badcafeU, 1U);
+    app_profile_keep_only(&app, MESH_RADIO_BACKUP_TOPIC_DEVICE);
+    mesh_app_profile_make(&app, "Device only");
+    uint32_t other = 0U;
+    for (size_t i = 0; app.profile_listing.count == 2U && i < 2U; ++i) {
+        if (app.profile_listing.items[i].sequence != profile) {
+            other = app.profile_listing.items[i].sequence;
+        }
+    }
+
+    /* Compared with another radio than the one on the link now: not written. */
+    mesh_app_profile_apply(&app, profile, 0x0f00d00dU);
+    const bool elsewhere =
+        app.backup_restore.stage == 0U && radio->queue_len == 0U &&
+        strcmp(app.ui_store.nav.toast.text,
+               "Another radio is connected; compare the profile with it first") == 0;
+    mesh_app_profile_apply(&app, profile, 0x0badcafeU);
+    bool sent = app.backup_restore.stage != 0U && radio->queue_len == 4U &&
+                app.profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_RESTORING;
+    const struct mesh_admin_request *write =
+        &radio->queue[(radio->queue_head + 2U) % MESH_RADIO_SETTINGS_FETCH_MAX];
+    sent = sent && write->kind == MESH_ADMIN_SET_CONFIG &&
+           write->payload.config.which_payload_variant == meshtastic_Config_lora_tag;
+    mesh_app_profile_delete(&app, profile);
+    const bool kept =
+        mesh_radio_profile_store_load(&app.profiles, profile, &g_profile_scratch) == 0 &&
+        app.profile_listing.count == 2U &&
+        strcmp(app.ui_store.nav.toast.text,
+               "Still applying this profile; delete it once it is done") == 0;
+    mesh_app_profile_compare(&app, other);
+
+    app_restore_radio_answered(&app);
+    radio->lora.hop_limit = 5U;
+    app.session.reboot_generation += 1U;
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool judged = app.backup_restore.stage == 0U &&
+                        strcmp(app.ui_store.nav.toast.text, "Profile applied to the radio") == 0;
+    const bool left_open = app.profile_listing.compare_sequence == other &&
+                           app.profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE;
+    mesh_app_profile_compare(&app, profile);
+    const bool matches = app.profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE &&
+                         app.profile_listing.diff.total == 0U;
+    const bool untouched = strcmp(radio->owner.long_name, "Valley") == 0 &&
+                           radio->device.role == meshtastic_Config_DeviceConfig_Role_CLIENT;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!drafted, "the backup offered no parts");
+    MESH_TEST_FAIL_IF(!made, "the profile was not saved under its trimmed name");
+    MESH_TEST_FAIL_IF(!compared, "the comparison listed more than the profile's one part");
+    MESH_TEST_FAIL_IF(!elsewhere, "a profile compared with one radio was applied to another");
+    MESH_TEST_FAIL_IF(!sent, "the apply was not the LoRa section inside one transaction");
+    MESH_TEST_FAIL_IF(other == 0U, "the second profile was not made");
+    MESH_TEST_FAIL_IF(!kept, "the profile being applied was deleted");
+    MESH_TEST_FAIL_IF(!judged || !matches,
+                      "a radio matching the profile afterwards was not reported");
+    MESH_TEST_FAIL_IF(!left_open, "the apply's judgement replaced another profile's comparison");
+    MESH_TEST_FAIL_IF(!untouched, "the apply reached past its parts");
+    record_success(test_name);
+}
+
+/* Out as a .cfg beside the profiles, listed there, and back in as a profile of its own. */
+MESH_TEST_CASE(app_profile_cfg_goes_out_to_the_card_and_back_in, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    mesh_app_backup_tick(&app);
+    mesh_app_profile_draft(&app, 0x0badcafeU, 1U);
+    mesh_app_profile_make(&app, "Ridge/kit");
+    const uint32_t profile =
+        app.profile_listing.count == 1U ? app.profile_listing.items[0].sequence : 0U;
+    mesh_app_profile_export(&app, profile);
+    /* A slash is not a file name's: the name is made safe for the card. */
+    const bool listed = app.profile_listing.cfg_count == 1U &&
+                        strcmp(app.profile_listing.cfgs[0], "Ridge_kit.cfg") == 0 &&
+                        strcmp(app.ui_store.nav.toast.text, "Saved Ridge_kit.cfg to the card") == 0;
+    /* Exported again, it goes beside the first rather than over it: that file may be the one
+       a profile was imported from, holding what an import leaves behind. */
+    char first[APP_TEST_HOME_CAP + 64];
+    snprintf(first, sizeof first, "%s/Ridge_kit.cfg", app.profiles.dir);
+    FILE *mark = fopen(first, "ab");
+    if (mark != NULL) {
+        fputc(0x55, mark);
+        fclose(mark);
+    }
+    mesh_app_profile_export(&app, profile);
+    size_t first_len = 0U;
+    uint8_t *kept_bytes = inkwell_file_read(first, 65536U, &first_len);
+    const bool beside = app.profile_listing.cfg_count == 2U &&
+                        strcmp(app.profile_listing.cfgs[1], "Ridge_kit.cfg") == 0 &&
+                        strcmp(app.profile_listing.cfgs[0], "Ridge_kit-2.cfg") == 0 &&
+                        kept_bytes != NULL && kept_bytes[first_len - 1U] == 0x55;
+    free(kept_bytes);
+    mesh_app_profile_import(&app, "Ridge_kit-2.cfg");
+    bool imported = app.profile_listing.count == 2U;
+    for (size_t i = 0; imported && i < app.profile_listing.count; ++i) {
+        const struct mesh_radio_backup_header *h = &app.profile_listing.items[i].header;
+        imported = h->protocol == MESH_RADIO_BACKUP_MESHTASTIC &&
+                   mesh_radio_profile_parts_has(&h->parts, MESH_RADIO_BACKUP_TOPIC_LORA, 0U);
+    }
+    const bool named =
+        imported && strcmp(app.profile_listing.items[1].header.name, "Ridge_kit-2") == 0;
+    /* And a name that walks out of the folder is not opened. */
+    mesh_app_profile_import(&app, "../ui_prefs");
+    const bool refused = app.profile_listing.count == 2U;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(profile == 0U, "the profile was not made");
+    MESH_TEST_FAIL_IF(!listed, "the .cfg was not written beside the profiles, or not listed");
+    MESH_TEST_FAIL_IF(!beside, "a second export wrote over the first file");
+    MESH_TEST_FAIL_IF(!imported || !named, "the .cfg did not come back in as a profile");
+    MESH_TEST_FAIL_IF(!refused, "a name outside the folder was imported");
+    record_success(test_name);
+}
+
+/* A profile of nothing a .cfg carries writes no file, and says so. */
+MESH_TEST_CASE(app_profile_cfg_of_nothing_it_carries_is_not_written, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    mesh_app_backup_tick(&app);
+    mesh_app_profile_draft(&app, 0x0badcafeU, 1U);
+    app_profile_keep_only(&app, MESH_RADIO_BACKUP_TOPIC_POSITION);
+    mesh_app_profile_make(&app, "Position");
+    const uint32_t profile =
+        app.profile_listing.count == 1U ? app.profile_listing.items[0].sequence : 0U;
+    mesh_app_profile_export(&app, profile);
+    const bool refused =
+        app.profile_listing.cfg_count == 0U &&
+        strcmp(app.ui_store.nav.toast.text, "Nothing in this profile goes in a .cfg file") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(profile == 0U, "the profile was not made");
+    MESH_TEST_FAIL_IF(!refused, "an empty .cfg was written");
+    record_success(test_name);
+}
+
+/* Another radio back on the link first: the apply cannot be judged, and its screen says so rather
+   than waiting on a comparison nothing will make. */
+MESH_TEST_CASE(app_profile_apply_ends_when_another_radio_connects, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    struct mesh_radio_settings *radio = mesh_session_model_settings(&app.session);
+    mesh_app_backup_tick(&app);
+    mesh_app_profile_draft(&app, 0x0badcafeU, 1U);
+    app_profile_keep_only(&app, MESH_RADIO_BACKUP_TOPIC_LORA);
+    mesh_app_profile_make(&app, "LoRa only");
+    const uint32_t profile =
+        app.profile_listing.count == 1U ? app.profile_listing.items[0].sequence : 0U;
+
+    radio->lora.hop_limit = 3U;
+    mesh_app_profile_apply(&app, profile, 0x0badcafeU);
+    const bool sent = app.backup_restore.stage != 0U;
+    app_restore_radio_answered(&app);
+    app.session.handshake.my_info.my_node_num = 0x0f00d00dU;
+    app.session.reboot_generation += 1U;
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool ended = app.backup_restore.stage == 0U &&
+                       app.profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_FAILED &&
+                       app.profile_listing.compare_error == -ENODEV &&
+                       strcmp(app.ui_store.nav.toast.text,
+                              "Another radio connected; the apply was not checked") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(profile == 0U || !sent, "the profile was not applied");
+    MESH_TEST_FAIL_IF(!ended, "the apply screen was left waiting on another radio");
+    record_success(test_name);
+}
+
+/* A profile for MeshCore is never put on a Meshtastic radio: refused, said, and nothing sent. */
+MESH_TEST_CASE(app_profile_for_the_other_protocol_is_refused, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    static struct mesh_radio_backup profile;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    struct mesh_radio_settings *radio = mesh_session_model_settings(&app.session);
+    mesh_app_backup_tick(&app);
+    mesh_app_profile_draft(&app, 0x0badcafeU, 1U);
+    mesh_app_profile_make(&app, "Kit");
+    const uint32_t made =
+        app.profile_listing.count == 1U ? app.profile_listing.items[0].sequence : 0U;
+    (void)mesh_radio_profile_store_load(&app.profiles, made, &profile);
+    profile.header.protocol = MESH_RADIO_BACKUP_MESHCORE;
+    uint32_t other = 0U;
+    (void)mesh_radio_profile_store_save(&app.profiles, &profile, &other);
+    mesh_app_profile_rescan(&app);
+
+    radio->lora.hop_limit = 3U;
+    mesh_app_profile_apply(&app, other, 0x0badcafeU);
+    const bool refused =
+        app.backup_restore.stage == 0U && radio->queue_len == 0U &&
+        strcmp(app.ui_store.nav.toast.text, "This profile is for the other firmware") == 0;
+    mesh_app_profile_compare(&app, other);
+    const bool not_compared = app.profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_FAILED &&
+                              app.profile_listing.compare_error == -EPROTO;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(made == 0U || other == 0U, "the profiles were not made");
+    MESH_TEST_FAIL_IF(!refused, "a MeshCore profile was applied to a Meshtastic radio");
+    MESH_TEST_FAIL_IF(!not_compared, "a MeshCore profile was compared with a Meshtastic radio");
+    record_success(test_name);
+}
+
+/* On MeshCore, a profile of the channels is the one slot's save, with the power the radio moved
+   since left where it is. */
+MESH_TEST_CASE(app_profile_meshcore_applies_only_its_parts, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    mesh_app_profile_draft(&app, node, 1U);
+    app_profile_keep_only(&app, MESH_RADIO_BACKUP_TOPIC_CHANNEL);
+    mesh_app_profile_make(&app, "Channels");
+    const uint32_t profile =
+        app.profile_listing.count == 1U ? app.profile_listing.items[0].sequence : 0U;
+
+    app.meshcore.self.tx_power_dbm = 10U;
+    snprintf(app.meshcore.channels[0].name, sizeof app.meshcore.channels[0].name, "%s", "Ops");
+    mesh_app_profile_apply(&app, profile, node);
+    const bool one = app.backup_restore.stage != 0U && app.backup_restore.step_count == 1U &&
+                     mesh_test_meshcore_wire_last(&g_restore_wire) == MESH_MESHCORE_CMD_SET_CHANNEL;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(profile == 0U, "the profile was not made");
+    MESH_TEST_FAIL_IF(!one, "the apply was not the one channel slot");
     record_success(test_name);
 }

@@ -30,6 +30,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/backups.h"
 #include "mesh/ui/channel_share.h"
+#include "mesh/ui/profiles.h"
 #include "mesh/ui/units.h"
 
 #include <inttypes.h>
@@ -1047,36 +1048,10 @@ static void item_fact(struct item_list *list, inkcell_str_id label, const char *
     }
 }
 
-static void build_backups_entry(const struct mesh_ui_backups *b, uint8_t e,
-                                struct item_list *list) {
-    if (e >= b->entry_count) {
-        return;
-    }
-    const struct mesh_ui_backup_entry *entry = &b->entries[e];
-    const struct mesh_radio_backup_header *h = &entry->header;
+/* A header's LoRa numbers and channel names, under their headings, when it has them: a
+   backup's, or a profile's, which has them only when those parts are in it. */
+static void backups_header_facts(const struct mesh_radio_backup_header *h, struct item_list *list) {
     char value[MESH_UI_SETTINGS_VALUE_MAX];
-
-    item_heading(list, MESH_STR_BACKUPS_HEAD_BACKUP);
-    mesh_ui_backups_when(h, entry->sequence, value, sizeof value);
-    item_fact(list, MESH_STR_BACKUPS_TAKEN, value);
-    item_str(list, MESH_STR_BACKUPS_WHY, INKSTAND_FORM_INFO, mesh_ui_backups_reason(h->reason));
-    item_fact(list, MESH_STR_BACKUPS_NAME, h->name);
-    snprintf(value, sizeof value, "!%08" PRIx32, h->node_id);
-    item_fact(list, MESH_STR_BACKUPS_NODE, value);
-    item_str(list, MESH_STR_BACKUPS_PROTOCOL, INKSTAND_FORM_INFO,
-             mesh_ui_backups_protocol(h->protocol));
-    item_fact(list, MESH_STR_BACKUPS_MODEL, h->model);
-    item_fact(list, MESH_STR_BACKUPS_FIRMWARE, h->firmware);
-    item_fact(list, MESH_STR_BACKUPS_DEVICE, h->device);
-    if (h->has_nodes_heard) {
-        snprintf(value, sizeof value, "%" PRIu32, h->nodes_heard);
-        item_fact(list, MESH_STR_BACKUPS_NODES_HEARD, value);
-    }
-    if (h->has_contacts) {
-        snprintf(value, sizeof value, "%" PRIu32, h->contacts);
-        item_fact(list, MESH_STR_BACKUPS_CONTACTS, value);
-    }
-
     if (h->has_radio) {
         item_heading(list, MESH_STR_BACKUPS_HEAD_RADIO);
         item_fact(list, MESH_STR_SETTINGS_FIELD_LORA_REGION, h->region);
@@ -1125,6 +1100,39 @@ static void build_backups_entry(const struct mesh_ui_backups *b, uint8_t e,
             }
         }
     }
+}
+
+static void build_backups_entry(const struct mesh_ui_backups *b, uint8_t e,
+                                struct item_list *list) {
+    if (e >= b->entry_count) {
+        return;
+    }
+    const struct mesh_ui_backup_entry *entry = &b->entries[e];
+    const struct mesh_radio_backup_header *h = &entry->header;
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+
+    item_heading(list, MESH_STR_BACKUPS_HEAD_BACKUP);
+    mesh_ui_backups_when(h, entry->sequence, value, sizeof value);
+    item_fact(list, MESH_STR_BACKUPS_TAKEN, value);
+    item_str(list, MESH_STR_BACKUPS_WHY, INKSTAND_FORM_INFO, mesh_ui_backups_reason(h->reason));
+    item_fact(list, MESH_STR_BACKUPS_NAME, h->name);
+    snprintf(value, sizeof value, "!%08" PRIx32, h->node_id);
+    item_fact(list, MESH_STR_BACKUPS_NODE, value);
+    item_str(list, MESH_STR_BACKUPS_PROTOCOL, INKSTAND_FORM_INFO,
+             mesh_ui_backups_protocol(h->protocol));
+    item_fact(list, MESH_STR_BACKUPS_MODEL, h->model);
+    item_fact(list, MESH_STR_BACKUPS_FIRMWARE, h->firmware);
+    item_fact(list, MESH_STR_BACKUPS_DEVICE, h->device);
+    if (h->has_nodes_heard) {
+        snprintf(value, sizeof value, "%" PRIu32, h->nodes_heard);
+        item_fact(list, MESH_STR_BACKUPS_NODES_HEARD, value);
+    }
+    if (h->has_contacts) {
+        snprintf(value, sizeof value, "%" PRIu32, h->contacts);
+        item_fact(list, MESH_STR_BACKUPS_CONTACTS, value);
+    }
+
+    backups_header_facts(h, list);
 
     item_heading(list, MESH_STR_BACKUPS_HEAD_ACTIONS);
     if (mesh_ui_backups_can_compare(b, e)) {
@@ -1140,8 +1148,54 @@ static void build_backups_entry(const struct mesh_ui_backups *b, uint8_t e,
                               : MESH_STR_BACKUPS_COMPARE_OFF_LINK,
                         MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE);
     }
+    /* A profile out of it: any backup that reads, of any radio, connected or not. */
+    item_verb(list, MESH_STR_BACKUPS_MAKE_PROFILE, MESH_UI_SETTINGS_ACTION_BACKUPS_MAKE_PROFILE);
     backups_save_row(b, h->node_id, list);
     item_verb(list, MESH_STR_BACKUPS_DELETE, MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE);
+}
+
+/*
+ * The parts of backup `e` a profile is made of: one row per part it offers, stepped between in
+ * and out in place, what a profile never carries said once, and the row that names and saves it.
+ * The parts are the app's answer to the press that opened this screen, so until they arrive -
+ * or when they are some other backup's - the screen says it is reading.
+ */
+static void build_backups_pick(const struct mesh_ui_settings *s, uint8_t e,
+                               struct item_list *list) {
+    const struct mesh_ui_backups *b = &s->backups;
+    const struct mesh_ui_profiles *p = &s->profiles;
+    if (e >= b->entry_count) {
+        return;
+    }
+    const struct mesh_ui_backup_entry *entry = &b->entries[e];
+    if (p->draft_node != entry->header.node_id || p->draft_sequence != entry->sequence) {
+        item_meter(list, MESH_STR_PROFILES_PICK_READING, "", INKSTAND_FORM_METER_UNKNOWN);
+        return;
+    }
+    /* No heading over the parts: the cursor was put on this screen's first row while it was
+       still the reading meter, and a heading there would be where it stayed. */
+    for (uint8_t i = 0U; i < p->draft_count && i < MESH_RADIO_PROFILE_PARTS_MAX; ++i) {
+        const struct mesh_radio_profile_part *part = &p->draft_parts[i];
+        char name[MESH_UI_SETTINGS_LABEL_MAX];
+        mesh_ui_profiles_part_name(p, p->draft_protocol, part, name, sizeof name);
+        const bool in = mesh_radio_profile_parts_has(&p->draft_picked, part->topic, part->index);
+        const size_t before = list->count;
+        item_action_named(list, name,
+                          inkcell_str(in ? MESH_STR_PROFILES_PART_IN : MESH_STR_PROFILES_PART_OUT),
+                          MESH_UI_SETTINGS_ACTION_PROFILES_PART);
+        if (list->count > before) {
+            snprintf(list->items[before].text, sizeof list->items[before].text, "%u", (unsigned)i);
+        }
+    }
+    item_str(list, MESH_STR_PROFILES_NEVER, INKSTAND_FORM_INFO,
+             p->draft_protocol == MESH_RADIO_BACKUP_MESHCORE ? MESH_STR_PROFILES_NEVER_MESHCORE
+                                                             : MESH_STR_PROFILES_NEVER_MESHTASTIC);
+    if (p->draft_picked.topics != 0U) {
+        item_verb(list, MESH_STR_PROFILES_SAVE, MESH_UI_SETTINGS_ACTION_PROFILES_SAVE);
+    } else {
+        item_action_off(list, MESH_STR_PROFILES_SAVE, MESH_STR_PROFILES_SAVE_OFF,
+                        MESH_UI_SETTINGS_ACTION_PROFILES_SAVE);
+    }
 }
 
 static void build_backups_compare(const struct mesh_ui_backups *b, uint8_t e,
@@ -1262,6 +1316,9 @@ static void build_backups(const struct mesh_ui_settings *s, uint8_t view, struct
     const struct mesh_ui_backups *b = &s->backups;
     uint8_t index = 0U;
     switch (mesh_ui_backups_level_of(view, &index)) {
+    case MESH_UI_BACKUPS_PICK:
+        build_backups_pick(s, index, list);
+        break;
     case MESH_UI_BACKUPS_RADIO:
         build_backups_radio(b, index, list);
         break;
@@ -1274,6 +1331,183 @@ static void build_backups(const struct mesh_ui_settings *s, uint8_t view, struct
     case MESH_UI_BACKUPS_RADIOS:
     default:
         build_backups_radios(b, list);
+        break;
+    }
+}
+
+/*
+ * Profiles: the list, one profile, and one against the radio - the Backups section's shape a
+ * level shorter (mesh/ui/profiles.h). The only verb here that reaches a radio is Apply, and it
+ * is offered only over a comparison with a radio of the profile's own protocol.
+ */
+static void build_profiles_list(const struct mesh_ui_settings *s, struct item_list *list) {
+    const struct mesh_ui_profiles *p = &s->profiles;
+    if (!p->enabled) {
+        item_str(list, MESH_STR_PROFILES_NO_CARD, INKSTAND_FORM_INFO, INKCELL_STR_NONE);
+        return;
+    }
+    /* No heading over the profiles themselves: the bar already says what they are. */
+    if (p->count == 0U) {
+        item_str(list, MESH_STR_PROFILES_EMPTY, INKSTAND_FORM_INFO, MESH_STR_PROFILES_EMPTY_VALUE);
+    }
+    for (uint8_t i = 0U; i < p->count && i < MESH_UI_PROFILES_MAX; ++i) {
+        const struct mesh_radio_backup_header *h = &p->items[i].header;
+        struct mesh_radio_profile_part parts[MESH_RADIO_PROFILE_PARTS_MAX];
+        const size_t count = mesh_ui_profiles_parts(&h->parts, parts, MESH_RADIO_PROFILE_PARTS_MAX);
+        char counted[32];
+        inkcell_str_format_plural(counted, sizeof counted, MESH_STR_PROFILES_PARTS_ONE,
+                                  (uint32_t)count, (unsigned)count);
+        char value[MESH_UI_SETTINGS_VALUE_MAX];
+        backups_pair(value, sizeof value, inkcell_str(mesh_ui_backups_protocol(h->protocol)),
+                     counted);
+        const size_t before = list->count;
+        item_action_named(list, h->name, value, MESH_UI_SETTINGS_ACTION_PROFILES_OPEN);
+        if (list->count > before) {
+            snprintf(list->items[before].text, sizeof list->items[before].text, "%u", (unsigned)i);
+        }
+    }
+    /* The files beside them: a press reads one in as a profile, and changes no radio. */
+    if (p->cfg_count > 0U) {
+        item_heading(list, MESH_STR_PROFILES_HEAD_FILES);
+    }
+    for (uint8_t i = 0U; i < p->cfg_count && i < MESH_UI_PROFILE_CFGS_MAX; ++i) {
+        const size_t before = list->count;
+        item_action_named(list, p->cfgs[i], inkcell_str(MESH_STR_PROFILES_IMPORT),
+                          MESH_UI_SETTINGS_ACTION_PROFILES_IMPORT);
+        if (list->count > before) {
+            snprintf(list->items[before].text, sizeof list->items[before].text, "%u", (unsigned)i);
+        }
+    }
+    item_fact(list, MESH_STR_PROFILES_FOLDER, p->folder);
+}
+
+static void build_profiles_item(const struct mesh_ui_settings *s, uint8_t i,
+                                struct item_list *list) {
+    const struct mesh_ui_profiles *p = &s->profiles;
+    if (i >= p->count) {
+        return;
+    }
+    const struct mesh_radio_backup_header *h = &p->items[i].header;
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    item_heading(list, MESH_STR_PROFILES_HEAD_PROFILE);
+    if (h->saved_at != 0U) {
+        mesh_ui_backups_when(h, p->items[i].sequence, value, sizeof value);
+        item_fact(list, MESH_STR_PROFILES_MADE, value);
+    }
+    item_str(list, MESH_STR_BACKUPS_PROTOCOL, INKSTAND_FORM_INFO,
+             mesh_ui_backups_protocol(h->protocol));
+    item_fact(list, MESH_STR_PROFILES_FROM, h->model);
+    item_fact(list, MESH_STR_BACKUPS_FIRMWARE, h->firmware);
+
+    item_heading(list, MESH_STR_PROFILES_HEAD_PARTS);
+    struct mesh_radio_profile_part parts[MESH_RADIO_PROFILE_PARTS_MAX];
+    const size_t count = mesh_ui_profiles_parts(&h->parts, parts, MESH_RADIO_PROFILE_PARTS_MAX);
+    for (size_t k = 0; k < count; ++k) {
+        char name[MESH_UI_SETTINGS_LABEL_MAX];
+        mesh_ui_profiles_part_name(p, h->protocol, &parts[k], name, sizeof name);
+        item_add_named(list, name, INKSTAND_FORM_INFO);
+    }
+    backups_header_facts(h, list);
+
+    item_heading(list, MESH_STR_BACKUPS_HEAD_ACTIONS);
+    const uint8_t live = s->backups.live_protocol;
+    if (mesh_ui_profiles_can_compare(p, i, live)) {
+        item_verb(list, MESH_STR_BACKUPS_COMPARE, MESH_UI_SETTINGS_ACTION_PROFILES_COMPARE);
+    } else {
+        /* Why not: no radio to compare with, or one running the other firmware - which no
+           profile crosses. */
+        item_action_off(list, MESH_STR_BACKUPS_COMPARE,
+                        live == MESH_RADIO_BACKUP_PROTOCOL_NONE
+                            ? MESH_STR_PROFILES_COMPARE_OFF_LINK
+                            : MESH_STR_PROFILES_COMPARE_OFF_OTHER,
+                        MESH_UI_SETTINGS_ACTION_PROFILES_COMPARE);
+    }
+    /* Meshtastic's own apps read a `.cfg`; nothing reads a MeshCore one. */
+    if (h->protocol == MESH_RADIO_BACKUP_MESHTASTIC) {
+        item_verb(list, MESH_STR_PROFILES_EXPORT, MESH_UI_SETTINGS_ACTION_PROFILES_EXPORT);
+    }
+    item_verb(list, MESH_STR_PROFILES_DELETE, MESH_UI_SETTINGS_ACTION_PROFILES_DELETE);
+}
+
+static void build_profiles_compare(const struct mesh_ui_settings *s, uint8_t i,
+                                   struct item_list *list) {
+    const struct mesh_ui_profiles *p = &s->profiles;
+    if (i >= p->count) {
+        return;
+    }
+    const struct mesh_ui_profile *profile = &p->items[i];
+    if (p->compare_sequence != profile->sequence ||
+        p->compare_state == MESH_UI_BACKUP_COMPARE_NONE) {
+        item_meter(list, MESH_STR_BACKUPS_COMPARING, "", INKSTAND_FORM_METER_UNKNOWN);
+        return;
+    }
+    if (p->compare_state == MESH_UI_BACKUP_COMPARE_RESTORING) {
+        const inkcell_str_id how = profile->header.protocol == MESH_RADIO_BACKUP_MESHCORE
+                                       ? MESH_STR_BACKUPS_RESTORING_VALUE_PLAIN
+                                       : MESH_STR_BACKUPS_RESTORING_VALUE;
+        item_meter(list, MESH_STR_PROFILES_APPLYING, inkcell_str(how), INKSTAND_FORM_METER_UNKNOWN);
+        return;
+    }
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    if (p->compare_state == MESH_UI_BACKUP_COMPARE_FAILED) {
+        inkcell_str_format(value, sizeof value, MESH_STR_BACKUPS_COMPARE_ERROR,
+                           (int)p->compare_error);
+        item_text(list, MESH_STR_BACKUPS_COMPARE_FAILED, INKSTAND_FORM_INFO, value);
+        return;
+    }
+    const struct mesh_radio_backup_diff *diff = &p->diff;
+    if (diff->total == 0U) {
+        item_str(list, MESH_STR_BACKUPS_SAME, INKSTAND_FORM_INFO, MESH_STR_PROFILES_SAME_VALUE);
+        return;
+    }
+    inkcell_str_format_plural(value, sizeof value, MESH_STR_BACKUPS_DIFFERENCES_ONE,
+                              (uint32_t)diff->total, (unsigned)diff->total);
+    item_text(list, MESH_STR_BACKUPS_DIFFERENCES_LABEL, INKSTAND_FORM_INFO, value);
+    bool applicable = false;
+    for (size_t k = 0; k < diff->count && !applicable; ++k) {
+        applicable = mesh_ui_backups_change_restorable(diff->protocol, &diff->changes[k]);
+    }
+    if (applicable && mesh_ui_profiles_can_compare(p, i, s->backups.live_protocol)) {
+        item_verb(list, MESH_STR_PROFILES_APPLY, MESH_UI_SETTINGS_ACTION_PROFILES_APPLY);
+    }
+    char heading[MESH_UI_SETTINGS_LABEL_MAX] = "";
+    size_t shown = 0U;
+    for (size_t k = 0; k < diff->count && list->count + 3U <= MESH_UI_SETTINGS_ITEMS_MAX; ++k) {
+        const struct mesh_radio_backup_change *change = &diff->changes[k];
+        char topic[MESH_UI_SETTINGS_LABEL_MAX];
+        mesh_ui_backups_topic(change, topic, sizeof topic);
+        if (strcmp(topic, heading) != 0) {
+            inkwell_str_copy(heading, sizeof heading, topic);
+            item_add_named(list, heading, INKSTAND_FORM_HEADING);
+        }
+        char label[MESH_UI_SETTINGS_LABEL_MAX];
+        mesh_ui_backups_field(diff->protocol, change, label, sizeof label);
+        struct mesh_ui_settings_item *item = item_add_named(list, label, INKSTAND_FORM_INFO);
+        if (item != NULL) {
+            mesh_ui_profiles_change(diff->protocol, change, item->value, sizeof item->value);
+            ++shown;
+        }
+    }
+    if (diff->total > shown) {
+        const uint32_t more = (uint32_t)(diff->total - shown);
+        inkcell_str_format_plural(value, sizeof value, MESH_STR_BACKUPS_MORE_ONE, more,
+                                  (unsigned)more);
+        item_add_named(list, value, INKSTAND_FORM_INFO);
+    }
+}
+
+static void build_profiles(const struct mesh_ui_settings *s, uint8_t view, struct item_list *list) {
+    uint8_t index = 0U;
+    switch (mesh_ui_profiles_level_of(view, &index)) {
+    case MESH_UI_PROFILES_ITEM:
+        build_profiles_item(s, index, list);
+        break;
+    case MESH_UI_PROFILES_COMPARE:
+        build_profiles_compare(s, index, list);
+        break;
+    case MESH_UI_PROFILES_LIST:
+    default:
+        build_profiles_list(s, list);
         break;
     }
 }
@@ -3161,6 +3395,9 @@ static void build_section(const struct mesh_ui_settings *settings,
         break;
     case MESH_UI_SETTINGS_BACKUPS:
         build_backups(settings, channel, list);
+        break;
+    case MESH_UI_SETTINGS_PROFILES:
+        build_profiles(settings, channel, list);
         break;
     case MESH_UI_SETTINGS_RADIO:
         build_radio(settings, handshake, list);

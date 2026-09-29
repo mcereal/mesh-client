@@ -148,6 +148,13 @@ enum mesh_ui_settings_section {
      * radio it came from is not there.
      */
     MESH_UI_SETTINGS_BACKUPS,
+    /*
+     * Settings to put on any radio of one protocol (mesh/core/radio_profile.h): the profiles on
+     * the card with the Meshtastic `.cfg` files beside them, one profile, and that profile
+     * against the radio on the link - three levels, walked as the Backups are (see
+     * mesh/ui/profiles.h). A profile is made from a backup, on that backup's own screen.
+     */
+    MESH_UI_SETTINGS_PROFILES,
     MESH_UI_SETTINGS_SECTION_COUNT,
 };
 
@@ -789,6 +796,26 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES,
     MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE,
     MESH_UI_SETTINGS_ACTION_BACKUPS_STOP,
+    /*
+     * A profile out of the open backup: MAKE_PROFILE opens the picker over it and asks the app
+     * for the parts it offers (MESH_UI_ACTION_PROFILE_DRAFT); PART ticks one of them, the row's
+     * `text` its index in `profiles.draft_parts`; SAVE opens the keyboard for the name, and Done
+     * there is MESH_UI_ACTION_PROFILE_MAKE.
+     */
+    MESH_UI_SETTINGS_ACTION_BACKUPS_MAKE_PROFILE,
+    MESH_UI_SETTINGS_ACTION_PROFILES_PART,
+    MESH_UI_SETTINGS_ACTION_PROFILES_SAVE,
+    /*
+     * The Profiles section: open one (the row's `text` its index in `profiles.items`), import a
+     * `.cfg` (its index in `profiles.cfgs`), compare the open one with the radio, apply it behind
+     * a sheet, write it out as a `.cfg`, and delete it behind a sheet.
+     */
+    MESH_UI_SETTINGS_ACTION_PROFILES_OPEN,
+    MESH_UI_SETTINGS_ACTION_PROFILES_IMPORT,
+    MESH_UI_SETTINGS_ACTION_PROFILES_COMPARE,
+    MESH_UI_SETTINGS_ACTION_PROFILES_APPLY,
+    MESH_UI_SETTINGS_ACTION_PROFILES_EXPORT,
+    MESH_UI_SETTINGS_ACTION_PROFILES_DELETE,
     /* Not an action: what the two verb tables below are sized by, so a row added above without
        a symbol or a weight is a hole in an array rather than a row that quietly draws nothing.
        Last, so no existing value moves - nav->confirm.subject carries one in a uint8_t. */

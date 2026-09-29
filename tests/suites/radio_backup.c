@@ -998,6 +998,7 @@ MESH_TEST_CASE(radio_backup_meshtastic_plan_for_a_reset_radio_fits_one_transacti
     for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++i) {
         memset(&reset->channels[i], 0, sizeof reset->channels[i]);
         reset->channels[i].index = (int8_t)i;
+        reset->channels[i].has_settings = true;
     }
     memset(&reset->owner.long_name, 0, sizeof reset->owner.long_name);
     const int planned = mesh_radio_backup_meshtastic_plan(

@@ -523,14 +523,23 @@ static bool mc_channel_same(const struct mesh_meshcore_channel *a, bool in_b,
     return strcmp(a->name, b->name) == 0 && memcmp(a->secret, b->secret, sizeof a->secret) == 0;
 }
 
-/* The settings groups that differ, into `write`; each one that cannot be written is counted. */
+#define MC_TOPIC(topic) (1U << (topic))
+/* A backup restores every group it has; a profile only those it names. */
+#define MC_TOPICS_ALL UINT32_MAX
+
+/* The settings groups in `topics` that differ, into `write`; each that cannot be written is
+   counted. */
 static void mc_plan_self(const struct mesh_meshcore_backup_contents *saved,
-                         const struct mesh_meshcore *meshcore,
+                         const struct mesh_meshcore *meshcore, uint32_t topics,
                          struct mesh_meshcore_settings_write *write, size_t *unwritable) {
     const struct mesh_meshcore_self_info *want = &saved->self;
     const struct mesh_meshcore_self_info *have = &meshcore->self;
+    const bool owner = (topics & MC_TOPIC(MESH_RADIO_BACKUP_TOPIC_OWNER)) != 0U;
+    const bool lora = (topics & MC_TOPIC(MESH_RADIO_BACKUP_TOPIC_LORA)) != 0U;
+    const bool position = (topics & MC_TOPIC(MESH_RADIO_BACKUP_TOPIC_POSITION)) != 0U;
+    const bool device = (topics & MC_TOPIC(MESH_RADIO_BACKUP_TOPIC_DEVICE)) != 0U;
     /* The firmware takes a name of one byte or more; an empty one is not a name it can set. */
-    if (strcmp(want->name, have->name) != 0) {
+    if (owner && strcmp(want->name, have->name) != 0) {
         if (want->name[0] != '\0') {
             write->set_name = true;
             inkwell_str_copy(write->name, sizeof write->name, want->name);
@@ -538,9 +547,10 @@ static void mc_plan_self(const struct mesh_meshcore_backup_contents *saved,
             ++*unwritable;
         }
     }
-    if (want->frequency_khz != have->frequency_khz || want->bandwidth_hz != have->bandwidth_hz ||
-        want->spreading_factor != have->spreading_factor ||
-        want->coding_rate != have->coding_rate) {
+    if (lora &&
+        (want->frequency_khz != have->frequency_khz || want->bandwidth_hz != have->bandwidth_hz ||
+         want->spreading_factor != have->spreading_factor ||
+         want->coding_rate != have->coding_rate)) {
         if (mesh_meshcore_radio_params_valid(want->frequency_khz, want->bandwidth_hz,
                                              want->spreading_factor, want->coding_rate)) {
             write->set_radio = true;
@@ -552,7 +562,7 @@ static void mc_plan_self(const struct mesh_meshcore_backup_contents *saved,
             ++*unwritable;
         }
     }
-    if (want->tx_power_dbm != have->tx_power_dbm) {
+    if (lora && want->tx_power_dbm != have->tx_power_dbm) {
         const int8_t dbm = (int8_t)want->tx_power_dbm;
         if (mesh_meshcore_tx_power_valid(meshcore, dbm)) {
             write->set_tx_power = true;
@@ -561,26 +571,30 @@ static void mc_plan_self(const struct mesh_meshcore_backup_contents *saved,
             ++*unwritable;
         }
     }
-    if (want->latitude_e6 != have->latitude_e6 || want->longitude_e6 != have->longitude_e6) {
+    if (position &&
+        (want->latitude_e6 != have->latitude_e6 || want->longitude_e6 != have->longitude_e6)) {
         write->set_position = true;
         write->latitude_e6 = want->latitude_e6;
         write->longitude_e6 = want->longitude_e6;
     }
-    if (want->manual_add_contacts != have->manual_add_contacts ||
-        want->telemetry_modes != have->telemetry_modes ||
-        want->advert_loc_policy != have->advert_loc_policy ||
-        want->multi_acks != have->multi_acks) {
+    if (device && (want->manual_add_contacts != have->manual_add_contacts ||
+                   want->telemetry_modes != have->telemetry_modes ||
+                   want->advert_loc_policy != have->advert_loc_policy ||
+                   want->multi_acks != have->multi_acks)) {
         write->set_other = true;
         write->manual_add_contacts = want->manual_add_contacts;
         write->telemetry_modes = want->telemetry_modes;
         write->advert_loc_policy = want->advert_loc_policy;
         write->multi_acks = want->multi_acks;
     }
-    if (want->adv_type != have->adv_type) {
-        ++*unwritable; /* the companion firmware says what it is; no command changes it */
+    /* What the radio is, like its name: the companion firmware says, and no command changes it.
+       A profile never names it. */
+    if (owner && want->adv_type != have->adv_type) {
+        ++*unwritable;
     }
     const uint32_t pin = meshcore->has_device ? meshcore->device.ble_pin : 0U;
-    if (saved->has_pin && saved->ble_pin != pin) {
+    if ((topics & MC_TOPIC(MESH_RADIO_BACKUP_TOPIC_BLUETOOTH)) != 0U && saved->has_pin &&
+        saved->ble_pin != pin) {
         if (saved->ble_pin == 0U || (saved->ble_pin >= 100000U && saved->ble_pin <= 999999U)) {
             write->set_pin = true;
             write->ble_pin = saved->ble_pin;
@@ -608,36 +622,26 @@ static int mc_restore_read(const struct mesh_radio_backup *backup,
     return 0;
 }
 
-int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
-                              const struct mesh_meshcore *meshcore,
-                              struct mesh_meshcore_settings_write *writes, size_t max,
-                              size_t *unwritable) {
-    if (backup == NULL || meshcore == NULL || writes == NULL || unwritable == NULL) {
-        return -EINVAL;
-    }
-    *unwritable = 0U;
-    if (backup->header.protocol != MESH_RADIO_BACKUP_MESHCORE) {
-        return -EPROTO;
-    }
-    if (!mesh_meshcore_backup_ready(meshcore)) {
-        return -EAGAIN;
-    }
-    struct mesh_meshcore_backup_contents *saved = malloc(sizeof *saved);
-    if (saved == NULL) {
-        return -ENOMEM;
-    }
-    int result = mc_restore_read(backup, meshcore, saved);
+/*
+ * The saves for the groups in `topics`, from a backup or a profile already read into `saved`.
+ * Shared by the two: what differs is only whose settings may be written and which groups.
+ */
+static int mc_plan(const struct mesh_meshcore_backup_contents *saved,
+                   const struct mesh_meshcore *meshcore, uint32_t topics,
+                   struct mesh_meshcore_settings_write *writes, size_t max, size_t *unwritable) {
     struct mesh_meshcore_settings_write planned[MESH_MESHCORE_BACKUP_PLAN_MAX];
     size_t count = 0U;
     size_t skipped = 0U;
-    if (result == 0) {
-        memset(planned, 0, sizeof planned);
-        struct mesh_meshcore_settings_write *self = &planned[0];
-        mc_plan_self(saved, meshcore, self, &skipped);
-        if (self->set_name || self->set_radio || self->set_tx_power || self->set_position ||
-            self->set_other || self->set_pin) {
-            count = 1U;
-        }
+    memset(planned, 0, sizeof planned);
+    struct mesh_meshcore_settings_write *self = &planned[0];
+    if (saved->has_self || saved->has_pin) {
+        mc_plan_self(saved, meshcore, topics, self, &skipped);
+    }
+    if (self->set_name || self->set_radio || self->set_tx_power || self->set_position ||
+        self->set_other || self->set_pin) {
+        count = 1U;
+    }
+    if ((topics & MC_TOPIC(MESH_RADIO_BACKUP_TOPIC_CHANNEL)) != 0U) {
         for (uint8_t slot = 0U; slot < MESH_MESHCORE_CHANNELS_KEPT; ++slot) {
             if (!saved->has_channel[slot] ||
                 mc_channel_same(&saved->channels[slot], meshcore->has_channel[slot],
@@ -659,17 +663,202 @@ int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
             memcpy(write->channel_name, saved->channels[slot].name, MESH_MESHCORE_NAME_LEN);
             memcpy(write->channel_secret, saved->channels[slot].secret, MESH_MESHCORE_SECRET_LEN);
         }
-        if (count > max) {
-            result = -ENOSPC;
-        }
     }
-    free(saved);
-    if (result != 0) {
-        return result;
+    if (count > max) {
+        return -ENOSPC;
     }
     memcpy(writes, planned, count * sizeof *writes);
     *unwritable = skipped;
     return (int)count;
+}
+
+/* The checks both plans make before reading anything. */
+static int mc_plan_check(const struct mesh_radio_backup *backup,
+                         const struct mesh_meshcore *meshcore) {
+    if (backup->header.protocol != MESH_RADIO_BACKUP_MESHCORE) {
+        return -EPROTO;
+    }
+    if (!mesh_meshcore_backup_ready(meshcore)) {
+        return -EAGAIN;
+    }
+    return 0;
+}
+
+int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
+                              const struct mesh_meshcore *meshcore,
+                              struct mesh_meshcore_settings_write *writes, size_t max,
+                              size_t *unwritable) {
+    if (backup == NULL || meshcore == NULL || writes == NULL || unwritable == NULL) {
+        return -EINVAL;
+    }
+    *unwritable = 0U;
+    int result = mc_plan_check(backup, meshcore);
+    if (result != 0) {
+        return result;
+    }
+    struct mesh_meshcore_backup_contents *saved = malloc(sizeof *saved);
+    if (saved == NULL) {
+        return -ENOMEM;
+    }
+    result = mc_restore_read(backup, meshcore, saved);
+    if (result == 0) {
+        result = mc_plan(saved, meshcore, MC_TOPICS_ALL, writes, max, unwritable);
+    }
+    free(saved);
+    return result;
+}
+
+int mesh_meshcore_backup_plan_profile(const struct mesh_radio_backup *profile,
+                                      const struct mesh_meshcore *meshcore,
+                                      struct mesh_meshcore_settings_write *writes, size_t max,
+                                      size_t *unwritable) {
+    if (profile == NULL || meshcore == NULL || writes == NULL || unwritable == NULL) {
+        return -EINVAL;
+    }
+    *unwritable = 0U;
+    int result = mc_plan_check(profile, meshcore);
+    if (result != 0) {
+        return result;
+    }
+    if (profile->header.reason != MESH_RADIO_BACKUP_PROFILE) {
+        return -EINVAL;
+    }
+    struct mesh_meshcore_backup_contents *saved = malloc(sizeof *saved);
+    if (saved == NULL) {
+        return -ENOMEM;
+    }
+    /* Any radio's: a profile says whose it is not, and the groups that would say are not in it. */
+    result = mesh_meshcore_backup_read(profile, saved);
+    if (result == 0) {
+        uint32_t topics = profile->header.parts.topics;
+        for (uint8_t topic = 0U; topic < MESH_RADIO_BACKUP_TOPIC_COUNT; ++topic) {
+            if (!mesh_radio_profile_part_allowed(MESH_RADIO_BACKUP_MESHCORE, topic)) {
+                topics &= ~MC_TOPIC(topic);
+            }
+        }
+        result = mc_plan(saved, meshcore, topics, writes, max, unwritable);
+    }
+    free(saved);
+    return result;
+}
+
+/* ---- profiles ------------------------------------------------------------------------------ */
+
+/* The groups a MeshCore profile can carry, in the order a picker lists them. */
+static const uint8_t k_mc_profile_topics[] = {
+    MESH_RADIO_BACKUP_TOPIC_LORA,
+    MESH_RADIO_BACKUP_TOPIC_DEVICE,
+    MESH_RADIO_BACKUP_TOPIC_BLUETOOTH,
+    MESH_RADIO_BACKUP_TOPIC_CHANNEL,
+};
+
+int mesh_meshcore_backup_offer(const struct mesh_radio_backup *backup,
+                               struct mesh_radio_profile_part *out, size_t max) {
+    if (backup == NULL || (out == NULL && max > 0U)) {
+        return -EINVAL;
+    }
+    if (backup->header.protocol != MESH_RADIO_BACKUP_MESHCORE) {
+        return -EPROTO;
+    }
+    const bool self = mesh_radio_backup_count_tag(backup, MESH_MESHCORE_BACKUP_SELF) > 0U;
+    size_t count = 0U;
+    for (size_t i = 0; i < sizeof k_mc_profile_topics; ++i) {
+        const uint8_t topic = k_mc_profile_topics[i];
+        const bool has =
+            topic == MESH_RADIO_BACKUP_TOPIC_BLUETOOTH
+                ? mesh_radio_backup_count_tag(backup, MESH_MESHCORE_BACKUP_PIN) > 0U
+            : topic == MESH_RADIO_BACKUP_TOPIC_CHANNEL
+                ? mesh_radio_backup_count_tag(backup, MESH_MESHCORE_BACKUP_CHANNEL) > 0U
+                : self;
+        if (!has) {
+            continue;
+        }
+        if (count < max) {
+            out[count] = (struct mesh_radio_profile_part){.topic = topic};
+        }
+        ++count;
+    }
+    return (int)count;
+}
+
+/*
+ * The settings record with the radio taken out of it - its key, its name, where it is and what it
+ * advertises itself as - and the groups `parts` leaves out emptied. Emptied rather than left as
+ * they were: the same is done to the radio before the two are compared, so a group the profile
+ * does not carry reads the same on both sides, and its plan never writes one.
+ */
+static void mc_profile_self(struct mesh_meshcore_self_info *self,
+                            const struct mesh_radio_backup_parts *parts) {
+    memset(self->public_key, 0, sizeof self->public_key);
+    memset(self->name, 0, sizeof self->name);
+    self->latitude_e6 = 0;
+    self->longitude_e6 = 0;
+    self->adv_type = 0U;
+    if (!mesh_radio_profile_parts_has(parts, MESH_RADIO_BACKUP_TOPIC_LORA, 0U)) {
+        self->frequency_khz = 0U;
+        self->bandwidth_hz = 0U;
+        self->spreading_factor = 0U;
+        self->coding_rate = 0U;
+        self->tx_power_dbm = 0U;
+    }
+    if (!mesh_radio_profile_parts_has(parts, MESH_RADIO_BACKUP_TOPIC_DEVICE, 0U)) {
+        self->manual_add_contacts = 0U;
+        self->telemetry_modes = 0U;
+        self->advert_loc_policy = 0U;
+        self->multi_acks = 0U;
+    }
+}
+
+int mesh_meshcore_backup_keep(const struct mesh_radio_backup *backup,
+                              const struct mesh_radio_backup_parts *parts,
+                              struct mesh_radio_backup *out) {
+    if (backup == NULL || parts == NULL || out == NULL || backup == out) {
+        return -EINVAL;
+    }
+    if (backup->header.protocol != MESH_RADIO_BACKUP_MESHCORE) {
+        return -EPROTO;
+    }
+    mesh_radio_backup_reset(out);
+    out->header = backup->header;
+    const bool self = mesh_radio_profile_parts_has(parts, MESH_RADIO_BACKUP_TOPIC_LORA, 0U) ||
+                      mesh_radio_profile_parts_has(parts, MESH_RADIO_BACKUP_TOPIC_DEVICE, 0U);
+    int result = 0;
+    const uint8_t *data = NULL;
+    const struct mesh_radio_backup_section *section = NULL;
+    for (size_t i = 0;
+         result == 0 && (section = mesh_radio_backup_section_at(backup, i, &data)) != NULL; ++i) {
+        switch (section->tag) {
+        case MESH_MESHCORE_BACKUP_SELF: {
+            struct mesh_meshcore_self_info info;
+            if (!self) {
+                break;
+            }
+            if (!mc_read_self(data, section->len, &info)) {
+                result = -EBADMSG;
+                break;
+            }
+            mc_profile_self(&info, parts);
+            result = mc_add_self(&info, out);
+            break;
+        }
+        case MESH_MESHCORE_BACKUP_PIN:
+            if (mesh_radio_profile_parts_has(parts, MESH_RADIO_BACKUP_TOPIC_BLUETOOTH, 0U)) {
+                result = mesh_radio_backup_add(out, section->tag, data, section->len);
+            }
+            break;
+        case MESH_MESHCORE_BACKUP_CHANNEL:
+            if (mesh_radio_profile_parts_has(parts, MESH_RADIO_BACKUP_TOPIC_CHANNEL, 0U)) {
+                result = mesh_radio_backup_add(out, section->tag, data, section->len);
+            }
+            break;
+        default:
+            break; /* contacts are the radio's, and a later build's sections are not ours */
+        }
+    }
+    if (result != 0) {
+        mesh_radio_backup_reset(out);
+    }
+    return result;
 }
 
 static const struct mesh_meshcore_contact *mc_radio_contact(const struct mesh_meshcore *meshcore,

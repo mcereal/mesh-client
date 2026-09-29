@@ -61,6 +61,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/mqtt_topic.c
     suites/protocol.c
     suites/radio_backup.c
+    suites/radio_profile.c
     suites/radio_settings.c
     suites/session.c
     suites/session_events.c
@@ -91,6 +92,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/ui_nav_nodes.c
     suites/ui_nav_settings.c
     suites/ui_nav_backups.c
+    suites/ui_nav_profiles.c
     suites/ui_preferences.c
     suites/ui_route.c
     suites/ui_settings.c

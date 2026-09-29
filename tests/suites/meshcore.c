@@ -16,6 +16,7 @@
 #include "mesh/core/meshcore_backup.h"
 #include "mesh/core/message.h"
 #include "mesh/core/radio_backup.h"
+#include "mesh/core/radio_profile.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/ble_profile.h"
@@ -2903,5 +2904,120 @@ MESH_TEST_CASE(meshcore_restore_contact_waits_for_its_answer, unit) {
     MESH_TEST_FAIL_IF(g_meshcore.contact_restore_outstanding ||
                           g_meshcore.contact_restores_refused != 2U,
                       "a write lost with the link was not settled");
+    record_success(test_name);
+}
+
+/* ------------------------------------------------------------------ profiles */
+
+static struct mesh_radio_backup g_profile;
+static struct mesh_radio_backup_diff g_profile_diff;
+
+static struct mesh_radio_backup_parts profile_parts(uint8_t a, uint8_t b) {
+    struct mesh_radio_backup_parts parts = {0};
+    mesh_radio_profile_parts_set(&parts, a, 0U, true);
+    mesh_radio_profile_parts_set(&parts, b, 0U, true);
+    return parts;
+}
+
+/* Contacts, a name, a key and a place are the radio; none of them is in a profile, however
+   much of it was asked for. */
+MESH_TEST_CASE(meshcore_profile_from_a_backup_has_no_identity, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    g_meshcore.self.latitude_e6 = 47397700;
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    MESH_TEST_FAIL_IF(mesh_radio_backup_count_tag(&g_backup, MESH_MESHCORE_BACKUP_CONTACT) == 0U,
+                      "fixture: the backup has no contact to leave out");
+    const struct mesh_radio_backup_parts every = {.topics = UINT32_MAX, .modules = UINT32_MAX};
+    MESH_TEST_FAIL_IF(mesh_radio_profile_make(&g_backup, &every, "Kit", &g_profile) != 0,
+                      "the profile was not made");
+    MESH_TEST_FAIL_IF(mesh_radio_backup_count_tag(&g_profile, MESH_MESHCORE_BACKUP_CONTACT) != 0U,
+                      "a contact went into a profile");
+    static struct mesh_meshcore_backup_contents contents;
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_read(&g_profile, &contents) != 0 || !contents.has_self,
+                      "the profile's settings did not read");
+    static const uint8_t zero[MESH_MESHCORE_PUBKEY_LEN] = {0};
+    MESH_TEST_FAIL_IF(contents.self.name[0] != '\0' ||
+                          memcmp(contents.self.public_key, zero, sizeof zero) != 0 ||
+                          contents.self.latitude_e6 != 0,
+                      "the radio's name, key or position is in the profile");
+    MESH_TEST_FAIL_IF(contents.self.frequency_khz != g_meshcore.self.frequency_khz ||
+                          !contents.has_pin || !contents.has_channel[0],
+                      "the radio numbers, the PIN or a channel was left out");
+    MESH_TEST_FAIL_IF(g_profile.header.node_id != 0U || g_profile.header.has_contacts,
+                      "the header still names the radio");
+    record_success(test_name);
+}
+
+/*
+ * A profile of the channels, put on another radio - another key, another name, other radio
+ * numbers: the comparison lists nothing outside the channels, and the plan is the one slot that
+ * differs, planned for a radio that is not the profile's.
+ */
+MESH_TEST_CASE(meshcore_profile_applied_touches_only_its_parts, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    const struct mesh_radio_backup_parts channels =
+        profile_parts(MESH_RADIO_BACKUP_TOPIC_CHANNEL, MESH_RADIO_BACKUP_TOPIC_CHANNEL);
+    MESH_TEST_FAIL_IF(mesh_radio_profile_make(&g_backup, &channels, "Channels", &g_profile) != 0,
+                      "the profile was not made");
+
+    g_meshcore.self.public_key[0] ^= 0xffU;
+    snprintf(g_meshcore.self.name, sizeof g_meshcore.self.name, "%s", "Other");
+    g_meshcore.self.frequency_khz += 125U;
+    g_meshcore.contact_count = 0U;
+    snprintf(g_meshcore.channels[0].name, sizeof g_meshcore.channels[0].name, "%s", "Renamed");
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup_read);
+    MESH_TEST_FAIL_IF(mesh_radio_profile_diff(&g_profile, &g_backup_read, &g_profile_diff) != 0,
+                      "the comparison failed");
+    for (size_t i = 0; i < g_profile_diff.count; ++i) {
+        MESH_TEST_FAIL_IF(g_profile_diff.changes[i].topic != MESH_RADIO_BACKUP_TOPIC_CHANNEL,
+                          "a difference outside the channels was listed");
+    }
+    MESH_TEST_FAIL_IF(g_profile_diff.total != 1U, "the renamed slot was not the one difference");
+
+    size_t unwritable = 99U;
+    const int planned = mesh_meshcore_backup_plan_profile(
+        &g_profile, &g_meshcore, g_plan, MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable);
+    MESH_TEST_FAIL_IF(planned != 1 || unwritable != 0U, "not exactly one save");
+    MESH_TEST_FAIL_IF(!g_plan[0].set_channel || g_plan[0].channel_index != 0U ||
+                          g_plan[0].set_name || g_plan[0].set_radio || g_plan[0].set_position ||
+                          g_plan[0].set_pin || g_plan[0].set_other || g_plan[0].set_tx_power,
+                      "the save reached past the channels");
+
+    /* A profile of the radio numbers, onto the same radio: the numbers, and not its name. */
+    const struct mesh_radio_backup_parts lora =
+        profile_parts(MESH_RADIO_BACKUP_TOPIC_LORA, MESH_RADIO_BACKUP_TOPIC_LORA);
+    MESH_TEST_FAIL_IF(mesh_radio_profile_make(&g_backup, &lora, "LoRa", &g_profile) != 0,
+                      "the LoRa profile was not made");
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_backup_plan_profile(&g_profile, &g_meshcore, g_plan,
+                                          MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable) != 1 ||
+            !g_plan[0].set_radio || g_plan[0].set_name || g_plan[0].set_channel || unwritable != 0U,
+        "the LoRa profile did not plan the radio numbers alone");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(meshcore_profile_plan_refuses_what_is_not_a_meshcore_profile, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    size_t unwritable = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_plan_profile(&g_backup, &g_meshcore, g_plan,
+                                                        MESH_MESHCORE_BACKUP_PLAN_MAX,
+                                                        &unwritable) != -EINVAL,
+                      "a backup was applied as a profile, to a radio that may not be its own");
+    const struct mesh_radio_backup_parts lora =
+        profile_parts(MESH_RADIO_BACKUP_TOPIC_LORA, MESH_RADIO_BACKUP_TOPIC_LORA);
+    (void)mesh_radio_profile_make(&g_backup, &lora, "LoRa", &g_profile);
+    g_profile.header.protocol = MESH_RADIO_BACKUP_MESHTASTIC;
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_plan_profile(&g_profile, &g_meshcore, g_plan,
+                                                        MESH_MESHCORE_BACKUP_PLAN_MAX,
+                                                        &unwritable) != -EPROTO,
+                      "a Meshtastic profile was planned onto a MeshCore radio");
     record_success(test_name);
 }

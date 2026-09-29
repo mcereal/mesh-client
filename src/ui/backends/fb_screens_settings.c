@@ -14,6 +14,7 @@
 
 #include "fb_screens_internal.h"
 #include "mesh/ui/backups.h"
+#include "mesh/ui/profiles.h"
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/focus.h"
@@ -145,12 +146,16 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
          * "Channels" over one channel - which is exactly where the breadcrumb was earning its
          * keep and nowhere else.
          */
-        if (section == MESH_UI_SETTINGS_BACKUPS &&
-            mesh_ui_backups_title(&settings->backups, view->channel, title, sizeof title, parent,
-                                  sizeof parent)) {
-            /* A radio, one of its backups, or that backup against the radio: under the section,
-               and under whichever of the others is between them. */
-            bar.trail[bar.trail_count++] = mesh_ui_settings_section_name(MESH_UI_SETTINGS_BACKUPS);
+        if ((section == MESH_UI_SETTINGS_BACKUPS &&
+             mesh_ui_backups_title(&settings->backups, view->channel, title, sizeof title, parent,
+                                   sizeof parent)) ||
+            (section == MESH_UI_SETTINGS_PROFILES &&
+             mesh_ui_profiles_title(&settings->profiles, view->channel, title, sizeof title, parent,
+                                    sizeof parent))) {
+            /* A radio, one of its backups, or that backup against the radio - or a profile, or
+               that against the radio: under the section, and under whichever level is between. */
+            bar.trail[bar.trail_count++] =
+                mesh_ui_settings_section_name((enum mesh_ui_settings_section)section);
             if (parent[0] != '\0') {
                 bar.trail[bar.trail_count++] = parent;
             }
@@ -200,8 +205,9 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
         section == MESH_UI_SETTINGS_RADIO_DETAILS && settings->fw_silent_port[0] != '\0';
     if (!settings->loaded && (handshake == NULL || !handshake->has_my_info) && section_open &&
         section != MESH_UI_SETTINGS_ABOUT && section != MESH_UI_SETTINGS_MAPS &&
-        section != MESH_UI_SETTINGS_BACKUPS && section != MESH_UI_SETTINGS_MODULES &&
-        section != MESH_UI_SETTINGS_NODE_LISTS && !silent_radio) {
+        section != MESH_UI_SETTINGS_BACKUPS && section != MESH_UI_SETTINGS_PROFILES &&
+        section != MESH_UI_SETTINGS_MODULES && section != MESH_UI_SETTINGS_NODE_LISTS &&
+        !silent_radio) {
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_SETTINGS,
                               inkcell_str(MESH_STR_SETTINGS_EMPTY_DISCONNECT));
         return;

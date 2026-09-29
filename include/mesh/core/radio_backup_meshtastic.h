@@ -26,6 +26,7 @@
 
 #include "mesh/core/radio_backup.h"
 #include "mesh/core/radio_backup_diff.h"
+#include "mesh/core/radio_profile.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
 
@@ -113,6 +114,10 @@ int mesh_radio_backup_meshtastic_diff(const struct mesh_radio_backup *a,
  * section with no key of the radio's own to carry, a module this build keeps no binding for -
  * so a plan of 0 can be told apart from a radio that already matches.
  *
+ * `backup` may be a profile (mesh/core/radio_profile.h), which holds only the sections it keeps -
+ * so only those are written - and whose position settings take this radio's own fixed_position
+ * flag rather than the cleared one the profile carries.
+ *
  * Returns how many writes were planned, -EPROTO for a
  * backup of another protocol, -EAGAIN when the radio has not been read far enough to compare
  * (mesh_radio_backup_meshtastic_capture()'s refusal), -ENOSPC when more than `max` sections
@@ -123,6 +128,23 @@ int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
                                       const struct mesh_handshake_status *status,
                                       struct mesh_admin_request *writes, size_t max,
                                       size_t *unwritable);
+
+/*
+ * The parts a profile made from `backup` could carry (mesh_radio_profile_offer()): each Config
+ * section but Security, each module, the channels as one part, the UI config, the canned
+ * messages, the ringtone - in the order the backup holds them. How many, -EPROTO, -ENOMEM.
+ */
+int mesh_radio_backup_meshtastic_offer(const struct mesh_radio_backup *backup,
+                                       struct mesh_radio_profile_part *out, size_t max);
+
+/*
+ * `backup` cut down to `parts` into `out`, header and all: the sections whose part is in `parts`
+ * and may be in a profile, with PositionConfig's fixed_position cleared. How a profile is made,
+ * and how the radio is cut down to compare with one. 0, -EPROTO, -EBADMSG, -ENOSPC, -ENOMEM.
+ */
+int mesh_radio_backup_meshtastic_keep(const struct mesh_radio_backup *backup,
+                                      const struct mesh_radio_backup_parts *parts,
+                                      struct mesh_radio_backup *out);
 
 #ifdef __cplusplus
 }

@@ -112,6 +112,7 @@
 #include "mesh/core/updater.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/backends/fb_capture.h"
+#include "mesh/ui/backups.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/preferences.h"
@@ -3203,6 +3204,170 @@ static int verb_backups(struct inkstand_scene *scene, char *rest, void *userdata
     return 0;
 }
 
+/*
+ * The profiles on the card, and the one being made from a backup, as the app would publish them.
+ *
+ *   profiles list             two profiles (one for each firmware) and a `.cfg` from a phone
+ *   profiles draft            the parts of the newest backup of the radio on the link, all ticked
+ *   profiles tick N           unticks or ticks the draft's part N
+ *   profiles compare|same     a finished comparison of the first profile with the radio
+ *   profiles applying         that profile being written to the radio
+ */
+static void uicap_profile(struct mesh_ui_profiles *p, uint32_t sequence, const char *name,
+                          uint8_t protocol, uint32_t saved_at) {
+    struct mesh_ui_profile *item = &p->items[p->count++];
+    memset(item, 0, sizeof *item);
+    item->sequence = sequence;
+    struct mesh_radio_backup_header *h = &item->header;
+    h->reason = MESH_RADIO_BACKUP_PROFILE;
+    h->protocol = protocol;
+    h->saved_at = saved_at;
+    inkwell_str_copy(h->name, sizeof h->name, name);
+    inkwell_str_copy(h->model, sizeof h->model,
+                     protocol == MESH_RADIO_BACKUP_MESHCORE ? "Heltec V3" : "HELTEC_V3");
+    inkwell_str_copy(h->firmware, sizeof h->firmware,
+                     protocol == MESH_RADIO_BACKUP_MESHCORE ? "v1.17.1" : "2.5.6.d55c08d");
+    mesh_radio_profile_parts_set(&h->parts, MESH_RADIO_BACKUP_TOPIC_LORA, 0U, true);
+    mesh_radio_profile_parts_set(&h->parts, MESH_RADIO_BACKUP_TOPIC_CHANNEL, 0U, true);
+    h->has_radio = true;
+    h->tx_power_dbm = 20;
+    if (protocol == MESH_RADIO_BACKUP_MESHCORE) {
+        h->frequency_khz = 869618U;
+        h->bandwidth_hz = 62500U;
+        h->spreading_factor = 8U;
+        h->coding_rate = 8U;
+        h->channel_count = 1U;
+        inkwell_str_copy(h->channel_names[0], sizeof h->channel_names[0], "Public");
+        return;
+    }
+    mesh_radio_profile_parts_set(&h->parts, MESH_RADIO_BACKUP_TOPIC_MODULE,
+                                 meshtastic_ModuleConfig_mqtt_tag, true);
+    mesh_radio_profile_parts_set(&h->parts, MESH_RADIO_BACKUP_TOPIC_DEVICE, 0U, true);
+    inkwell_str_copy(h->region, sizeof h->region, "EU_868");
+    inkwell_str_copy(h->preset, sizeof h->preset, "MEDIUM_FAST");
+    h->channel_count = 3U;
+    inkwell_str_copy(h->channel_names[2], sizeof h->channel_names[2], "Hike crew");
+}
+
+/* The first profile for the radio on the link: the one a comparison can be of. */
+static uint32_t uicap_profile_of(const struct mesh_ui_profiles *p, uint8_t protocol) {
+    for (size_t i = 0; i < p->count; ++i) {
+        if (p->items[i].header.protocol == protocol) {
+            return p->items[i].sequence;
+        }
+    }
+    return 0U;
+}
+
+static int verb_profiles(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *what = inkstand_scene_word(&rest);
+    if (what == NULL) {
+        return inkstand_scene_fail(scene, "'profiles' needs list, draft, tick, compare or same");
+    }
+    struct mesh_ui_settings settings = cap->store.settings;
+    struct mesh_ui_profiles *p = &settings.profiles;
+    const bool meshcore = !mesh_ui_settings_supports(&settings, MESH_UI_FEATURE_FULL_CONFIG);
+    const uint8_t live = meshcore ? MESH_RADIO_BACKUP_MESHCORE : MESH_RADIO_BACKUP_MESHTASTIC;
+    if (strcmp(what, "list") == 0) {
+        memset(p, 0, sizeof *p);
+        p->enabled = true;
+        inkwell_str_copy(p->folder, sizeof p->folder, "~/.meshclient/profiles");
+        for (uint16_t tag = 0U; tag < 32U; ++tag) {
+            p->module_names[tag] = (uint16_t)(MESH_UI_BACKUPS_MODULE_UNPLACED + tag);
+        }
+        p->module_names[meshtastic_ModuleConfig_mqtt_tag] = (uint16_t)MESH_UI_SETTINGS_MQTT;
+        p->module_names[meshtastic_ModuleConfig_telemetry_tag] =
+            (uint16_t)MESH_UI_SETTINGS_TELEMETRY;
+        const uint32_t now = (uint32_t)inkwell_time_wall_s();
+        uicap_profile(p, 2U, "EU narrow", MESH_RADIO_BACKUP_MESHCORE, now - 86400U * 3U);
+        uicap_profile(p, 1U, "Hike mesh", MESH_RADIO_BACKUP_MESHTASTIC, now - 86400U);
+        p->cfg_count = 1U;
+        inkwell_str_copy(p->cfgs[0], sizeof p->cfgs[0], "meshtastic_config.cfg");
+    } else if (strcmp(what, "draft") == 0) {
+        const uint32_t node = cap->store.handshake.my_info.node_num != 0U
+                                  ? cap->store.handshake.my_info.node_num
+                                  : 0x0badcafeU;
+        p->draft_node = node;
+        p->draft_sequence = 3U;
+        p->draft_protocol = live;
+        p->draft_count = 0U;
+        memset(&p->draft_picked, 0, sizeof p->draft_picked);
+        static const uint8_t mt_topics[] = {
+            MESH_RADIO_BACKUP_TOPIC_DEVICE,    MESH_RADIO_BACKUP_TOPIC_POSITION,
+            MESH_RADIO_BACKUP_TOPIC_POWER,     MESH_RADIO_BACKUP_TOPIC_NETWORK,
+            MESH_RADIO_BACKUP_TOPIC_DISPLAY,   MESH_RADIO_BACKUP_TOPIC_LORA,
+            MESH_RADIO_BACKUP_TOPIC_BLUETOOTH, MESH_RADIO_BACKUP_TOPIC_MODULE,
+            MESH_RADIO_BACKUP_TOPIC_MODULE,    MESH_RADIO_BACKUP_TOPIC_CHANNEL,
+            MESH_RADIO_BACKUP_TOPIC_CANNED,
+        };
+        static const uint16_t mt_index[] = {0U,
+                                            0U,
+                                            0U,
+                                            0U,
+                                            0U,
+                                            0U,
+                                            0U,
+                                            meshtastic_ModuleConfig_mqtt_tag,
+                                            meshtastic_ModuleConfig_telemetry_tag,
+                                            0U,
+                                            0U};
+        static const uint8_t mc_topics[] = {
+            MESH_RADIO_BACKUP_TOPIC_LORA, MESH_RADIO_BACKUP_TOPIC_DEVICE,
+            MESH_RADIO_BACKUP_TOPIC_BLUETOOTH, MESH_RADIO_BACKUP_TOPIC_CHANNEL};
+        const size_t count = meshcore ? sizeof mc_topics : sizeof mt_topics;
+        for (size_t i = 0; i < count; ++i) {
+            struct mesh_radio_profile_part *part = &p->draft_parts[p->draft_count++];
+            part->topic = meshcore ? mc_topics[i] : mt_topics[i];
+            part->index = meshcore ? 0U : mt_index[i];
+            mesh_radio_profile_parts_set(&p->draft_picked, part->topic, part->index, true);
+        }
+    } else if (strcmp(what, "tick") == 0) {
+        const char *which = inkstand_scene_word(&rest);
+        const unsigned long i = which != NULL ? strtoul(which, NULL, 10) : 999UL;
+        if (i >= p->draft_count) {
+            return inkstand_scene_fail(scene, "'profiles tick' needs a part the draft has");
+        }
+        const struct mesh_radio_profile_part *part = &p->draft_parts[i];
+        const bool on = mesh_radio_profile_parts_has(&p->draft_picked, part->topic, part->index);
+        mesh_radio_profile_parts_set(&p->draft_picked, part->topic, part->index, !on);
+    } else if (strcmp(what, "applying") == 0) {
+        p->compare_sequence = uicap_profile_of(p, live);
+        p->compare_state = MESH_UI_BACKUP_COMPARE_RESTORING;
+    } else if (strcmp(what, "compare") == 0 || strcmp(what, "same") == 0) {
+        p->compare_sequence = uicap_profile_of(p, live);
+        p->compare_state = MESH_UI_BACKUP_COMPARE_DONE;
+        mesh_radio_backup_diff_reset(&p->diff, live);
+        if (strcmp(what, "compare") == 0 && meshcore) {
+            uicap_backup_change(&p->diff, MESH_RADIO_BACKUP_TOPIC_LORA, 0U,
+                                MESH_MESHCORE_BACKUP_FIELD_BANDWIDTH, 62500, 250000);
+            uicap_backup_change(&p->diff, MESH_RADIO_BACKUP_TOPIC_LORA, 0U,
+                                MESH_MESHCORE_BACKUP_FIELD_SPREADING, 8, 11);
+        } else if (strcmp(what, "compare") == 0) {
+            /* The radio is on another hop limit, its MQTT uplink off, slot 2 not the crew's. */
+            uicap_backup_change(&p->diff, MESH_RADIO_BACKUP_TOPIC_LORA, 0U, 8U, 5, 3);
+            struct mesh_radio_backup_change *mqtt = mesh_radio_backup_diff_add(
+                &p->diff, MESH_RADIO_BACKUP_CHANGED, MESH_RADIO_BACKUP_TOPIC_MODULE,
+                (uint16_t)MESH_UI_SETTINGS_MQTT, 1U);
+            if (mqtt != NULL) {
+                mesh_radio_backup_value_bool(&mqtt->before, true);
+                mesh_radio_backup_value_bool(&mqtt->after, false);
+            }
+            struct mesh_radio_backup_change *name = mesh_radio_backup_diff_add(
+                &p->diff, MESH_RADIO_BACKUP_CHANGED, MESH_RADIO_BACKUP_TOPIC_CHANNEL, 2U, 203U);
+            if (name != NULL) {
+                mesh_radio_backup_value_text(&name->before, "Hike crew", 9U);
+                mesh_radio_backup_value_text(&name->after, "Ops", 3U);
+            }
+        }
+    } else {
+        return inkstand_scene_fail(scene,
+                                   "'profiles' is list, draft, tick, compare, same or applying");
+    }
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
 static const struct inkstand_scene_verb uicap_verbs[] = {
     {"map", INKSTAND_SCENE_NO_FRAME, verb_map},
     {"context", 0U, verb_context},
@@ -3252,6 +3417,7 @@ static const struct inkstand_scene_verb uicap_verbs[] = {
     {"alert", 0U, verb_alert},
     {"detection", 0U, verb_detection},
     {"backups", 0U, verb_backups},
+    {"profiles", 0U, verb_profiles},
 };
 
 /* ---- the files --------------------------------------------------------------------------- */

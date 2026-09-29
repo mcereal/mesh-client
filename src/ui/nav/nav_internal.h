@@ -215,6 +215,16 @@ bool mesh_ui_nav_backups_press(struct mesh_ui_nav *nav, const struct mesh_ui_sto
 bool mesh_ui_nav_backups_back(struct mesh_ui_nav *nav);
 bool mesh_ui_nav_backups_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
 void mesh_ui_nav_backups_reset(struct mesh_ui_nav *nav);
+/* The Profiles section's levels, the same four calls (see `profiles_sequence` in nav.h). */
+bool mesh_ui_nav_profiles_press(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                enum mesh_ui_settings_action which, const char *text,
+                                struct mesh_ui_action *action);
+bool mesh_ui_nav_profiles_back(struct mesh_ui_nav *nav);
+bool mesh_ui_nav_profiles_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
+void mesh_ui_nav_profiles_reset(struct mesh_ui_nav *nav);
+/* The keyboard for a new profile's name, starting from `name`; Done is MESH_UI_ACTION_PROFILE_MAKE.
+ */
+void mesh_ui_nav_open_profile_name_keyboard(struct mesh_ui_nav *nav, const char *name);
 /* Drops every pending settings edit and stands the discard question down. */
 void mesh_ui_nav_edits_clear(struct mesh_ui_nav *nav);
 /* The open section's rows as built, on whichever tab shows one (mesh_ui_nav_open_section());

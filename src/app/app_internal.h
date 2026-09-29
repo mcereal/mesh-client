@@ -73,6 +73,10 @@ void mesh_app_backup_before(struct mesh_app *app, uint8_t reason);
    yet. Called every turn; cheap until a radio is ready. */
 void mesh_app_backup_tick(struct mesh_app *app);
 
+/* The radio on the link captured as a backup would take it, for a comparison: -ENODEV while no
+   radio is ready to be read (or the Settings tab administers another node). */
+int mesh_app_backup_capture_live(struct mesh_app *app, struct mesh_radio_backup *out);
+
 /* Reads the card into `backup_listing` again: every radio, its newest backups' headers. */
 void mesh_app_backup_rescan(struct mesh_app *app);
 
@@ -91,6 +95,37 @@ void mesh_app_backup_restore_option(struct mesh_app *app, uint32_t which);
 void mesh_app_backup_restore_stop(struct mesh_app *app);
 /* Lets go of a restore in flight - what it allocated - as the app shuts down. */
 void mesh_app_backup_restore_release(struct mesh_app *app);
+
+/* ---- app_profile.c ---------------------------------------------------------------------- */
+
+/* Opens the profile directory beside the preferences and reads it; quiet when it cannot. */
+void mesh_app_profile_init(struct mesh_app *app);
+/* Reads the directory into `profile_listing` again: every profile's header, every `.cfg`. */
+void mesh_app_profile_rescan(struct mesh_app *app);
+/* Copies the listing into a publish. Reads nothing off the card. */
+void mesh_app_profile_publish(const struct mesh_app *app, struct mesh_ui_profiles *out);
+/* A profile compared with the radio on the link; the answer is published with the listing. */
+void mesh_app_profile_compare(struct mesh_app *app, uint32_t sequence);
+/* The same comparison into `diff`, published nowhere: 0, or why it could not be made. */
+/* The radio on the link, once it has been read far enough to capture; 0 until then. */
+uint32_t mesh_app_backup_live_node(struct mesh_app *app);
+int mesh_app_profile_diff(struct mesh_app *app, uint32_t sequence,
+                          struct mesh_radio_backup_diff *diff);
+/* Puts a profile on the radio on the link, through the restore (see app_backup.c). */
+/* `node` is the radio it was compared with; it is refused on any other. */
+void mesh_app_profile_apply(struct mesh_app *app, uint32_t sequence, uint32_t node);
+/* Whether profile `sequence` is being applied still - sent, and not yet judged. */
+bool mesh_app_profile_applying(const struct mesh_app *app, uint32_t sequence);
+void mesh_app_profile_delete(struct mesh_app *app, uint32_t sequence);
+/* Starts a profile out of backup `sequence` of radio `node`: the parts it offers, all ticked. */
+void mesh_app_profile_draft(struct mesh_app *app, uint32_t node, uint32_t sequence);
+/* Ticks or unticks the draft's part at `index` of the list it offers. */
+void mesh_app_profile_draft_toggle(struct mesh_app *app, uint32_t index);
+/* Saves the draft as a profile named `name`. */
+void mesh_app_profile_make(struct mesh_app *app, const char *name);
+/* Writes a Meshtastic profile out as `<name>.cfg`, and reads a `.cfg` in as a profile. */
+void mesh_app_profile_export(struct mesh_app *app, uint32_t sequence);
+void mesh_app_profile_import(struct mesh_app *app, const char *file);
 
 /* ---- app_actions.c ---------------------------------------------------------------------- */
 

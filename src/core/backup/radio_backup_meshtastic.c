@@ -875,6 +875,8 @@ int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
         keys[count_live] = mt_key_of(section->tag, data, section->len, message);
     }
     size_t planned = 0U;
+    const bool profile = backup->header.reason == MESH_RADIO_BACKUP_PROFILE;
+    uint8_t localized[MESH_RADIO_BACKUP_SECTION_MAX];
     for (size_t i = 0; result == 0 && i < MT_DIFF_SECTIONS &&
                        (section = mesh_radio_backup_section_at(backup, i, &data)) != NULL;
          ++i) {
@@ -882,14 +884,34 @@ int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
         if (!key.ok) {
             continue;
         }
+        size_t len = section->len;
+        if (profile && key.tag == MESH_RADIO_BACKUP_MT_CONFIG &&
+            key.index == meshtastic_Config_position_tag) {
+            /* A profile's position settings with this radio's own fixed_position in them, both to
+               compare and to write: see mt_profile_clear(). */
+            memset(message, 0, sizeof *message);
+            pb_ostream_t stream = pb_ostream_from_buffer(localized, sizeof localized);
+            if (!mt_decode(data, section->len, meshtastic_Config_fields, message)) {
+                result = -EBADMSG;
+                break;
+            }
+            message->config.payload_variant.position.fixed_position =
+                settings->position.fixed_position;
+            if (!pb_encode(&stream, meshtastic_Config_fields, &message->config)) {
+                result = -EBADMSG;
+                break;
+            }
+            data = localized;
+            len = stream.bytes_written;
+            (void)mt_key_of(key.tag, data, len, message);
+        }
         bool same = false;
         for (size_t j = 0; j < count_live; ++j) {
             const uint8_t *live_data = NULL;
             if (keys[j].ok && keys[j].tag == key.tag && keys[j].index == key.index) {
                 const struct mesh_radio_backup_section *other =
                     mesh_radio_backup_section_at(live, j, &live_data);
-                same = mt_same_section(key.tag, data, section->len, live_data, other->len,
-                                       message + 1);
+                same = mt_same_section(key.tag, data, len, live_data, other->len, message + 1);
                 break;
             }
         }
@@ -897,7 +919,7 @@ int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
             continue;
         }
         struct mesh_admin_request write;
-        if (!mt_restore_write(&key, message, data, section->len, settings, &write)) {
+        if (!mt_restore_write(&key, message, data, len, settings, &write)) {
             if (unwritable != NULL) {
                 ++*unwritable;
             }
@@ -912,4 +934,100 @@ int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
     free(live);
     free(message);
     return result == 0 ? (int)planned : result;
+}
+
+/* ---- profiles ------------------------------------------------------------------------------ */
+
+/*
+ * The one field outside the Security section and the owner that is the radio rather than its
+ * settings: PositionConfig's fixed_position, which says the position the radio reports is one
+ * somebody put there. A profile carries it cleared, and a profile's plan writes the radio's own
+ * flag back into it, so a profile applied neither pins a radio to a place it is not nor frees
+ * one that was pinned.
+ */
+static void mt_profile_clear(union mt_message *message) {
+    if (message->config.which_payload_variant == meshtastic_Config_position_tag) {
+        message->config.payload_variant.position.fixed_position = false;
+    }
+}
+
+int mesh_radio_backup_meshtastic_offer(const struct mesh_radio_backup *backup,
+                                       struct mesh_radio_profile_part *out, size_t max) {
+    if (backup == NULL || (out == NULL && max > 0U)) {
+        return -EINVAL;
+    }
+    if (backup->header.protocol != MESH_RADIO_BACKUP_MESHTASTIC) {
+        return -EPROTO;
+    }
+    union mt_message *message = malloc(sizeof *message);
+    if (message == NULL) {
+        return -ENOMEM;
+    }
+    struct mesh_radio_backup_parts seen = {0};
+    size_t count = 0U;
+    const uint8_t *data = NULL;
+    const struct mesh_radio_backup_section *section = NULL;
+    for (size_t i = 0; (section = mesh_radio_backup_section_at(backup, i, &data)) != NULL; ++i) {
+        const struct mt_key key = mt_key_of(section->tag, data, section->len, message);
+        if (!key.ok || !mesh_radio_profile_part_allowed(MESH_RADIO_BACKUP_MESHTASTIC, key.topic)) {
+            continue;
+        }
+        /* The channels are one part - a table, not eight choices - and a module is its own. */
+        const uint16_t index = key.topic == MESH_RADIO_BACKUP_TOPIC_MODULE ? key.index : 0U;
+        if (mesh_radio_profile_parts_has(&seen, key.topic, index)) {
+            continue;
+        }
+        mesh_radio_profile_parts_set(&seen, key.topic, index, true);
+        if (count < max) {
+            out[count] = (struct mesh_radio_profile_part){.topic = key.topic, .index = index};
+        }
+        ++count;
+    }
+    free(message);
+    return (int)count;
+}
+
+int mesh_radio_backup_meshtastic_keep(const struct mesh_radio_backup *backup,
+                                      const struct mesh_radio_backup_parts *parts,
+                                      struct mesh_radio_backup *out) {
+    if (backup == NULL || parts == NULL || out == NULL || backup == out) {
+        return -EINVAL;
+    }
+    if (backup->header.protocol != MESH_RADIO_BACKUP_MESHTASTIC) {
+        return -EPROTO;
+    }
+    mesh_radio_backup_reset(out);
+    out->header = backup->header;
+    union mt_message *message = malloc(sizeof *message);
+    if (message == NULL) {
+        return -ENOMEM;
+    }
+    int result = 0;
+    const uint8_t *data = NULL;
+    const struct mesh_radio_backup_section *section = NULL;
+    for (size_t i = 0;
+         result == 0 && (section = mesh_radio_backup_section_at(backup, i, &data)) != NULL; ++i) {
+        const struct mt_key key = mt_key_of(section->tag, data, section->len, message);
+        if (!key.ok || !mesh_radio_profile_part_allowed(MESH_RADIO_BACKUP_MESHTASTIC, key.topic) ||
+            !mesh_radio_profile_parts_has(parts, key.topic, key.index)) {
+            continue;
+        }
+        if (key.tag == MESH_RADIO_BACKUP_MT_CONFIG && key.index == meshtastic_Config_position_tag) {
+            /* Decoded again: mt_key_of() left it in the form it is compared in. */
+            memset(message, 0, sizeof *message);
+            if (!mt_decode(data, section->len, meshtastic_Config_fields, message)) {
+                result = -EBADMSG;
+                break;
+            }
+            mt_profile_clear(message);
+            result = mt_add(out, key.tag, meshtastic_Config_fields, &message->config);
+            continue;
+        }
+        result = mesh_radio_backup_add(out, section->tag, data, section->len);
+    }
+    free(message);
+    if (result != 0) {
+        mesh_radio_backup_reset(out);
+    }
+    return result;
 }

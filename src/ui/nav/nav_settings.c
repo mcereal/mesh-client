@@ -15,6 +15,7 @@
 
 #include "mesh/ui/backups.h"
 #include "mesh/ui/focus.h"
+#include "mesh/ui/profiles.h"
 #include "mesh/ui/settings.h"
 
 #include <stdio.h>
@@ -410,6 +411,19 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
         action->number = nav->backups_sequence;
         return;
     }
+    if (which == MESH_UI_SETTINGS_ACTION_PROFILES_APPLY) {
+        /* On the radio it was compared with when the sheet opened, not whichever the link has
+           moved to since. */
+        action->type = MESH_UI_ACTION_PROFILE_APPLY;
+        action->number = nav->profiles_sequence;
+        action->dest = nav->profiles_apply_node;
+        return;
+    }
+    if (which == MESH_UI_SETTINGS_ACTION_PROFILES_DELETE) {
+        action->type = MESH_UI_ACTION_PROFILE_DELETE;
+        action->number = nav->profiles_sequence;
+        return;
+    }
     if (which == MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
         action->type = MESH_UI_ACTION_MAPS_DELETE;
         snprintf(action->identifier, sizeof action->identifier, "%s", nav->maps_pending);
@@ -490,6 +504,13 @@ bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, const struct mesh_ui_store
         nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->backups_list_cursor;
         return true;
     }
+    /* And a deleted profile, back to the list it was opened from. */
+    if (confirmed == MESH_UI_SETTINGS_ACTION_PROFILES_DELETE) {
+        const uint32_t row = nav->profiles_list_cursor;
+        mesh_ui_nav_profiles_reset(nav);
+        nav->cursor[MESH_UI_SCREEN_SETTINGS] = row;
+        return true;
+    }
     if (confirmed == MESH_UI_SETTINGS_ACTION_CLEAR_CHANNEL ||
         confirmed == MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
         nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
@@ -507,6 +528,9 @@ bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav) {
     }
     mesh_ui_nav_edits_clear(nav);
     if (nav->settings_section == MESH_UI_SETTINGS_BACKUPS && mesh_ui_nav_backups_back(nav)) {
+        return true;
+    }
+    if (nav->settings_section == MESH_UI_SETTINGS_PROFILES && mesh_ui_nav_profiles_back(nav)) {
         return true;
     }
     if (nav->settings_section == MESH_UI_SETTINGS_MAPS && nav->maps_group != 0U) {
@@ -590,6 +614,7 @@ void mesh_ui_nav_backups_reset(struct mesh_ui_nav *nav) {
     nav->backups_entry_node = 0U;
     nav->backups_sequence = 0U;
     nav->backups_compare = false;
+    nav->backups_pick = false;
     nav->backups_radio = 0U;
     nav->backups_entry = 0U;
     nav->backups_view = MESH_UI_SETTINGS_NO_CHANNEL;
@@ -644,6 +669,32 @@ bool mesh_ui_nav_backups_press(struct mesh_ui_nav *nav, const struct mesh_ui_sto
             action->type = MESH_UI_ACTION_BACKUP_RESTORE_STOP;
         }
         return true;
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_MAKE_PROFILE:
+        /* The picker opens now and says it is reading the backup; the app's parts fill it. */
+        nav->backups_pick_cursor = *cursor;
+        nav->backups_pick = true;
+        nav->backups_view = mesh_ui_backups_view(MESH_UI_BACKUPS_PICK, nav->backups_entry);
+        mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_PROFILE_DRAFT;
+            action->dest = nav->backups_entry_node;
+            action->number = nav->backups_sequence;
+        }
+        return true;
+    case MESH_UI_SETTINGS_ACTION_PROFILES_PART:
+        if (action != NULL &&
+            backups_row_index(text, store->settings.profiles.draft_count, &index)) {
+            action->type = MESH_UI_ACTION_PROFILE_DRAFT_TOGGLE;
+            action->number = index;
+        }
+        return true;
+    case MESH_UI_SETTINGS_ACTION_PROFILES_SAVE:
+        /* Named after the radio the backup is of, to be edited: the likeliest start. */
+        if (store->settings.profiles.draft_picked.topics != 0U &&
+            nav->backups_entry < b->entry_count) {
+            mesh_ui_nav_open_profile_name_keyboard(nav, b->entries[nav->backups_entry].header.name);
+        }
+        return true;
     case MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE:
         /* The screen opens now and says it is reading the radio; the app's answer fills it. */
         nav->backups_entry_cursor = *cursor;
@@ -663,6 +714,12 @@ bool mesh_ui_nav_backups_press(struct mesh_ui_nav *nav, const struct mesh_ui_sto
 
 bool mesh_ui_nav_backups_back(struct mesh_ui_nav *nav) {
     uint32_t *cursor = &nav->cursor[MESH_UI_SCREEN_SETTINGS];
+    if (nav->backups_pick) {
+        nav->backups_pick = false;
+        nav->backups_view = mesh_ui_backups_view(MESH_UI_BACKUPS_ENTRY, nav->backups_entry);
+        *cursor = nav->backups_pick_cursor;
+        return true;
+    }
     if (nav->backups_compare) {
         nav->backups_compare = false;
         nav->backups_view = mesh_ui_backups_view(MESH_UI_BACKUPS_ENTRY, nav->backups_entry);
@@ -713,17 +770,116 @@ bool mesh_ui_nav_backups_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_sto
             nav->backups_sequence = 0U;
             nav->backups_entry_node = 0U;
             nav->backups_compare = false;
+            nav->backups_pick = false;
             *cursor = nav->backups_list_cursor;
             moved = true;
         } else {
             nav->backups_entry = (uint8_t)entry;
-            view = mesh_ui_backups_view(nav->backups_compare ? MESH_UI_BACKUPS_COMPARE
-                                                             : MESH_UI_BACKUPS_ENTRY,
+            view = mesh_ui_backups_view(nav->backups_pick      ? MESH_UI_BACKUPS_PICK
+                                        : nav->backups_compare ? MESH_UI_BACKUPS_COMPARE
+                                                               : MESH_UI_BACKUPS_ENTRY,
                                         (uint8_t)entry);
         }
     }
     if (view != nav->backups_view) {
         nav->backups_view = view;
+        moved = true;
+    }
+    return moved;
+}
+
+/* ---- Profiles ------------------------------------------------------------------------------ */
+
+void mesh_ui_nav_profiles_reset(struct mesh_ui_nav *nav) {
+    nav->profiles_sequence = 0U;
+    nav->profiles_compare = false;
+    nav->profiles_index = 0U;
+    nav->profiles_view = MESH_UI_SETTINGS_NO_CHANNEL;
+}
+
+bool mesh_ui_nav_profiles_press(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                enum mesh_ui_settings_action which, const char *text,
+                                struct mesh_ui_action *action) {
+    const struct mesh_ui_profiles *p = &store->settings.profiles;
+    uint32_t *cursor = &nav->cursor[MESH_UI_SCREEN_SETTINGS];
+    uint8_t index = 0U;
+    switch (which) {
+    case MESH_UI_SETTINGS_ACTION_PROFILES_OPEN:
+        if (backups_row_index(text, p->count, &index)) {
+            nav->profiles_list_cursor = *cursor;
+            nav->profiles_sequence = p->items[index].sequence;
+            nav->profiles_index = index;
+            nav->profiles_view = mesh_ui_profiles_view(MESH_UI_PROFILES_ITEM, index);
+            mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
+        }
+        return true;
+    case MESH_UI_SETTINGS_ACTION_PROFILES_IMPORT:
+        if (action != NULL && backups_row_index(text, p->cfg_count, &index)) {
+            action->type = MESH_UI_ACTION_PROFILE_IMPORT;
+            snprintf(action->identifier, sizeof action->identifier, "%s", p->cfgs[index]);
+        }
+        return true;
+    case MESH_UI_SETTINGS_ACTION_PROFILES_COMPARE:
+        nav->profiles_item_cursor = *cursor;
+        nav->profiles_compare = true;
+        nav->profiles_view = mesh_ui_profiles_view(MESH_UI_PROFILES_COMPARE, nav->profiles_index);
+        mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_PROFILE_COMPARE;
+            action->number = nav->profiles_sequence;
+        }
+        return true;
+    case MESH_UI_SETTINGS_ACTION_PROFILES_EXPORT:
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_PROFILE_EXPORT;
+            action->number = nav->profiles_sequence;
+        }
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool mesh_ui_nav_profiles_back(struct mesh_ui_nav *nav) {
+    uint32_t *cursor = &nav->cursor[MESH_UI_SCREEN_SETTINGS];
+    if (nav->profiles_compare) {
+        nav->profiles_compare = false;
+        nav->profiles_view = mesh_ui_profiles_view(MESH_UI_PROFILES_ITEM, nav->profiles_index);
+        *cursor = nav->profiles_item_cursor;
+        return true;
+    }
+    if (nav->profiles_sequence != 0U) {
+        const uint32_t row = nav->profiles_list_cursor;
+        mesh_ui_nav_profiles_reset(nav);
+        *cursor = row;
+        return true;
+    }
+    return false;
+}
+
+bool mesh_ui_nav_profiles_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
+    if (nav->settings_section != MESH_UI_SETTINGS_PROFILES) {
+        return false;
+    }
+    uint8_t view = MESH_UI_SETTINGS_NO_CHANNEL;
+    bool moved = false;
+    if (nav->profiles_sequence != 0U) {
+        const int index = mesh_ui_profiles_find(&store->settings.profiles, nav->profiles_sequence);
+        if (index < 0) {
+            /* Deleted from under its screen: back to the list, on the row it was opened from. */
+            const uint32_t row = nav->profiles_list_cursor;
+            mesh_ui_nav_profiles_reset(nav);
+            nav->cursor[MESH_UI_SCREEN_SETTINGS] = row;
+            moved = true;
+        } else {
+            nav->profiles_index = (uint8_t)index;
+            view = mesh_ui_profiles_view(nav->profiles_compare ? MESH_UI_PROFILES_COMPARE
+                                                               : MESH_UI_PROFILES_ITEM,
+                                         (uint8_t)index);
+        }
+    }
+    if (view != nav->profiles_view) {
+        nav->profiles_view = view;
         moved = true;
     }
     return moved;

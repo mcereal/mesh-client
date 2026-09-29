@@ -87,6 +87,7 @@ static const char *const k_reason_keys[] = {
     [MESH_RADIO_BACKUP_FIRST_CONNECT] = "first_connect",
     [MESH_RADIO_BACKUP_BEFORE_WRITE] = "before_write",
     [MESH_RADIO_BACKUP_BEFORE_FIRMWARE] = "before_firmware",
+    [MESH_RADIO_BACKUP_PROFILE] = "profile",
 };
 
 static const char *const k_protocol_keys[] = {
@@ -195,6 +196,12 @@ static void radio_backup_write_records(FILE *file, void *context) {
     if (header->has_contacts) {
         radio_backup_put_u32(&writer, "contacts", header->contacts);
     }
+    if (header->reason == MESH_RADIO_BACKUP_PROFILE) {
+        char parts[24];
+        snprintf(parts, sizeof parts, "%08" PRIx32 ",%08" PRIx32, header->parts.topics,
+                 header->parts.modules);
+        radio_backup_put(&writer, "parts", parts);
+    }
 
     char line[RADIO_BACKUP_LINE_MAX];
     for (size_t i = 0; i < backup->section_count; ++i) {
@@ -211,10 +218,15 @@ static void radio_backup_write_records(FILE *file, void *context) {
     fprintf(file, "sha256=%s\n", digest_hex);
 }
 
+/* A backup is of a radio, and says which; a profile is for any radio, and says none. */
+static bool radio_backup_node_ok(const struct mesh_radio_backup_header *header) {
+    return header->node_id != 0U || header->reason == MESH_RADIO_BACKUP_PROFILE;
+}
+
 int mesh_radio_backup_write_file(const struct mesh_radio_backup *backup, const char *path) {
     if (backup == NULL || path == NULL || path[0] == '\0' ||
         mesh_radio_backup_protocol_key(backup->header.protocol) == NULL ||
-        backup->header.node_id == 0U) {
+        !radio_backup_node_ok(&backup->header)) {
         return -EINVAL;
     }
     char temp[MESH_RADIO_BACKUP_PATH_MAX + 8U];
@@ -400,6 +412,12 @@ static void radio_backup_visit(void *context, const char *key, char *value) {
         header->has_nodes_heard = radio_backup_u32(value, &header->nodes_heard, 10);
     } else if (strcmp(key, "contacts") == 0) {
         header->has_contacts = radio_backup_u32(value, &header->contacts, 10);
+    } else if (strcmp(key, "parts") == 0) {
+        char *end = NULL;
+        const unsigned long topics = strtoul(value, &end, 16);
+        const unsigned long modules = *end == ',' ? strtoul(end + 1, NULL, 16) : 0UL;
+        header->parts.topics = (uint32_t)topics;
+        header->parts.modules = (uint32_t)modules;
     } else if (strcmp(key, "section") == 0) {
         radio_backup_read_section(reader, value);
     }
@@ -430,7 +448,7 @@ int mesh_radio_backup_read_file(struct mesh_radio_backup *backup, const char *pa
         result = -EBADMSG;
     }
     if (result == 0 && (backup->header.protocol == MESH_RADIO_BACKUP_PROTOCOL_NONE ||
-                        backup->header.node_id == 0U)) {
+                        !radio_backup_node_ok(&backup->header))) {
         result = -EBADMSG;
     }
     if (result != 0) {
