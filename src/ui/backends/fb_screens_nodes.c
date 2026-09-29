@@ -676,7 +676,13 @@ void fb_render_node_pane(struct inkcell_draw_state *state, const struct mesh_ui_
      * opens from a reading and the sheet from the one action row - so what this order
      * states is which is the deeper level rather than a race being resolved.
      */
+    /* Measured, as every layer is: a detail in two columns turns the measure off for itself and
+       the action bar under it (fb_render_node_detail()), and the sheet over it belongs to the
+       window rather than to the columns - the frame's dialogs are drawn measured for the same
+       reason. The detail's choice is put back for the bar. */
+    const bool measured = inkcell_fb_set_measured(state, true);
     fb_render_node_actions(state, snapshot, layout);
+    (void)inkcell_fb_set_measured(state, measured);
 }
 
 static void fb_render_node_sort(struct inkcell_draw_state *state,

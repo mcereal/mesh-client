@@ -643,6 +643,41 @@ MESH_TEST_CASE(ui_click_a_wide_window_previews_the_row_under_the_cursor, unit) {
     record_success(test_name);
 }
 
+/*
+ * A node's verbs, raised over a detail standing in two columns, are drawn to the reading measure
+ * like every other layer: the columns turn the measure off for themselves, not for the sheet over
+ * them. 1280x800 at glyph scale 3 is a medium frame with no split, where the measure is narrower
+ * than the body and the difference shows.
+ */
+MESH_TEST_CASE(ui_click_the_node_verbs_over_two_columns_keep_the_measure, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1280U, 800U, INKCELL_SCALE(3)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    struct mesh_ui_action action;
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES),
+                              click_close(&store, capture), "the Nodes tab should open");
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_LEAD_ROWS + 1U;
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_actions_open, click_close(&store, capture),
+                              "A on the Actions row should raise the node's verbs");
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    struct inkcell_focus_rect row;
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS, &row),
+                              click_close(&store, capture), "the sheet should register its rows");
+    /* The frame ends measured, so the content width now is the measure's. A row's box reaches a
+       little past the column into its gutter, so the bound is a quarter over the measure - far
+       under the body's width, which is what the rows took with the measure left off. */
+    const int measure = inkcell_fb_content_w(inkcell_capture_state(capture));
+    MESH_TEST_FAIL_IF_CLEANUP(row.w > measure + measure / 4, click_close(&store, capture),
+                              "the sheet's rows should keep to the reading measure");
+    click_close(&store, capture);
+    record_success(test_name);
+}
+
 /* The same split on the Nodes tab: the roster stays, and the node opened from it stands beside
    it without a slide. */
 MESH_TEST_CASE(ui_click_a_wide_window_opens_a_node_beside_its_roster, unit) {
