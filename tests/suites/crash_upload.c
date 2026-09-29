@@ -141,11 +141,10 @@ MESH_TEST_CASE(crash_upload_reads_the_report_inkwell_writes, unit) {
     MESH_TEST_FAIL_IF(!mesh_crash_report_parse(body, len, &report), "inkwell's report parses");
     MESH_TEST_FAIL_IF(report.signal != 6 || strcmp(report.signal_name, "SIGABRT") != 0,
                       "the signal line");
-    MESH_TEST_FAIL_IF(strcmp(report.version, "7.7.7-format") != 0 ||
-                          strcmp(report.route, "map/list") != 0 ||
-                          strcmp(report.backend, "sdl") != 0 ||
-                          strcmp(report.screen, "1280x800@3") != 0,
-                      "the notes, under the labels this client gave them");
+    MESH_TEST_FAIL_IF(
+        strcmp(report.version, "7.7.7-format") != 0 || strcmp(report.route, "map/list") != 0 ||
+            strcmp(report.backend, "sdl") != 0 || strcmp(report.screen, "1280x800@3") != 0,
+        "the notes, under the labels this client gave them");
 #if defined(__linux__) || defined(__APPLE__)
     MESH_TEST_FAIL_IF(!report.have_load_base, "the load base");
 #endif
@@ -157,20 +156,37 @@ MESH_TEST_CASE(crash_upload_reads_the_report_inkwell_writes, unit) {
     record_success(test_name);
 }
 
+/*
+ * A file read into memory has no terminator, and a report whose last line is a field ends on a
+ * digit rather than a newline. Parsed in place, atoi() on that line reads past the buffer - which
+ * only a sanitizer that checks every byte notices. This hands the parser exactly the bytes.
+ */
+MESH_TEST_CASE(crash_upload_reads_no_further_than_it_was_given, unit) {
+    static const char k_head[] = "signal       11 (SIGSEGV)\nuptime ms    4242";
+    char *const exact = malloc(sizeof k_head - 1U);
+    MESH_TEST_FAIL_IF(exact == NULL, "malloc");
+    memcpy(exact, k_head, sizeof k_head - 1U);
+    struct mesh_crash_report report;
+    const bool parsed = mesh_crash_report_parse(exact, sizeof k_head - 1U, &report);
+    free(exact);
+    MESH_TEST_FAIL_IF(!parsed || report.signal != 11 || report.uptime_ms != 4242U,
+                      "an unterminated last line should still read, and read no further");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(crash_upload_takes_a_dsn_apart, unit) {
     struct mesh_crash_dsn dsn;
     MESH_TEST_FAIL_IF(!mesh_crash_dsn_parse("https://abc123@o1.ingest.sentry.io/4507", &dsn),
                       "an ordinary DSN");
-    MESH_TEST_FAIL_IF(strcmp(dsn.key, "abc123") != 0 || strcmp(dsn.project, "4507") != 0 ||
-                          strcmp(dsn.envelope_url,
-                                 "https://o1.ingest.sentry.io/api/4507/envelope/") != 0,
-                      "its key, project and envelope URL");
-    MESH_TEST_FAIL_IF(!mesh_crash_dsn_parse("https://key:secret@sentry.example:9000/prefix/7",
-                                            &dsn) ||
-                          strcmp(dsn.key, "key") != 0 ||
-                          strcmp(dsn.envelope_url,
-                                 "https://sentry.example:9000/prefix/api/7/envelope/") != 0,
-                      "the old key:secret form, a port and a path prefix");
+    MESH_TEST_FAIL_IF(
+        strcmp(dsn.key, "abc123") != 0 || strcmp(dsn.project, "4507") != 0 ||
+            strcmp(dsn.envelope_url, "https://o1.ingest.sentry.io/api/4507/envelope/") != 0,
+        "its key, project and envelope URL");
+    MESH_TEST_FAIL_IF(
+        !mesh_crash_dsn_parse("https://key:secret@sentry.example:9000/prefix/7", &dsn) ||
+            strcmp(dsn.key, "key") != 0 ||
+            strcmp(dsn.envelope_url, "https://sentry.example:9000/prefix/api/7/envelope/") != 0,
+        "the old key:secret form, a port and a path prefix");
 
     static const char *const k_refused[] = {
         "",
@@ -288,17 +304,16 @@ MESH_TEST_CASE(crash_upload_writes_an_envelope_the_server_can_read, unit) {
     /* A Mach-O UUID is already a debug id, byte for byte. */
     struct mesh_crash_context mac = k_context;
     mac.os = "macos";
-    MESH_TEST_FAIL_IF(mesh_crash_envelope_build(&report, event_id, &dsn, &mac, envelope,
-                                                sizeof envelope) <= 0 ||
-                          strstr(envelope, "\"debug_id\":\"5ef9bb6f-a38b-4707-71e7-3e5a14f5709b\"") ==
-                              NULL ||
-                          strstr(envelope, "\"type\":\"macho\"") == NULL,
-                      "a Mach-O image keeps its UUID's order");
+    MESH_TEST_FAIL_IF(
+        mesh_crash_envelope_build(&report, event_id, &dsn, &mac, envelope, sizeof envelope) <= 0 ||
+            strstr(envelope, "\"debug_id\":\"5ef9bb6f-a38b-4707-71e7-3e5a14f5709b\"") == NULL ||
+            strstr(envelope, "\"type\":\"macho\"") == NULL,
+        "a Mach-O image keeps its UUID's order");
 
-    MESH_TEST_FAIL_IF(mesh_crash_envelope_build(&report, event_id, &dsn, &k_context, envelope,
-                                                64U) != -ENOSPC ||
-                          envelope[0] != '\0',
-                      "an envelope that does not fit is refused, not cut");
+    MESH_TEST_FAIL_IF(
+        mesh_crash_envelope_build(&report, event_id, &dsn, &k_context, envelope, 64U) != -ENOSPC ||
+            envelope[0] != '\0',
+        "an envelope that does not fit is refused, not cut");
     record_success(test_name);
 }
 
@@ -313,10 +328,9 @@ MESH_TEST_CASE(crash_upload_escapes_what_it_did_not_write, unit) {
     snprintf(report.transport, sizeof report.transport, "Con\"ne\\cted\x01");
     report.build_id[0] = '\0';
     static char envelope[MESH_CRASH_ENVELOPE_MAX];
-    MESH_TEST_FAIL_IF(
-        mesh_crash_envelope_build(&report, "0123456789abcdef0123456789abcdef", &dsn, &k_context,
-                                  envelope, sizeof envelope) <= 0,
-        "build");
+    MESH_TEST_FAIL_IF(mesh_crash_envelope_build(&report, "0123456789abcdef0123456789abcdef", &dsn,
+                                                &k_context, envelope, sizeof envelope) <= 0,
+                      "build");
     const char *const event = strchr(strchr(envelope, '\n') + 1, '\n') + 1;
     char link[64];
     struct inkwell_json json;

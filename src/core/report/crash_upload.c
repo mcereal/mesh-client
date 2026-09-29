@@ -17,6 +17,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* The longest line a field is read from; see mesh_crash_report_parse(). */
+#define CRASH_LINE_MAX 256U
 /* The column inkwell pads every label to (INKWELL_CRASH_NOTE_COLUMN). */
 #define CRASH_LABEL_COLUMN 13U
 /* A send that has not finished in this long is not going to. */
@@ -107,8 +109,8 @@ static void crash_read_head(struct mesh_crash_report *out, const char *line, con
         crash_copy(text, sizeof text, value, end);
         /* Hex and nothing else: this goes into JSON and a symbol server's lookup as it is. */
         size_t hex = 0U;
-        while (text[hex] != '\0' && ((text[hex] >= '0' && text[hex] <= '9') ||
-                                     (text[hex] >= 'a' && text[hex] <= 'f'))) {
+        while (text[hex] != '\0' &&
+               ((text[hex] >= '0' && text[hex] <= '9') || (text[hex] >= 'a' && text[hex] <= 'f'))) {
             ++hex;
         }
         if (text[hex] == '\0' && hex >= 2U && hex % 2U == 0U) {
@@ -141,12 +143,28 @@ bool mesh_crash_report_parse(const char *text, size_t len, struct mesh_crash_rep
     enum crash_section section = CRASH_SECTION_HEAD;
     bool have_signal = false;
     const char *const stop = text + len;
-    for (const char *line = text; line < stop;) {
-        const char *end = memchr(line, '\n', (size_t)(stop - line));
-        if (end == NULL) {
-            end = stop;
+    for (const char *next = text; next < stop;) {
+        const char *newline = memchr(next, '\n', (size_t)(stop - next));
+        if (newline == NULL) {
+            newline = stop;
         }
-        const size_t line_len = (size_t)(end - line);
+        /*
+         * Each line is parsed from a terminated copy, never in place. `text` is a file read into
+         * memory and is not promised a terminator, and atoi() and strtoull() read until they
+         * find one - which on the last line of a file is past the end of the buffer. A line
+         * longer than the copy is cut, which costs nothing: every field this reads is short, and
+         * the one section with long lines is the log, which is never read.
+         */
+        char copy[CRASH_LINE_MAX];
+        size_t line_len = (size_t)(newline - next);
+        if (line_len >= sizeof copy) {
+            line_len = sizeof copy - 1U;
+        }
+        memcpy(copy, next, line_len);
+        copy[line_len] = '\0';
+        const char *const line = copy;
+        const char *const end = copy + line_len;
+        next = newline + 1;
 
         if (line_len >= 4U && strncmp(line, "--- ", 4U) == 0) {
             if (strncmp(line, "--- where", 9U) == 0) {
@@ -179,7 +197,6 @@ bool mesh_crash_report_parse(const char *text, size_t len, struct mesh_crash_rep
                 out->frames[out->frame_count++] = address;
             }
         }
-        line = end + 1;
     }
     if (!have_signal) {
         memset(out, 0, sizeof *out);
@@ -221,8 +238,8 @@ bool mesh_crash_dsn_parse(const char *dsn, struct mesh_crash_dsn *out) {
         }
     }
     for (const char *c = key; c < key_end; ++c) {
-        const bool ok = (*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'z') ||
-                        (*c >= 'A' && *c <= 'Z');
+        const bool ok =
+            (*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z');
         if (!ok) {
             return false;
         }
@@ -236,8 +253,9 @@ bool mesh_crash_dsn_parse(const char *dsn, struct mesh_crash_dsn *out) {
     inkwell_str_copy(out->project, sizeof out->project, slash + 1);
     inkwell_str_copy(out->dsn, sizeof out->dsn, dsn);
     /* The host keeps any path before the project - a self-hosted Sentry under a prefix. */
-    const int written = snprintf(out->envelope_url, sizeof out->envelope_url,
-                                 "https://%.*s/api/%s/envelope/", (int)host_len, host, out->project);
+    const int written =
+        snprintf(out->envelope_url, sizeof out->envelope_url, "https://%.*s/api/%s/envelope/",
+                 (int)host_len, host, out->project);
     if (written < 0 || (size_t)written >= sizeof out->envelope_url) {
         memset(out, 0, sizeof *out);
         return false;
@@ -365,9 +383,7 @@ void mesh_crash_event_id(const char *text, size_t len, char out[33]) {
     out[32] = '\0';
 }
 
-static uint8_t crash_nibble(char c) {
-    return (uint8_t)(c <= '9' ? c - '0' : c - 'a' + 10);
-}
+static uint8_t crash_nibble(char c) { return (uint8_t)(c <= '9' ? c - '0' : c - 'a' + 10); }
 
 /*
  * The debug id a symbol server files this binary under, from its build id.
@@ -394,18 +410,17 @@ static void crash_debug_id(const char *build_id, bool swap, char out[37]) {
         bytes[6] = bytes[7];
         bytes[7] = c;
     }
-    (void)snprintf(out, 37U,
-                   "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", bytes[0],
-                   bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8],
-                   bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
+    (void)snprintf(out, 37U, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+                   bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                   bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
+                   bytes[15]);
 }
 
 static void crash_write_event(struct crash_json *json, const struct mesh_crash_report *report,
                               const char *event_id, const struct mesh_crash_context *context) {
     const char *const version =
         report->version[0] != '\0' ? report->version : context->sender_version;
-    const char *const signal_name =
-        report->signal_name[0] != '\0' ? report->signal_name : "signal";
+    const char *const signal_name = report->signal_name[0] != '\0' ? report->signal_name : "signal";
 
     json_fmt(json, "{\"event_id\":\"%s\",\"timestamp\":%llu,", event_id,
              (unsigned long long)context->now_unix);
