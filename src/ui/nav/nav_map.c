@@ -227,9 +227,9 @@ static bool mesh_ui_nav_map_confirm(struct mesh_ui_nav *nav, const struct mesh_u
     const struct mesh_ui_map_marker *marker = &view.markers[index];
     if (!marker->openable) {
         /*
-         * A node the map can draw and the client cannot open: the map takes every positioned
-         * node the session holds and the list publishes the ranked 128, so a node far enough
-         * down that ranking has a marker and no row. Nothing happens, for the same reason
+         * A node the map can draw and the client cannot open: the map and the list are built
+         * from two rosters, so a marker can outlive its row for a publish - or for good, when
+         * the rows came from a cache that carried fewer. Nothing happens, for the same reason
          * nothing happens on empty grid - and the same silence, because the reader is not
          * making a mistake. The line under the map is still naming the node and its range,
          * which is most of what a detail would have said about a node this far away.

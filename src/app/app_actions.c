@@ -1362,9 +1362,9 @@ static void on_share_waypoint(struct mesh_app *app, const struct mesh_ui_action 
      * anything else re-broadcasts a place we already hold.
      *
      * The coordinate is read here rather than carried through the nav on purpose. The
-     * session roster is the authority - it holds 256 nodes where the published one holds
-     * 128, and it is current rather than a snapshot from whenever the key was pressed - so
-     * a node that moved while its name was being typed is saved where it actually is.
+     * session roster is the authority - it is current rather than a snapshot from whenever
+     * the key was pressed - so a node that moved while its name was being typed is saved where
+     * it actually is.
      */
     const struct mesh_handshake_status *status = mesh_session_handshake(&app->session);
     struct mesh_waypoint waypoint;

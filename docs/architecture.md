@@ -128,7 +128,7 @@ else.
   `mesh_session_forget_nodes(only_off_nodedb)` sends nothing, so it works with no link. Each
   row shows `mesh_session_forgettable_nodes()` — the count *that press removes*, through the
   same predicate the forget uses — which is a different number from the Status card's "off radio"
-  total (the UI carries 128 nodes and the roster holds 256).
+  total, because pinned nodes and our own record survive a forget.
 - `mesh_session_seed_node` restores the roster the last run persisted before any radio is
   attached, so a restart is not a reset either. The owning radio travels with it as its own
   `handshake_roster` line rather than as `my_info.node_num`, which is 0 while disconnected —
@@ -222,12 +222,13 @@ follows from that.
   node ending in the same byte, and both fall back to the partial id. The sender is struck off
   the candidates there too — a node cannot have relayed what it sent, so naming it would be the
   relay row contradicting the hop row above it.
-- **Ambiguity is settled over the whole session roster, never the published one.** The session
-  holds `MESH_SESSION_MAX_NODES` and the UI is published the ranked `MESH_UI_MAX_HANDSHAKE_NODES`
-  of them, so a byte can have one claimant among the nodes a screen was handed and another that
-  was ranked away. The message resolver runs in core and sees all of it; the detail screen cannot,
-  so it is handed `relay_ambiguous` / `next_hop_ambiguous` — computed at publish — and renders the
-  partial id whenever either is set, rather than naming the one survivor it can see.
+- **Ambiguity is settled over the whole session roster, never the published one.** The UI is
+  published every node the session holds today (`MESH_UI_MAX_HANDSHAKE_NODES` is pinned to
+  `MESH_SESSION_MAX_NODES`), but a screen that settled it over what it was handed would name a
+  node confidently the moment the two sizes parted, or a cache handed it fewer rows. The message
+  resolver runs in core and sees all of it; the detail screen is handed `relay_ambiguous` /
+  `next_hop_ambiguous` — computed at publish — and renders the partial id whenever either is set,
+  rather than naming the one claimant it can see.
 - **The node's pair is the last packet's and is not persisted**, and the reason is not the one
   the traceroute is kept on: a trace is a measurement with a stamp, where this pair is a side
   effect of whichever packet happened to arrive last and carries no time of its own - so a

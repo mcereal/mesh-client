@@ -3335,10 +3335,11 @@ cleanup:
 /*
  * What the client knows against what it is showing.
  *
- * The session roster holds 256 nodes and the UI publishes its best 128, so on a busy mesh half
- * of what we know silently is not on the list. `nodes_known` is the number that makes the gap
- * sayable; without it the Nodes tab could only compare itself against the *radio's* database,
- * which is a different set and, after a NodeDB reset, the smaller one.
+ * `nodes_known` is the roster's own total, published beside the rows; without it the Nodes tab
+ * could only compare itself against the *radio's* database, which is a different set and, after
+ * a NodeDB reset, the smaller one. The rows carry the whole roster, so on a busy mesh the two
+ * agree - and must, or the title would read "128 of 200" over a list that could have shown all
+ * 200.
  */
 MESH_TEST_CASE(app_publish_reports_known_against_shown, unit) {
     struct mesh_app *app = calloc(1U, sizeof *app);
@@ -3358,8 +3359,8 @@ MESH_TEST_CASE(app_publish_reports_known_against_shown, unit) {
     handshake->my_info.my_node_num = 1U;
     handshake->config_complete = true;
 
-    /* A roster comfortably past what the UI can carry, and all of it ours: the radio's own
-       count is left at 0 so the only number that can explain the gap is the roster's. */
+    /* A roster past what the UI once carried, and all of it ours: the radio's own count is
+       left at 0 so the only number the rows can be measured against is the roster's. */
     const uint32_t known = 200U;
     handshake->node_count = known;
     for (uint32_t i = 0; i < known; ++i) {
@@ -3369,8 +3370,8 @@ MESH_TEST_CASE(app_publish_reports_known_against_shown, unit) {
     }
     mesh_app_publish_ui_state(app);
 
-    if (app->ui_store.handshake.node_count != MESH_UI_MAX_HANDSHAKE_NODES) {
-        failure = "the publish should fill the UI's roster budget";
+    if (app->ui_store.handshake.node_count != known) {
+        failure = "the publish should carry every node the roster holds";
         goto cleanup;
     }
     if (app->ui_store.handshake.nodes_known != known) {
@@ -3378,12 +3379,12 @@ MESH_TEST_CASE(app_publish_reports_known_against_shown, unit) {
         goto cleanup;
     }
 
-    /* A roster that fits needs no gap, and must not invent one: the two numbers agree, which
-       is what keeps the title from reading "12 of 12". */
+    /* A small roster the same: the two numbers agree, which is what keeps the title from
+       reading "12 of 12". */
     handshake->node_count = 12U;
     mesh_app_publish_ui_state(app);
     if (app->ui_store.handshake.node_count != 12U || app->ui_store.handshake.nodes_known != 12U) {
-        failure = "a roster inside the budget should report one number, not two";
+        failure = "a small roster should report one number, not two";
     }
 
 cleanup:
@@ -3648,18 +3649,15 @@ MESH_TEST_CASE(app_extra_section_writes, unit) {
 }
 
 /*
- * The map's roster is published from the whole session roster, not from the ranked rows.
+ * A full session roster is published whole: every node a row, and every positioned one a marker.
  *
- * The unit tests next door hand mesh_ui_map_build() a roster built by hand; this is the other
- * half - that the ranking cut actually produces one. It is the seam the change is about: the
- * session holds MESH_SESSION_MAX_NODES, the rows carry MESH_UI_MAX_HANDSHAKE_NODES of them, and
- * before this the map was drawing the rows. A node's rank says how likely you are to talk to
- * it, which has nothing to do with whether its marker belongs on the panel.
- *
- * Seeded with more positioned nodes than there are rows, which is what makes the two counts
- * differ - on a mesh where every node had a fix, the map's roster is exactly twice the list's.
+ * The Nodes tab used to carry the ranked half of the roster, and a busy mesh or a year of one
+ * radio's history would leave most of what the client remembered unreachable from the list. This
+ * holds the seam at its full size - the roster filled to MESH_SESSION_MAX_NODES through the
+ * same seeding a restart uses - so a cap that drifts below the session's fails here rather than
+ * on a mesh.
  */
-MESH_TEST_CASE(app_publishes_the_map_roster_past_the_ranking_cut, unit) {
+MESH_TEST_CASE(app_publishes_every_node_the_session_holds, unit) {
     struct mesh_app app;
     bool app_ready = false;
     const char *failure = NULL;
@@ -3678,8 +3676,8 @@ MESH_TEST_CASE(app_publishes_the_map_roster_past_the_ranking_cut, unit) {
     app_ready = true;
 
     /* Every node positioned, and every one heard longer ago than the last - so the ranking's
-       order is the seeding order and "beyond the cut" means "seeded late". */
-    const uint32_t seeded = MESH_UI_MAX_HANDSHAKE_NODES + 40U;
+       order is the seeding order and the last seeded is the lowest-ranked node there is. */
+    const uint32_t seeded = MESH_SESSION_MAX_NODES;
     for (uint32_t i = 0; i < seeded; ++i) {
         struct mesh_node_summary node;
         memset(&node, 0, sizeof node);
@@ -3698,34 +3696,35 @@ MESH_TEST_CASE(app_publishes_the_map_roster_past_the_ranking_cut, unit) {
     mesh_app_publish_ui_state(&app);
     const struct mesh_ui_handshake_state *hs = &app.ui_store.handshake;
 
-    if (hs->node_count != MESH_UI_MAX_HANDSHAKE_NODES) {
-        failure = "the list should still publish exactly its own budget of rows";
+    if (hs->node_count != seeded) {
+        failure = "the list should carry every node the session holds";
         goto cleanup;
     }
     if (hs->nodes_known != seeded) {
-        failure = "and should still report the roster's own total beside it";
+        failure = "and report the same total beside it";
         goto cleanup;
     }
     if (hs->map_node_count != seeded) {
-        failure = "while the map's roster carries every positioned node the session holds";
+        failure = "while the map's roster carries every positioned node too";
         goto cleanup;
     }
 
-    /* The last one seeded: past the cut, so it has a marker and no row. */
+    /* The last one seeded: the lowest-ranked node, and still a row. */
+    const uint32_t last_id = 0x50000000U + seeded - 1U;
+    if (hs->nodes[seeded - 1U].node_id != last_id) {
+        failure = "the rows should be in ranked order";
+        goto cleanup;
+    }
     const struct mesh_ui_map_node *last = &hs->map_nodes[seeded - 1U];
-    if (last->node_id != 0x50000000U + seeded - 1U) {
+    if (last->node_id != last_id) {
         failure = "the map's roster should be in the same ranked order as the rows";
         goto cleanup;
     }
-    if (last->has_row) {
-        failure = "a node past the cut should say it has no row";
+    if (!last->has_row || mesh_ui_node_detail_find(hs, last_id) == NULL) {
+        failure = "the lowest-ranked node should have a row, and be findable by id";
         goto cleanup;
     }
-    if (mesh_ui_node_detail_find(hs, last->node_id) != NULL) {
-        failure = "and should genuinely have none, or the flag is describing nothing";
-        goto cleanup;
-    }
-    if (strcmp(last->label, "N167") != 0) {
+    if (strcmp(last->label, "N255") != 0) {
         failure = "carrying the short name the map draws beside it";
         goto cleanup;
     }
@@ -3734,18 +3733,17 @@ MESH_TEST_CASE(app_publishes_the_map_roster_past_the_ranking_cut, unit) {
         goto cleanup;
     }
 
-    /* And one inside the cut, to show has_row is the cut and not a constant. */
-    if (!hs->map_nodes[0].has_row ||
-        mesh_ui_node_detail_find(hs, hs->map_nodes[0].node_id) == NULL) {
-        failure = "a node the list published should say so, and be findable by id";
-        goto cleanup;
-    }
-
-    /* What the map makes of it: a marker each, and a badge counting the roster. */
+    /* What the map makes of it: a marker each, every one of them openable. */
     struct mesh_ui_map_view view;
     mesh_ui_map_build(&app.ui_store, &view);
     if (view.count != seeded || view.known != seeded) {
         failure = "every positioned node should reach the map as a marker";
+        goto cleanup;
+    }
+    uint32_t index = 0U;
+    if (!mesh_ui_map_find(&view, MESH_UI_MAP_MARKER_NODE, last_id, &index) ||
+        !view.markers[index].openable) {
+        failure = "and a marker for a node the list carries should open";
         goto cleanup;
     }
 
@@ -4811,7 +4809,7 @@ MESH_TEST_CASE(app_relay_name_declines_to_guess, unit) {
     MESH_TEST_FAIL_IF(strcmp(name, "!..55") != 0, "no roster should still render the byte");
 
     /* The same roster read as the ambiguity question the detail screen is handed, because it
-       cannot ask it of the 128 nodes it gets. 0x77 has two claimants; 0x55 has one. */
+       does not ask it of the rows it gets. 0x77 has two claimants; 0x55 has one. */
     MESH_TEST_FAIL_IF(!mesh_app_relay_byte_is_ambiguous(&status, 0x77U),
                       "two nodes ending in 0x77 is the definition of ambiguous");
     MESH_TEST_FAIL_IF(mesh_app_relay_byte_is_ambiguous(&status, 0x55U) ||
@@ -4824,25 +4822,24 @@ MESH_TEST_CASE(app_relay_name_declines_to_guess, unit) {
 /*
  * The ambiguity a screen cannot see, which is the reason it is answered at publish at all.
  *
- * The session holds MESH_SESSION_MAX_NODES and the UI is published MESH_UI_MAX_HANDSHAKE_NODES
- * of them, ranked. So on a mesh past that cut a relay byte can have exactly one claimant among
- * the nodes a screen was handed and another one that was ranked away - and a resolver scanning
- * only what it was given would name that survivor and sound certain. Nothing about the published
- * roster can detect this; it has to be settled where the whole roster is.
+ * A relay byte with one claimant among the nodes a screen was handed and another it was not -
+ * a cache that carried fewer rows, or any future cap below the session's - would have a resolver
+ * scanning only what it was given name that one and sound certain. Nothing about the published
+ * rows can detect this; it has to be settled where the whole roster is, and it is checked here at
+ * the roster's full size with the two claimants as far apart as it allows.
  */
 MESH_TEST_CASE(app_relay_ambiguity_spans_the_whole_roster, unit) {
     static struct mesh_handshake_status status;
     memset(&status, 0, sizeof status);
 
-    /* A roster past the publish cut, every node ending in a distinct byte except the pair
-       below, so nothing else in it colours the answer. */
-    status.node_count = MESH_UI_MAX_HANDSHAKE_NODES + 8U;
-    MESH_TEST_FAIL_IF(status.node_count > MESH_SESSION_MAX_NODES, "fixture outgrew the roster");
+    /* A full roster, every node ending in a byte other than the pair's below, so nothing else
+       in it colours the answer. */
+    status.node_count = MESH_SESSION_MAX_NODES;
     for (size_t i = 0; i < status.node_count; ++i) {
         status.nodes[i].node_id = 0x00010000U + (uint32_t)(i * 0x100U);
     }
 
-    /* The colliding pair: one inside the published 128, one past it. */
+    /* The colliding pair: the first slot and the last. */
     status.nodes[0].node_id = 0x0A0A00C3U;
     snprintf(status.nodes[0].short_name, sizeof status.nodes[0].short_name, "NEAR");
     status.nodes[status.node_count - 1U].node_id = 0x0B0B00C3U;
@@ -4850,7 +4847,7 @@ MESH_TEST_CASE(app_relay_ambiguity_spans_the_whole_roster, unit) {
              sizeof status.nodes[status.node_count - 1U].short_name, "FARR");
 
     MESH_TEST_FAIL_IF(!mesh_app_relay_byte_is_ambiguous(&status, 0xC3U),
-                      "a claimant past the publish cut still makes the byte ambiguous");
+                      "a claimant in the last slot still makes the byte ambiguous");
     char name[16];
     mesh_app_format_relay_name(&status, 0xC3U, 0U, -1, name, sizeof name);
     MESH_TEST_FAIL_IF(strcmp(name, "!..c3") != 0,

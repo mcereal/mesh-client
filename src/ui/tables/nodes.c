@@ -201,12 +201,12 @@ struct node_key {
 };
 
 /* Both this and mesh_ui_node_view::order hold a roster position in a byte, which is a saving
-   worth 128 bytes a view and worth nothing at all if the roster ever outgrows it. */
+   worth 256 bytes a view and worth nothing at all if the roster ever outgrows it. */
 INKCELL_STATIC_ASSERT(MESH_UI_MAX_HANDSHAKE_NODES <= 256U,
                       "a roster position no longer fits the byte the view orders by");
 
 /* Whether `key` belongs above `prev` under this sort. The whole of the ordering rule, written
-   once so the insertion sort below is only the mechanics. */
+   once so the sort below is only the mechanics. */
 static bool node_key_before(const struct node_key *key, const struct node_key *prev,
                             enum mesh_ui_node_sort sort) {
     if (key->group != prev->group) {
@@ -232,6 +232,44 @@ static bool node_key_before(const struct node_key *key, const struct node_key *p
            `nav.node_sort` is a byte and a value this enum has never held can reach here. */
         return false;
     }
+}
+
+/*
+ * A bottom-up merge sort over `keys`, using `scratch` as the other half of each pass, and the
+ * array the last pass wrote into is what it returns.
+ *
+ * Merge rather than the insertion sort src/ui/views/waypoints.c uses, because this list is the
+ * whole roster and is rebuilt on every frame and every press: an insertion sort is quadratic on
+ * a list that arrives in the wrong order, and a name sort of a roster ranked by last heard is
+ * exactly that. It must be *stable* - stability is the whole of the tie-break rule: the keys are
+ * built in published order, so two rows this sort cannot separate come out in the order the app
+ * ranked them rather than swapping under the cursor between frames - which is why a merge takes
+ * the left run's key whenever the right one is not strictly before it.
+ */
+static const struct node_key *node_keys_sort(struct node_key *keys, struct node_key *scratch,
+                                             uint32_t count, enum mesh_ui_node_sort sort) {
+    struct node_key *from = keys;
+    struct node_key *to = scratch;
+    for (uint32_t width = 1U; width < count; width *= 2U) {
+        for (uint32_t lo = 0U; lo < count; lo += 2U * width) {
+            const uint32_t mid = (lo + width < count) ? lo + width : count;
+            const uint32_t hi = (lo + 2U * width < count) ? lo + 2U * width : count;
+            uint32_t left = lo;
+            uint32_t right = mid;
+            for (uint32_t at = lo; at < hi; ++at) {
+                if (left < mid &&
+                    (right >= hi || !node_key_before(&from[right], &from[left], sort))) {
+                    to[at] = from[left++];
+                } else {
+                    to[at] = from[right++];
+                }
+            }
+        }
+        struct node_key *swap = from;
+        from = to;
+        to = swap;
+    }
+    return from;
 }
 
 bool mesh_ui_node_sort_available(const struct mesh_ui_handshake_state *handshake,
@@ -324,25 +362,10 @@ void mesh_ui_node_view_build_query(const struct mesh_ui_handshake_state *handsha
         }
     }
 
-    /*
-     * Insertion sort, the shape src/ui/views/waypoints.c uses and for its reasons. The list is 128
-     * entries at most and is rebuilt per frame, so the simplest *stable* sort is the right one -
-     * and stability is the whole of the tie-break rule: the keys are built in published order,
-     * so two rows this sort cannot separate come out in the order the app ranked them rather
-     * than swapping under the cursor between frames.
-     */
-    for (uint32_t i = 1; i < count; ++i) {
-        const struct node_key key = keys[i];
-        uint32_t j = i;
-        while (j > 0U && node_key_before(&key, &keys[j - 1U], sort)) {
-            keys[j] = keys[j - 1U];
-            --j;
-        }
-        keys[j] = key;
-    }
-
+    struct node_key scratch[MESH_UI_MAX_HANDSHAKE_NODES];
+    const struct node_key *sorted = node_keys_sort(keys, scratch, count, sort);
     for (uint32_t i = 0; i < count; ++i) {
-        out->order[i] = keys[i].index;
+        out->order[i] = sorted[i].index;
     }
     out->count = count;
 }

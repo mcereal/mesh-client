@@ -58,8 +58,8 @@ struct mesh_ui_preferences {
        lives in the connected radio's NodeDB, so pinning a node teaches that radio and nothing
        else; swap the Brick onto a different node and every pin you made is on the radio you
        just unplugged. This list is the client's own memory of your hardware, which is what
-       lets mesh_app_node_rank() keep the radio you were using yesterday inside the Nodes
-       tab's budget today. */
+       lets mesh_app_node_rank() keep the radio you were using yesterday near the top of the
+       Nodes tab today. */
     uint32_t known_radios[MESH_UI_MAX_KNOWN_RADIOS];
     uint8_t known_radio_count;
     /* Which releases the self-updater is willing to be offered (enum mesh_update_channel,

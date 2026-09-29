@@ -188,10 +188,10 @@ only a consequence of one of them, and neither is a thing a test could pin.
   placement speaks for a marker's *centre*, so one centred a pixel inside the top edge paints most
   of itself over the app bar. The clip *intersects* the partial-redraw path's rather than
   replacing it. `ui_capture_map_keeps_its_ink_off_the_chrome`.
-- **The map draws a different roster from the Nodes list, and it is not a subset.** The list
-  publishes the best 128 because a rank says how likely you are to talk to a node; a marker is on
-  the panel or it is not, so the map gets every *positioned* node. So **map-only nodes exist**,
-  and A on one deliberately does nothing (`marker->openable`).
+- **The map draws a different roster from the Nodes list, and it is not a subset.** The map gets
+  every *positioned* node the session holds, from an array of its own, and the list is whatever
+  rows were published - which a cache from a build that carried fewer can leave short. So
+  **map-only nodes can exist**, and A on one deliberately does nothing (`marker->openable`).
   `map_roster_agrees_across_the_seam`, `map_draws_nodes_the_list_never_published`,
   `map_falls_back_to_the_published_rows`, `map_press_refuses_a_node_it_cannot_open`.
 - **The tile pack is a format of the client's own, and that is a measurement rather than a

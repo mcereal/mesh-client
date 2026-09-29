@@ -1451,9 +1451,9 @@ bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store) {
  * badge's mark to the newest discovery, and arriving on it first keeps where the mark was, so
  * the rows can say which of them the reader has not seen before. See nav.nodes_seen.
  *
- * The session's newest stamp rather than the newest among the rows, so a node ranked out of the
- * published 128 cannot hold the badge up after the reader has been to the tab: it was not on
- * the list, and a badge that no visit clears is the badge this mark exists to prevent.
+ * The session's newest stamp rather than the newest among the rows, so a node the rows do not
+ * carry cannot hold the badge up after the reader has been to the tab: it was not on the list,
+ * and a badge that no visit clears is the badge this mark exists to prevent.
  *
  * Two questions, because a visit is not only the list. *Arriving* is coming to the tab, and it is
  * what captures where the rows' mark starts: opening a node and coming back to the list is the

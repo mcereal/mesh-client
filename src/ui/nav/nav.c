@@ -970,8 +970,8 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
 
     bool moved = false;
 
-    /* A node can fall out of the list while its detail is open: the cache holds 256 and the UI
-       carries 128 of them, re-ranked every publish. Back out rather than draw an empty screen.
+    /* A node can fall out of the list while its detail is open - forgotten, or evicted from a
+       full roster by a newer one. Back out rather than draw an empty screen.
        This runs before the cursor clamp so the restored list position is clamped with it. */
     if (nav->node_detail_open &&
         mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node) == NULL) {

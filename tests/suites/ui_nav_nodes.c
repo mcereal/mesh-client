@@ -2488,6 +2488,42 @@ MESH_TEST_CASE(ui_nav_nodes_name_sort_reads_down_the_long_names, unit) {
     record_success(test_name);
 }
 
+/*
+ * A full roster sorts completely and keeps its ties in published order.
+ *
+ * The rows are the whole session roster and the view is rebuilt every frame, so the sort is a
+ * merge rather than an insertion sort; what it has to keep from the insertion sort is stability,
+ * because the published order is the only tie-break a sort has. The names run backwards against
+ * the ranking - the order an insertion sort was slowest on - and come in repeated groups, so a
+ * sort that sorted but was not stable would reorder rows that share a name.
+ */
+MESH_TEST_CASE(ui_nodes_name_sort_of_a_full_roster_is_stable, unit) {
+    static struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.node_count = MESH_UI_MAX_HANDSHAKE_NODES;
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].in_nodedb = true;
+        handshake.nodes[i].node_id = 0x3000U + i;
+        /* Sixty-four names, four nodes each, falling as the rank rises. */
+        snprintf(handshake.nodes[i].long_name, sizeof handshake.nodes[i].long_name, "Node %02u",
+                 63U - (i % 64U));
+    }
+
+    static struct mesh_ui_node_view view;
+    mesh_ui_node_view_build(&handshake, MESH_UI_NODE_FILTER_ALL, MESH_UI_NODE_SORT_NAME, &view);
+    MESH_TEST_FAIL_IF(view.count != handshake.node_count, "every row is in the view");
+    for (uint32_t r = 1U; r < view.count; ++r) {
+        const struct mesh_ui_node_summary *prev = mesh_ui_node_view_at(&handshake, &view, r - 1U);
+        const struct mesh_ui_node_summary *node = mesh_ui_node_view_at(&handshake, &view, r);
+        MESH_TEST_FAIL_IF(prev == NULL || node == NULL, "every row resolves to a node");
+        const int cmp = strcmp(prev->long_name, node->long_name);
+        MESH_TEST_FAIL_IF(cmp > 0, "the names read A to Z all the way down");
+        MESH_TEST_FAIL_IF(cmp == 0 && prev->node_id >= node->node_id,
+                          "and a shared name keeps the order the rows were published in");
+    }
+    record_success(test_name);
+}
+
 /* Find matches a piece of the long name, the short name or the id, case folded; no query is
    every node, and a query narrows only what the filter already kept. */
 MESH_TEST_CASE(ui_nodes_query_matches_names_and_ids, unit) {

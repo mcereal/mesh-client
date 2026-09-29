@@ -22,21 +22,24 @@
 extern "C" {
 #endif
 
-/* Nodes carried to the backends, newest-heard first as the radio sends them. Real meshes run
-   past 100 nodes; the Nodes tab scrolls, so this is a screen budget, not a mesh limit. */
-#define MESH_UI_MAX_HANDSHAKE_NODES 128U
+/*
+ * Nodes carried to the backends, in the order mesh_app_node_rank() puts them.
+ *
+ * Every node the session holds: this is pinned equal to MESH_SESSION_MAX_NODES in the map suite,
+ * because this header is nanopb-free by construction and mesh/core/session.h is not. A list
+ * shorter than the roster behind it is a list that hides nodes the client already paid to
+ * remember - a busy mesh, or a year of one radio's history, is past a couple of hundred - and
+ * the price of carrying all of them is a larger snapshot, not a slower frame: the list only
+ * draws its window, and a row costs nothing until it is in it.
+ */
+#define MESH_UI_MAX_HANDSHAKE_NODES 256U
 /*
  * The map's own roster: every node the *session* holds that has a position, and the width of
  * the name drawn beside one.
  *
- * Two rosters rather than one, because the two screens want different sets. The session keeps
- * MESH_SESSION_MAX_NODES and the ranking publishes the best 128 of them, which is right for a
- * list a reader scrolls and wrong for a map - a node's rank says how likely you are to talk to
- * it, and a marker is on the panel or it is not.
- *
- * Widening `nodes` to the session's own size was the obvious answer and the wrong one: a summary
- * carries seven telemetry tables and is 532 bytes, so doubling it would have added some 68 KB to a
- * snapshot that is copied whole, to reach two coordinates. This carries the two coordinates.
+ * Kept apart from `nodes` because a marker needs two coordinates and a name, and a summary
+ * carries seven telemetry tables besides, so the map is built from something it can scan
+ * without walking the rest.
  *
  * Only positioned nodes are here. An unpositioned one contributes nothing a marker needs, and
  * how many the client knows is a different question that `nodes_known` already answers - so
@@ -86,15 +89,10 @@ struct mesh_ui_map_node {
     /* False for a node we remember that the radio's NodeDB no longer carries. */
     bool in_nodedb;
     /*
-     * Whether the ranked rows above published this node, which is what decides whether it can
-     * be opened.
-     *
-     * The map draws every positioned node the session holds and the list carries the best 128,
-     * so this is the first thing in the client that can be *shown* and not opened - a node
-     * ranked 200th by the list's rules has a marker here and no row anywhere, and a node detail
-     * resolves by id through `nodes`. Publish knows the answer for free: both arrays are cut
-     * from the same ranking, so a map entry has a row exactly when its place in that ranking is
-     * inside the cut.
+     * Whether the rows above published this node, which is what decides whether it can be
+     * opened: a node detail resolves by id through `nodes`. Publish knows the answer for free -
+     * both arrays are cut from the same ranking, so a map entry has a row exactly when its place
+     * in that ranking is inside MESH_UI_MAX_HANDSHAKE_NODES, which today is every place.
      *
      * The case is a map-only node outside the detail roster, whose detail would have to be resolved
      * by ID through the app/store seam. It was closed as open by construction - there are no
@@ -138,9 +136,10 @@ struct mesh_ui_handshake_state {
     /* How many of the roster's nodes are published below - at most MESH_UI_MAX_HANDSHAKE_NODES. */
     uint32_t node_count;
     /*
-     * How many the session roster actually holds, which is up to MESH_SESSION_MAX_NODES and so
-     * up to twice `node_count`. The two differ silently otherwise: ranking decides which 128
-     * survive the cut and the rest simply are not there, with no row saying so. The radio's own
+     * How many the session roster actually holds, which is up to MESH_SESSION_MAX_NODES. The
+     * list carries every one of them today, so this equals `node_count` after a publish; it is
+     * its own field because the two are different questions, and a cache written by a build
+     * that carried fewer rows than it knew still loads as fewer rows. The radio's own
      * `my_info.nodedb_entries` cannot stand in for this - it is the radio's count, and the
      * roster deliberately outlives the radio's database, so after a NodeDB reset it is the
      * smaller of the two.
@@ -148,8 +147,8 @@ struct mesh_ui_handshake_state {
     uint32_t nodes_known;
     /*
      * What each of the two Settings forget rows would actually drop, counted over the *whole*
-     * session roster rather than the 128 published below - the roster holds twice that, and a
-     * row that offers to empty it has to say how many it empties.
+     * session roster rather than the rows published below, through the same predicate the
+     * forget uses - a row that offers to empty the roster has to say how many it empties.
      *
      * They are what the action removes, not what is off the radio: our own record and every
      * pinned node survive a forget, so a roster whose off-radio nodes are all pinned reports
@@ -161,8 +160,8 @@ struct mesh_ui_handshake_state {
     uint32_t nodes_forgettable_all;
     /*
      * The newest discovery stamp the session has handed out - mesh_session_nodes_discovered() -
-     * so the Nodes tab can mark everything up to it seen even when the newest node was ranked out
-     * of the 128 rows below. 0 on a handshake nobody published: a cache, a fixture.
+     * so the Nodes tab can mark everything up to it seen even when the newest node is not among
+     * the rows below. 0 on a handshake nobody published: a cache, a fixture.
      */
     uint32_t nodes_discovered;
     char primary_channel[33];
@@ -170,11 +169,11 @@ struct mesh_ui_handshake_state {
     struct mesh_ui_node_summary nodes[MESH_UI_MAX_HANDSHAKE_NODES];
     /*
      * The map's roster: every node in the *session* roster with a position, ranked as `nodes`
-     * is and not cut to 128. See MESH_UI_MAX_MAP_NODES for why this is a second array rather
-     * than a wider first one.
+     * is. See MESH_UI_MAX_MAP_NODES for why this is a second array rather than a view of the
+     * first.
      *
-     * It is not a subset of `nodes` and must not be read as one: a node ranked 200th by the
-     * list's rules is nowhere above and is a marker here. 0 on a handshake nobody published -
+     * It is not a subset of `nodes` and must not be read as one: the two are separate arrays
+     * and nothing but publish keeps them in step. 0 on a handshake nobody published -
      * a roster loaded from the cache, a hand-built fixture - which mesh_ui_map_build() reads as
      * "ask the published rows instead", because that is the best any such handshake has.
      */
@@ -193,9 +192,9 @@ struct mesh_ui_handshake_state {
 /*
  * How many of the nodes in `handshake` the radio's NodeDB no longer carries - the rows the
  * Nodes tab dims and marks "off radio". Counted from the published rows themselves rather than
- * carried alongside them, so it is always a number in the same scope as `node_count`: the UI
- * holds 128 nodes and the session roster holds 256, and "128 nodes, 200 off radio" is not a
- * thing any screen should be able to draw.
+ * carried alongside them, so it is always a number in the same scope as `node_count`: "128
+ * nodes, 200 off radio" is not a thing any screen should be able to draw, whatever the roster
+ * behind the rows holds.
  */
 uint32_t mesh_ui_handshake_off_radio(const struct mesh_ui_handshake_state *handshake);
 

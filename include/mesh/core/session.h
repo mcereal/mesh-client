@@ -742,9 +742,9 @@ struct mesh_session {
      * The newest `last_heard` the roster held when the running sync began, and whether that sync
      * has taken it yet. A node a replay brings is a discovery only when the radio heard it after
      * this: anything older was heard while we were listening too, and is missing from the roster
-     * only because the card keeps the ranked 128 of a roster that holds 256 - or, at 0, is a
-     * contact another client typed into the radio and nobody has heard at all. Held, like the
-     * flag above, until a sync completes, so a retry does not raise it with its own half.
+     * only because a full roster evicted it or the card held fewer rows than the roster did -
+     * or, at 0, is a contact another client typed into the radio and nobody has heard at all. Held,
+     * like the flag above, until a sync completes, so a retry does not raise it with its own half.
      */
     uint32_t sync_heard_floor;
     bool sync_floor_held;

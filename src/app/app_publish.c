@@ -179,10 +179,10 @@ void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint3
  * The nodes in the *whole* roster whose number ends in `last_byte`, up to two - which is all
  * anybody asking needs, because the answer is only ever "one node" or "more than one".
  *
- * Over `status`, the session's 256 slots, and never over the 128 the UI publishes: the ranking
- * in mesh_app_publish_ui_state() drops the tail of a big mesh, and a byte that looks unique
- * once the losers are gone is the one way this resolver can name a node confidently and
- * wrongly. Ambiguity is a fact about the mesh, so it is settled where the whole mesh is.
+ * Over `status`, the session's own slots, rather than over the rows the UI publishes: the rows
+ * carry every slot today, but a byte that looks unique because its other claimant was left off a
+ * shorter list is the one way this resolver can name a node confidently and wrongly. Ambiguity
+ * is a fact about the mesh, so it is settled where the whole mesh is.
  */
 static size_t mesh_app_relay_candidates(const struct mesh_handshake_status *status,
                                         uint8_t last_byte, uint32_t exclude,
@@ -603,8 +603,8 @@ unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_no
         return 0U;
     }
     /* A pinned node outranks even someone you are mid-conversation with: pinning is the user
-       saying "keep this one where I can see it", and it is also what keeps a quiet node inside
-       the UI's 128-node budget when the mesh is busy. */
+       saying "keep this one where I can see it", and it is also what keeps a quiet node at the
+       top of the list, and inside the session's roster, when the mesh is busy. */
     if (node->is_favorite) {
         return 1U;
     }
@@ -613,7 +613,7 @@ unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_no
      * connected radio's NodeDB and is resolved per receiver, so a pin only ever teaches the
      * radio it was made on: move the Brick from one of your nodes to another and the node you
      * just unplugged arrives on the new radio as an ordinary stranger, ranked by last_heard,
-     * free to fall out of the 128-node budget on a busy mesh. The client remembers its own
+     * sunk under every stranger heard since on a busy mesh. The client remembers its own
      * hardware instead (mesh_ui_preferences_note_radio), which needs no admin write and cannot
      * disagree with what "favorite" means on the radio.
      */
@@ -2878,8 +2878,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
            sync: what makes it live is something from this connection having arrived. */
         ui_handshake.roster_owner = mesh_session_roster_owner(&app->session);
         /* What each forget row would drop, counted over the whole session roster rather than
-           the 128 that fit below - the roster holds twice that - and through the same
-           predicate the forget itself uses, so a row's number is what the press removes. The
+           the rows copied below, and through the same predicate the forget itself uses, so a
+           row's number is what the press removes. The
            Nodes tab's "off radio" total is a different question and is counted from the rows
            it draws. */
         ui_handshake.nodes_forgettable_off_radio =
@@ -2908,13 +2908,13 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             }
         }
 
-        /* The UI carries fewer nodes than a real mesh has. Rank them so the ones that matter
-           survive the cut: ourselves, then pinned nodes, then our other radios, then anyone we
-           have exchanged messages with, then nodes heard directly over RF by last_heard, then
-           MQTT-fed nodes by last_heard. On a mesh with an MQTT uplink dozens of far-away nodes
-           are "heard" every minute and would otherwise push the radio you are actually talking
-           to off the list. Insertion sort: MESH_SESSION_MAX_NODES is small and this runs once
-           per publish. */
+        /* The UI carries every node the session holds, in this order, and the order is the
+           Nodes tab's default sort: ourselves, then pinned nodes, then our other radios, then
+           anyone we have exchanged messages with, then nodes heard directly over RF by
+           last_heard, then MQTT-fed nodes by last_heard. On a mesh with an MQTT uplink dozens
+           of far-away nodes are "heard" every minute and would otherwise bury the radio you are
+           actually talking to. Insertion sort: MESH_SESSION_MAX_NODES is small and this runs
+           once per publish. */
         const struct mesh_message_log *message_log = mesh_session_messages(&app->session);
         size_t order[MESH_SESSION_MAX_NODES];
         unsigned rank[MESH_SESSION_MAX_NODES];
@@ -2960,8 +2960,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             dst->has_route = src->has_route;
             dst->relay_node = src->relay_node;
             dst->next_hop = src->next_hop;
-            /* Settled here because `status` is the whole roster and `ui_handshake.nodes` is the
-               ranked 128 of it; see mesh_app_relay_byte_is_ambiguous(). */
+            /* Settled here, over `status`, because that is the roster that decides it; see
+               mesh_app_relay_byte_is_ambiguous(). */
             dst->relay_ambiguous = mesh_app_relay_byte_is_ambiguous(status, src->relay_node);
             dst->next_hop_ambiguous = mesh_app_relay_byte_is_ambiguous(status, src->next_hop);
             snprintf(dst->user_id, sizeof(dst->user_id), "%s", src->user_id);
@@ -2984,18 +2984,14 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             mesh_app_copy_node_detail(src, dst);
         }
         ui_handshake.node_count = (uint32_t)copy_count;
-        /* `total`, not copy_count: what the roster knows, against what survived the ranking. */
+        /* `total`, not copy_count: what the roster knows, against what was copied. */
         ui_handshake.nodes_known = (uint32_t)total;
 
         /*
-         * The map's roster, from the whole of `total` rather than from the 128 above.
-         *
-         * The ranking cut is a decision about a *list*: which nodes are worth a row on a screen
-         * a reader scrolls. A map has no rows, and a node's rank has nothing to do with whether
-         * its marker is on the panel - so a mesh whose 200th-ranked node is the one parked at
-         * the far end of the valley was drawing everything except the marker that answered the
-         * question. Same order, because the order is the drawing order and ties are settled by
-         * it; no cut, because struct mesh_ui_map_node is small enough not to need one.
+         * The map's roster, from the whole of `total`: every positioned node, whatever its
+         * rank, because a node's rank says how likely you are to talk to it and a marker is on
+         * the panel or it is not. Same order, because the order is the drawing order and ties
+         * are settled by it.
          *
          * Positioned nodes only, and the bounds test rather than `valid` alone: the session
          * already refuses an out-of-range fix, and asking again here costs nothing and keeps a

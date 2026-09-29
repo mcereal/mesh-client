@@ -218,9 +218,9 @@ struct mesh_ui_node_summary {
      * Two bools rather than the resolved names, because the screen resolves a byte live - a
      * relay that was two hex digits at connect time becomes a name the moment its NodeInfo
      * lands - and only the ambiguity needs an authority this side of the seam does not have.
-     * This roster is capped at MESH_UI_MAX_HANDSHAKE_NODES and the session's is twice that, so
-     * a byte can look unique here purely because its other claimant was ranked away, and a
-     * screen scanning only what it was given would name that one node and sound certain.
+     * It is settled over the session's roster rather than these rows, so a screen never has to
+     * assume that what it was given is all of it - a byte that looks unique only because its
+     * other claimant was left off would name that one node and sound certain.
      */
     bool relay_ambiguous;
     bool next_hop_ambiguous;
