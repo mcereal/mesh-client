@@ -880,8 +880,10 @@ static void app_backup_restore_tick(struct mesh_app *app) {
             app->session.reboot_generation != app->backup_restore.reboot_generation;
         const struct mesh_radio_settings *settings = mesh_session_settings(&app->session);
         /* The radio refused the transaction - its begin or its commit - so nothing was saved:
-           said, and the screen compares again to show the radio as it still is. */
-        if (settings != NULL &&
+           said, and the screen compares again to show the radio as it still is. Not once it has
+           restarted, which resets the settings and the count with them: a restart is what a
+           transaction that took ends in. */
+        if (!restarted && settings != NULL &&
             settings->transactions_failed != app->backup_restore.transactions_failed) {
             char toast[MESH_UI_NAV_TOAST_MAX];
             inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESTORE_REFUSED,
@@ -1341,7 +1343,10 @@ static void app_identity_tick(struct mesh_app *app) {
         return;
     case APP_IDENTITY_SENT: {
         const struct mesh_radio_settings *settings = mesh_session_settings(&app->session);
-        if (settings != NULL &&
+        const bool restarted =
+            app->session.reboot_generation != app->backup_identity.reboot_generation;
+        /* A refusal counted, unless the radio has restarted since - which resets the count. */
+        if (!restarted && settings != NULL &&
             settings->transactions_failed != app->backup_identity.transactions_failed) {
             char toast[MESH_UI_NAV_TOAST_MAX];
             inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESTORE_REFUSED,
@@ -1350,8 +1355,6 @@ static void app_identity_tick(struct mesh_app *app) {
             app_identity_toast(app, toast);
             return;
         }
-        const bool restarted =
-            app->session.reboot_generation != app->backup_identity.reboot_generation;
         const bool linked = mesh_session_handshake(&app->session) != NULL &&
                             mesh_session_handshake(&app->session)->has_my_info;
         if (!restarted && linked && settings != NULL && mesh_radio_settings_busy(settings)) {

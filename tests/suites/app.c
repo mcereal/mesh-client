@@ -6023,9 +6023,11 @@ MESH_TEST_CASE(app_backup_restore_writes_the_difference_and_judges_it_after_the_
     /* The radio as it was before the restore went on the card first. */
     const bool kept = app_backup_count(&app, NULL, 0U) == 2;
 
-    /* It applies them and restarts; nothing is judged while it is gone. */
+    /* It applies them and restarts; nothing is judged while it is gone. The restart resets the
+       settings, and an earlier refusal's count with them: not this restore failing. */
     mesh_app_backup_tick(&app);
     const bool waited = app.backup_restore.stage != 0U;
+    app.backup_restore.transactions_failed = 2U;
     app_restore_radio_answered(&app);
     radio->lora.hop_limit = 5U;
     app.session.reboot_generation += 1U;
@@ -6883,7 +6885,11 @@ MESH_TEST_CASE(app_backup_identity_restore_meshtastic_is_one_write_judged_by_the
     }
     const bool kept = app_backup_count(&app, NULL, 0U) == 3;
 
-    /* It restarts holding the key, and reports the public key that goes with it. */
+    /* It restarts holding the key, and reports the public key that goes with it - and the
+       restart resets the settings, the failed-transaction count an earlier refusal left with
+       them, which is not this restore failing. */
+    radio->transactions_failed = 0U;
+    app.backup_identity.transactions_failed = 2U;
     app_restore_radio_answered(&app);
     memset(radio->security.private_key.bytes, 0xAB, 32U);
     memset(radio->security.public_key.bytes, 0x5C, 32U);
