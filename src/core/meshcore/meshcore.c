@@ -1434,6 +1434,20 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         }
     }
 
+    /*
+     * DEVICE_INFO answers DEVICE_QUERY and SELF_INFO answers APP_START, and nothing else. One
+     * that arrives with another command at the head answers a query the radio was sent before:
+     * a freshly flashed radio formats its flash for longer than a command waits, the link is
+     * given up on and opened again, and the radio then answers both connections at once. Taken
+     * as the head's answer, it would shift every reply after it by one - the handshake's
+     * END_OF_CONTACTS then finds nothing outstanding, and the sync never finishes.
+     */
+    if ((code == MESH_MESHCORE_RESP_DEVICE_INFO && cmd != MESH_MESHCORE_CMD_DEVICE_QUERY) ||
+        (code == MESH_MESHCORE_RESP_SELF_INFO && cmd != MESH_MESHCORE_CMD_APP_START)) {
+        inkwell_log_debug("meshcore", "Reply %u answers no command outstanding (head %u)",
+                          (unsigned)code, (unsigned)cmd);
+        return;
+    }
     if (!meshcore->awaiting) {
         inkwell_log_debug("meshcore", "Reply %u with nothing outstanding", (unsigned)code);
         return;

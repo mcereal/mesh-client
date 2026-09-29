@@ -273,6 +273,46 @@ MESH_TEST_CASE(meshcore_handshake_fills_the_model, unit) {
 }
 
 /*
+ * Seen on a Heltec V3 just switched to MeshCore over its cable: the radio formatted its flash for
+ * longer than a command waits, the link was opened again, and the radio answered both
+ * connections' DEVICE_QUERY and APP_START at once. The second pair must not be taken as the
+ * answers to what followed, or the handshake's END_OF_CONTACTS finds nothing outstanding and the
+ * sync never finishes.
+ */
+MESH_TEST_CASE(meshcore_handshake_ignores_a_repeated_device_and_self_info, unit) {
+    struct mesh_protocol protocol;
+    static struct mesh_test_meshcore_wire wire;
+    mesh_session_init(&g_model);
+    mesh_meshcore_init(&g_meshcore, &g_model);
+    protocol = mesh_meshcore_protocol(&g_meshcore);
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, mesh_test_meshcore_wire_send, &wire);
+    MESH_TEST_FAIL_IF(mesh_protocol_begin(&protocol) != 0, "the handshake starts");
+    uint8_t device[sizeof mesh_test_meshcore_device_info];
+    memcpy(device, mesh_test_meshcore_device_info, sizeof device);
+    device[3] = 1U;
+    feed(&protocol, device, sizeof device);
+    feed(&protocol, mesh_test_meshcore_self_info, sizeof mesh_test_meshcore_self_info);
+    /* The earlier connection's answers, late. */
+    feed(&protocol, device, sizeof device);
+    feed(&protocol, mesh_test_meshcore_self_info, sizeof mesh_test_meshcore_self_info);
+    if (mesh_test_meshcore_wire_last(&wire) == MESH_MESHCORE_CMD_SET_DEVICE_TIME) {
+        feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    }
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_GET_CONTACTS,
+                      "the contacts are asked for once the clock is answered");
+    uint8_t end[5] = {MESH_MESHCORE_RESP_END_OF_CONTACTS};
+    feed(&protocol, end, sizeof end);
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_GET_CHANNEL,
+                      "the end of the contacts moves the sync on to the channels");
+    uint8_t channel[2 + 32 + 16] = {MESH_MESHCORE_RESP_CHANNEL_INFO};
+    feed(&protocol, channel, sizeof channel);
+    MESH_TEST_FAIL_IF(!mesh_meshcore_ready(&g_meshcore), "the sync finishes");
+    mesh_protocol_detach(&protocol);
+    record_success(test_name);
+}
+
+/*
  * A push that a message is waiting starts the drain, and the drain runs until the radio says
  * there is no more - a direct message resolves to the contact whose key it starts with, and a
  * channel message's "Name: " becomes its sender when a node goes by that name.
