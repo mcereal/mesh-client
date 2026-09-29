@@ -12,7 +12,9 @@
 
 #include "inkwell/base/time.h"
 #include "mesh/core/meshcore.h"
+#include "mesh/core/meshcore_backup.h"
 #include "mesh/core/message.h"
+#include "mesh/core/radio_backup.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/ble_profile.h"
@@ -21,6 +23,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 /* ------------------------------------------------------------------ captured from a radio */
@@ -2410,5 +2413,141 @@ MESH_TEST_CASE(meshcore_reboot_syncs_again, unit) {
                       "a reboot the link refuses is the call's answer");
     MESH_TEST_FAIL_IF(mesh_meshcore_refresh_settings(&g_meshcore) != -EAGAIN,
                       "and so is a refresh");
+    record_success(test_name);
+}
+
+/* ------------------------------------------------------------------ backups */
+
+static struct mesh_radio_backup g_backup;
+static struct mesh_radio_backup g_backup_read;
+static struct mesh_meshcore_backup_contents g_contents;
+
+MESH_TEST_CASE(meshcore_backup_waits_for_the_whole_sync, unit) {
+    mesh_session_init(&g_model);
+    mesh_meshcore_init(&g_meshcore, &g_model);
+    struct mesh_protocol protocol = mesh_meshcore_protocol(&g_meshcore);
+    struct wire wire;
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, wire_send, &wire);
+    (void)mesh_protocol_begin(&protocol);
+    feed(&protocol, k_device_info, sizeof k_device_info);
+    feed(&protocol, k_self_info, sizeof k_self_info);
+    /* SELF_INFO is in, the contact list is not: a backup now would be a radio with none. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_capture(&g_meshcore, &g_backup) != -EAGAIN,
+                      "a radio still reading its contacts was captured");
+    MESH_TEST_FAIL_IF(g_backup.section_count != 0U, "a refused capture left sections behind");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(meshcore_backup_keeps_settings_channels_and_contacts_whole, unit) {
+    struct mesh_protocol protocol;
+    struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_capture(&g_meshcore, &g_backup) != 0,
+                      "a synced radio was not captured");
+    g_backup.header.reason = MESH_RADIO_BACKUP_MANUAL;
+
+    const char *path = "/tmp/meshcore_backup_test.backup";
+    const int written = mesh_radio_backup_write_file(&g_backup, path);
+    const int read = mesh_radio_backup_read_file(&g_backup_read, path);
+    remove(path);
+    MESH_TEST_FAIL_IF(written != 0 || read != 0, "the file did not round-trip");
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_read(&g_backup_read, &g_contents) != 0,
+                      "the sections did not decode");
+
+    const struct mesh_radio_backup_header *header = &g_backup_read.header;
+    MESH_TEST_FAIL_IF(header->protocol != MESH_RADIO_BACKUP_MESHCORE ||
+                          header->node_id != g_meshcore.self_node,
+                      "the header does not name this radio");
+    MESH_TEST_FAIL_IF(strcmp(header->model, "Heltec V3") != 0 ||
+                          strncmp(header->firmware, "v1.17.1", 7U) != 0,
+                      "the header lost the board or the firmware");
+    MESH_TEST_FAIL_IF(!header->has_contacts || header->contacts != 1U || header->has_nodes_heard,
+                      "a MeshCore radio counts contacts it keeps, not nodes it heard");
+    MESH_TEST_FAIL_IF(!header->has_radio ||
+                          header->frequency_khz != g_meshcore.self.frequency_khz ||
+                          header->spreading_factor != g_meshcore.self.spreading_factor,
+                      "the header's radio numbers are not SELF_INFO's");
+    MESH_TEST_FAIL_IF(header->channel_count != 1U ||
+                          strcmp(header->channel_names[0], "Public") != 0,
+                      "the header's channel list is wrong");
+
+    MESH_TEST_FAIL_IF(!g_contents.has_self ||
+                          memcmp(g_contents.self.public_key, g_meshcore.self.public_key,
+                                 MESH_MESHCORE_PUBKEY_LEN) != 0 ||
+                          strcmp(g_contents.self.name, g_meshcore.self.name) != 0 ||
+                          g_contents.self.bandwidth_hz != g_meshcore.self.bandwidth_hz ||
+                          g_contents.self.tx_power_dbm != g_meshcore.self.tx_power_dbm,
+                      "the radio's settings did not come back");
+    MESH_TEST_FAIL_IF(!g_contents.has_pin || g_contents.ble_pin != g_meshcore.device.ble_pin,
+                      "the Bluetooth PIN did not come back");
+    MESH_TEST_FAIL_IF(!g_contents.has_channel[0] ||
+                          strcmp(g_contents.channels[0].name, "Public") != 0 ||
+                          g_contents.channels[0].secret[0] != 0x8b,
+                      "the channel and its secret did not come back");
+    /* The route is the part the roster never kept, and the reason the book exists. */
+    MESH_TEST_FAIL_IF(g_contents.contact_count != 1U ||
+                          strcmp(g_contents.contacts[0].name, "Alice") != 0 ||
+                          g_contents.contacts[0].out_path_len != 2U ||
+                          g_contents.contacts[0].lastmod != 1700000000U ||
+                          g_contents.contacts[0].public_key[0] != 0x40,
+                      "the contact did not come back whole");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(meshcore_contact_book_follows_the_radio, unit) {
+    struct mesh_protocol protocol;
+    struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_count(&g_meshcore) != 1U,
+                      "the synced contact is not in the book");
+
+    /* A route changed: the radio says so by key, and the record it is asked for replaces the
+       one kept rather than joining it. */
+    uint8_t push[1U + MESH_MESHCORE_PUBKEY_LEN];
+    push[0] = MESH_MESHCORE_PUSH_PATH_UPDATED;
+    for (size_t k = 0; k < MESH_MESHCORE_PUBKEY_LEN; ++k) {
+        push[1U + k] = (uint8_t)(0x40U + k);
+    }
+    feed(&protocol, push, sizeof push);
+    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY,
+                      "a path update did not ask for the record");
+    uint8_t frame[160];
+    feed(&protocol, frame,
+         build_contact(frame, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice", MESH_MESHCORE_ADV_CHAT, 4U,
+                       1700000500U));
+    const struct mesh_meshcore_contact *kept = mesh_meshcore_contact_at(&g_meshcore, 0U);
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_count(&g_meshcore) != 1U || kept == NULL ||
+                          kept->out_path_len != 4U,
+                      "an updated record was not kept in place");
+
+    /* A heard advert the radio did not add is not on its list. */
+    feed(&protocol, frame,
+         build_contact(frame, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x60, "Bob", MESH_MESHCORE_ADV_CHAT,
+                       MESH_MESHCORE_PATH_NONE, 1700000600U));
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_count(&g_meshcore) != 1U,
+                      "an advert the radio did not add went into the book");
+
+    /* And one the radio deleted leaves it. */
+    push[0] = MESH_MESHCORE_PUSH_CONTACT_DELETED;
+    feed(&protocol, push, sizeof push);
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_count(&g_meshcore) != 0U,
+                      "a contact the radio deleted stayed in the book");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(meshcore_contact_book_starts_again_on_a_new_connection, unit) {
+    struct mesh_protocol protocol;
+    struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_count(&g_meshcore) != 1U, "fixture: no contact");
+    /* Another radio on the next link: its list is read from the start, and until it is, this
+       radio's contacts must not be taken for that one's. */
+    mesh_protocol_detach(&protocol);
+    mesh_protocol_attach(&protocol, wire_send, &wire);
+    (void)mesh_protocol_begin(&protocol);
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_count(&g_meshcore) != 0U,
+                      "the last connection's contacts survived into this one");
+    MESH_TEST_FAIL_IF(g_meshcore.has_channel[0], "the last connection's channels survived");
     record_success(test_name);
 }

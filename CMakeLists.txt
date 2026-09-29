@@ -90,6 +90,7 @@ add_library(meshclient_core
     src/core/protocol/protocol.c
     src/core/lifetime/lifetime.c
     src/core/meshcore/meshcore.c
+    src/core/meshcore/meshcore_backup.c
     src/core/meshcore/meshcore_codec.c
     src/core/session/key_verification.c
     src/core/session/message.c

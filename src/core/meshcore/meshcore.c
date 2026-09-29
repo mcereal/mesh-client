@@ -12,6 +12,7 @@
 #include "mesh/proto/stream_framing.h"
 
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -332,6 +333,46 @@ mesh_meshcore_heard_advert(const struct mesh_meshcore *meshcore, const uint8_t *
     return NULL;
 }
 
+_Static_assert(MESH_MESHCORE_CHANNELS_KEPT >= MESH_SESSION_MAX_CHANNELS,
+               "every slot the walk reads is kept whole");
+
+/*
+ * The contact book: the radio's records whole, by key. An update replaces the record in its
+ * place; a new one goes on the end, or is counted and dropped when the book is full - the
+ * roster still takes it, so only a backup is short.
+ */
+static size_t mesh_meshcore_book_find(const struct mesh_meshcore *meshcore, const uint8_t *key) {
+    for (size_t i = 0; i < meshcore->contact_count; ++i) {
+        if (memcmp(meshcore->contacts[i].public_key, key, MESH_MESHCORE_PUBKEY_LEN) == 0) {
+            return i;
+        }
+    }
+    return SIZE_MAX;
+}
+
+static void mesh_meshcore_book_put(struct mesh_meshcore *meshcore,
+                                   const struct mesh_meshcore_contact *contact) {
+    const size_t at = mesh_meshcore_book_find(meshcore, contact->public_key);
+    if (at != SIZE_MAX) {
+        meshcore->contacts[at] = *contact;
+    } else if (meshcore->contact_count < MESH_MESHCORE_CONTACTS_MAX) {
+        meshcore->contacts[meshcore->contact_count++] = *contact;
+    } else {
+        meshcore->contacts_unkept += 1U;
+    }
+}
+
+/* Keeps the rest in the order they came, which is the radio's own. */
+static void mesh_meshcore_book_drop(struct mesh_meshcore *meshcore, const uint8_t *key) {
+    const size_t at = mesh_meshcore_book_find(meshcore, key);
+    if (at == SIZE_MAX) {
+        return;
+    }
+    memmove(&meshcore->contacts[at], &meshcore->contacts[at + 1U],
+            (meshcore->contact_count - at - 1U) * sizeof meshcore->contacts[0]);
+    meshcore->contact_count -= 1U;
+}
+
 /* `imported` is a contact the user added themselves, which the roster takes without calling it
    a discovery; see mesh_session_model_contact(). */
 static void mesh_meshcore_store_contact(struct mesh_meshcore *meshcore,
@@ -491,6 +532,10 @@ static bool mesh_meshcore_channel_used(const struct mesh_meshcore_channel *chann
 
 static void mesh_meshcore_store_channel(struct mesh_meshcore *meshcore,
                                         const struct mesh_meshcore_channel *channel) {
+    if (channel->index < MESH_MESHCORE_CHANNELS_KEPT) {
+        meshcore->channels[channel->index] = *channel;
+        meshcore->has_channel[channel->index] = true;
+    }
     struct mesh_channel_summary summary;
     memset(&summary, 0, sizeof summary);
     summary.index = channel->index;
@@ -1226,6 +1271,7 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
         break;
     case MESH_MESHCORE_PUSH_CONTACT_DELETED:
         if (len >= 1U + MESH_MESHCORE_PUBKEY_LEN) {
+            mesh_meshcore_book_drop(meshcore, frame + 1);
             const uint32_t id = mesh_meshcore_node_id(frame + 1, MESH_MESHCORE_PUBKEY_LEN);
             struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, id, false);
             if (node != NULL) {
@@ -1356,6 +1402,7 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
     if (code == MESH_MESHCORE_RESP_CONTACT) {
         struct mesh_meshcore_contact contact;
         if (mesh_meshcore_decode_contact(frame, len, &contact) == 0) {
+            mesh_meshcore_book_put(meshcore, &contact);
             mesh_meshcore_store_contact(meshcore, &contact, cmd == MESH_MESHCORE_CMD_GET_CONTACTS,
                                         false);
             if (cmd == MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY && meshcore->awaiting &&
@@ -1502,6 +1549,9 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             uint32_t id = 0U;
             bool clash = false;
             if (mesh_meshcore_decode_contact(record, (size_t)request->len + 4U, &contact) == 0) {
+                /* The radio holds exactly what was sent, clash or not; its own clock stamps
+                   lastmod, which the next sync brings. */
+                mesh_meshcore_book_put(meshcore, &contact);
                 id = mesh_meshcore_node_id(contact.public_key, MESH_MESHCORE_PUBKEY_LEN);
                 was = mesh_meshcore_roster_node(meshcore, id);
                 /* A different key under the same four bytes - an advert heard while this add
@@ -1540,6 +1590,7 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
                    request->len == 1U + MESH_MESHCORE_PUBKEY_LEN) {
             /* Only now: a refused or unanswered removal leaves the contact on the radio, and
                so on the list. */
+            mesh_meshcore_book_drop(meshcore, request->frame + 1);
             const uint32_t id =
                 mesh_meshcore_find_prefix(meshcore, request->frame + 1, MESH_MESHCORE_PUBKEY_LEN);
             if (id != 0U && mesh_session_model_drop_node(meshcore->model, id) == 0) {
@@ -1678,6 +1729,10 @@ static int mesh_meshcore_begin(void *self) {
     /* A fresh connection asks for every contact: the model may hold nodes from another radio's
        list, and "since" is only meaningful against the list it came from. */
     meshcore->contacts_since = 0U;
+    /* And so the book, which is that list whole: it is read again from the start. */
+    meshcore->contact_count = 0U;
+    meshcore->contacts_unkept = 0U;
+    memset(meshcore->has_channel, 0, sizeof meshcore->has_channel);
     /* And the adverts kept for adding are this connection's: one from before may be older than
        what the sender now stamps, and would hold its next advert back as a replay. */
     memset(meshcore->heard_age, 0, sizeof meshcore->heard_age);
@@ -1826,6 +1881,15 @@ struct mesh_protocol mesh_meshcore_protocol(struct mesh_meshcore *meshcore) {
 
 bool mesh_meshcore_ready(const struct mesh_meshcore *meshcore) {
     return meshcore != NULL && meshcore->send != NULL && meshcore->phase == MESH_MESHCORE_READY;
+}
+
+size_t mesh_meshcore_contact_count(const struct mesh_meshcore *meshcore) {
+    return meshcore != NULL ? meshcore->contact_count : 0U;
+}
+
+const struct mesh_meshcore_contact *mesh_meshcore_contact_at(const struct mesh_meshcore *meshcore,
+                                                             size_t index) {
+    return meshcore != NULL && index < meshcore->contact_count ? &meshcore->contacts[index] : NULL;
 }
 
 /*
