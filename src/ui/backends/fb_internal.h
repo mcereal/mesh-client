@@ -100,6 +100,8 @@ struct fb_app {
     int text_applied;
     /* The map packs revision last opened (struct mesh_ui_client_info). */
     uint32_t map_packs_revision;
+    /* The driven-press count last seen (struct mesh_ui_client_info). */
+    uint32_t driven_presses;
 };
 
 /* The app behind `state`, or NULL when nothing installed one. */

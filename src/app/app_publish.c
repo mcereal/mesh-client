@@ -1083,6 +1083,7 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     }
     /* Moves on every install and delete, which is what makes the map reopen its packs. */
     dst->map_packs_revision = app->map_packs_revision + app->map_packs.installed_revision;
+    dst->driven_presses = app->driven_presses;
     const char *backend = inkstand_frame_scheduler_backend_name(&app->ui_controller.frames);
     if (backend != NULL) {
         snprintf(dst->backend, sizeof dst->backend, "%s", backend);

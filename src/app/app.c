@@ -296,6 +296,17 @@ void mesh_app_on_ui_key(void *userdata, enum inkcell_key key) {
     mesh_ui_controller_handle_key(&app->ui_controller, key);
 }
 
+/* A key from the control socket: the same press, and the window told the reader is on the keys. */
+static void mesh_app_on_control_key(void *userdata, enum inkcell_key key) {
+    struct mesh_app *app = (struct mesh_app *)userdata;
+    if (app == NULL) {
+        return;
+    }
+    app->driven_presses++;
+    mesh_app_publish_ui_state(app);
+    mesh_ui_controller_handle_key(&app->ui_controller, key);
+}
+
 /* A visible action hint names a command, even though inkcell can only name the generic keycap it
    drew. Resolve that binding against the last frame rather than treating the click as hardware. */
 void mesh_app_on_ui_action_key(void *userdata, enum inkcell_key key) {
@@ -1798,7 +1809,7 @@ int mesh_app_run(struct mesh_app *app) {
     if (app->config.ui_control_path[0] != '\0') {
         const struct inkstand_control_host host = {
             .frames = &app->ui_controller.frames,
-            .press = mesh_app_on_ui_key,
+            .press = mesh_app_on_control_key,
             .screen = mesh_app_control_screen,
             .userdata = app,
         };
