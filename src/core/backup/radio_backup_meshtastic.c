@@ -696,3 +696,139 @@ int mesh_radio_backup_meshtastic_diff(const struct mesh_radio_backup *a,
     }
     return 0;
 }
+
+/* ---- restoring ----------------------------------------------------------------------------- */
+
+/* The admin ConfigType a Config variant is written with: the variants are the types plus one. */
+_Static_assert(meshtastic_Config_lora_tag - 1 == meshtastic_AdminMessage_ConfigType_LORA_CONFIG &&
+                   meshtastic_Config_security_tag - 1 ==
+                       meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG &&
+                   meshtastic_Config_device_tag - 1 ==
+                       meshtastic_AdminMessage_ConfigType_DEVICE_CONFIG,
+               "a Config variant's tag is its ConfigType plus one");
+
+/* One backup section as the write that puts it back; false for a section with no write. */
+static bool mt_restore_write(const struct mt_key *key, const union mt_message *message,
+                             const uint8_t *data, size_t len,
+                             const struct mesh_radio_settings *settings,
+                             struct mesh_admin_request *write) {
+    memset(write, 0, sizeof *write);
+    switch (key->tag) {
+    case MESH_RADIO_BACKUP_MT_CONFIG:
+        if (message->config.which_payload_variant == 0U) {
+            return false;
+        }
+        write->kind = MESH_ADMIN_SET_CONFIG;
+        write->type = (uint32_t)(message->config.which_payload_variant - 1U);
+        write->payload.config = message->config;
+        if (message->config.which_payload_variant == meshtastic_Config_security_tag) {
+            /* The radio's own key pair, never the backup's empty one: see the header. */
+            write->payload.config.payload_variant.security.private_key =
+                settings->security.private_key;
+            write->payload.config.payload_variant.security.public_key =
+                settings->security.public_key;
+        }
+        return true;
+    case MESH_RADIO_BACKUP_MT_MODULE:
+        for (size_t i = 0; i < mesh_radio_module_count(); ++i) {
+            const struct mesh_module_binding *binding = mesh_radio_module_at(i);
+            if (binding != NULL && binding->variant_tag == message->module.which_payload_variant) {
+                write->kind = MESH_ADMIN_SET_MODULE_CONFIG;
+                write->type = binding->admin_type;
+                write->payload.module_config = message->module;
+                return true;
+            }
+        }
+        return false; /* a module this build keeps no binding for */
+    case MESH_RADIO_BACKUP_MT_CHANNEL:
+        write->kind = MESH_ADMIN_SET_CHANNEL;
+        write->type = (uint32_t)message->channel.index;
+        write->payload.channel = message->channel;
+        return true;
+    case MESH_RADIO_BACKUP_MT_OWNER:
+        write->kind = MESH_ADMIN_SET_OWNER;
+        write->payload.owner = message->owner;
+        write->payload.owner.public_key = settings->owner.public_key;
+        return true;
+    case MESH_RADIO_BACKUP_MT_UI_CONFIG:
+        write->kind = MESH_ADMIN_SET_UI_CONFIG;
+        write->payload.ui_config = message->ui;
+        return true;
+    case MESH_RADIO_BACKUP_MT_CANNED:
+        write->kind = MESH_ADMIN_SET_CANNED_MESSAGES;
+        return mt_text(data, len, write->payload.text, sizeof write->payload.text);
+    case MESH_RADIO_BACKUP_MT_RINGTONE:
+        write->kind = MESH_ADMIN_SET_RINGTONE;
+        return mt_text(data, len, write->payload.ringtone, sizeof write->payload.ringtone);
+    case MESH_RADIO_BACKUP_MT_POSITION:
+        write->kind = MESH_ADMIN_SET_FIXED_POSITION;
+        write->type = (uint32_t)meshtastic_AdminMessage_ConfigType_POSITION_CONFIG;
+        write->payload.position = message->position;
+        return true;
+    default:
+        return false;
+    }
+}
+
+int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
+                                      const struct mesh_radio_settings *settings,
+                                      const struct mesh_handshake_status *status,
+                                      struct mesh_admin_request *writes, size_t max) {
+    if (backup == NULL || settings == NULL || status == NULL || (writes == NULL && max > 0U)) {
+        return -EINVAL;
+    }
+    if (backup->header.protocol != MESH_RADIO_BACKUP_MESHTASTIC) {
+        return -EPROTO;
+    }
+    struct mesh_radio_backup *live = malloc(sizeof *live);
+    union mt_message *message = malloc(sizeof *message);
+    if (live == NULL || message == NULL) {
+        free(live);
+        free(message);
+        return -ENOMEM;
+    }
+    int result = mesh_radio_backup_meshtastic_capture(settings, status, live);
+    struct mt_key keys[MT_DIFF_SECTIONS];
+    size_t count_live = 0U;
+    const uint8_t *data = NULL;
+    const struct mesh_radio_backup_section *section = NULL;
+    for (; result == 0 && count_live < MT_DIFF_SECTIONS &&
+           (section = mesh_radio_backup_section_at(live, count_live, &data)) != NULL;
+         ++count_live) {
+        keys[count_live] = mt_key_of(section->tag, data, section->len, message);
+    }
+    size_t planned = 0U;
+    for (size_t i = 0; result == 0 && i < MT_DIFF_SECTIONS &&
+                       (section = mesh_radio_backup_section_at(backup, i, &data)) != NULL;
+         ++i) {
+        const struct mt_key key = mt_key_of(section->tag, data, section->len, message);
+        if (!key.ok) {
+            continue;
+        }
+        bool same = false;
+        for (size_t j = 0; j < count_live; ++j) {
+            const uint8_t *live_data = NULL;
+            if (keys[j].ok && keys[j].tag == key.tag && keys[j].index == key.index) {
+                const struct mesh_radio_backup_section *other =
+                    mesh_radio_backup_section_at(live, j, &live_data);
+                same = other->len == section->len && memcmp(live_data, data, section->len) == 0;
+                break;
+            }
+        }
+        if (same) {
+            continue;
+        }
+        struct mesh_admin_request write;
+        if (!mt_restore_write(&key, message, data, section->len, settings, &write)) {
+            continue;
+        }
+        if (planned >= max) {
+            result = -ENOSPC;
+            break;
+        }
+        writes[planned++] = write;
+    }
+    free(live);
+    free(message);
+    return result == 0 ? (int)planned : result;
+}
