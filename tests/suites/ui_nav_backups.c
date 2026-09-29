@@ -81,9 +81,8 @@ static bool row_is(const struct mesh_ui_store *store, uint32_t row,
 /* The row of the open level that carries `action`, or UINT32_MAX. */
 static uint32_t find_row(const struct mesh_ui_store *store, enum mesh_ui_settings_action action,
                          const char *label) {
-    const uint32_t count =
-        mesh_ui_settings_item_count(&store->settings, NULL, MESH_UI_SETTINGS_BACKUPS,
-                                    mesh_ui_nav_open_channel(&store->nav));
+    const uint32_t count = mesh_ui_settings_item_count(
+        &store->settings, NULL, MESH_UI_SETTINGS_BACKUPS, mesh_ui_nav_open_channel(&store->nav));
     struct mesh_ui_settings_item item;
     for (uint32_t row = 0U; row < count; ++row) {
         if (row_is(store, row, action, &item) &&
@@ -128,8 +127,13 @@ MESH_TEST_CASE(ui_nav_backups_walks_in_and_back_out_to_each_row, unit) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    struct mesh_ui_settings_item first;
     if (action.type != MESH_UI_ACTION_NONE || store->nav.backups_node != VALLEY ||
-        depth(store) != 2U || *cursor != 0U) {
+        depth(store) != 2U ||
+        !row_is(store, *cursor, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY, &first) ||
+        *cursor != 1U) {
+        /* Valley is not on the link, so there is nothing to save: its first row is its one
+           backup, under the heading the cursor steps over. */
         failure = "A on a radio should open its backups, at the top, asking nothing of the app";
         goto cleanup;
     }
@@ -145,15 +149,13 @@ MESH_TEST_CASE(ui_nav_backups_walks_in_and_back_out_to_each_row, unit) {
     mesh_test_settings_cursor_to(store, ridge);
     mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
     uint32_t entries = 0U;
-    const uint32_t count = mesh_ui_settings_item_count(&store->settings, NULL,
-                                                       MESH_UI_SETTINGS_BACKUPS,
-                                                       mesh_ui_nav_open_channel(&store->nav));
+    const uint32_t count = mesh_ui_settings_item_count(
+        &store->settings, NULL, MESH_UI_SETTINGS_BACKUPS, mesh_ui_nav_open_channel(&store->nav));
     struct mesh_ui_settings_item item;
     for (uint32_t row = 0U; row < count; ++row) {
         entries += row_is(store, row, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY, &item) ? 1U : 0U;
     }
-    if (entries != 3U ||
-        find_row(store, MESH_UI_SETTINGS_ACTION_SAVE_BACKUP, NULL) == UINT32_MAX) {
+    if (entries != 3U || find_row(store, MESH_UI_SETTINGS_ACTION_SAVE_BACKUP, NULL) == UINT32_MAX) {
         failure = "Ridge should list its two backups, its MeshCore one, and a save for the radio";
         goto cleanup;
     }
@@ -168,8 +170,8 @@ MESH_TEST_CASE(ui_nav_backups_walks_in_and_back_out_to_each_row, unit) {
         goto cleanup;
     }
     const uint32_t compare = find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE, NULL);
-    if (compare == UINT32_MAX || !row_is(store, compare, MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE,
-                                         &item) ||
+    if (compare == UINT32_MAX ||
+        !row_is(store, compare, MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE, &item) ||
         item.kind != INKSTAND_FORM_ACTION) {
         failure = "a backup of the radio on the link should offer the comparison";
         goto cleanup;
@@ -264,9 +266,8 @@ MESH_TEST_CASE(ui_nav_backups_delete_asks_then_leaves_the_backup, unit) {
     struct mesh_ui_action action;
 
     open_backups(store);
-    mesh_test_settings_cursor_to(store,
-                                 find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO,
-                                          "Ridge relay"));
+    mesh_test_settings_cursor_to(
+        store, find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO, "Ridge relay"));
     mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
     const uint32_t oldest_row =
         find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY, NULL) + 1U;
@@ -317,9 +318,8 @@ MESH_TEST_CASE(ui_nav_backups_follow_the_card_by_node_and_number, unit) {
     struct mesh_ui_action action;
 
     open_backups(store);
-    mesh_test_settings_cursor_to(store,
-                                 find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO,
-                                          "Valley"));
+    mesh_test_settings_cursor_to(
+        store, find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO, "Valley"));
     mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
     mesh_test_settings_cursor_to(store,
                                  find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY, NULL));

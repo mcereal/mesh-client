@@ -2970,6 +2970,141 @@ static const struct inkstand_scene_seed uicap_seeds[] = {
     {"empty", uicap_seed_empty},
 };
 
+/*
+ * The backups on the card, as the app would have published them after reading it - there is
+ * no card behind the harness. Three radios: the demo's own, the same device earlier under
+ * MeshCore, and one that is not here.
+ *
+ *   backups list              the card, with the demo radio on the link
+ *   backups compare|same      a finished comparison of the newest backup with the radio
+ */
+static void uicap_backup_entry(struct mesh_ui_backups *b, uint8_t radio, uint32_t node,
+                               uint32_t sequence, uint8_t protocol, uint8_t reason,
+                               uint32_t saved_at, const char *firmware) {
+    struct mesh_ui_backup_entry *entry = &b->entries[b->entry_count++];
+    memset(entry, 0, sizeof *entry);
+    struct mesh_radio_backup_header *h = &entry->header;
+    const struct mesh_ui_backup_radio *owner = &b->radios[radio];
+    entry->radio = radio;
+    entry->sequence = sequence;
+    h->node_id = node;
+    h->protocol = protocol;
+    h->reason = reason;
+    h->saved_at = saved_at;
+    inkwell_str_copy(h->name, sizeof h->name, owner->name);
+    inkwell_str_copy(h->device, sizeof h->device, owner->device);
+    inkwell_str_copy(h->firmware, sizeof h->firmware, firmware);
+    inkwell_str_copy(h->model, sizeof h->model,
+                     protocol == MESH_RADIO_BACKUP_MESHCORE ? "Heltec V3" : "HELTEC_V3");
+    h->has_radio = true;
+    h->tx_power_dbm = 17;
+    if (protocol == MESH_RADIO_BACKUP_MESHCORE) {
+        h->frequency_khz = 869525U;
+        h->bandwidth_hz = 250000U;
+        h->spreading_factor = 11U;
+        h->coding_rate = 5U;
+        h->has_contacts = true;
+        h->contacts = 23U;
+        h->channel_count = 1U;
+        inkwell_str_copy(h->channel_names[0], sizeof h->channel_names[0], "Public");
+    } else {
+        inkwell_str_copy(h->region, sizeof h->region, "EU_868");
+        inkwell_str_copy(h->preset, sizeof h->preset, "MEDIUM_FAST");
+        h->has_nodes_heard = true;
+        h->nodes_heard = 57U;
+        h->channel_count = 3U;
+        inkwell_str_copy(h->channel_names[0], sizeof h->channel_names[0], "");
+        inkwell_str_copy(h->channel_names[2], sizeof h->channel_names[2], "Ops");
+    }
+    b->radios[radio].listed++;
+}
+
+static void uicap_backup_radio(struct mesh_ui_backups *b, uint32_t node, const char *name,
+                               uint8_t protocol, uint16_t count, const char *device) {
+    struct mesh_ui_backup_radio *radio = &b->radios[b->radio_count++];
+    memset(radio, 0, sizeof *radio);
+    radio->node = node;
+    radio->count = count;
+    radio->protocol = protocol;
+    inkwell_str_copy(radio->name, sizeof radio->name, name);
+    inkwell_str_copy(radio->device, sizeof radio->device, device);
+}
+
+static void uicap_backup_change(struct mesh_radio_backup_diff *diff, uint8_t topic, uint16_t index,
+                                uint16_t field, int64_t before, int64_t after) {
+    struct mesh_radio_backup_change *change =
+        mesh_radio_backup_diff_add(diff, MESH_RADIO_BACKUP_CHANGED, topic, index, field);
+    if (change != NULL) {
+        mesh_radio_backup_value_uint(&change->before, (uint64_t)before);
+        mesh_radio_backup_value_uint(&change->after, (uint64_t)after);
+    }
+}
+
+static int verb_backups(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *what = inkstand_scene_word(&rest);
+    if (what == NULL) {
+        return inkstand_scene_fail(scene, "'backups' needs list, compare or same");
+    }
+    struct mesh_ui_settings settings = cap->store.settings;
+    struct mesh_ui_backups *b = &settings.backups;
+    const uint32_t node = cap->store.handshake.my_info.node_num != 0U
+                              ? cap->store.handshake.my_info.node_num
+                              : 0x0badcafeU;
+    if (strcmp(what, "list") == 0) {
+        memset(b, 0, sizeof *b);
+        b->enabled = true;
+        b->live_node = node;
+        b->live_protocol = MESH_RADIO_BACKUP_MESHTASTIC;
+        const uint32_t now = (uint32_t)inkwell_time_wall_s();
+        uicap_backup_radio(b, node, "Ridge relay", MESH_RADIO_BACKUP_MESHTASTIC, 3U,
+                           "AA:BB:CC:DD:EE:FF");
+        uicap_backup_radio(b, 0x5a5a0001U, "Ridge", MESH_RADIO_BACKUP_MESHCORE, 1U,
+                           "AA:BB:CC:DD:EE:FF");
+        uicap_backup_radio(b, 0x22220002U, "Valley base", MESH_RADIO_BACKUP_MESHTASTIC, 2U,
+                           "/dev/ttyACM0");
+        uicap_backup_entry(b, 0U, node, 3U, MESH_RADIO_BACKUP_MESHTASTIC,
+                           MESH_RADIO_BACKUP_BEFORE_WRITE, now - 3600U, "2.5.6.d55c08d");
+        uicap_backup_entry(b, 0U, node, 2U, MESH_RADIO_BACKUP_MESHTASTIC, MESH_RADIO_BACKUP_MANUAL,
+                           now - 86400U * 2U, "2.5.6.d55c08d");
+        uicap_backup_entry(b, 0U, node, 1U, MESH_RADIO_BACKUP_MESHTASTIC,
+                           MESH_RADIO_BACKUP_FIRST_CONNECT, now - 86400U * 9U, "2.5.4.8d2a7f1");
+        uicap_backup_entry(b, 1U, 0x5a5a0001U, 1U, MESH_RADIO_BACKUP_MESHCORE,
+                           MESH_RADIO_BACKUP_BEFORE_FIRMWARE, now - 86400U * 20U, "v1.7.1");
+        uicap_backup_entry(b, 2U, 0x22220002U, 2U, MESH_RADIO_BACKUP_MESHTASTIC,
+                           MESH_RADIO_BACKUP_BEFORE_WRITE, now - 86400U * 5U, "2.5.6.d55c08d");
+        uicap_backup_entry(b, 2U, 0x22220002U, 1U, MESH_RADIO_BACKUP_MESHTASTIC,
+                           MESH_RADIO_BACKUP_FIRST_CONNECT, now - 86400U * 30U, "2.5.4.8d2a7f1");
+    } else if (strcmp(what, "compare") == 0 || strcmp(what, "same") == 0) {
+        b->compare_node = node;
+        b->compare_sequence = 3U;
+        b->compare_state = MESH_UI_BACKUP_COMPARE_DONE;
+        mesh_radio_backup_diff_reset(&b->diff, MESH_RADIO_BACKUP_MESHTASTIC);
+        if (strcmp(what, "compare") == 0) {
+            /* The radio as it is now against the backup from before the last save: the hop
+               limit and the power went up, the screen stays on longer, and slot 2 was renamed. */
+            uicap_backup_change(&b->diff, MESH_RADIO_BACKUP_TOPIC_LORA, 0U, 8U, 3, 5);
+            uicap_backup_change(&b->diff, MESH_RADIO_BACKUP_TOPIC_LORA, 0U, 10U, 17, 20);
+            uicap_backup_change(&b->diff, MESH_RADIO_BACKUP_TOPIC_DISPLAY, 0U, 1U, 60, 300);
+            struct mesh_radio_backup_change *name = mesh_radio_backup_diff_add(
+                &b->diff, MESH_RADIO_BACKUP_CHANGED, MESH_RADIO_BACKUP_TOPIC_CHANNEL, 2U, 203U);
+            if (name != NULL) {
+                mesh_radio_backup_value_text(&name->before, "Ops", 3U);
+                mesh_radio_backup_value_text(&name->after, "Field ops", 9U);
+            }
+            struct mesh_radio_backup_change *slot = mesh_radio_backup_diff_add(
+                &b->diff, MESH_RADIO_BACKUP_ADDED, MESH_RADIO_BACKUP_TOPIC_CHANNEL, 3U, 2U);
+            if (slot != NULL) {
+                mesh_radio_backup_value_opaque(&slot->after);
+            }
+        }
+    } else {
+        return inkstand_scene_fail(scene, "'backups' is list, compare or same");
+    }
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
 static const struct inkstand_scene_verb uicap_verbs[] = {
     {"map", INKSTAND_SCENE_NO_FRAME, verb_map},
     {"context", 0U, verb_context},
@@ -3018,6 +3153,7 @@ static const struct inkstand_scene_verb uicap_verbs[] = {
     {"waypoint", 0U, verb_waypoint},
     {"alert", 0U, verb_alert},
     {"detection", 0U, verb_detection},
+    {"backups", 0U, verb_backups},
 };
 
 /* ---- the files --------------------------------------------------------------------------- */

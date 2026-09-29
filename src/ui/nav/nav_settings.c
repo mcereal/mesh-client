@@ -613,7 +613,7 @@ bool mesh_ui_nav_backups_press(struct mesh_ui_nav *nav, const struct mesh_ui_sto
             nav->backups_node = b->radios[index].node;
             nav->backups_radio = index;
             nav->backups_view = mesh_ui_backups_view(MESH_UI_BACKUPS_RADIO, index);
-            *cursor = 0U;
+            mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
         }
         return true;
     case MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY:
@@ -623,7 +623,7 @@ bool mesh_ui_nav_backups_press(struct mesh_ui_nav *nav, const struct mesh_ui_sto
             nav->backups_sequence = b->entries[index].sequence;
             nav->backups_entry = index;
             nav->backups_view = mesh_ui_backups_view(MESH_UI_BACKUPS_ENTRY, index);
-            *cursor = 0U;
+            mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
         }
         return true;
     case MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE:
@@ -631,7 +631,7 @@ bool mesh_ui_nav_backups_press(struct mesh_ui_nav *nav, const struct mesh_ui_sto
         nav->backups_entry_cursor = *cursor;
         nav->backups_compare = true;
         nav->backups_view = mesh_ui_backups_view(MESH_UI_BACKUPS_COMPARE, nav->backups_entry);
-        *cursor = 0U;
+        mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
         if (action != NULL) {
             action->type = MESH_UI_ACTION_BACKUP_COMPARE;
             action->dest = nav->backups_entry_node;

@@ -1069,6 +1069,11 @@ static void build_backups_entry(const struct mesh_ui_backups *b, uint8_t e,
     if (h->channel_count > 0U) {
         item_heading(list, MESH_STR_BACKUPS_HEAD_CHANNELS);
         for (uint8_t c = 0U; c < h->channel_count && c < MESH_RADIO_BACKUP_CHANNELS; ++c) {
+            /* The header keeps a name per slot up to the last one in use, so an empty one past
+               the first is a slot switched off; the first unnamed is the radio's default. */
+            if (c > 0U && h->channel_names[c][0] == '\0') {
+                continue;
+            }
             char label[MESH_UI_SETTINGS_LABEL_MAX];
             inkcell_str_format(label, sizeof label, MESH_STR_SETTINGS_TITLE_CHANNEL, (unsigned)c);
             struct mesh_ui_settings_item *item = item_add_named(list, label, INKSTAND_FORM_INFO);

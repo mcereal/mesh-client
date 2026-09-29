@@ -180,8 +180,7 @@ void mesh_ui_backups_radio_name(const struct mesh_ui_backup_radio *radio, char *
 
 bool mesh_ui_backups_title(const struct mesh_ui_backups *backups, uint8_t view, char *title,
                            size_t title_len, char *parent, size_t parent_len) {
-    if (backups == NULL || title == NULL || title_len == 0U || parent == NULL ||
-        parent_len == 0U) {
+    if (backups == NULL || title == NULL || title_len == 0U || parent == NULL || parent_len == 0U) {
         return false;
     }
     title[0] = '\0';
@@ -263,16 +262,15 @@ void mesh_ui_backups_topic(const struct mesh_radio_backup_change *change, char *
     }
     switch ((enum mesh_radio_backup_topic)change->topic) {
     case MESH_RADIO_BACKUP_TOPIC_CHANNEL:
-        inkcell_str_format(out, out_len, MESH_STR_SETTINGS_TITLE_CHANNEL,
-                           (unsigned)change->index);
+        inkcell_str_format(out, out_len, MESH_STR_SETTINGS_TITLE_CHANNEL, (unsigned)change->index);
         return;
     case MESH_RADIO_BACKUP_TOPIC_MODULE:
         /* The app has turned the protocol's module number into the section that edits it. */
-        inkwell_str_copy(out, out_len,
-                         change->index < MESH_UI_SETTINGS_SECTION_COUNT
-                             ? mesh_ui_settings_section_name(
-                                   (enum mesh_ui_settings_section)change->index)
-                             : mesh_ui_settings_section_name(MESH_UI_SETTINGS_MODULES));
+        inkwell_str_copy(
+            out, out_len,
+            change->index < MESH_UI_SETTINGS_SECTION_COUNT
+                ? mesh_ui_settings_section_name((enum mesh_ui_settings_section)change->index)
+                : mesh_ui_settings_section_name(MESH_UI_SETTINGS_MODULES));
         return;
     case MESH_RADIO_BACKUP_TOPIC_CONTACT:
         inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_BACKUPS_TOPIC_CONTACTS));
@@ -377,12 +375,10 @@ static const struct backups_label k_meshtastic_labels[] = {
     {MESH_RADIO_BACKUP_TOPIC_CHANNEL, 202, MESH_STR_SETTINGS_FIELD_CHANNEL_KEY, BACKUPS_PLAIN},
     {MESH_RADIO_BACKUP_TOPIC_CHANNEL, 203, MESH_STR_SETTINGS_FIELD_CHANNEL_NAME, BACKUPS_PLAIN},
     {MESH_RADIO_BACKUP_TOPIC_CHANNEL, 205, MESH_STR_SETTINGS_FIELD_CHANNEL_UPLINK, BACKUPS_PLAIN},
-    {MESH_RADIO_BACKUP_TOPIC_CHANNEL, 206, MESH_STR_SETTINGS_FIELD_CHANNEL_DOWNLINK,
-     BACKUPS_PLAIN},
+    {MESH_RADIO_BACKUP_TOPIC_CHANNEL, 206, MESH_STR_SETTINGS_FIELD_CHANNEL_DOWNLINK, BACKUPS_PLAIN},
     {MESH_RADIO_BACKUP_TOPIC_CHANNEL, 20701, MESH_STR_SETTINGS_FIELD_CHANNEL_POSITION,
      BACKUPS_PLAIN},
-    {MESH_RADIO_BACKUP_TOPIC_CHANNEL, 20702, MESH_STR_SETTINGS_FIELD_CHANNEL_MUTED,
-     BACKUPS_PLAIN},
+    {MESH_RADIO_BACKUP_TOPIC_CHANNEL, 20702, MESH_STR_SETTINGS_FIELD_CHANNEL_MUTED, BACKUPS_PLAIN},
     {MESH_RADIO_BACKUP_TOPIC_FIXED_POSITION, 1, MESH_STR_SETTINGS_FIELD_POSITION_LATITUDE,
      BACKUPS_PLAIN},
     {MESH_RADIO_BACKUP_TOPIC_FIXED_POSITION, 2, MESH_STR_SETTINGS_FIELD_POSITION_LONGITUDE,
@@ -400,8 +396,7 @@ static const struct backups_label k_meshcore_labels[] = {
      BACKUPS_PLAIN},
     {0, MESH_MESHCORE_BACKUP_FIELD_SPREADING, MESH_STR_SETTINGS_FIELD_LORA_SPREAD, BACKUPS_PLAIN},
     {0, MESH_MESHCORE_BACKUP_FIELD_CODING, MESH_STR_SETTINGS_FIELD_LORA_CODING, BACKUPS_PLAIN},
-    {0, MESH_MESHCORE_BACKUP_FIELD_TX_POWER, MESH_STR_SETTINGS_FIELD_LORA_TX_POWER,
-     BACKUPS_PLAIN},
+    {0, MESH_MESHCORE_BACKUP_FIELD_TX_POWER, MESH_STR_SETTINGS_FIELD_LORA_TX_POWER, BACKUPS_PLAIN},
     {0, MESH_MESHCORE_BACKUP_FIELD_LATITUDE, MESH_STR_SETTINGS_FIELD_POSITION_LATITUDE,
      BACKUPS_PLAIN},
     {0, MESH_MESHCORE_BACKUP_FIELD_LONGITUDE, MESH_STR_SETTINGS_FIELD_POSITION_LONGITUDE,
@@ -409,8 +404,7 @@ static const struct backups_label k_meshcore_labels[] = {
     {0, MESH_MESHCORE_BACKUP_FIELD_ADVERT_LOCATION, MESH_STR_SETTINGS_FIELD_ADVERT_LOCATION,
      BACKUPS_PLAIN},
     {0, MESH_MESHCORE_BACKUP_FIELD_MANUAL_ADD, MESH_STR_SETTINGS_FIELD_AUTO_ADD, BACKUPS_PLAIN},
-    {0, MESH_MESHCORE_BACKUP_FIELD_TELEMETRY, MESH_STR_SETTINGS_FIELD_ASK_TELEMETRY,
-     BACKUPS_PLAIN},
+    {0, MESH_MESHCORE_BACKUP_FIELD_TELEMETRY, MESH_STR_SETTINGS_FIELD_ASK_TELEMETRY, BACKUPS_PLAIN},
     {0, MESH_MESHCORE_BACKUP_FIELD_MULTI_ACKS, MESH_STR_SETTINGS_FIELD_EXTRA_ACKS, BACKUPS_PLAIN},
     {0, MESH_MESHCORE_BACKUP_FIELD_PUBLIC_KEY, MESH_STR_BACKUPS_FIELD_PUBLIC_KEY, BACKUPS_PLAIN},
     {0, MESH_MESHCORE_BACKUP_FIELD_PIN, MESH_STR_SETTINGS_FIELD_BT_PIN, BACKUPS_PLAIN},
@@ -469,8 +463,9 @@ static void backups_value(const struct mesh_radio_backup_value *value, uint8_t f
                           size_t out_len) {
     switch ((enum mesh_radio_backup_value_kind)value->kind) {
     case MESH_RADIO_BACKUP_VALUE_BOOL:
-        inkwell_str_copy(out, out_len,
-                         inkcell_str(value->number != 0 ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF));
+        inkwell_str_copy(
+            out, out_len,
+            inkcell_str(value->number != 0 ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF));
         return;
     case MESH_RADIO_BACKUP_VALUE_INT:
         snprintf(out, out_len, "%" PRId64, value->number);
