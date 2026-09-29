@@ -95,6 +95,10 @@ struct mesh_lifetime {
     uint64_t values[MESH_LIFETIME_STAT_COUNT]; /* COUNT and MAX; a SET's slot is unused */
     /* A MAX something has set, even to 0; unused for the other kinds. */
     bool measured[MESH_LIFETIME_STAT_COUNT];
+    /* A MAX's holder: the node that set it, and the credible second it did (0 when there was no
+       clock). A holder of 0 is one this card cannot name. Unused for the other kinds. */
+    uint32_t holders[MESH_LIFETIME_STAT_COUNT];
+    uint32_t held_at[MESH_LIFETIME_STAT_COUNT];
     uint32_t since; /* first credible wall-clock second, or 0 */
     /* The set: node numbers ascending, and what is known about each (lifetime.c's SEEN_*). */
     uint32_t ids[MESH_LIFETIME_NODES_MAX];
@@ -139,6 +143,19 @@ const char *mesh_lifetime_key(enum mesh_lifetime_stat stat);
  * a SET, whose 0 means none. Kept across a restart; a reset clears it.
  */
 bool mesh_lifetime_measured(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat);
+
+/*
+ * Who set a MAX and when: the node the record came from, and the wall-clock second it was set,
+ * or 0 when the device had no credible clock then. False when there is nobody to name - a
+ * COUNT or a SET, a record not measured yet, or one read off a card written before holders
+ * were kept.
+ *
+ * A tie keeps the holder it has. A record is the first to reach it, not the latest, and a
+ * record that changed hands every time somebody else matched it would name whoever was heard
+ * last rather than whoever did it.
+ */
+bool mesh_lifetime_holder(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat,
+                          uint32_t *out_node, uint32_t *out_at);
 
 /* False once the set has had to turn a node away, which makes every SET a floor. Kept across a
    restart; only mesh_lifetime_reset() makes the set complete again. */

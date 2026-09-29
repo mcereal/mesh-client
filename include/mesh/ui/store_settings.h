@@ -87,6 +87,21 @@ extern "C" {
  * About the client rather than the radio, and so filled whether or not one is attached: a count
  * that only goes up is most worth reading when nothing is.
  */
+/* A record holder's name is drawn in a value column beside the day, so it is kept short. */
+#define MESH_UI_LIFETIME_HOLDER_NAME_MAX 32U
+
+/*
+ * Who set a record and when (mesh_lifetime_holder()), as the Stats page draws it.
+ *
+ * The name rather than the node number, resolved when published: the roster is the app's to
+ * read, and it can name a node long after the record - a NodeInfo arriving renames the row on
+ * the next publish. Empty when there is nobody to name; `at` is 0 when there is no day.
+ */
+struct mesh_ui_lifetime_holder {
+    char name[MESH_UI_LIFETIME_HOLDER_NAME_MAX];
+    uint32_t at;
+};
+
 struct mesh_ui_lifetime_stats {
     uint64_t messages_sent;
     uint64_t messages_received;
@@ -107,6 +122,8 @@ struct mesh_ui_lifetime_stats {
     bool most_hops_measured;
     uint64_t farthest_direct_m;
     bool farthest_direct_measured;
+    struct mesh_ui_lifetime_holder most_hops_holder;
+    struct mesh_ui_lifetime_holder farthest_direct_holder;
     /* The first credible wall-clock second the stats saw; 0 on a device that has never had a
        clock, which is a page that cannot say since when rather than one that started today. */
     uint32_t since;

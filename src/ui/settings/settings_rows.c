@@ -3452,6 +3452,24 @@ static void stats_since_row(struct item_list *list, uint32_t since) {
     item_text(list, MESH_STR_STATS_SINCE, INKSTAND_FORM_INFO, value);
 }
 
+/* Who set the record above it, and on what day - or nothing at all when there is nobody to name:
+   a record from a card written before holders were kept, which is still a record. */
+static void stats_holder_row(struct item_list *list, const struct mesh_ui_lifetime_holder *holder) {
+    if (holder->name[0] == '\0') {
+        return;
+    }
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    const time_t stamp = (time_t)holder->at;
+    struct tm when;
+    if (holder->at == 0U || localtime_r(&stamp, &when) == NULL) {
+        item_text(list, MESH_STR_STATS_HELD_BY, INKSTAND_FORM_INFO, holder->name);
+        return;
+    }
+    inkcell_str_format(value, sizeof value, MESH_STR_STATS_HELD_BY_DATE, holder->name,
+                       when.tm_year + 1900, when.tm_mon + 1, when.tm_mday);
+    item_text(list, MESH_STR_STATS_HELD_BY, INKSTAND_FORM_INFO, value);
+}
+
 /*
  * The Mesh card's Stats page: the lifetime counts (mesh/core/lifetime.h), grouped by what they
  * count, and the press that starts them again.
@@ -3460,6 +3478,8 @@ static void stats_since_row(struct item_list *list, uint32_t since) {
  * help. The records say "none yet" rather than 0 until something has set them: a most-hops of 0
  * is a real answer - everything heard came straight to us - and so is a distance of 0, so each
  * carries whether it was measured rather than being read off its own value or another count.
+ * Under each record is who set it and when, as a row of its own rather than squeezed into the
+ * record's value column, which a distance in imperial units already fills.
  */
 static void build_stats(const struct mesh_ui_settings *s, struct item_list *list) {
     const struct mesh_ui_lifetime_stats *stats = &s->client.lifetime;
@@ -3483,6 +3503,7 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     if (stats->most_hops_measured) {
         inkcell_str_format(value, sizeof value, MESH_STR_VALUE_PLAIN, (unsigned)stats->most_hops);
         item_text(list, MESH_STR_STATS_MOST_HOPS, INKSTAND_FORM_INFO, value);
+        stats_holder_row(list, &stats->most_hops_holder);
     } else {
         item_str(list, MESH_STR_STATS_MOST_HOPS, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
     }
@@ -3490,6 +3511,7 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
         mesh_ui_format_distance((double)stats->farthest_direct_m, list->imperial, value,
                                 sizeof value);
         item_text(list, MESH_STR_STATS_FARTHEST_DIRECT, INKSTAND_FORM_INFO, value);
+        stats_holder_row(list, &stats->farthest_direct_holder);
     } else {
         item_str(list, MESH_STR_STATS_FARTHEST_DIRECT, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
     }

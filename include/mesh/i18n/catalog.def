@@ -2496,6 +2496,11 @@ MESH_STR_ENTRY(STATS_HEAD_RECORDS,        "Records")
 MESH_STR_ENTRY(STATS_MOST_HOPS,           "Most hops")
 /* The longest distance a packet has come straight to our radio, with no relay. */
 MESH_STR_ENTRY(STATS_FARTHEST_DIRECT,     "Farthest direct")
+/* The row under a record: the node that set it. */
+MESH_STR_ENTRY(STATS_HELD_BY,             "Set by")
+/* The same, with the day it was set: the node's name, then year, month and day. Reorder to
+   suit; keep the name and the three integers. */
+MESH_STR_ENTRY(STATS_HELD_BY_DATE,        "%s, %d-%02d-%02d")
 MESH_STR_ENTRY(STATS_HEAD_RESET,          "Start again")
 MESH_STR_ENTRY(ACTION_RESET_STATS,        "Reset stats")
 
