@@ -91,7 +91,7 @@ static void fb_app_render(struct inkcell_draw_state *state, const void *snapshot
      * the whole route.
      */
     struct mesh_ui_route route;
-    fb_body_route(state, &snapshot->nav, &route);
+    fb_body_route(state, snapshot, &route);
     if (!app->route_valid) {
         app->route = route;
         app->route_valid = true;

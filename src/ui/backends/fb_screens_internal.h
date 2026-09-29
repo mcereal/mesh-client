@@ -67,6 +67,10 @@ void fb_render_picker(struct inkcell_draw_state *state, const struct mesh_ui_sna
 /* The one renderer that takes the state as const: the keyboard has no animated slot on it. */
 void fb_render_keyboard(const struct inkcell_draw_state *state,
                         const struct mesh_ui_snapshot *snapshot, struct inkcell_fb_layout *layout);
+/* The keyboard's grid from `*y` to the footer, for the keyboard screen and for the thread that
+   docks it under its field (fb_thread_field_writing()). */
+void fb_draw_keyboard_grid(const struct inkcell_draw_state *state, const struct mesh_ui_nav *nav,
+                           struct inkcell_fb_layout *layout, int *y);
 
 /* ---- the Nodes tab ----------------------------------------------------------------------- */
 

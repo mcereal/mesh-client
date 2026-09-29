@@ -476,7 +476,17 @@ one-pane nav, unchanged: A opens, every press is the detail's while it is open, 
 What the width buys is that the list stays put, with the row the detail came from still under its
 cursor (found by what that row is, since the list re-ranks under an open detail), and the back
 arrow moves to the detail's heading. Opening and closing is not a move either, so nothing slides
-(`fb_render_split_pair()`). A node opened from the map is one pane, as it is on the Brick: B takes
+(`fb_render_split_pair()`).
+
+Writing into the open thread keeps it there. On a frame with room for the list beside the
+thread, Y opens the keyboard docked under the conversation - the field at the foot of the
+transcript, and the grid under it at its least height, a line and a little padding a row - instead
+of on a screen of its own, so the reader can see what they are answering. The nav is the
+keyboard's, unchanged, and the dock is not a move. On a panel without that room - the Brick - the
+keyboard still takes the body (`fb_thread_field_writing()`,
+`ui_click_a_wide_window_docks_the_keyboard_under_the_thread`).
+
+A node opened from the map is one pane, as it is on the Brick: B takes
 it back to the map, not the roster. A screen says it has two halves in `fb_route_split()`; whether
 there is room is inkcell's scaffold's to decide. `ui_click_a_wide_window_opens_a_thread_beside_its_list`,
 `ui_click_a_wide_window_opens_a_node_beside_its_roster` and
