@@ -2045,6 +2045,11 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
         if (which == MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
             inkwell_str_copy(nav->maps_pending, sizeof nav->maps_pending, item.text);
         }
+        if (which == MESH_UI_SETTINGS_ACTION_PROFILES_APPLY) {
+            const struct mesh_ui_profiles *p = &store->settings.profiles;
+            nav->profiles_apply_node =
+                p->compare_sequence == nav->profiles_sequence ? p->compare_node : 0U;
+        }
         if (mesh_ui_settings_action_needs_confirm(which)) {
             /* Cancel under the cursor, so a repeated press changes nothing. */
             inkstand_dialog_open(&nav->confirm, (uint16_t)which);

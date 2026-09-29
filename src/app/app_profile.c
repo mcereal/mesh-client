@@ -187,6 +187,7 @@ void mesh_app_profile_compare(struct mesh_app *app, uint32_t sequence) {
     }
     struct mesh_ui_profiles *listing = &app->profile_listing;
     listing->compare_sequence = sequence;
+    listing->compare_node = mesh_app_backup_live_node(app);
     const int result = mesh_app_profile_diff(app, sequence, &listing->diff);
     listing->compare_error = (int16_t)result;
     listing->compare_state =

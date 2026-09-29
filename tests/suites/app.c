@@ -6569,7 +6569,13 @@ MESH_TEST_CASE(app_profile_made_from_a_backup_applies_only_its_parts, unit) {
         }
     }
 
-    mesh_app_profile_apply(&app, profile);
+    /* Compared with another radio than the one on the link now: not written. */
+    mesh_app_profile_apply(&app, profile, 0x0f00d00dU);
+    const bool elsewhere =
+        app.backup_restore.stage == 0U && radio->queue_len == 0U &&
+        strcmp(app.ui_store.nav.toast.text,
+               "Another radio is connected; compare the profile with it first") == 0;
+    mesh_app_profile_apply(&app, profile, 0x0badcafeU);
     bool sent = app.backup_restore.stage != 0U && radio->queue_len == 4U &&
                 app.profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_RESTORING;
     const struct mesh_admin_request *write =
@@ -6605,6 +6611,7 @@ MESH_TEST_CASE(app_profile_made_from_a_backup_applies_only_its_parts, unit) {
     MESH_TEST_FAIL_IF(!drafted, "the backup offered no parts");
     MESH_TEST_FAIL_IF(!made, "the profile was not saved under its trimmed name");
     MESH_TEST_FAIL_IF(!compared, "the comparison listed more than the profile's one part");
+    MESH_TEST_FAIL_IF(!elsewhere, "a profile compared with one radio was applied to another");
     MESH_TEST_FAIL_IF(!sent, "the apply was not the LoRa section inside one transaction");
     MESH_TEST_FAIL_IF(other == 0U, "the second profile was not made");
     MESH_TEST_FAIL_IF(!kept, "the profile being applied was deleted");
@@ -6713,7 +6720,7 @@ MESH_TEST_CASE(app_profile_apply_ends_when_another_radio_connects, unit) {
         app.profile_listing.count == 1U ? app.profile_listing.items[0].sequence : 0U;
 
     radio->lora.hop_limit = 3U;
-    mesh_app_profile_apply(&app, profile);
+    mesh_app_profile_apply(&app, profile, 0x0badcafeU);
     const bool sent = app.backup_restore.stage != 0U;
     app_restore_radio_answered(&app);
     app.session.handshake.my_info.my_node_num = 0x0f00d00dU;
@@ -6754,7 +6761,7 @@ MESH_TEST_CASE(app_profile_for_the_other_protocol_is_refused, unit) {
     mesh_app_profile_rescan(&app);
 
     radio->lora.hop_limit = 3U;
-    mesh_app_profile_apply(&app, other);
+    mesh_app_profile_apply(&app, other, 0x0badcafeU);
     const bool refused =
         app.backup_restore.stage == 0U && radio->queue_len == 0U &&
         strcmp(app.ui_store.nav.toast.text, "This profile is for the other firmware") == 0;
@@ -6788,7 +6795,7 @@ MESH_TEST_CASE(app_profile_meshcore_applies_only_its_parts, unit) {
 
     app.meshcore.self.tx_power_dbm = 10U;
     snprintf(app.meshcore.channels[0].name, sizeof app.meshcore.channels[0].name, "%s", "Ops");
-    mesh_app_profile_apply(&app, profile);
+    mesh_app_profile_apply(&app, profile, node);
     const bool one = app.backup_restore.stage != 0U && app.backup_restore.step_count == 1U &&
                      mesh_test_meshcore_wire_last(&g_restore_wire) == MESH_MESHCORE_CMD_SET_CHANNEL;
 

@@ -906,6 +906,8 @@ struct mesh_ui_nav {
      * mesh/ui/profiles.h) every frame by mesh_ui_nav_clamp().
      */
     uint32_t profiles_sequence;
+    uint32_t profiles_apply_node; /* the radio the open profile was compared with, as its Apply
+                                     sheet opened: the one it is applied to */
     bool profiles_compare;
     uint8_t profiles_index;
     uint8_t profiles_view;

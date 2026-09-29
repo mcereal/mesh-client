@@ -412,8 +412,11 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
         return;
     }
     if (which == MESH_UI_SETTINGS_ACTION_PROFILES_APPLY) {
+        /* On the radio it was compared with when the sheet opened, not whichever the link has
+           moved to since. */
         action->type = MESH_UI_ACTION_PROFILE_APPLY;
         action->number = nav->profiles_sequence;
+        action->dest = nav->profiles_apply_node;
         return;
     }
     if (which == MESH_UI_SETTINGS_ACTION_PROFILES_DELETE) {

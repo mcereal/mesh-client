@@ -2011,7 +2011,7 @@ static void on_profile_compare(struct mesh_app *app, const struct mesh_ui_action
 }
 
 static void on_profile_apply(struct mesh_app *app, const struct mesh_ui_action *action) {
-    mesh_app_profile_apply(app, action->number);
+    mesh_app_profile_apply(app, action->number, action->dest);
 }
 
 static void on_profile_export(struct mesh_app *app, const struct mesh_ui_action *action) {

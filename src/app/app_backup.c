@@ -122,6 +122,10 @@ static uint32_t app_backup_ready_node(struct mesh_app *app) {
     return status->my_info.my_node_num;
 }
 
+uint32_t mesh_app_backup_live_node(struct mesh_app *app) {
+    return app != NULL ? app_backup_ready_node(app) : 0U;
+}
+
 int mesh_app_backup_capture_live(struct mesh_app *app, struct mesh_radio_backup *out) {
     if (app == NULL || out == NULL) {
         return -EINVAL;
@@ -447,11 +451,13 @@ static void app_restore(struct mesh_app *app, uint32_t node, uint32_t sequence, 
     }
     const uint32_t live = app_backup_ready_node(app);
     if (profile != 0U) {
-        node = live; /* a profile goes on whichever radio is there */
         sequence = 0U;
     }
     if (result == 0 && (live == 0U || live != node)) {
-        result = -ENODEV; /* not the radio on the link */
+        /* Not the radio on the link. For a profile, `node` is the radio its comparison - the
+           screen the sheet was accepted over - was made with, so a link that moved to another
+           radio since is not written without that one being compared first. */
+        result = profile != 0U && live != 0U ? -ESTALE : -ENODEV;
     }
     if (result == 0) {
         result = profile != 0U ? mesh_radio_profile_store_load(&app->profiles, profile, backup)
@@ -584,6 +590,10 @@ static void app_restore(struct mesh_app *app, uint32_t node, uint32_t sequence, 
         /* nothing to add */
     } else if (result == -ENOSPC) {
         inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_RESTORE_BUSY));
+    } else if (result == -ESTALE) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_PROFILE_OTHER_RADIO));
+        inkwell_log_warn("app", "Profile %u refused: compared with 0x%08x, 0x%08x is on the link",
+                         (unsigned)profile, (unsigned)node, (unsigned)live);
     } else if (result == -EPROTO) {
         inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_PROFILE_OTHER_PROTOCOL));
         inkwell_log_warn("app", "Profile %u refused: made for the other protocol",
@@ -607,9 +617,9 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
     }
 }
 
-void mesh_app_profile_apply(struct mesh_app *app, uint32_t sequence) {
+void mesh_app_profile_apply(struct mesh_app *app, uint32_t sequence, uint32_t node) {
     if (app != NULL && sequence != 0U) {
-        app_restore(app, 0U, 0U, sequence);
+        app_restore(app, node, 0U, sequence);
     }
 }
 

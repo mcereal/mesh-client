@@ -235,6 +235,7 @@ MESH_TEST_CASE(ui_nav_profiles_apply_is_offered_over_the_comparison_and_asks_fir
     }
     struct mesh_ui_profiles *p = &settings->profiles;
     p->compare_sequence = 5U;
+    p->compare_node = RIDGE;
     p->compare_state = MESH_UI_BACKUP_COMPARE_DONE;
     mesh_radio_backup_diff_reset(&p->diff, MESH_RADIO_BACKUP_MESHTASTIC);
     struct mesh_radio_backup_change *change = mesh_radio_backup_diff_add(
@@ -249,11 +250,19 @@ MESH_TEST_CASE(ui_nav_profiles_apply_is_offered_over_the_comparison_and_asks_fir
         failure = "apply was not offered, or did not ask first";
         goto cleanup;
     }
+    /* The link moves to another radio with the sheet open: the apply still names the one that
+       was compared, for the app to refuse. */
+    p->compare_node = 0x0f00d00dU;
+    mesh_ui_store_set_settings(store, settings);
     mesh_ui_store_handle_key(store, INKCELL_KEY_UP, &action);
     mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_PROFILE_APPLY || action.number != 5U ||
         !store->nav.profiles_compare) {
         failure = "confirming should apply the profile on screen, and stay to show the result";
+        goto cleanup;
+    }
+    if (action.dest != RIDGE) {
+        failure = "the apply should name the radio the profile was compared with";
         goto cleanup;
     }
 

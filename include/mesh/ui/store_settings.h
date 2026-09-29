@@ -558,11 +558,13 @@ struct mesh_ui_profiles {
     struct mesh_ui_profile items[MESH_UI_PROFILES_MAX];
     uint8_t cfg_count;
     char cfgs[MESH_UI_PROFILE_CFGS_MAX][MESH_RADIO_PROFILE_FILE_MAX];
-    /* The last comparison with the radio on the link, and which profile it was of: the backups'
-       states (enum mesh_ui_backup_compare_state), RESTORING while one is being applied. */
+    /* The last comparison with the radio on the link, which profile it was of and which radio it
+       was made with: the backups' states (enum mesh_ui_backup_compare_state), RESTORING while one
+       is being applied. An apply names the radio, so it lands on the one that was compared. */
     uint8_t compare_state;
     int16_t compare_error;
     uint32_t compare_sequence;
+    uint32_t compare_node;
     struct mesh_radio_backup_diff diff;
     /*
      * A profile being made out of the backup `draft_sequence` of radio `draft_node`: the parts

@@ -107,10 +107,13 @@ void mesh_app_profile_publish(const struct mesh_app *app, struct mesh_ui_profile
 /* A profile compared with the radio on the link; the answer is published with the listing. */
 void mesh_app_profile_compare(struct mesh_app *app, uint32_t sequence);
 /* The same comparison into `diff`, published nowhere: 0, or why it could not be made. */
+/* The radio on the link, once it has been read far enough to capture; 0 until then. */
+uint32_t mesh_app_backup_live_node(struct mesh_app *app);
 int mesh_app_profile_diff(struct mesh_app *app, uint32_t sequence,
                           struct mesh_radio_backup_diff *diff);
 /* Puts a profile on the radio on the link, through the restore (see app_backup.c). */
-void mesh_app_profile_apply(struct mesh_app *app, uint32_t sequence);
+/* `node` is the radio it was compared with; it is refused on any other. */
+void mesh_app_profile_apply(struct mesh_app *app, uint32_t sequence, uint32_t node);
 /* Whether profile `sequence` is being applied still - sent, and not yet judged. */
 bool mesh_app_profile_applying(const struct mesh_app *app, uint32_t sequence);
 void mesh_app_profile_delete(struct mesh_app *app, uint32_t sequence);
