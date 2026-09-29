@@ -613,6 +613,11 @@ void mesh_app_profile_apply(struct mesh_app *app, uint32_t sequence) {
     }
 }
 
+bool mesh_app_profile_applying(const struct mesh_app *app, uint32_t sequence) {
+    return app != NULL && sequence != 0U && app->backup_restore.stage != APP_RESTORE_NONE &&
+           app->backup_restore.profile == sequence;
+}
+
 void mesh_app_backup_restore_release(struct mesh_app *app) {
     if (app == NULL) {
         return;

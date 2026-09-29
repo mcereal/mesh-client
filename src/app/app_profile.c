@@ -191,6 +191,12 @@ void mesh_app_profile_delete(struct mesh_app *app, uint32_t sequence) {
         return;
     }
     char toast[MESH_UI_NAV_TOAST_MAX];
+    /* The one being applied is read again to judge the apply once the radio is back. */
+    if (mesh_app_profile_applying(app, sequence)) {
+        app_profile_toast(app, inkcell_str(MESH_STR_TOAST_PROFILE_DELETE_APPLYING));
+        inkwell_log_warn("app", "Not deleting profile %u: it is being applied", (unsigned)sequence);
+        return;
+    }
     const int result = mesh_radio_profile_store_remove(&app->profiles, sequence);
     if (result == 0) {
         inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_PROFILE_DELETED));

@@ -108,6 +108,8 @@ void mesh_app_profile_publish(const struct mesh_app *app, struct mesh_ui_profile
 void mesh_app_profile_compare(struct mesh_app *app, uint32_t sequence);
 /* Puts a profile on the radio on the link, through the restore (see app_backup.c). */
 void mesh_app_profile_apply(struct mesh_app *app, uint32_t sequence);
+/* Whether profile `sequence` is being applied still - sent, and not yet judged. */
+bool mesh_app_profile_applying(const struct mesh_app *app, uint32_t sequence);
 void mesh_app_profile_delete(struct mesh_app *app, uint32_t sequence);
 /* Starts a profile out of backup `sequence` of radio `node`: the parts it offers, all ticked. */
 void mesh_app_profile_draft(struct mesh_app *app, uint32_t node, uint32_t sequence);

@@ -2026,6 +2026,11 @@ static void on_profile_import(struct mesh_app *app, const struct mesh_ui_action 
     mesh_app_profile_import(app, action->identifier);
 }
 
+static void on_profile_rescan(struct mesh_app *app, const struct mesh_ui_action *action) {
+    (void)action;
+    mesh_app_profile_rescan(app);
+}
+
 static void on_backup_restore_stop(struct mesh_app *app, const struct mesh_ui_action *action) {
     (void)action;
     mesh_app_backup_restore_stop(app);
@@ -2766,6 +2771,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_PROFILE_EXPORT, on_profile_export, false},
     {MESH_UI_ACTION_PROFILE_DELETE, on_profile_delete, false},
     {MESH_UI_ACTION_PROFILE_IMPORT, on_profile_import, false},
+    {MESH_UI_ACTION_PROFILE_RESCAN, on_profile_rescan, false},
 };
 
 /*

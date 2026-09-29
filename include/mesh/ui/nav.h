@@ -1182,7 +1182,8 @@ enum mesh_ui_action_type {
      * Profiles (mesh/core/radio_profile.h). DRAFT starts one out of backup `number` of radio
      * `dest`, DRAFT_TOGGLE ticks its part `number`, and MAKE saves it named `text`. COMPARE,
      * APPLY (behind its sheet), EXPORT and DELETE (behind its sheet) act on profile `number`;
-     * IMPORT reads the `.cfg` named `identifier` in as a profile. Only APPLY touches a radio.
+     * IMPORT reads the `.cfg` named `identifier` in as a profile. RESCAN reads the folder again,
+     * as the section opens, for what was copied into it since. Only APPLY touches a radio.
      */
     MESH_UI_ACTION_PROFILE_DRAFT,
     MESH_UI_ACTION_PROFILE_DRAFT_TOGGLE,
@@ -1192,6 +1193,7 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_PROFILE_EXPORT,
     MESH_UI_ACTION_PROFILE_DELETE,
     MESH_UI_ACTION_PROFILE_IMPORT,
+    MESH_UI_ACTION_PROFILE_RESCAN,
     /* Not a verb: how many there are. It is what pins the dispatch table in
        src/app/app_actions.c to this list - a verb added above and not given a row there is a
        press that reaches the app and does nothing, with nothing to see at the seam. */

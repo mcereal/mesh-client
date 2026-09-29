@@ -158,6 +158,60 @@ cleanup:
     record_success(test_name);
 }
 
+/* A .cfg copied into the folder while the client runs is there the next time the section opens:
+   opening it asks the app to read the folder again, and opening another section does not. */
+MESH_TEST_CASE(ui_nav_profiles_opening_the_section_reads_the_folder_again, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store *store = calloc(1U, sizeof *store);
+    struct mesh_ui_settings *settings = calloc(1U, sizeof *settings);
+    MESH_TEST_FAIL_IF(store == NULL || settings == NULL, "memory");
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(store) != 0, "store init failed");
+    mesh_test_nav_populate(store);
+    profiles_settings(settings);
+    mesh_ui_store_set_settings(store, settings);
+    struct mesh_ui_action action;
+
+    (void)mesh_test_open_tab(store, MESH_UI_SCREEN_SETTINGS);
+    uint32_t profiles = UINT32_MAX;
+    uint32_t backups = UINT32_MAX;
+    for (uint32_t i = 0; i < mesh_ui_settings_root_count(&store->settings); ++i) {
+        if (mesh_ui_settings_root_at(&store->settings, i) == MESH_UI_SETTINGS_PROFILES) {
+            profiles = i;
+        } else if (mesh_ui_settings_root_at(&store->settings, i) == MESH_UI_SETTINGS_BACKUPS) {
+            backups = i;
+        }
+    }
+    memset(&action, 0, sizeof action);
+    if (backups == UINT32_MAX || !mesh_test_settings_cursor_to(store, backups)) {
+        failure = "Backups should be on the Settings list";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    if (action.type == MESH_UI_ACTION_PROFILE_RESCAN) {
+        failure = "Opening another section should not read the profiles folder";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(store, INKCELL_KEY_B, &action);
+    memset(&action, 0, sizeof action);
+    if (profiles == UINT32_MAX || !mesh_test_settings_cursor_to(store, profiles)) {
+        failure = "Profiles should be on the Settings list";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    if (store->nav.settings_section != MESH_UI_SETTINGS_PROFILES ||
+        action.type != MESH_UI_ACTION_PROFILE_RESCAN) {
+        failure = "Opening Profiles should ask the app to read the folder again";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(store);
+    free(store);
+    free(settings);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_nav_profiles_apply_is_offered_over_the_comparison_and_asks_first, unit) {
     const char *failure = NULL;
     struct mesh_ui_store *store = calloc(1U, sizeof *store);

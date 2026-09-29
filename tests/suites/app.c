@@ -6525,11 +6525,14 @@ static void app_profile_keep_only(struct mesh_app *app, uint8_t topic) {
     }
 }
 
+static struct mesh_radio_backup g_profile_scratch;
+
 /*
  * A profile of LoRa, made from this radio's backup, put on "another" radio - another owner,
  * another role, another hop limit: the transaction is the LoRa section and nothing else, and once
  * the radio has restarted and been read again the profile is judged applied, with the radio's
- * owner and role as they were.
+ * owner and role as they were. The profile cannot be deleted while it is out: judging the apply
+ * reads it again.
  */
 MESH_TEST_CASE(app_profile_made_from_a_backup_applies_only_its_parts, unit) {
     char home[APP_TEST_HOME_CAP];
@@ -6563,6 +6566,12 @@ MESH_TEST_CASE(app_profile_made_from_a_backup_applies_only_its_parts, unit) {
         &radio->queue[(radio->queue_head + 2U) % MESH_RADIO_SETTINGS_FETCH_MAX];
     sent = sent && write->kind == MESH_ADMIN_SET_CONFIG &&
            write->payload.config.which_payload_variant == meshtastic_Config_lora_tag;
+    mesh_app_profile_delete(&app, profile);
+    const bool kept =
+        mesh_radio_profile_store_load(&app.profiles, profile, &g_profile_scratch) == 0 &&
+        app.profile_listing.count == 1U &&
+        strcmp(app.ui_store.nav.toast.text,
+               "Still applying this profile; delete it once it is done") == 0;
 
     app_restore_radio_answered(&app);
     radio->lora.hop_limit = 5U;
@@ -6583,6 +6592,7 @@ MESH_TEST_CASE(app_profile_made_from_a_backup_applies_only_its_parts, unit) {
     MESH_TEST_FAIL_IF(!made, "the profile was not saved under its trimmed name");
     MESH_TEST_FAIL_IF(!compared, "the comparison listed more than the profile's one part");
     MESH_TEST_FAIL_IF(!sent, "the apply was not the LoRa section inside one transaction");
+    MESH_TEST_FAIL_IF(!kept, "the profile being applied was deleted");
     MESH_TEST_FAIL_IF(!judged, "a radio matching the profile afterwards was not reported");
     MESH_TEST_FAIL_IF(!untouched, "the apply reached past its parts");
     record_success(test_name);

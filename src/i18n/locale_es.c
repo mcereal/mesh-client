@@ -1998,6 +1998,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_PROFILE_SAVE_FAILED] = "No se pudo guardar el perfil (%d)",
     [MESH_STR_TOAST_PROFILE_DELETED] = "Perfil eliminado de la tarjeta",
     [MESH_STR_TOAST_PROFILE_DELETE_FAILED] = "No se pudo eliminar el perfil (%d)",
+    [MESH_STR_TOAST_PROFILE_DELETE_APPLYING] =
+        "Aún se está aplicando este perfil; elimínalo cuando termine",
     [MESH_STR_TOAST_PROFILE_EXPORTED] = "%s guardado en la tarjeta",
     [MESH_STR_TOAST_PROFILE_EXPORT_FAILED] = "No se pudo escribir el archivo (%d)",
     [MESH_STR_TOAST_PROFILE_IMPORTED] = "%s importado como perfil",

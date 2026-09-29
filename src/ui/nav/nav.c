@@ -2389,6 +2389,11 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         mesh_ui_nav_profiles_reset(nav);
         nav->settings_section = (uint8_t)mesh_ui_settings_root_at(&store->settings, cursor);
         mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
+        /* The profiles folder is the one a person copies files into behind the client's back,
+           so opening it is reading it again. */
+        if (nav->settings_section == MESH_UI_SETTINGS_PROFILES && action != NULL) {
+            action->type = MESH_UI_ACTION_PROFILE_RESCAN;
+        }
         return true;
     }
     case MESH_UI_SCREEN_RADIO:
