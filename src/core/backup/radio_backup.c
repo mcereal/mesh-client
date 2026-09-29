@@ -521,14 +521,25 @@ static void radio_backup_collect(void *context, const char *name) {
         listing->entries[listing->count++] = entry;
         return;
     }
-    /* Full: keep the newest, which is what every caller asks for first. */
-    size_t oldest = 0U;
-    for (size_t i = 1; i < listing->count; ++i) {
-        if (listing->entries[i].sequence < listing->entries[oldest].sequence) {
+    /*
+     * Full: keep the newest, which is what every caller asks for first - and, in a list of two or
+     * more, the first-connect backup too. The prune never removes that one and it is never taken
+     * again, so it is the oldest a radio has; left to the cap, a radio with ten automatic backups
+     * and two pressed would keep it on the card and never list it, where nobody could open it.
+     */
+    const bool reserve = listing->max >= 2U;
+    const bool first = reserve && entry.reason == MESH_RADIO_BACKUP_FIRST_CONNECT;
+    size_t oldest = listing->count;
+    for (size_t i = 0; i < listing->count; ++i) {
+        if (reserve && listing->entries[i].reason == MESH_RADIO_BACKUP_FIRST_CONNECT) {
+            continue;
+        }
+        if (oldest == listing->count ||
+            listing->entries[i].sequence < listing->entries[oldest].sequence) {
             oldest = i;
         }
     }
-    if (listing->max > 0U && entry.sequence > listing->entries[oldest].sequence) {
+    if (oldest < listing->count && (first || entry.sequence > listing->entries[oldest].sequence)) {
         listing->entries[oldest] = entry;
     }
 }

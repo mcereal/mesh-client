@@ -446,6 +446,39 @@ MESH_TEST_CASE(radio_backup_store_prune_keeps_the_first_connect_backup, unit) {
     record_success(test_name);
 }
 
+/*
+ * Raised in review of the prune above: ten automatic and two pressed backups fill the Backups
+ * screen's twelve slots, and the first-connect one the prune had kept would be on the card and in
+ * no list. A capped list keeps it, last; one capped at a single entry is still just the newest.
+ */
+MESH_TEST_CASE(radio_backup_store_capped_list_keeps_the_first_connect_backup, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!backup_tempdir(dir, sizeof dir), "mkdtemp failed");
+    struct mesh_radio_backup_store store;
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_radio_backup_store_init(&store, dir) != 0,
+                              mesh_test_remove_tree(dir), "store init failed");
+    store.keep_automatic = 3U;
+    backup_fill(&g_backup, MESH_RADIO_BACKUP_FIRST_CONNECT);
+    mesh_radio_backup_store_save(&store, &g_backup, NULL);
+    for (int i = 0; i < 6; ++i) {
+        backup_fill(&g_backup,
+                    i % 2 == 0 ? MESH_RADIO_BACKUP_BEFORE_WRITE : MESH_RADIO_BACKUP_MANUAL);
+        mesh_radio_backup_store_save(&store, &g_backup, NULL);
+    }
+    struct mesh_radio_backup_entry four[4];
+    const int total = mesh_radio_backup_store_list(&store, 0xa1b2c3d4U, four, 4U);
+    struct mesh_radio_backup_entry one[1];
+    const int single = mesh_radio_backup_store_list(&store, 0xa1b2c3d4U, one, 1U);
+    mesh_test_remove_tree(dir);
+    MESH_TEST_FAIL_IF(total != 7, "expected first-connect, three pressed and three automatic");
+    MESH_TEST_FAIL_IF(four[0].sequence != 7U || four[1].sequence != 6U || four[2].sequence != 5U,
+                      "a capped list did not keep the newest");
+    MESH_TEST_FAIL_IF(four[3].reason != MESH_RADIO_BACKUP_FIRST_CONNECT || four[3].sequence != 1U,
+                      "a capped list left out the first-connect backup");
+    MESH_TEST_FAIL_IF(single != 7 || one[0].sequence != 7U, "a list of one was not the newest");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(radio_backup_store_prune_leaves_the_protected_backup, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!backup_tempdir(dir, sizeof dir), "mkdtemp failed");

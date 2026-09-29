@@ -234,7 +234,8 @@ int mesh_radio_backup_store_save(struct mesh_radio_backup_store *store,
 
 /*
  * A node's backups, newest first, up to `max`. Returns how many there are in all (which may be
- * more than `max`), or a negative errno. A node with none is 0.
+ * more than `max`), or a negative errno. A node with none is 0. A list cut short at two or more
+ * still holds the first-connect backup, last: the prune keeps it, so the list must too.
  */
 int mesh_radio_backup_store_list(const struct mesh_radio_backup_store *store, uint32_t node_id,
                                  struct mesh_radio_backup_entry *out, size_t max);
