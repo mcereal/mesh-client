@@ -109,6 +109,10 @@ struct mesh_ui_lifetime_stats {
     uint64_t direct_received;
     uint64_t reactions_sent;
     uint64_t reactions_received;
+    /* Of the direct messages sent, how many were confirmed and how many failed. One still waiting
+       is in neither, so the two need not add up to anything else on the page. */
+    uint64_t messages_delivered;
+    uint64_t messages_failed;
     uint32_t nodes_heard;
     uint32_t nodes_heard_rf;
     uint32_t radios;

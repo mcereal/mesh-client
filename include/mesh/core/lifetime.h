@@ -46,6 +46,16 @@
  * is the first credible wall-clock second the stats saw, and stays 0 on a device that has never
  * had one; every count moves exactly the same either way.
  *
+ * **A delivery is where a direct message is now.** The session announces each of our messages
+ * changing delivery state, once, with the state it left (MESH_SESSION_EVENT_DELIVERY). A direct
+ * message is counted when it leaves pending - it asked to be confirmed, which a reaction and a
+ * broadcast never do - and from then on moves between the two counts as its answer changes (a
+ * late reply to a command given up on, a relay's acknowledgement then the recipient's refusal),
+ * so it is one message in whichever count its bubble shows. Only a message this run counted is
+ * ever moved: one counted before a restart or a reset stays where it was left rather than
+ * taking a count that is some other message's. "Delivered" is what the bubble says, which for a
+ * direct message may be a relay's acknowledgement rather than the recipient's.
+ *
  * What is deliberately not counted: a node the radio lists with no heard time (a contact typed
  * in from a link), a Store & Forward replay as a hearing of its author, hops or distance over
  * MQTT (neither says anything about this radio's reach), and our own radio's echo of a send.
@@ -110,6 +120,15 @@ struct mesh_lifetime {
     char foreign_keys[MESH_LIFETIME_FOREIGN_MAX][MESH_LIFETIME_FOREIGN_KEY];
     char foreign_values[MESH_LIFETIME_FOREIGN_MAX][MESH_LIFETIME_FOREIGN_VALUE];
     uint32_t foreign_count;
+    /*
+     * The direct messages this run has counted as delivered or failed, and which: the only ones
+     * a later change may move between the two. As long as the session's message log, which is
+     * as far back as a message can still change - one it has evicted can no longer be found to
+     * be marked. A slot is reused only once its message has left the log, so every message the
+     * log still holds keeps its place. Not on the card, and emptied by a reset.
+     */
+    uint32_t settled_ids[MESH_MESSAGE_LOG_CAPACITY];
+    uint8_t settled_in[MESH_MESSAGE_LOG_CAPACITY]; /* enum mesh_lifetime_stat, or 0xFF: neither */
     /* `totals` differs from the card. */
     bool dirty;
     /* Moves whenever any value does, so a screen can ask whether to redraw. */

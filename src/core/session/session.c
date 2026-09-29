@@ -177,6 +177,26 @@ static void mesh_session_emit_message(struct mesh_session *session,
     mesh_session_emit(session, &event);
 }
 
+/* The message a Routing reply answers (Data.request_id), or 0 for any other packet. */
+static uint32_t mesh_session_routing_answer(const meshtastic_MeshPacket *packet) {
+    if (packet->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
+        packet->decoded.portnum != meshtastic_PortNum_ROUTING_APP) {
+        return 0U;
+    }
+    return packet->decoded.request_id;
+}
+
+/* One of our messages moved from `previous` to what it now holds; nothing when it did not. */
+static void mesh_session_announce_delivery(struct mesh_session *session,
+                                           const struct mesh_message *message, uint8_t previous) {
+    if (message == NULL || message->ack == previous) {
+        return;
+    }
+    const struct mesh_session_event event = {
+        .kind = MESH_SESSION_EVENT_DELIVERY, .message = message, .previous_ack = previous};
+    mesh_session_emit(session, &event);
+}
+
 /* The radio we are attached to said who it is. */
 static void mesh_session_announce_radio(struct mesh_session *session, uint32_t node_num) {
     const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_RADIO, .radio = node_num};
@@ -945,6 +965,20 @@ struct mesh_message *mesh_session_model_log_message(struct mesh_session *session
     return appended;
 }
 
+bool mesh_session_model_mark_ack(struct mesh_session *session, uint32_t packet_id,
+                                 enum mesh_message_ack ack, uint8_t error) {
+    if (session == NULL || packet_id == 0U) {
+        return false;
+    }
+    const struct mesh_message *message = mesh_message_log_find(&session->messages, packet_id);
+    const uint8_t previous = message != NULL ? message->ack : 0U;
+    if (!mesh_message_log_mark_ack(&session->messages, packet_id, ack, error)) {
+        return false;
+    }
+    mesh_session_announce_delivery(session, message, previous);
+    return true;
+}
+
 void mesh_session_model_note_node(struct mesh_session *session,
                                   const struct mesh_session_event *event) {
     if (session == NULL || event == NULL || event->node == NULL ||
@@ -1574,8 +1608,8 @@ static void mesh_session_handle_queue_status(struct mesh_session *session,
        the message log needs no new failure vocabulary for this. A queue status with no packet
        id is the radio reporting depth rather than refusing anything. */
     if (status->mesh_packet_id != 0U) {
-        (void)mesh_message_log_mark_ack(&session->messages, status->mesh_packet_id,
-                                        MESH_MESSAGE_ACK_FAILED, (uint8_t)status->res);
+        (void)mesh_session_model_mark_ack(session, status->mesh_packet_id, MESH_MESSAGE_ACK_FAILED,
+                                          (uint8_t)status->res);
     }
 }
 
@@ -1809,10 +1843,20 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         mesh_session_handle_waypoint(session, &message.packet);
         /* 1 is a record appended; the radio echoing one of ours back refreshes the record the
            send made, which was announced then, and adds nothing. */
+        /* A Routing reply settles one of ours inside the ingest, so what that message held
+           before is taken first and compared after. A reply never appends, so the record the
+           id names is the same one on both sides of the call. */
+        const uint32_t answers = mesh_session_routing_answer(&message.packet);
+        const struct mesh_message *answered =
+            answers != 0U ? mesh_message_log_find(&session->messages, answers) : NULL;
+        const uint8_t answered_was = answered != NULL ? answered->ack : 0U;
         if (mesh_message_ingest(&session->messages, &message.packet,
                                 handshake->has_my_info ? handshake->my_info.my_node_num : 0U) ==
             1) {
             mesh_session_emit_message(session, mesh_session_newest_message(session));
+        }
+        if (answered != NULL && answered->direction == MESH_MESSAGE_OUTBOUND) {
+            mesh_session_announce_delivery(session, answered, answered_was);
         }
         break;
     case meshtastic_FromRadio_log_record_tag:
@@ -2416,8 +2460,7 @@ static int mesh_session_send_text_packet(struct mesh_session *session, uint32_t 
 
     int result = mesh_session_send_raw(session, payload, written, request.packet_id);
     if (result < 0) {
-        mesh_message_log_mark_ack(&session->messages, request.packet_id, MESH_MESSAGE_ACK_FAILED,
-                                  0U);
+        (void)mesh_session_model_mark_ack(session, request.packet_id, MESH_MESSAGE_ACK_FAILED, 0U);
         return result;
     }
 
@@ -2461,7 +2504,7 @@ void mesh_session_packet_failed(struct mesh_session *session, uint32_t packet_id
     if (session == NULL || packet_id == 0U) {
         return;
     }
-    mesh_message_log_mark_ack(&session->messages, packet_id, MESH_MESSAGE_ACK_FAILED, 0U);
+    (void)mesh_session_model_mark_ack(session, packet_id, MESH_MESSAGE_ACK_FAILED, 0U);
 }
 
 int mesh_session_refresh_settings(struct mesh_session *session) {

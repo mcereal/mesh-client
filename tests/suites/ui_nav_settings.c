@@ -1363,6 +1363,11 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
         failure = "a record nothing has set should say so rather than draw a zero";
         goto cleanup;
     }
+    if ((value = stats_value_of(&store, "Delivery rate", &item)) == NULL ||
+        strcmp(value, "none yet") != 0) {
+        failure = "a rate of nothing answered is neither 0% nor 100%";
+        goto cleanup;
+    }
     if ((value = stats_value_of(&store, "Counting since", &item)) == NULL ||
         strcmp(value, "unknown") != 0) {
         failure = "a device that has never had a clock has no day to name";
@@ -1388,6 +1393,21 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     if ((value = stats_value_of(&store, "Sent", &item)) == NULL ||
         strcmp(value, "5000000000") != 0) {
         failure = "a count past 32 bits should be drawn whole";
+        goto cleanup;
+    }
+    /* One failure in two hundred rounds down: 99.5% never reads as a clean record. */
+    stats->messages_delivered = 199U;
+    stats->messages_failed = 1U;
+    mesh_ui_store_set_settings(&store, &settings);
+    if ((value = stats_value_of(&store, "Delivered", &item)) == NULL || strcmp(value, "199") != 0 ||
+        (value = stats_value_of(&store, "Not delivered", &item)) == NULL ||
+        strcmp(value, "1") != 0) {
+        failure = "delivered and not delivered each have a row";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Delivery rate", &item)) == NULL ||
+        strcmp(value, "99%") != 0) {
+        failure = "the delivery rate should round down, so one failure is never 100%";
         goto cleanup;
     }
     if ((value = stats_value_of(&store, "Reactions received", &item)) == NULL ||

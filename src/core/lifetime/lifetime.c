@@ -518,6 +518,113 @@ static void lifetime_observe_message(struct mesh_lifetime *lifetime,
     }
 }
 
+#define LIFETIME_SETTLED_NEITHER 0xFFU
+
+/* The count a delivery state is in: delivered, failed, or neither (waiting, or never asked). */
+static uint8_t lifetime_delivery_count(uint8_t ack) {
+    if (ack == MESH_MESSAGE_ACK_DELIVERED) {
+        return (uint8_t)MESH_LIFETIME_MESSAGES_DELIVERED;
+    }
+    if (ack == MESH_MESSAGE_ACK_FAILED) {
+        return (uint8_t)MESH_LIFETIME_MESSAGES_FAILED;
+    }
+    return LIFETIME_SETTLED_NEITHER;
+}
+
+/* Where this run counted `packet_id`, or NULL for a message it never counted. */
+static uint8_t *lifetime_settled(struct mesh_lifetime *lifetime, uint32_t packet_id) {
+    for (size_t i = 0; i < MESH_MESSAGE_LOG_CAPACITY; ++i) {
+        if (lifetime->settled_ids[i] == packet_id) {
+            return &lifetime->settled_in[i];
+        }
+    }
+    return NULL;
+}
+
+/*
+ * A slot for a message newly counted: an empty one, or one whose message the session's log no
+ * longer holds and so can never be marked again. Never a message still in the log - that one can
+ * still change its answer, and would find nothing to move. The log holds at most as many messages
+ * as there are slots, and the new one is among them, so a slot is always free.
+ */
+static uint8_t *lifetime_settle_slot(struct mesh_lifetime *lifetime,
+                                     const struct mesh_message_log *log, uint32_t **out_id) {
+    for (size_t i = 0; i < MESH_MESSAGE_LOG_CAPACITY; ++i) {
+        if (lifetime->settled_ids[i] == 0U) {
+            *out_id = &lifetime->settled_ids[i];
+            return &lifetime->settled_in[i];
+        }
+    }
+    for (size_t i = 0; i < MESH_MESSAGE_LOG_CAPACITY; ++i) {
+        const uint32_t id = lifetime->settled_ids[i];
+        bool held = false;
+        for (size_t n = 0; n < log->count && n < MESH_MESSAGE_LOG_CAPACITY; ++n) {
+            const struct mesh_message *entry =
+                &log->entries[(log->head + n) % MESH_MESSAGE_LOG_CAPACITY];
+            if (entry->packet_id == id && entry->direction == MESH_MESSAGE_OUTBOUND) {
+                held = true;
+                break;
+            }
+        }
+        if (!held) {
+            *out_id = &lifetime->settled_ids[i];
+            return &lifetime->settled_in[i];
+        }
+    }
+    return NULL;
+}
+
+/*
+ * One of our direct messages changed delivery state.
+ *
+ * Counted when it leaves pending: it asked to be confirmed and now has an answer. A reaction is
+ * sent asking for nothing, and a broadcast is confirmed by nobody - this client sends one without
+ * want_ack, and MeshCore's pending on a channel message is its place in the radio's queue - so
+ * either would reach a count only by failing, and neither is counted.
+ *
+ * After that the message moves between the counts as its answer changes: MeshCore takes a late
+ * reply to a command it gave up on as a delivery, and a relay's acknowledgement can be followed
+ * by the recipient's refusal. Each is one message, in whichever count its bubble now shows. Only
+ * a message this run counted is moved, because only for those is it known which count holds it:
+ * one counted before a restart or a reset would otherwise take a count that is another's.
+ */
+static void lifetime_observe_delivery(struct mesh_lifetime *lifetime,
+                                      const struct mesh_session *session,
+                                      const struct mesh_message *message, uint8_t previous) {
+    if (message->to == MESH_MESSAGE_BROADCAST_ADDR || message->packet_id == 0U) {
+        return;
+    }
+    const uint8_t joined = lifetime_delivery_count(message->ack);
+    uint8_t *held = lifetime_settled(lifetime, message->packet_id);
+    if (held == NULL) {
+        if (previous != MESH_MESSAGE_ACK_PENDING || joined == LIFETIME_SETTLED_NEITHER) {
+            return;
+        }
+        uint32_t *id = NULL;
+        uint8_t *slot = lifetime_settle_slot(lifetime, &session->messages, &id);
+        if (slot == NULL) {
+            return;
+        }
+        *id = message->packet_id;
+        *slot = joined;
+        lifetime_bump(lifetime, (enum mesh_lifetime_stat)joined);
+        return;
+    }
+    if (*held == joined) {
+        return;
+    }
+    if (*held != LIFETIME_SETTLED_NEITHER && lifetime->values[*held] > 0U) {
+        lifetime->values[*held]--;
+    }
+    *held = joined;
+    if (joined != LIFETIME_SETTLED_NEITHER) {
+        lifetime_bump(lifetime, (enum mesh_lifetime_stat)joined);
+    } else {
+        lifetime->dirty = true;
+        lifetime_changed(lifetime);
+    }
+}
+
 void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
                            const struct mesh_session_event *event) {
     struct mesh_lifetime *lifetime = ctx;
@@ -533,6 +640,12 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
     if (event->kind == MESH_SESSION_EVENT_MESSAGE) {
         if (event->message != NULL) {
             lifetime_observe_message(lifetime, event->message);
+        }
+        return;
+    }
+    if (event->kind == MESH_SESSION_EVENT_DELIVERY) {
+        if (event->message != NULL) {
+            lifetime_observe_delivery(lifetime, session, event->message, event->previous_ack);
         }
         return;
     }

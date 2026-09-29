@@ -132,6 +132,121 @@ MESH_TEST_CASE(lifetime_counts_messages_by_direction_and_kind, unit) {
     record_success(test_name);
 }
 
+/* One of our messages settling, as the session says it: the record is the one in the log, which
+   is where a message has to be for anything to mark it. Appended the first time it is named. */
+static void lt_settle_to(uint32_t packet_id, uint32_t to, enum mesh_message_ack previous,
+                         enum mesh_message_ack now) {
+    struct mesh_message *message = mesh_message_log_find(&g_session.messages, packet_id);
+    if (message == NULL) {
+        struct mesh_message record;
+        memset(&record, 0, sizeof record);
+        record.packet_id = packet_id;
+        record.from = LT_US;
+        record.to = to;
+        record.direction = MESH_MESSAGE_OUTBOUND;
+        message = mesh_message_log_append(&g_session.messages, &record);
+    }
+    message->ack = (uint8_t)now;
+    const struct mesh_session_event event = {
+        .kind = MESH_SESSION_EVENT_DELIVERY, .message = message, .previous_ack = (uint8_t)previous};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+}
+
+static void lt_settle(uint32_t packet_id, enum mesh_message_ack previous,
+                      enum mesh_message_ack now) {
+    lt_settle_to(packet_id, LT_PEER, previous, now);
+}
+
+static bool lt_deliveries(uint64_t delivered, uint64_t failed) {
+    return mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_DELIVERED) == delivered &&
+           mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_FAILED) == failed;
+}
+
+/*
+ * Each direct message that asked to be confirmed is in the count its bubble says.
+ *
+ * Counted when it leaves pending, then moved between the counts rather than added again - a
+ * message whose answer changes, however often, is still one message. Nothing that never asked
+ * is counted: a reaction, or a broadcast (MeshCore's pending on one is its place in the radio's
+ * queue). And only a message this run counted is moved, since only for those is it known which
+ * count holds it.
+ */
+MESH_TEST_CASE(lifetime_counts_each_delivery_once, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+
+    lt_settle(1U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_DELIVERED);
+    lt_settle(2U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_FAILED);
+    lt_settle(3U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_FAILED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(1U, 2U), "one delivered and two failed");
+
+    lt_settle(4U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_NONE);
+    lt_settle_to(5U, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_ACK_PENDING,
+                 MESH_MESSAGE_ACK_FAILED);
+    lt_settle_to(6U, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_NONE);
+    /* A reaction asks for nothing, so failing to send one is not a message undelivered. */
+    lt_settle(7U, MESH_MESSAGE_ACK_NONE, MESH_MESSAGE_ACK_FAILED);
+    lt_settle(7U, MESH_MESSAGE_ACK_FAILED, MESH_MESSAGE_ACK_DELIVERED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(1U, 2U), "a message nothing answers is in neither count");
+
+    /* Delivered, refused after, then answered again: one message, delivered. */
+    lt_settle(1U, MESH_MESSAGE_ACK_DELIVERED, MESH_MESSAGE_ACK_FAILED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(0U, 3U), "a delivered message refused after moves across");
+    lt_settle(1U, MESH_MESSAGE_ACK_FAILED, MESH_MESSAGE_ACK_DELIVERED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(1U, 2U), "and back, taking only its own failure with it");
+    lt_settle(2U, MESH_MESSAGE_ACK_FAILED, MESH_MESSAGE_ACK_DELIVERED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(2U, 1U), "a late answer moves a failure to a delivery");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(!lt_deliveries(2U, 1U), "and both survive a restart");
+
+    /* A message counted before a reset or a restart stays where it was left: which count holds
+       it is not known, and moving it would take one that is some other message's. */
+    lt_settle(3U, MESH_MESSAGE_ACK_FAILED, MESH_MESSAGE_ACK_DELIVERED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(2U, 1U), "a message the last run counted is not moved");
+    MESH_TEST_FAIL_IF(mesh_lifetime_reset(&g_lifetime) != 0, "the reset failed");
+    lt_settle(8U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_DELIVERED);
+    lt_settle(2U, MESH_MESSAGE_ACK_DELIVERED, MESH_MESSAGE_ACK_FAILED);
+    lt_settle(3U, MESH_MESSAGE_ACK_FAILED, MESH_MESSAGE_ACK_DELIVERED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(1U, 0U), "nor is one counted before a reset");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/*
+ * A message still in the session's log keeps its place however long ago it was counted.
+ *
+ * The log drops messages in the order they were sent and the stats count them in the order they
+ * were answered, which are not the same order - so the place a new count takes is one whose
+ * message has left the log, never the oldest counted. Here the log's oldest message is answered
+ * last, after every other has been counted, and the first one counted can still change.
+ */
+MESH_TEST_CASE(lifetime_a_delivery_in_the_log_keeps_its_place, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+
+    /* The oldest message goes out first and waits; the rest fill the log and are answered. */
+    const uint32_t oldest = 1000U;
+    lt_settle(oldest, MESH_MESSAGE_ACK_NONE, MESH_MESSAGE_ACK_PENDING);
+    for (uint32_t i = 1U; i < MESH_MESSAGE_LOG_CAPACITY; ++i) {
+        lt_settle(oldest + i, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_DELIVERED);
+    }
+    lt_settle(oldest, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_DELIVERED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(MESH_MESSAGE_LOG_CAPACITY, 0U), "every message delivered");
+
+    /* One more message pushes the oldest out of the log, and takes its place. */
+    lt_settle(oldest + MESH_MESSAGE_LOG_CAPACITY, MESH_MESSAGE_ACK_PENDING,
+              MESH_MESSAGE_ACK_DELIVERED);
+    lt_settle(oldest + 1U, MESH_MESSAGE_ACK_DELIVERED, MESH_MESSAGE_ACK_FAILED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(MESH_MESSAGE_LOG_CAPACITY, 1U),
+                      "a message still in the log moves when its answer changes");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(lifetime_survives_a_restart, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
