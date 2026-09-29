@@ -63,10 +63,9 @@ MESH_TEST_CASE(ui_nav_preview_is_where_a_goes_and_moves_nothing, unit) {
         mesh_ui_store_conversation_read_mark(&store, (uint8_t)MESH_UI_CONVERSATION_CHANNEL,
                                              MESH_MESSAGE_BROADCAST_ADDR, 0U) != mark,
         mesh_ui_store_shutdown(&store), "and should mark nothing read");
-    MESH_TEST_FAIL_IF_CLEANUP(!preview.thread_open || preview.inbox ||
-                                  preview.target_node != MESH_MESSAGE_BROADCAST_ADDR,
-                              mesh_ui_store_shutdown(&store),
-                              "the preview should be the channel's thread");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !preview.thread_open || preview.inbox || preview.target_node != MESH_MESSAGE_BROADCAST_ADDR,
+        mesh_ui_store_shutdown(&store), "the preview should be the channel's thread");
 
     struct mesh_ui_action action;
     MESH_TEST_FAIL_IF_CLEANUP(
@@ -156,8 +155,7 @@ MESH_TEST_CASE(ui_nav_preview_is_a_section_but_not_a_heading, unit) {
     store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = section;
     MESH_TEST_FAIL_IF_CLEANUP(
         !mesh_ui_nav_preview(&store.nav, &store, &preview) ||
-            preview.settings_section !=
-                (uint8_t)mesh_ui_settings_root_at(&store.settings, section),
+            preview.settings_section != (uint8_t)mesh_ui_settings_root_at(&store.settings, section),
         mesh_ui_store_shutdown(&store), "a section's row should preview that section");
     MESH_TEST_FAIL_IF_CLEANUP(store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION,
                               mesh_ui_store_shutdown(&store), "and asking should not open it");
