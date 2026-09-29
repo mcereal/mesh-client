@@ -2637,6 +2637,16 @@ MESH_TEST_CASE(meshcore_backup_plan_refuses_another_radios_backup, unit) {
                                                 MESH_MESHCORE_BACKUP_PLAN_MAX,
                                                 &unwritable) != -ENODEV,
                       "a backup under another key was planned onto this radio");
+    /* Nor one that does not say whose it is: channels and a PIN with no settings section. */
+    mesh_radio_backup_reset(&g_backup);
+    g_backup.header.protocol = MESH_RADIO_BACKUP_MESHCORE;
+    g_backup.header.node_id = g_meshcore.self_node;
+    const uint8_t pin[4] = {0x40, 0xe2, 0x01, 0x00};
+    mesh_radio_backup_add(&g_backup, MESH_MESHCORE_BACKUP_PIN, pin, sizeof pin);
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_plan(&g_backup, &g_meshcore, g_plan,
+                                                MESH_MESHCORE_BACKUP_PLAN_MAX,
+                                                &unwritable) != -ENODEV,
+                      "a backup with no key to check was planned onto this radio");
     /* And contacts are not written yet: one gone from the radio is counted, not planned. */
     mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
     g_meshcore.contact_count = 0U;
@@ -2644,5 +2654,32 @@ MESH_TEST_CASE(meshcore_backup_plan_refuses_another_radios_backup, unit) {
                                                 MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable) != 0 ||
                           unwritable != 1U,
                       "a missing contact was not counted unwritable");
+    record_success(test_name);
+}
+
+/* Values the radio can report but its commands cannot set back - a channel name filling all 32
+   bytes, an empty advert name - are counted unwritable, and the rest of the plan still goes. */
+MESH_TEST_CASE(meshcore_backup_plan_counts_names_its_commands_cannot_carry, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    memset(g_meshcore.channels[0].name, 'x', MESH_MESHCORE_NAME_LEN);
+    g_meshcore.channels[0].name[MESH_MESHCORE_NAME_LEN] = '\0';
+    g_meshcore.self.name[0] = '\0';
+    const uint8_t power = g_meshcore.self.tx_power_dbm;
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    snprintf(g_meshcore.channels[0].name, sizeof g_meshcore.channels[0].name, "%s", "Public");
+    snprintf(g_meshcore.self.name, sizeof g_meshcore.self.name, "%s", "MPBC");
+    g_meshcore.self.tx_power_dbm = 10U;
+    size_t unwritable = 0U;
+    const int planned = mesh_meshcore_backup_plan(&g_backup, &g_meshcore, g_plan,
+                                                  MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable);
+    MESH_TEST_FAIL_IF(planned != 1 || g_plan[0].set_channel || g_plan[0].set_name,
+                      "a name the commands cannot carry was planned");
+    MESH_TEST_FAIL_IF(!g_plan[0].set_tx_power || g_plan[0].tx_power_dbm != (int8_t)power,
+                      "the power that can be written was dropped with them");
+    MESH_TEST_FAIL_IF(unwritable != 2U, "the two names were not counted unwritable");
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &g_plan[0]) <= 0,
+                      "what was planned did not encode");
     record_success(test_name);
 }

@@ -558,9 +558,14 @@ static void mc_plan_self(const struct mesh_meshcore_backup_contents *saved,
                          struct mesh_meshcore_settings_write *write, size_t *unwritable) {
     const struct mesh_meshcore_self_info *want = &saved->self;
     const struct mesh_meshcore_self_info *have = &meshcore->self;
+    /* The firmware takes a name of one byte or more; an empty one is not a name it can set. */
     if (strcmp(want->name, have->name) != 0) {
-        write->set_name = true;
-        inkwell_str_copy(write->name, sizeof write->name, want->name);
+        if (want->name[0] != '\0') {
+            write->set_name = true;
+            inkwell_str_copy(write->name, sizeof write->name, want->name);
+        } else {
+            ++*unwritable;
+        }
     }
     if (want->frequency_khz != have->frequency_khz || want->bandwidth_hz != have->bandwidth_hz ||
         want->spreading_factor != have->spreading_factor ||
@@ -634,9 +639,11 @@ int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
     }
     int result = mesh_meshcore_backup_read(backup, saved);
     /* The key is the radio: a backup of another one is not restored onto this one, whatever
-       its node number says. */
-    if (result == 0 && saved->has_self &&
-        memcmp(saved->self.public_key, meshcore->self.public_key, MESH_MESHCORE_PUBKEY_LEN) != 0) {
+       its node number says - and one that does not say whose it is cannot be checked, so it is
+       refused the same way. */
+    if (result == 0 &&
+        (!saved->has_self || memcmp(saved->self.public_key, meshcore->self.public_key,
+                                    MESH_MESHCORE_PUBKEY_LEN) != 0)) {
         result = -ENODEV;
     }
     struct mesh_meshcore_settings_write planned[MESH_MESHCORE_BACKUP_PLAN_MAX];
@@ -645,9 +652,7 @@ int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
     if (result == 0) {
         memset(planned, 0, sizeof planned);
         struct mesh_meshcore_settings_write *self = &planned[0];
-        if (saved->has_self) {
-            mc_plan_self(saved, meshcore, self, &skipped);
-        }
+        mc_plan_self(saved, meshcore, self, &skipped);
         if (self->set_name || self->set_radio || self->set_tx_power || self->set_position ||
             self->set_other || self->set_pin) {
             count = 1U;
@@ -658,8 +663,11 @@ int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
                                 &meshcore->channels[slot])) {
                 continue;
             }
-            /* A slot the walk did not read is one this radio does not have. */
-            if (!meshcore->has_channel[slot]) {
+            /* A slot the walk did not read is one this radio does not have; and a name that
+               fills all 32 bytes, which the radio can report, is one SET_CHANNEL cannot carry
+               with the terminator it needs. */
+            if (!meshcore->has_channel[slot] ||
+                strlen(saved->channels[slot].name) >= MESH_MESHCORE_NAME_LEN) {
                 ++skipped;
                 continue;
             }

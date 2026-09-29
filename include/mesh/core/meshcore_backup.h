@@ -134,11 +134,13 @@ int mesh_meshcore_backup_diff(const struct mesh_radio_backup *a, const struct me
  * radio parameters it no longer accepts, a power past what this radio reports it can do, a PIN
  * outside the range - would be refused anyway, and a group is never quietly written with a
  * value other than the backup's. Nor can the advert type, which a companion radio fixes itself,
- * a slot this radio does not have, or - not yet - a contact. Each such difference adds one to
- * `unwritable`; the comparison after the restore is where they show.
+ * an empty name, a channel name of the full 32 bytes (SET_CHANNEL needs room for its
+ * terminator), a slot this radio does not have, or - not yet - a contact. Each such difference
+ * adds one to `unwritable`; the comparison after the restore is where they show.
  *
  * How many saves were planned (0 when nothing writable differs), -EAGAIN before the radio has
- * finished syncing, -ENODEV for a backup of another radio (its public key is not this one's),
+ * finished syncing, -ENODEV for a backup of another radio (its public key is not this one's) or
+ * one with no settings section to say whose it is,
  * -EPROTO for a backup of another protocol, -EBADMSG for one that does not read, -ENOSPC when
  * `max` is short of what the plan needs, -ENOMEM.
  */

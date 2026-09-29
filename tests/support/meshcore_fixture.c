@@ -17,14 +17,12 @@ const uint8_t mesh_test_meshcore_device_info[MESH_TEST_MESHCORE_DEVICE_INFO_LEN]
     0x32, 0x39, 0x36, 0x34, 0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
-
 const uint8_t mesh_test_meshcore_self_info[MESH_TEST_MESHCORE_SELF_INFO_LEN] = {
     0x05, 0x01, 0x16, 0x16, 0xb8, 0xda, 0x09, 0xb0, 0x98, 0xf4, 0xdd, 0x8c, 0x5d, 0xe6, 0x21, 0xf1,
     0xfc, 0x92, 0x3b, 0x02, 0x84, 0xb3, 0xf6, 0xc7, 0x72, 0x7d, 0x41, 0x29, 0xeb, 0x10, 0xa2, 0xb2,
     0xe3, 0xd4, 0xa4, 0x58, 0x2a, 0xd7, 0x17, 0x01, 0xdf, 0x18, 0xfe, 0xfb, 0x00, 0x00, 0x00, 0x00,
     0xbd, 0xe4, 0x0d, 0x00, 0x24, 0xf4, 0x00, 0x00, 0x07, 0x05, 0x4d, 0x50, 0x42, 0x43,
 };
-
 
 void mesh_test_put_u32(uint8_t *out, uint32_t value) {
     out[0] = (uint8_t)value;
@@ -33,10 +31,9 @@ void mesh_test_put_u32(uint8_t *out, uint32_t value) {
     out[3] = (uint8_t)(value >> 24U);
 }
 
-
 /* A 148-byte contact record for a key starting with `lead`. */
 size_t mesh_test_meshcore_contact(uint8_t *out, uint8_t code, uint8_t lead, const char *name,
-                            uint8_t type, uint8_t path_len, uint32_t lastmod) {
+                                  uint8_t type, uint8_t path_len, uint32_t lastmod) {
     memset(out, 0, 148U);
     size_t i = 0U;
     out[i++] = code;
@@ -61,7 +58,6 @@ size_t mesh_test_meshcore_contact(uint8_t *out, uint8_t code, uint8_t lead, cons
     return i;
 }
 
-
 int mesh_test_meshcore_wire_send(void *ctx, const uint8_t *frame, size_t len, uint32_t frame_id) {
     struct mesh_test_meshcore_wire *wire = ctx;
     if (wire->refuse) {
@@ -77,11 +73,9 @@ int mesh_test_meshcore_wire_send(void *ctx, const uint8_t *frame, size_t len, ui
     return 0;
 }
 
-
 uint8_t mesh_test_meshcore_wire_last(const struct mesh_test_meshcore_wire *wire) {
     return wire->count > 0U ? wire->frames[wire->count - 1U][0] : 0U;
 }
-
 
 static void feed(const struct mesh_protocol *protocol, const uint8_t *frame, size_t len) {
     mesh_protocol_receive(protocol, frame, len);
@@ -95,8 +89,8 @@ bool mesh_test_meshcore_sync(struct mesh_meshcore *meshcore, struct mesh_protoco
                              struct mesh_test_meshcore_wire *wire) {
     memset(wire, 0, sizeof *wire);
     mesh_protocol_attach(protocol, mesh_test_meshcore_wire_send, wire);
-    if (mesh_protocol_begin(protocol) != 0 || mesh_test_meshcore_wire_last(wire) != MESH_MESHCORE_CMD_DEVICE_QUERY ||
-        wire->count != 1U) {
+    if (mesh_protocol_begin(protocol) != 0 ||
+        mesh_test_meshcore_wire_last(wire) != MESH_MESHCORE_CMD_DEVICE_QUERY || wire->count != 1U) {
         return false;
     }
     uint8_t device[sizeof mesh_test_meshcore_device_info];
@@ -117,8 +111,8 @@ bool mesh_test_meshcore_sync(struct mesh_meshcore *meshcore, struct mesh_protoco
     uint8_t start[5] = {MESH_MESHCORE_RESP_CONTACTS_START, 1, 0, 0, 0};
     feed(protocol, start, sizeof start);
     feed(protocol, frame,
-         mesh_test_meshcore_contact(frame, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice", MESH_MESHCORE_ADV_CHAT, 2U,
-                       1700000000U));
+         mesh_test_meshcore_contact(frame, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice",
+                                    MESH_MESHCORE_ADV_CHAT, 2U, 1700000000U));
     uint8_t end[5] = {MESH_MESHCORE_RESP_END_OF_CONTACTS};
     mesh_test_put_u32(end + 1, 1700000000U);
     feed(protocol, end, sizeof end);
@@ -143,4 +137,3 @@ bool mesh_test_meshcore_sync(struct mesh_meshcore *meshcore, struct mesh_protoco
     feed(protocol, battery, sizeof battery);
     return mesh_meshcore_ready(meshcore);
 }
-
