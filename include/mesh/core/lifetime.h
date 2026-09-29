@@ -25,14 +25,14 @@
  * **Two files, in one directory, over inkstand's journal**, so a card that cannot hold the
  * directory leaves the stats disabled and quiet, as the other logs are:
  *
- *   `totals`  the COUNTs and MAXes. A few hundred bytes, rewritten whole through a temporary
- *             when it has changed, on the app's two-second batching window - so a SIGKILL or a
- *             pulled battery costs at most that window.
- *   `seen`    the SET: one line each time a node gains a fact (heard at all, heard over the
- *             air, is one of our radios). Appended as it happens, since it happens rarely, and
- *             never rewritten; an append that fails is retried by the next flush. Read back
- *             into a sorted array at launch; a torn last line is skipped, and a line read twice
- *             changes nothing.
+ *   `totals`  the COUNTs and MAXes, and whether the set has ever turned a node away (a restart
+ *             cannot tell that from a set that is merely at its size). A few hundred bytes,
+ * rewritten whole through a temporary when it has changed, on the app's two-second batching window
+ * - so a SIGKILL or a pulled battery costs at most that window. `seen`    the SET: one line each
+ * time a node gains a fact (heard at all, heard over the air, is one of our radios). Appended as it
+ * happens, since it happens rarely, and never rewritten; an append that fails is retried by the
+ * next flush. Read back into a sorted array at launch; a torn last line is skipped, and a line read
+ * twice changes nothing.
  *
  * **A node is its 32-bit number.** Meshtastic takes it from the radio's hardware and MeshCore
  * from the front of a public key, so the two protocols share one set; two nodes landing on one
@@ -131,7 +131,8 @@ enum mesh_lifetime_kind mesh_lifetime_kind_of(enum mesh_lifetime_stat stat);
 /* The stat's key on the card, for logs and tests. NULL out of range. */
 const char *mesh_lifetime_key(enum mesh_lifetime_stat stat);
 
-/* False once the set has had to turn a node away, which makes every SET a floor. */
+/* False once the set has had to turn a node away, which makes every SET a floor. Kept across a
+   restart; only mesh_lifetime_reset() makes the set complete again. */
 bool mesh_lifetime_complete(const struct mesh_lifetime *lifetime);
 
 /* Whether `totals` has something the card does not. */

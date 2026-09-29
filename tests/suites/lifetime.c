@@ -412,6 +412,53 @@ MESH_TEST_CASE(lifetime_a_full_set_says_so, unit) {
     record_success(test_name);
 }
 
+/*
+ * A full set is still a floor after a restart.
+ *
+ * The seen file cannot say so on its own: a set that turned a node away holds exactly
+ * MESH_LIFETIME_NODES_MAX nodes, the same as one that merely reached its size, because the
+ * refusal appends nothing. So the refusal goes in the totals, and a restart that dropped it
+ * would put an exact-looking count on the screen over nodes that were never counted.
+ */
+MESH_TEST_CASE(lifetime_a_full_set_is_still_a_floor_after_a_restart, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+
+    /* A seen file already at the set's size, written directly rather than through eight
+       thousand appends. */
+    char path[128];
+    snprintf(path, sizeof path, "%s/seen.stats", dir);
+    FILE *file = fopen(path, "w");
+    MESH_TEST_FAIL_IF(file == NULL, "could not write the seen file");
+    for (uint32_t i = 1U; i <= MESH_LIFETIME_NODES_MAX; ++i) {
+        fprintf(file, "heard=%08x\n", 0x10000U + i);
+    }
+    fclose(file);
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_complete(&g_lifetime),
+                      "a set at its size that has turned nobody away is still exact");
+
+    lt_session(0, 0);
+    struct mesh_node_summary stranger = lt_summary(0x7FFFFFFFU);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &stranger, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_complete(&g_lifetime), "one more is turned away");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_dirty(&g_lifetime), "and that is something to write down");
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_complete(&g_lifetime),
+                      "the restart should remember the set is a floor");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) !=
+                          MESH_LIFETIME_NODES_MAX,
+                      "with every node it did hold");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_reset(&g_lifetime) != 0, "the reset failed");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_complete(&g_lifetime), "and only a reset forgets it");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
 /* End to end, through the session's own observer: what one conversation adds up to. */
 MESH_TEST_CASE(lifetime_counts_what_the_session_announces, unit) {
     char dir[64];
