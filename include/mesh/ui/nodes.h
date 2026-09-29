@@ -26,8 +26,8 @@ struct mesh_ui_node_summary;
  *
  * Why a filter exists at all. The roster deliberately outlives the connection and the radio's
  * NodeDB evicts, so this list is the one screen in the client that grows without bound - a busy
- * mesh publishes the best 128 of 256 and the reader is looking for one of them. Sorting cannot
- * answer that (the list is already ranked, and a rank is what put the node they want at 94). What
+ * mesh fills all 256 rows and the reader is looking for one of them. Sorting cannot answer that
+ * (the list is already ranked, and a rank is what put the node they want at 94). What
  * a reader always knows is which *kind* of node they are after, and there are only ever two kinds
  * worth asking for: the ones they chose to keep, and the ones that are actually in earshot. When
  * they know a piece of the name too, the search chip narrows further - see
@@ -142,11 +142,10 @@ inkcell_str_id mesh_ui_node_filter_label(enum mesh_ui_node_filter filter);
  * for the one who can type a piece of it: a fragment of the long name, the short name or the id
  * is enough, and the keyboard's caret makes a typo a fix rather than a retype.
  *
- * All of it is a lens on the published roster and not on the mesh. mesh_app_node_rank() cuts the
- * roster to MESH_UI_MAX_HANDSHAKE_NODES before any of this runs, so "nearest" means nearest of
- * what the client carries rather than nearest on the air. That is the same scope the filter has,
- * and it is the reason the cut is a *rank* rather than a sort: the rank decides who is worth
- * ordering, and these decide how to read the ones that were.
+ * All of it is a lens on the published roster and not on the mesh: "nearest" means nearest of
+ * what the client carries rather than nearest on the air, which is the same scope the filter
+ * has. The roster is ordered by mesh_app_node_rank() before any of this runs, and that order is
+ * the default sort; these decide other ways to read the same rows.
  */
 enum mesh_ui_node_sort {
     /*
@@ -157,7 +156,7 @@ enum mesh_ui_node_sort {
      * First, and the resting value, because it is the list as it has always been - a reader who
      * never presses this row sees exactly what they saw before it existed. It is also the only
      * member here that is not a question about one field: it is the client's whole opinion of
-     * what matters, and it is the opinion the 128-node cut was already made with.
+     * what matters, and it is the order the roster is published in.
      */
     MESH_UI_NODE_SORT_DEFAULT = 0,
     /*
@@ -215,8 +214,8 @@ enum mesh_ui_node_sort {
  * A built view rather than a walk per row, and the reason is the distance sort. Every other
  * question here is a field comparison, but a great-circle distance is a haversine - two sines, a
  * square root and an atan2 - and a comparison sort asks its key for every pair it considers. Ask
- * per comparison and a 128-row list spends thousands of them on a frame that draws eight rows;
- * ask once per node and it spends 128. That is the shape src/ui/views/waypoints.c settled on for
+ * per comparison and a 256-row list spends thousands of them on a frame that draws eight rows;
+ * ask once per node and it spends 256. That is the shape src/ui/views/waypoints.c settled on for
  * the same reason, and it is the only reason this is a struct rather than another index-th-element
  * function beside mesh_ui_node_filter_at() - which it replaces, because two ways to turn a row
  * into a node is exactly how the cursor and the list come to disagree.

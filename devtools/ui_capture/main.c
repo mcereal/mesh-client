@@ -279,6 +279,9 @@ static int uicap_seed_demo(struct inkstand_scene *scene, void *userdata) {
     handshake.has_config = true;
     handshake.my_info.node_num = seeds[0].node_id;
     handshake.my_info.nodedb_entries = 42U;
+    /* A year of one Brick's history: far more nodes heard than any roster keeps. */
+    handshake.nodes_heard_ever = 1204U;
+    handshake.nodes_heard_ever_rf = 812U;
     handshake.roster_owner = seeds[0].node_id;
     snprintf(handshake.primary_channel, sizeof handshake.primary_channel, "%s", "LongFast");
     snprintf(handshake.my_short_name, sizeof handshake.my_short_name, "%s", "HOME");
@@ -1644,6 +1647,9 @@ static int verb_discover(struct inkstand_scene *scene, char *rest, void *userdat
     node->discovered = ++handshake.nodes_discovered;
     ++handshake.node_count;
     ++handshake.nodes_known;
+    /* Heard over the air, hops and all, and new to this Brick - so new to its lifetime too. */
+    ++handshake.nodes_heard_ever;
+    ++handshake.nodes_heard_ever_rf;
     mesh_ui_store_set_handshake(&cap->store, &handshake);
     return 0;
 }

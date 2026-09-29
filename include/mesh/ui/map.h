@@ -38,9 +38,7 @@ struct mesh_ui_store;
  * How many markers the map will carry.
  *
  * The map's own roster plus the waypoint book, which is everything the client holds that has
- * somewhere to be drawn - so this cannot truncate. It used to be the *published* roster's 128,
- * because that was all a snapshot carried. Whether the map should see the session's whole roster
- * was left open, and struct mesh_ui_map_node is that decision taken. What the map still owes the
+ * somewhere to be drawn - so this cannot truncate. What the map still owes the
  * reader is how many of what is known has no position at all, which is what
  * `mesh_ui_map_view.known` is for.
  */

@@ -119,6 +119,8 @@ struct mesh_app_publish_cache {
     /* Not part of `handshake`: the session's send path is not a field of the handshake status,
        so a drop that changed nothing else in that struct would not republish without this. */
     bool link_up;
+    /* Nor is the lifetime stats' count of nodes ever heard, which the handshake carries. */
+    uint32_t lifetime_revision;
     struct mesh_handshake_status handshake;
     struct mesh_message_log messages;
     struct mesh_waypoint_book waypoints;
@@ -175,14 +177,22 @@ void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint3
     snprintf(out, out_len, "!%08x", node_id);
 }
 
+/* A lifetime SET as the UI carries it. The set is capped at MESH_LIFETIME_NODES_MAX, so the
+   clamp never bites; it is here so the narrowing is stated rather than assumed. */
+static uint32_t mesh_app_lifetime_u32(const struct mesh_lifetime *lifetime,
+                                      enum mesh_lifetime_stat stat) {
+    const uint64_t value = mesh_lifetime_value(lifetime, stat);
+    return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
+}
+
 /*
  * The nodes in the *whole* roster whose number ends in `last_byte`, up to two - which is all
  * anybody asking needs, because the answer is only ever "one node" or "more than one".
  *
- * Over `status`, the session's 256 slots, and never over the 128 the UI publishes: the ranking
- * in mesh_app_publish_ui_state() drops the tail of a big mesh, and a byte that looks unique
- * once the losers are gone is the one way this resolver can name a node confidently and
- * wrongly. Ambiguity is a fact about the mesh, so it is settled where the whole mesh is.
+ * Over `status`, the session's own slots, rather than over the rows the UI publishes: the rows
+ * carry every slot today, but a byte that looks unique because its other claimant was left off a
+ * shorter list is the one way this resolver can name a node confidently and wrongly. Ambiguity
+ * is a fact about the mesh, so it is settled where the whole mesh is.
  */
 static size_t mesh_app_relay_candidates(const struct mesh_handshake_status *status,
                                         uint8_t last_byte, uint32_t exclude,
@@ -603,8 +613,8 @@ unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_no
         return 0U;
     }
     /* A pinned node outranks even someone you are mid-conversation with: pinning is the user
-       saying "keep this one where I can see it", and it is also what keeps a quiet node inside
-       the UI's 128-node budget when the mesh is busy. */
+       saying "keep this one where I can see it", and it is also what keeps a quiet node at the
+       top of the list, and inside the session's roster, when the mesh is busy. */
     if (node->is_favorite) {
         return 1U;
     }
@@ -613,7 +623,7 @@ unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_no
      * connected radio's NodeDB and is resolved per receiver, so a pin only ever teaches the
      * radio it was made on: move the Brick from one of your nodes to another and the node you
      * just unplugged arrives on the new radio as an ordinary stranger, ranked by last_heard,
-     * free to fall out of the 128-node budget on a busy mesh. The client remembers its own
+     * sunk under every stranger heard since on a busy mesh. The client remembers its own
      * hardware instead (mesh_ui_preferences_note_radio), which needs no admin write and cannot
      * disagree with what "favorite" means on the radio.
      */
@@ -2849,6 +2859,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         handshake_changed || messages_changed ||
         cache->roster_owner != mesh_session_roster_owner(&app->session) ||
         cache->link_up != mesh_session_attached(&app->session) ||
+        cache->lifetime_revision != app->lifetime.revision ||
         memcmp(&cache->preferences, &app->ui_preferences, sizeof app->ui_preferences) != 0;
     const struct mesh_waypoint_book *source_waypoints = mesh_session_waypoints(&app->session);
     const bool waypoints_changed =
@@ -2878,14 +2889,19 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
            sync: what makes it live is something from this connection having arrived. */
         ui_handshake.roster_owner = mesh_session_roster_owner(&app->session);
         /* What each forget row would drop, counted over the whole session roster rather than
-           the 128 that fit below - the roster holds twice that - and through the same
-           predicate the forget itself uses, so a row's number is what the press removes. The
+           the rows copied below, and through the same predicate the forget itself uses, so a
+           row's number is what the press removes. The
            Nodes tab's "off radio" total is a different question and is counted from the rows
            it draws. */
         ui_handshake.nodes_forgettable_off_radio =
             mesh_session_forgettable_nodes(&app->session, true);
         ui_handshake.nodes_forgettable_all = mesh_session_forgettable_nodes(&app->session, false);
         ui_handshake.nodes_discovered = mesh_session_nodes_discovered(&app->session);
+        ui_handshake.nodes_heard_ever =
+            mesh_app_lifetime_u32(&app->lifetime, MESH_LIFETIME_NODES_HEARD);
+        ui_handshake.nodes_heard_ever_rf =
+            mesh_app_lifetime_u32(&app->lifetime, MESH_LIFETIME_NODES_HEARD_RF);
+        ui_handshake.nodes_heard_ever_floor = !mesh_lifetime_complete(&app->lifetime);
         ui_handshake.cached = !status->config_complete && !status->has_my_info &&
                               !status->request_in_flight && !status->has_config;
         if (status->has_my_info) {
@@ -2908,13 +2924,13 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             }
         }
 
-        /* The UI carries fewer nodes than a real mesh has. Rank them so the ones that matter
-           survive the cut: ourselves, then pinned nodes, then our other radios, then anyone we
-           have exchanged messages with, then nodes heard directly over RF by last_heard, then
-           MQTT-fed nodes by last_heard. On a mesh with an MQTT uplink dozens of far-away nodes
-           are "heard" every minute and would otherwise push the radio you are actually talking
-           to off the list. Insertion sort: MESH_SESSION_MAX_NODES is small and this runs once
-           per publish. */
+        /* The UI carries every node the session holds, in this order, and the order is the
+           Nodes tab's default sort: ourselves, then pinned nodes, then our other radios, then
+           anyone we have exchanged messages with, then nodes heard directly over RF by
+           last_heard, then MQTT-fed nodes by last_heard. On a mesh with an MQTT uplink dozens
+           of far-away nodes are "heard" every minute and would otherwise bury the radio you are
+           actually talking to. Insertion sort: MESH_SESSION_MAX_NODES is small and this runs
+           once per publish. */
         const struct mesh_message_log *message_log = mesh_session_messages(&app->session);
         size_t order[MESH_SESSION_MAX_NODES];
         unsigned rank[MESH_SESSION_MAX_NODES];
@@ -2960,8 +2976,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             dst->has_route = src->has_route;
             dst->relay_node = src->relay_node;
             dst->next_hop = src->next_hop;
-            /* Settled here because `status` is the whole roster and `ui_handshake.nodes` is the
-               ranked 128 of it; see mesh_app_relay_byte_is_ambiguous(). */
+            /* Settled here, over `status`, because that is the roster that decides it; see
+               mesh_app_relay_byte_is_ambiguous(). */
             dst->relay_ambiguous = mesh_app_relay_byte_is_ambiguous(status, src->relay_node);
             dst->next_hop_ambiguous = mesh_app_relay_byte_is_ambiguous(status, src->next_hop);
             snprintf(dst->user_id, sizeof(dst->user_id), "%s", src->user_id);
@@ -2984,18 +3000,14 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             mesh_app_copy_node_detail(src, dst);
         }
         ui_handshake.node_count = (uint32_t)copy_count;
-        /* `total`, not copy_count: what the roster knows, against what survived the ranking. */
+        /* `total`, not copy_count: what the roster knows, against what was copied. */
         ui_handshake.nodes_known = (uint32_t)total;
 
         /*
-         * The map's roster, from the whole of `total` rather than from the 128 above.
-         *
-         * The ranking cut is a decision about a *list*: which nodes are worth a row on a screen
-         * a reader scrolls. A map has no rows, and a node's rank has nothing to do with whether
-         * its marker is on the panel - so a mesh whose 200th-ranked node is the one parked at
-         * the far end of the valley was drawing everything except the marker that answered the
-         * question. Same order, because the order is the drawing order and ties are settled by
-         * it; no cut, because struct mesh_ui_map_node is small enough not to need one.
+         * The map's roster, from the whole of `total`: every positioned node, whatever its
+         * rank, because a node's rank says how likely you are to talk to it and a marker is on
+         * the panel or it is not. Same order, because the order is the drawing order and ties
+         * are settled by it.
          *
          * Positioned nodes only, and the bounds test rather than `valid` alone: the session
          * already refuses an out-of-range fix, and asking again here costs nothing and keeps a
@@ -3270,6 +3282,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         cache->preferences = app->ui_preferences;
         cache->roster_owner = mesh_session_roster_owner(&app->session);
         cache->link_up = mesh_session_attached(&app->session);
+        cache->lifetime_revision = app->lifetime.revision;
         cache->locale = inkcell_i18n_locale();
         cache->valid = true;
     }

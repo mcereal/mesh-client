@@ -47,11 +47,10 @@ extern "C" {
 /*
  * Nodes we keep trends for.
  *
- * A screen budget, not a mesh limit, exactly as MESH_UI_MAX_HANDSHAKE_NODES is: only the node
- * whose detail screen is open is ever drawn, and a slot exists so that the trend is already
- * there when it is opened rather than starting from nothing. Twelve is comfortably more than
- * the nodes anybody keeps an eye on, and the least recently heard from is what a thirteenth
- * costs.
+ * A screen budget, not a mesh limit: only the node whose detail screen is open is ever drawn,
+ * and a slot exists so that the trend is already there when it is opened rather than starting
+ * from nothing. Twelve is comfortably more than the nodes anybody keeps an eye on, and the least
+ * recently heard from is what a thirteenth costs.
  */
 #define MESH_UI_HISTORY_NODES 12U
 

@@ -591,10 +591,8 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
  * relay that was two hex digits at connect time becomes a name the moment its NodeInfo lands.
  *
  * `ambiguous` is the one part it cannot work out for itself, and it is not an optimisation.
- * This roster is the ranked MESH_UI_MAX_HANDSHAKE_NODES of a session that holds twice as many,
- * so on a big mesh a byte can have exactly one claimant *here* and another one that was ranked
- * away - and a scan of what was published would then name a node and sound certain about it.
- * The flag is settled at publish over the whole roster; see mesh_app_relay_byte_is_ambiguous().
+ * The flag is settled at publish over the session's own roster, so a screen never has to
+ * assume that what it was handed is all of it; see mesh_app_relay_byte_is_ambiguous().
  */
 static void node_rows_relay_name(const struct mesh_ui_handshake_state *roster, uint8_t last_byte,
                                  bool ambiguous, uint32_t exclude, char *out, size_t out_len) {

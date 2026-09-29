@@ -18,6 +18,10 @@
 #define LIFETIME_TOTALS "totals"
 #define LIFETIME_SEEN "seen"
 #define LIFETIME_KEY_SINCE "since"
+/* Written once the set has turned a node away, and never cleared but by a reset. The seen file
+   cannot say it: a set that is full holds exactly MESH_LIFETIME_NODES_MAX nodes either way, and
+   only the refusal - which appends nothing - tells the two apart. */
+#define LIFETIME_KEY_FULL "nodes_full"
 #define LIFETIME_LINE_MAX 128U
 
 /* What the set knows about a node. Each is one line in the seen file, keyed by its name. */
@@ -105,8 +109,10 @@ static uint8_t lifetime_learn(struct mesh_lifetime *lifetime, uint32_t id, uint8
     if (lifetime->id_count >= MESH_LIFETIME_NODES_MAX) {
         if (!lifetime->full) {
             inkwell_log_warn("lifetime", "The node set is full; node counts are a floor from here");
+            lifetime->full = true;
+            lifetime->dirty = true;
+            lifetime_changed(lifetime);
         }
-        lifetime->full = true;
         return 0U;
     }
     const size_t tail = (size_t)(lifetime->id_count - at);
@@ -244,6 +250,10 @@ static void lifetime_read_totals(void *context, const char *key, char *value) {
         }
         return;
     }
+    if (strcmp(key, LIFETIME_KEY_FULL) == 0) {
+        lifetime->full = strcmp(value, "1") == 0;
+        return;
+    }
     for (size_t i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
         if (strcmp(key, k_stat_keys[i]) != 0) {
             continue;
@@ -266,6 +276,9 @@ static void lifetime_read_totals(void *context, const char *key, char *value) {
 static void lifetime_write_totals(FILE *file, void *context) {
     const struct mesh_lifetime *lifetime = context;
     fprintf(file, "%s=%" PRIu32 "\n", LIFETIME_KEY_SINCE, lifetime->since);
+    if (lifetime->full) {
+        fprintf(file, "%s=1\n", LIFETIME_KEY_FULL);
+    }
     for (size_t i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
         if (k_stat_kinds[i] != MESH_LIFETIME_SET) {
             fprintf(file, "%s=%" PRIu64 "\n", k_stat_keys[i], lifetime->values[i]);

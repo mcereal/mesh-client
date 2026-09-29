@@ -193,7 +193,7 @@ detail came to describe itself with the first node's trace.
   is only ever one current route to a node — and the cap evicts the least recently traced.
 - **It rides the cache rather than a file of its own**, and the arithmetic is why: eight routes of
   at most ten stops is a few hundred lines in the worst case and a dozen in the ordinary one,
-  against a roster of 128 nodes the same file already rewrites on every save. The keys are
+  against a roster of a couple of hundred nodes the same file already rewrites on every save. The keys are
   `trace[i]`, `trace_hop[i.n]` and `trace_name[i.n]`; a hop's name is written rather than
   re-resolved on load, for the reason `msg_relay[]` is.
 - **A route's stamp is the radio's wall clock**, not ours, so unlike the trend log there is

@@ -348,7 +348,7 @@ static void mesh_ui_store_save_history(FILE *file, const struct mesh_ui_history 
  *
  * Small enough to ride the cache rather than earn a file of its own: eight routes of ten stops
  * is a few hundred lines in the worst case and a dozen in the ordinary one, against a roster of
- * 128 nodes that is already rewritten whole on every save.
+ * a couple of hundred nodes that is already rewritten whole on every save.
  *
  * `completed` is written as it stands because it is a *wall* clock - mesh_session_wall_clock(),
  * the radio's time - so unlike the airtime trend beside it there is nothing to convert into an
@@ -1450,13 +1450,13 @@ static void commit(struct mesh_ui_store *store, struct mesh_ui_store_cache *cach
         node_count = MESH_UI_MAX_HANDSHAKE_NODES;
     }
     cache->handshake.node_count = node_count;
-    /* The cache holds only the 128 that were published, so for as long as it is all we have,
+    /* The cache holds only the rows that were published, so for as long as it is all we have,
        what we know and what we show are the same number. The first publish after the session
        is seeded replaces it with the roster's own total. */
     cache->handshake.nodes_known = node_count;
     /* The two forget counts are deliberately left at zero: they describe what the *session's*
        roster would lose, and the session is seeded from this cache a moment later, so the
-       first publish fills them from the roster itself rather than from the 128 rows here. */
+       first publish fills them from the roster itself rather than from the rows here. */
 
     if (cache->handshake_valid) {
         cache->handshake.cached = true;

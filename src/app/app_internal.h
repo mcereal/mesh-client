@@ -286,9 +286,10 @@ void mesh_app_format_relay_name(const struct mesh_handshake_status *status, uint
  * Whether more than one node in the *whole* session roster ends in `last_byte`.
  *
  * Published onto each node so the detail screen can render the byte honestly without the roster
- * that settles it. It cannot settle it itself: mesh_app_publish_ui_state() ranks a mesh larger
- * than MESH_UI_MAX_HANDSHAKE_NODES down to that many, and a byte that looks unique only because
- * its other claimant was ranked away is exactly how a confident wrong name gets drawn.
+ * that settles it. It is settled over the session's roster rather than the published rows so
+ * that the answer never depends on the two being the same size: a byte that looks unique only
+ * because its other claimant was left off the list is exactly how a confident wrong name gets
+ * drawn.
  */
 bool mesh_app_relay_byte_is_ambiguous(const struct mesh_handshake_status *status,
                                       uint8_t last_byte);

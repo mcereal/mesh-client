@@ -509,6 +509,15 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
             inkcell_fb_card_row(&card, INKCELL_TONE_DIM, MESH_STR_STATUS_LABEL_CACHED_HERE,
                                 MESH_STR_STATUS_CACHED_OFF_RADIO, hs->node_count, off_radio);
         }
+        /* And the count that is not a window. Both rows above are capped and evict, so on a
+           big enough mesh they read as a ceiling - "256 nodes" looks like everything ever
+           found. This one only goes up, and is drawn whenever there is anything in it. */
+        if (hs->nodes_heard_ever > 0U) {
+            inkcell_fb_card_row(&card, INKCELL_TONE_DIM, MESH_STR_STATUS_LABEL_HEARD_EVER,
+                                hs->nodes_heard_ever_floor ? MESH_STR_STATUS_HEARD_EVER_FLOOR
+                                                           : MESH_STR_STATUS_HEARD_EVER,
+                                hs->nodes_heard_ever, hs->nodes_heard_ever_rf);
+        }
     }
 
     if (have_util || have_tx) {

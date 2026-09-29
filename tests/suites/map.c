@@ -1504,8 +1504,8 @@ MESH_TEST_CASE(map_selects_a_marker_the_projection_had_to_clamp, unit) {
 MESH_TEST_CASE(map_roster_agrees_across_the_seam, unit) {
     MESH_TEST_FAIL_IF(MESH_UI_MAX_MAP_NODES != MESH_SESSION_MAX_NODES,
                       "the map should hold every node the session can");
-    MESH_TEST_FAIL_IF(MESH_UI_MAX_MAP_NODES <= MESH_UI_MAX_HANDSHAKE_NODES,
-                      "and more of them than the ranked rows carry, or this bought nothing");
+    MESH_TEST_FAIL_IF(MESH_UI_MAX_HANDSHAKE_NODES != MESH_SESSION_MAX_NODES,
+                      "and the list should carry every node the session holds, not a ranked cut");
     MESH_TEST_FAIL_IF(MESH_UI_MAP_MARKERS_MAX != MESH_UI_MAX_MAP_NODES + MESH_UI_MAX_WAYPOINTS,
                       "so the marker set holds that roster and the whole waypoint book");
     record_success(test_name);
@@ -1541,19 +1541,18 @@ static void map_test_wide_roster(struct mesh_ui_handshake_state *hs, uint32_t co
 }
 
 /*
- * The map draws nodes the list never published, which is the whole of the change.
+ * The map draws nodes the list never published.
  *
- * This was the largest single thing between the first map and this one: the session holds
- * MESH_SESSION_MAX_NODES and the ranking publishes 128 rows, and the map was drawing the rows. A
- * node's rank says how likely you are to talk to it, which has nothing to do with whether its
- * marker belongs on the panel.
+ * The map is built from its own roster, not from the rows, so a handshake whose rows are shorter
+ * than its map roster - a cache written by a build that carried fewer rows than it knew - still
+ * draws every positioned node, and says which of them it cannot open.
  */
 MESH_TEST_CASE(map_draws_nodes_the_list_never_published, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
     struct mesh_ui_handshake_state hs;
-    map_test_wide_roster(&hs, 200U, MESH_UI_MAX_HANDSHAKE_NODES);
+    map_test_wide_roster(&hs, 200U, 128U);
     mesh_ui_store_set_handshake(&store, &hs);
     mesh_ui_store_consume_updates(&store, NULL);
 
@@ -1569,14 +1568,14 @@ MESH_TEST_CASE(map_draws_nodes_the_list_never_published, unit) {
     uint32_t index = 0U;
     MESH_TEST_FAIL_IF(
         !mesh_ui_map_find(&view, MESH_UI_MAP_MARKER_NODE, MAP_WIDE_SELF + 199U, &index),
-        "including one ranked far below the list's cut");
+        "including one past the last row");
     MESH_TEST_FAIL_IF(strcmp(view.markers[index].label, "N199") != 0,
                       "labelled from the map's own roster rather than from a row it has none of");
     MESH_TEST_FAIL_IF(mesh_ui_node_detail_find(&store.handshake, MAP_WIDE_SELF + 199U) != NULL,
                       "and it genuinely has no row - otherwise this test proves nothing");
     MESH_TEST_FAIL_IF(view.markers[index].openable, "so the map says it cannot be opened");
 
-    /* One inside the cut, to show the flag is a fact about the node and not about the map. */
+    /* One with a row, to show the flag is a fact about the node and not about the map. */
     MESH_TEST_FAIL_IF(!mesh_ui_map_find(&view, MESH_UI_MAP_MARKER_NODE, MAP_WIDE_SELF + 5U, &index),
                       "a node the list did publish is also a marker");
     MESH_TEST_FAIL_IF(!view.markers[index].openable, "and that one opens");
@@ -1630,7 +1629,7 @@ MESH_TEST_CASE(map_press_refuses_a_node_it_cannot_open, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
     struct mesh_ui_handshake_state hs;
-    map_test_wide_roster(&hs, 200U, MESH_UI_MAX_HANDSHAKE_NODES);
+    map_test_wide_roster(&hs, 200U, 128U);
     mesh_ui_store_set_handshake(&store, &hs);
     mesh_ui_store_consume_updates(&store, NULL);
 
@@ -1638,7 +1637,7 @@ MESH_TEST_CASE(map_press_refuses_a_node_it_cannot_open, unit) {
     map_test_open(&store);
     MESH_TEST_FAIL_IF(!mesh_ui_nav_map_showing(&store.nav), "the map opened");
 
-    /* Aimed at the last node, which is far enough down the ranking to have no row. */
+    /* Aimed at the last node, which is past the last row. */
     (void)mesh_map_viewport_center_on(&store.nav.map_viewport, hs.map_nodes[199].latitude_i,
                                       hs.map_nodes[199].longitude_i);
     store.nav.map_viewport.zoom = 16U;

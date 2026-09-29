@@ -335,9 +335,9 @@ MESH_TEST_CASE(session_nodes_a_resync_discovers_what_the_radio_heard_meanwhile, 
 
 /*
  * A replay is the radio's list rather than the air, so a node in it is news only when the radio
- * heard it after the newest thing the roster had heard. The card keeps the ranked 128 of a roster
- * of 256, so on a large mesh every restart replays nodes the roster simply was not handed back -
- * heard before, while we were listening. And a contact another client typed into the radio has
+ * heard it after the newest thing the roster had heard. A full roster evicts, so on a large mesh
+ * every restart replays nodes the roster simply was not handed back - heard before, while we were
+ * listening. And a contact another client typed into the radio has
  * never been heard at all.
  */
 MESH_TEST_CASE(session_nodes_a_replay_is_news_only_when_heard_since, unit) {

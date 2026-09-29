@@ -1454,6 +1454,82 @@ cleanup:
 }
 
 /*
+ * A full roster comes back off the card whole.
+ *
+ * The cache is what a restart seeds the session from before any radio answers, so a cache that
+ * kept fewer rows than the list carried would hand the next run a shorter roster than the last
+ * one showed - and the nodes it dropped would be the lowest-ranked, the ones only a long history
+ * remembers.
+ */
+MESH_TEST_CASE(ui_store_cache_keeps_a_full_roster, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    static struct mesh_ui_handshake_state hs;
+    memset(&hs, 0, sizeof hs);
+    hs.config_complete = true;
+    hs.has_my_info = true;
+    hs.my_info.node_num = 0x4000U;
+    hs.roster_owner = 0x4000U;
+    hs.node_count = MESH_UI_MAX_HANDSHAKE_NODES;
+    hs.nodes_known = MESH_UI_MAX_HANDSHAKE_NODES;
+    for (uint32_t i = 0; i < hs.node_count; ++i) {
+        hs.nodes[i].node_id = 0x4000U + i;
+        hs.nodes[i].in_nodedb = true;
+        hs.nodes[i].last_heard = 1750000000U - i;
+        snprintf(hs.nodes[i].short_name, sizeof hs.nodes[i].short_name, "N%03u", i);
+    }
+    mesh_ui_store_set_handshake(&store, &hs);
+
+    char path[] = "/tmp/mesh_ui_roster_XXXXXX";
+    const int fd = mkstemp(path);
+    if (fd < 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "mkstemp failed");
+        return;
+    }
+    close(fd);
+
+    const char *failure = NULL;
+    struct mesh_ui_store reloaded;
+    bool reloaded_open = false;
+
+    if (mesh_ui_store_save(&store, path) != 0) {
+        failure = "save failed";
+        goto cleanup;
+    }
+    if (mesh_ui_store_init(&reloaded) != 0) {
+        failure = "reload init failed";
+        goto cleanup;
+    }
+    reloaded_open = true;
+    if (mesh_ui_store_load(&reloaded, path) != 0) {
+        failure = "load failed";
+        goto cleanup;
+    }
+    if (reloaded.handshake.node_count != MESH_UI_MAX_HANDSHAKE_NODES) {
+        failure = "every row the list carried should come back off the card";
+        goto cleanup;
+    }
+    const struct mesh_ui_node_summary *last =
+        &reloaded.handshake.nodes[MESH_UI_MAX_HANDSHAKE_NODES - 1U];
+    if (last->node_id != 0x4000U + MESH_UI_MAX_HANDSHAKE_NODES - 1U ||
+        strcmp(last->short_name, "N255") != 0) {
+        failure = "including the last, in the order it was written";
+        goto cleanup;
+    }
+
+cleanup:
+    if (reloaded_open) {
+        mesh_ui_store_shutdown(&reloaded);
+    }
+    unlink(path);
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * Every cache key is written, and every cache key is read.
  *
  * The cache format used to be spelled twice - once as a printf literal in the writer, once as a
