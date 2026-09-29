@@ -3021,3 +3021,208 @@ MESH_TEST_CASE(meshcore_profile_plan_refuses_what_is_not_a_meshcore_profile, uni
                       "a Meshtastic profile was planned onto a MeshCore radio");
     record_success(test_name);
 }
+
+/* ------------------------------------------------------------------ the identity key */
+
+/* A radio's private key in RESP_PRIVATE_KEY, every byte `fill`. */
+static void feed_private_key(const struct mesh_protocol *protocol, uint8_t fill) {
+    uint8_t frame[1U + MESH_MESHCORE_PRVKEY_LEN];
+    frame[0] = MESH_MESHCORE_RESP_PRIVATE_KEY;
+    memset(frame + 1, fill, MESH_MESHCORE_PRVKEY_LEN);
+    feed(protocol, frame, sizeof frame);
+}
+
+/* Whether `fill` runs for eight bytes anywhere in the conversation's command queue. */
+static bool queue_holds(uint8_t fill) {
+    const uint8_t *bytes = (const uint8_t *)g_meshcore.queue;
+    uint8_t run[8];
+    memset(run, fill, sizeof run);
+    for (size_t at = 0; at + sizeof run <= sizeof g_meshcore.queue; ++at) {
+        if (memcmp(bytes + at, run, sizeof run) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+MESH_TEST_CASE(meshcore_identity_export_is_asked_once_and_wiped_once_taken, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    MESH_TEST_FAIL_IF(mesh_meshcore_export_identity(&g_meshcore) != 1, "the export was not sent");
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY ||
+                          wire.lens[wire.count - 1U] != 1U,
+                      "the export is not the one code byte");
+    MESH_TEST_FAIL_IF(mesh_meshcore_export_identity(&g_meshcore) != -EBUSY,
+                      "a second export went out while the first was unanswered");
+
+    feed_private_key(&protocol, 0x11);
+    MESH_TEST_FAIL_IF(g_meshcore.identity_state != MESH_MESHCORE_IDENTITY_EXPORTED,
+                      "the key that arrived was not kept for the backup");
+    MESH_TEST_FAIL_IF(mesh_meshcore_export_identity(&g_meshcore) != -EBUSY,
+                      "an export went out over a key nobody had taken");
+    uint8_t key[MESH_MESHCORE_PRVKEY_LEN];
+    MESH_TEST_FAIL_IF(!mesh_meshcore_take_identity(&g_meshcore, key) || key[0] != 0x11 ||
+                          key[MESH_MESHCORE_PRVKEY_LEN - 1U] != 0x11,
+                      "the key was not handed over");
+    static const uint8_t zero[MESH_MESHCORE_PRVKEY_LEN] = {0};
+    MESH_TEST_FAIL_IF(memcmp(g_meshcore.identity_key, zero, sizeof zero) != 0 ||
+                          g_meshcore.identity_state != MESH_MESHCORE_IDENTITY_IDLE,
+                      "the conversation kept a copy of the key it handed over");
+    MESH_TEST_FAIL_IF(mesh_meshcore_take_identity(&g_meshcore, key),
+                      "the key was handed over twice");
+    record_success(test_name);
+}
+
+/* A build without the command and a radio that refused are two answers, and say so. */
+MESH_TEST_CASE(meshcore_identity_disabled_refused_and_lost_are_told_apart, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    (void)mesh_meshcore_export_identity(&g_meshcore);
+    feed_code(&protocol, MESH_MESHCORE_RESP_DISABLED);
+    const bool disabled = g_meshcore.identity_state == MESH_MESHCORE_IDENTITY_DISABLED;
+    mesh_meshcore_identity_clear(&g_meshcore);
+
+    uint8_t key[MESH_MESHCORE_PRVKEY_LEN];
+    memset(key, 0x22, sizeof key);
+    (void)mesh_meshcore_import_identity(&g_meshcore, key);
+    const uint8_t refusal[] = {MESH_MESHCORE_RESP_ERR, MESH_MESHCORE_ERR_ILLEGAL_ARG};
+    feed(&protocol, refusal, sizeof refusal);
+    const bool refused = g_meshcore.identity_state == MESH_MESHCORE_IDENTITY_REFUSED &&
+                         g_meshcore.identity_error == MESH_MESHCORE_ERR_ILLEGAL_ARG;
+    mesh_meshcore_identity_clear(&g_meshcore);
+
+    (void)mesh_meshcore_export_identity(&g_meshcore);
+    mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    /* And, unanswered, the link is resynced: a late refusal would settle the next command. */
+    const bool lost = g_meshcore.identity_state == MESH_MESHCORE_IDENTITY_LOST &&
+                      !g_meshcore.awaiting && mesh_protocol_silent(&protocol);
+    MESH_TEST_FAIL_IF(!disabled, "a build without the command was not said to be one");
+    MESH_TEST_FAIL_IF(!refused, "a refused key did not keep the radio's reason");
+    MESH_TEST_FAIL_IF(!lost, "an unanswered export was left waiting");
+    record_success(test_name);
+}
+
+/* The import's frame is the key: gone from the queue once answered, and from the call's own
+   buffer. What is left of it is the radio's OK. */
+MESH_TEST_CASE(meshcore_identity_import_is_wiped_from_the_queue_once_answered, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    uint8_t key[MESH_MESHCORE_PRVKEY_LEN];
+    memset(key, 0x33, sizeof key);
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_identity(&g_meshcore, key) != 1,
+                      "the import was not sent");
+    const size_t last = wire.count - 1U;
+    MESH_TEST_FAIL_IF(wire.frames[last][0] != MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY ||
+                          wire.lens[last] != 1U + MESH_MESHCORE_PRVKEY_LEN ||
+                          wire.frames[last][1] != 0x33 ||
+                          wire.frames[last][MESH_MESHCORE_PRVKEY_LEN] != 0x33,
+                      "the import is not the code and the 64 bytes");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(g_meshcore.identity_state != MESH_MESHCORE_IDENTITY_IMPORTED,
+                      "the radio's OK did not settle the import");
+    MESH_TEST_FAIL_IF(queue_holds(0x33), "the key stayed in the command queue");
+    record_success(test_name);
+}
+
+/* In a backup, the key is a section only the two identity calls read: the backup reads, compares
+   and makes a profile exactly as it did without it. */
+MESH_TEST_CASE(meshcore_backup_identity_rides_along_unseen, unit) {
+    static struct mesh_radio_backup plain;
+    static struct mesh_radio_backup profile;
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_capture(&g_meshcore, &plain) != 0, "capture failed");
+    MESH_TEST_FAIL_IF(plain.header.has_identity, "a capture carried a key");
+    g_backup = plain;
+    uint8_t key[MESH_MESHCORE_PRVKEY_LEN];
+    memset(key, 0x44, sizeof key);
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_add_identity(&g_backup, key) != 0 ||
+                          !g_backup.header.has_identity,
+                      "the key was not added");
+    uint8_t back[MESH_MESHCORE_PRVKEY_LEN];
+    MESH_TEST_FAIL_IF(!mesh_meshcore_backup_identity(&g_backup, back) ||
+                          memcmp(back, key, sizeof key) != 0,
+                      "the key did not come back out");
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_read(&g_backup, &g_contents) != 0,
+                      "a keyed backup no longer reads");
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_diff(&g_backup, &plain, &g_diff) != 0 ||
+                          g_diff.total != 0U,
+                      "the key showed up as a difference");
+    const struct mesh_radio_backup_parts every = {.topics = UINT32_MAX, .modules = UINT32_MAX};
+    MESH_TEST_FAIL_IF(mesh_radio_profile_make(&g_backup, &every, "Kit", &profile) != 0,
+                      "the profile was not made");
+    MESH_TEST_FAIL_IF(profile.header.has_identity || mesh_radio_backup_identity(&profile, NULL),
+                      "the key went into a profile");
+    record_success(test_name);
+}
+
+/* A key that arrives after its export was given up on answers nothing outstanding now: the
+   save written meanwhile stays the head of the queue, and the key is not kept. */
+MESH_TEST_CASE(meshcore_identity_late_key_leaves_the_next_command_alone, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    (void)mesh_meshcore_export_identity(&g_meshcore);
+    mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.set_tx_power = true;
+    write.tx_power_dbm = 10;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) <= 0,
+                      "the save was not sent");
+    const size_t queued = g_meshcore.queue_count;
+    const uint8_t head = g_meshcore.queue[g_meshcore.queue_head].frame[0];
+    feed_private_key(&protocol, 0x66);
+    MESH_TEST_FAIL_IF(!g_meshcore.awaiting || g_meshcore.queue_count != queued ||
+                          g_meshcore.queue[g_meshcore.queue_head].frame[0] != head ||
+                          g_meshcore.writes_outstanding == 0U,
+                      "a late key popped the save outstanding in its place");
+    MESH_TEST_FAIL_IF(g_meshcore.identity_state == MESH_MESHCORE_IDENTITY_EXPORTED,
+                      "a key nobody was waiting for was kept");
+    record_success(test_name);
+}
+
+/* An import that times out may have been taken, and its late OK names no command: nothing else
+   goes out behind it, and the link is called silent to be synced again. */
+MESH_TEST_CASE(meshcore_identity_import_timeout_quarantines_the_link, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    uint8_t key[MESH_MESHCORE_PRVKEY_LEN];
+    memset(key, 0x77, sizeof key);
+    (void)mesh_meshcore_import_identity(&g_meshcore, key);
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_advert(&g_meshcore, false) < 0, "the advert was refused");
+    const size_t sent = wire.count;
+    mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    MESH_TEST_FAIL_IF(g_meshcore.identity_state != MESH_MESHCORE_IDENTITY_UNKNOWN,
+                      "an unanswered import was taken for a refusal");
+    MESH_TEST_FAIL_IF(wire.count != sent || g_meshcore.awaiting,
+                      "a command went out behind an unanswered import");
+    MESH_TEST_FAIL_IF(!mesh_protocol_silent(&protocol), "the link was not called silent");
+    record_success(test_name);
+}
+
+/* A key taken makes the radio another node at once: what was queued behind the import does not
+   go out as the old one, and the restart that resyncs it is the next thing sent. */
+MESH_TEST_CASE(meshcore_identity_import_taken_restarts_before_anything_else, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    uint8_t key[MESH_MESHCORE_PRVKEY_LEN];
+    memset(key, 0x77, sizeof key);
+    (void)mesh_meshcore_import_identity(&g_meshcore, key);
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_advert(&g_meshcore, false) < 0, "the advert was refused");
+    const size_t sent = wire.count;
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(g_meshcore.identity_state != MESH_MESHCORE_IDENTITY_IMPORTED,
+                      "the import was not taken");
+    MESH_TEST_FAIL_IF(wire.count != sent + 1U ||
+                          mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_REBOOT ||
+                          g_meshcore.queue_count != 1U,
+                      "something queued behind the import went out before the restart");
+    record_success(test_name);
+}

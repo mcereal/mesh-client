@@ -2078,3 +2078,38 @@ MESH_TEST_CASE(radio_settings_transaction_stops_when_its_begin_is_refused, unit)
                       "a refused commit was not counted as a failed transaction");
     record_success(test_name);
 }
+
+/* A Security write carries a private key, so a slot is wiped as it leaves the queue - not left
+   for the ring to come round to. */
+MESH_TEST_CASE(radio_settings_queue_wipes_what_leaves_it, unit) {
+    static struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+    struct mesh_admin_request write;
+    memset(&write, 0, sizeof write);
+    write.kind = MESH_ADMIN_SET_CONFIG;
+    write.type = (uint32_t)meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG;
+    write.payload.config.which_payload_variant = meshtastic_Config_security_tag;
+    write.payload.config.payload_variant.security.private_key.size = 32U;
+    memset(write.payload.config.payload_variant.security.private_key.bytes, 0xAB, 32U);
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_transaction(&settings, &write, 1U) <= 0,
+                      "the transaction was not queued");
+    struct mesh_admin_request out;
+    uint64_t now = 0U;
+    size_t sent = 0U;
+    while (settings.queue_len > 0U && sent < 8U) {
+        if (mesh_radio_settings_next_request(&settings, now, &out)) {
+            mesh_radio_settings_mark_sent(&settings, (uint32_t)(sent + 1U), now);
+            ++sent;
+        }
+        now += MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U;
+    }
+    const uint8_t *bytes = (const uint8_t *)settings.queue;
+    const uint8_t run[8] = {0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB};
+    bool kept = false;
+    for (size_t at = 0; at + sizeof run <= sizeof settings.queue; ++at) {
+        kept = kept || memcmp(bytes + at, run, sizeof run) == 0;
+    }
+    MESH_TEST_FAIL_IF(sent == 0U, "nothing left the queue");
+    MESH_TEST_FAIL_IF(kept, "the private key stayed in the queue after its write left it");
+    record_success(test_name);
+}

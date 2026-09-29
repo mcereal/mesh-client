@@ -2006,6 +2006,44 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Hay otra radio conectada; compara el perfil con ella antes",
     [MESH_STR_TOAST_PROFILE_UNJUDGED] = "Se conectó otra radio; no se comprobó el perfil",
     [MESH_STR_TOAST_RESTORE_UNJUDGED] = "Se conectó otra radio; no se comprobó la restauración",
+    [MESH_STR_ACTION_SAVE_BACKUP_IDENTITY] = "Guardar con la clave de identidad",
+    [MESH_STR_BACKUPS_IDENTITY] = "Clave de identidad",
+    [MESH_STR_BACKUPS_IDENTITY_VALUE] = "Incluida",
+    [MESH_STR_BACKUPS_RESTORE_IDENTITY] = "Restaurar la clave de identidad",
+    [MESH_STR_BACKUPS_IDENTITY_OFF_LINK] = "Conecta una radio con este firmware",
+    [MESH_STR_BACKUPS_IDENTITY_OFF_SAME] = "La radio ya la tiene",
+    [MESH_STR_CONFIRM_TITLE_SAVE_IDENTITY] = "¿Guardar la clave de identidad?",
+    [MESH_STR_CONFIRM_TEXT_SAVE_IDENTITY] =
+        "La clave privada de la radio va a la tarjeta con sus ajustes. Quien copie la tarjeta "
+        "puede hacerse pasar por esta radio y leer sus mensajes directos.",
+    [MESH_STR_CONFIRM_ACCEPT_SAVE_IDENTITY] = "Guardar con clave",
+    [MESH_STR_CONFIRM_TITLE_RESTORE_IDENTITY] = "¿Restaurar la clave de identidad?",
+    [MESH_STR_CONFIRM_TEXT_RESTORE_IDENTITY] =
+        "La radio recupera la clave que tenía en esta copia y se reinicia. Su clave actual se "
+        "pierde; antes se guarda una copia de sus ajustes.",
+    [MESH_STR_CONFIRM_ACCEPT_RESTORE_IDENTITY] = "Restaurar clave",
+    [MESH_STR_CONFIRM_TITLE_RESTORE_IDENTITY_OTHER] = "¿Es la misma radio?",
+    [MESH_STR_CONFIRM_TEXT_RESTORE_IDENTITY_OTHER] =
+        "La copia es de otro nodo. Sigue solo si esta es esa radio, reiniciada o reflasheada: con "
+        "las dos encendidas, la malla ve un nodo dos veces.",
+    [MESH_STR_CONFIRM_ACCEPT_RESTORE_IDENTITY_OTHER] = "Es la misma radio",
+    [MESH_STR_TOAST_IDENTITY_SAVED] = "Ajustes y clave de identidad guardados en la tarjeta",
+    [MESH_STR_TOAST_IDENTITY_NO_KEY] = "La radio no ha dado su clave",
+    [MESH_STR_TOAST_IDENTITY_ASKING] = "Pidiendo su clave a la radio",
+    [MESH_STR_TOAST_IDENTITY_DISABLED] = "El firmware de esta radio no lo permite",
+    [MESH_STR_TOAST_IDENTITY_REFUSED] = "La radio rechazó la clave (%d)",
+    [MESH_STR_TOAST_IDENTITY_FAILED] = "Falló la clave de identidad (%d)",
+    [MESH_STR_TOAST_IDENTITY_SAME] = "La radio ya tiene esta identidad",
+    [MESH_STR_TOAST_IDENTITY_RESTORING] = "Restaurando la clave de identidad; la radio se reinicia",
+    [MESH_STR_TOAST_IDENTITY_OTHER_RADIO] = "No es la radio de esta copia; no se cambió nada",
+    [MESH_STR_TOAST_IDENTITY_RESTORED] = "Clave de identidad restaurada",
+    [MESH_STR_TOAST_IDENTITY_NOT_TAKEN] = "La radio no aceptó la clave de identidad",
+    [MESH_STR_TOAST_IDENTITY_RADIO_CHANGED] = "Se conectó otra radio; no se cambió nada",
+    [MESH_STR_TOAST_IDENTITY_RESTART] =
+        "La radio aceptó la clave de identidad; reiníciala para terminar",
+    [MESH_STR_TOAST_IDENTITY_UNJUDGED] = "La radio no volvió; no se comprobó la clave de identidad",
+    [MESH_STR_TOAST_IDENTITY_NO_REGION] =
+        "Restaura antes los ajustes de la copia; la radio no tiene región",
     [MESH_STR_TOAST_PROFILE_EXPORT_EMPTY] = "Nada de este perfil cabe en un archivo .cfg",
     [MESH_STR_TOAST_PROFILE_IMPORTED] = "%s importado como perfil",
     [MESH_STR_TOAST_PROFILE_IMPORT_FAILED] = "No se pudo importar el archivo (%d)",

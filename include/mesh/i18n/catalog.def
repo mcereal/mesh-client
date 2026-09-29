@@ -3431,6 +3431,48 @@ MESH_STR_ENTRY(TOAST_PROFILE_EXPORT_FAILED, "Could not write the file (%d)")
 MESH_STR_ENTRY(TOAST_PROFILE_OTHER_RADIO,  "Another radio is connected; compare the profile with it first")
 MESH_STR_ENTRY(TOAST_PROFILE_UNJUDGED,    "Another radio connected; the apply was not checked")
 MESH_STR_ENTRY(TOAST_RESTORE_UNJUDGED,    "Another radio connected; the restore was not checked")
+/*
+ * The radio's identity key: its private key, which a backup carries only when somebody asked for
+ * it by name, and which puts the radio back on the mesh as the node it was. "Identity key" is the
+ * one name used for it everywhere on screen.
+ */
+MESH_STR_ENTRY(ACTION_SAVE_BACKUP_IDENTITY, "Save with identity key")
+MESH_STR_ENTRY(BACKUPS_IDENTITY,          "Identity key")
+MESH_STR_ENTRY(BACKUPS_IDENTITY_VALUE,    "Included")
+MESH_STR_ENTRY(BACKUPS_RESTORE_IDENTITY,  "Restore identity key")
+/* Why the row cannot be pressed: no radio on the link running the firmware the backup is of. */
+MESH_STR_ENTRY(BACKUPS_IDENTITY_OFF_LINK, "Connect a radio on this firmware")
+MESH_STR_ENTRY(BACKUPS_IDENTITY_OFF_SAME, "The radio already has it")
+MESH_STR_ENTRY(CONFIRM_TITLE_SAVE_IDENTITY, "Save the identity key?")
+MESH_STR_ENTRY(CONFIRM_TEXT_SAVE_IDENTITY, "The radio's private key goes on the card with its settings. Anyone with a copy of the card can pose as this radio and read its direct messages.")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_SAVE_IDENTITY, "Save with key")
+MESH_STR_ENTRY(CONFIRM_TITLE_RESTORE_IDENTITY, "Restore the identity key?")
+MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_IDENTITY, "The radio takes back the key it had in this backup and restarts. Its current key is lost; a copy of its settings is saved first.")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_RESTORE_IDENTITY, "Restore key")
+/* Asked when the radio on the link is not the node the backup was taken of - always, on MeshCore,
+   whose node number is its key. */
+MESH_STR_ENTRY(CONFIRM_TITLE_RESTORE_IDENTITY_OTHER, "Is this the same radio?")
+MESH_STR_ENTRY(CONFIRM_TEXT_RESTORE_IDENTITY_OTHER, "The backup is of another node. Go on only if this is that radio, reset or reflashed: with both running, the mesh sees one node twice.")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_RESTORE_IDENTITY_OTHER, "It is the same radio")
+MESH_STR_ENTRY(TOAST_IDENTITY_SAVED,      "Settings and identity key saved to the card")
+MESH_STR_ENTRY(TOAST_IDENTITY_NO_KEY,     "The radio has not reported its key")
+MESH_STR_ENTRY(TOAST_IDENTITY_ASKING,     "Asking the radio for its key")
+/* A MeshCore build can leave out giving and taking a key. */
+MESH_STR_ENTRY(TOAST_IDENTITY_DISABLED,   "This radio's firmware does not allow it")
+/* The number is the radio's reason, for a bug report. */
+MESH_STR_ENTRY(TOAST_IDENTITY_REFUSED,    "The radio refused the key (%d)")
+/* The error number is for a bug report. */
+MESH_STR_ENTRY(TOAST_IDENTITY_FAILED,     "Identity key failed (%d)")
+MESH_STR_ENTRY(TOAST_IDENTITY_SAME,       "The radio already has this identity")
+MESH_STR_ENTRY(TOAST_IDENTITY_RESTORING,  "Restoring the identity key; the radio restarts")
+MESH_STR_ENTRY(TOAST_IDENTITY_OTHER_RADIO, "Not this backup's radio; nothing was changed")
+MESH_STR_ENTRY(TOAST_IDENTITY_RESTORED,   "Identity key restored")
+MESH_STR_ENTRY(TOAST_IDENTITY_NOT_TAKEN,  "The radio did not take the identity key")
+MESH_STR_ENTRY(TOAST_IDENTITY_RADIO_CHANGED, "Another radio connected; nothing was changed")
+MESH_STR_ENTRY(TOAST_IDENTITY_RESTART,    "The radio took the identity key; restart it to finish")
+MESH_STR_ENTRY(TOAST_IDENTITY_UNJUDGED,   "The radio did not come back; the identity key was not checked")
+/* A factory-reset Meshtastic radio has no region, and holds no key pair until it has one. */
+MESH_STR_ENTRY(TOAST_IDENTITY_NO_REGION,  "Restore the backup's settings first; the radio has no region")
 MESH_STR_ENTRY(TOAST_PROFILE_EXPORT_EMPTY, "Nothing in this profile goes in a .cfg file")
 MESH_STR_ENTRY(TOAST_PROFILE_IMPORTED,    "Imported %s as a profile")
 MESH_STR_ENTRY(TOAST_PROFILE_IMPORT_FAILED, "Could not import the file (%d)")

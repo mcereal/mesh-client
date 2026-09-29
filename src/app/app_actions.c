@@ -804,6 +804,10 @@ static void on_radio_action(struct mesh_app *app, const struct mesh_ui_action *a
         radio_save_backup(app, now);
         return;
     }
+    if (row == MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY) {
+        mesh_app_backup_take_identity(app);
+        return;
+    }
     if (row == MESH_UI_SETTINGS_ACTION_SEND_ADVERT ||
         row == MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT) {
         radio_send_advert(app, row == MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT, now);
@@ -1990,6 +1994,11 @@ static void on_backup_restore(struct mesh_app *app, const struct mesh_ui_action 
     mesh_app_backup_restore(app, action->dest, action->number);
 }
 
+static void on_backup_restore_identity(struct mesh_app *app, const struct mesh_ui_action *action) {
+    mesh_app_backup_restore_identity(app, action->dest, action->number, action->channel != 0U,
+                                     action->reply_id);
+}
+
 static void on_backup_restore_option(struct mesh_app *app, const struct mesh_ui_action *action) {
     mesh_app_backup_restore_option(app, action->number);
 }
@@ -2763,6 +2772,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_BACKUP_RESTORE, on_backup_restore, false},
     {MESH_UI_ACTION_BACKUP_RESTORE_OPTION, on_backup_restore_option, false},
     {MESH_UI_ACTION_BACKUP_RESTORE_STOP, on_backup_restore_stop, false},
+    {MESH_UI_ACTION_BACKUP_RESTORE_IDENTITY, on_backup_restore_identity, false},
     {MESH_UI_ACTION_PROFILE_DRAFT, on_profile_draft, false},
     {MESH_UI_ACTION_PROFILE_DRAFT_TOGGLE, on_profile_draft_toggle, false},
     {MESH_UI_ACTION_PROFILE_MAKE, on_profile_make, false},

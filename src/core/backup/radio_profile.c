@@ -148,6 +148,7 @@ int mesh_radio_profile_make(const struct mesh_radio_backup *backup,
     header->has_contacts = false;
     header->contacts = 0U;
     header->parts = kept;
+    header->has_identity = false;
     if (!mesh_radio_profile_parts_has(&kept, MESH_RADIO_BACKUP_TOPIC_LORA, 0U)) {
         header->has_radio = false;
         header->frequency_khz = 0U;

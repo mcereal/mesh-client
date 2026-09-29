@@ -298,6 +298,30 @@ struct mesh_app {
         bool stopping;
     } backup_restore;
     /*
+     * The one identity-key job at a time (app_backup.c): a MeshCore radio asked for its key for
+     * a backup that carries it, or a key going back onto a radio and the radio awaited as it
+     * comes back. Beside the restore rather than in it, because it is judged by one thing - the
+     * key the radio reports afterwards - and a restore's comparison leaves keys out.
+     */
+    struct {
+        uint8_t stage;
+        /* The radio asked for its key; or, for a restore, the node of the backup restored -
+           which a MeshCore radio becomes, since its node number is its key. */
+        uint32_t node;
+        uint32_t sequence;
+        uint64_t reboot_generation;
+        uint32_t transactions_failed;
+        /* The radio has been off the link since the key went: a MeshCore radio is judged only
+           once it has restarted, and the one it was before the restart would say nothing. */
+        bool gone;
+        /* When waiting for it gives up (monotonic ms): a radio that never comes back, or a link
+           that never lets it go, must not hold every later restore behind this one. */
+        uint64_t deadline_ms;
+        /* A Meshtastic restore's public key: what the radio should report once it holds the
+           backup's private one. */
+        uint8_t public_key[32];
+    } backup_identity;
+    /*
      * The profiles on the card (mesh/core/radio_profile.h) - a directory beside the preferences,
      * with the Meshtastic `.cfg` files people copy there - and what the Profiles section lists,
      * read when the store opens and after every write to it. See src/app/app_profile.c.

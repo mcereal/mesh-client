@@ -14,9 +14,14 @@
  * stamps included, so the record read back is the one mesh_meshcore_decode_contact() already
  * reads. Whether a restore keeps those routes is the restore's question, not the backup's.
  *
- * **The radio's own public key is kept; its private key cannot be.** The companion protocol
- * does not report a private key in anything this client asks for, and the public one is how a
- * restore will know it is talking to the same radio.
+ * **The radio's own public key is kept; its private key only when asked for.** The public one is
+ * how a restore knows it is talking to the same radio. The private one comes out of the radio
+ * only through EXPORT_PRIVATE_KEY, which the conversation sends for a backup somebody asked to
+ * carry it, and goes in as the container's MESH_RADIO_BACKUP_IDENTITY section
+ * (mesh_meshcore_backup_add_identity()) - which nothing below reads, so a comparison, a restore
+ * and a profile treat a keyed backup as any other. Putting it back is the other command,
+ * IMPORT_PRIVATE_KEY, and a restart: the node number *is* the key, so the radio that comes back
+ * is the backup's node, and an ordinary restore of its settings and contacts can follow.
  *
  * **Only a radio that has finished syncing is captured**: the device query, SELF_INFO, the
  * whole contact list and every channel slot. Before that the contact book is a list being read,
@@ -228,6 +233,15 @@ int mesh_meshcore_backup_plan_contacts(const struct mesh_radio_backup *backup,
                                        const struct mesh_meshcore_contact_options *options,
                                        struct mesh_meshcore_contact *out, size_t max,
                                        struct mesh_meshcore_contact_plan_notes *notes);
+
+/* Adds an exported private key to a backup just captured, as its identity section. 0, -EPROTO
+   for a backup of another protocol, -EEXIST when it has one, or the container's -ENOSPC. */
+int mesh_meshcore_backup_add_identity(struct mesh_radio_backup *backup,
+                                      const uint8_t key[MESH_MESHCORE_PRVKEY_LEN]);
+
+/* The private key a MeshCore backup carries, into `out`; false when it carries none. */
+bool mesh_meshcore_backup_identity(const struct mesh_radio_backup *backup,
+                                   uint8_t out[MESH_MESHCORE_PRVKEY_LEN]);
 
 #ifdef __cplusplus
 }

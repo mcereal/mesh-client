@@ -816,6 +816,18 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_PROFILES_APPLY,
     MESH_UI_SETTINGS_ACTION_PROFILES_EXPORT,
     MESH_UI_SETTINGS_ACTION_PROFILES_DELETE,
+    /*
+     * The radio's identity key (mesh/core/radio_backup.h). SAVE_BACKUP_IDENTITY is "Save settings
+     * to card" with the private key in the backup, a radio action like it but behind a sheet of its
+     * own - what it writes is the one thing on a card that lets somebody else be this radio. The
+     * two RESTOREs put a keyed backup's key back on the radio on the link, and are one press with
+     * two sheets: the plain one when that radio is the node the backup is of, the one that asks
+     * "is this the same radio?" when it is not. Their answer is
+     * MESH_UI_ACTION_BACKUP_RESTORE_IDENTITY.
+     */
+    MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY,
+    MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY,
+    MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER,
     /* Not an action: what the two verb tables below are sized by, so a row added above without
        a symbol or a weight is a hole in an array rather than a row that quietly draws nothing.
        Last, so no existing value moves - nav->confirm.subject carries one in a uint8_t. */
@@ -856,6 +868,8 @@ enum mesh_ui_setting_consumer mesh_ui_settings_field_consumer(enum mesh_ui_setti
 /* True for the rows above that ask the radio to do something rather than the client: they all
    reach the app as MESH_UI_ACTION_RADIO_ACTION. */
 bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action);
+/* The three presses that move a radio's private key: the keyed backup and the two restores. */
+bool mesh_ui_settings_action_is_identity(enum mesh_ui_settings_action action);
 /* True for the two that ask this client to drop cached nodes. They share the Radio actions
    section and the confirm sheet with the rows above, and nothing else: they send nothing, so
    they work with no link at all and reach the app as MESH_UI_ACTION_FORGET_NODES. */

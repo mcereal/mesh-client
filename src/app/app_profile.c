@@ -274,7 +274,7 @@ void mesh_app_profile_draft(struct mesh_app *app, uint32_t node, uint32_t sequen
         inkwell_log_warn("app", "Reading backup %u of 0x%08x for a profile failed: %d",
                          (unsigned)sequence, (unsigned)node, result);
     }
-    free(backup);
+    mesh_app_backup_free(backup, 1U);
 }
 
 void mesh_app_profile_draft_toggle(struct mesh_app *app, uint32_t index) {
@@ -334,7 +334,7 @@ void mesh_app_profile_make(struct mesh_app *app, const char *name) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_PROFILE_SAVE_FAILED, result);
         inkwell_log_warn("app", "Making a profile failed: %d", result);
     }
-    free(pair);
+    mesh_app_backup_free(pair, 2U);
     app_profile_toast(app, toast);
     mesh_app_profile_rescan(app);
 }

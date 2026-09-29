@@ -506,6 +506,9 @@ struct mesh_ui_backups {
        while the Settings tab administers another node. Compare and "save now" need it. */
     uint32_t live_node;
     uint8_t live_protocol; /* enum mesh_radio_backup_protocol */
+    /* Its board, as a backup's header names one: whether a keyed backup is of this very radio
+       is its node and this (mesh_ui_backups_identity_same()). */
+    char live_model[MESH_RADIO_BACKUP_TEXT];
     uint8_t radio_count;
     uint8_t entry_count;
     struct mesh_ui_backup_radio radios[MESH_UI_BACKUP_RADIOS_MAX];

@@ -61,11 +61,12 @@ static void mesh_meshcore_pop(struct mesh_meshcore *meshcore) {
     if (meshcore->queue_count == 0U) {
         return;
     }
-    /* A login's frame carries its password, and a slot is otherwise only overwritten when the
-       ring comes round to it again. Only that one: a reply is read against its request's frame
-       after the pop, and nothing reads a login's. */
+    /* A login's frame carries its password, and an identity import's the radio's key, and a
+       slot is otherwise only overwritten when the ring comes round to it again. Only those: a
+       reply is read against its request's frame after the pop, and nothing reads theirs. */
     struct mesh_meshcore_request *head = &meshcore->queue[meshcore->queue_head];
-    if (head->frame[0] == MESH_MESHCORE_CMD_SEND_LOGIN) {
+    if (head->frame[0] == MESH_MESHCORE_CMD_SEND_LOGIN ||
+        head->frame[0] == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY) {
         inkwell_wipe(head, sizeof *head);
     }
     meshcore->queue_head = (meshcore->queue_head + 1U) % MESH_MESHCORE_QUEUE_LEN;
@@ -89,6 +90,19 @@ static uint8_t mesh_meshcore_adv_type(uint32_t role);
 static void mesh_meshcore_request_ended(struct mesh_meshcore *meshcore, uint8_t answer);
 static void mesh_meshcore_notify(struct mesh_meshcore *meshcore, uint32_t node_id, uint8_t cmd,
                                  uint8_t answer);
+
+static bool mesh_meshcore_is_identity(uint8_t cmd) {
+    return cmd == MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY ||
+           cmd == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY;
+}
+
+/* An identity command ended without the answer it wanted: never sent, never answered, or the
+   link went. */
+static void mesh_meshcore_identity_lost(struct mesh_meshcore *meshcore) {
+    if (meshcore->identity_state == MESH_MESHCORE_IDENTITY_ASKED) {
+        meshcore->identity_state = MESH_MESHCORE_IDENTITY_LOST;
+    }
+}
 
 /* Writes the head of the queue when nothing is outstanding. A write that fails is dropped and
    the next one tried, so one refused frame cannot wedge the queue behind it - and a settings
@@ -115,6 +129,9 @@ static void mesh_meshcore_pump(struct mesh_meshcore *meshcore) {
         mesh_meshcore_pop(meshcore);
         if (mesh_meshcore_is_settings_write(cmd)) {
             mesh_meshcore_settle_write(meshcore, result);
+        }
+        if (mesh_meshcore_is_identity(cmd)) {
+            mesh_meshcore_identity_lost(meshcore);
         }
         /* A request to another node the link would not take was never asked. */
         if (mesh_meshcore_is_remote(cmd) && cmd == meshcore->request_cmd) {
@@ -1401,6 +1418,40 @@ static void mesh_meshcore_write_favorite(struct mesh_meshcore *meshcore,
 }
 
 /* The answer to the command at the head of the queue. */
+/*
+ * The radio took a new key, and is another node from this moment: everything this conversation
+ * holds about it - its number, the model's roster - is the old one's. Nothing queued behind the
+ * import goes out as that radio: each is settled as a dropped link would settle it, and the
+ * restart goes next, so the sync after it reads the node the radio has become.
+ */
+static void mesh_meshcore_restart_as_new(struct mesh_meshcore *meshcore) {
+    while (meshcore->queue_count > 0U) {
+        struct mesh_meshcore_request *request = mesh_meshcore_head(meshcore);
+        const uint8_t cmd = request->frame[0];
+        const uint32_t packet_id = request->packet_id;
+        mesh_meshcore_settle_restore(meshcore, request, false);
+        mesh_meshcore_pop(meshcore);
+        if (mesh_meshcore_is_settings_write(cmd)) {
+            mesh_meshcore_settle_write(meshcore, -ECANCELED);
+        }
+        if (mesh_meshcore_is_remote(cmd) && cmd == meshcore->request_cmd) {
+            mesh_meshcore_request_ended(meshcore, MESH_MESHCORE_ANSWER_UNSENT);
+        }
+        struct mesh_meshcore_pending *pending = mesh_meshcore_pending_for(meshcore, packet_id);
+        if (pending != NULL) {
+            mesh_meshcore_pending_done(meshcore, pending, MESH_MESSAGE_ACK_FAILED);
+        } else {
+            mesh_meshcore_mark(meshcore, packet_id, MESH_MESSAGE_ACK_FAILED);
+        }
+    }
+    inkwell_wipe(meshcore->queue, sizeof meshcore->queue);
+    meshcore->queue_head = 0U;
+    meshcore->identity_restart_unsent = mesh_meshcore_reboot(meshcore) < 0;
+    if (meshcore->identity_restart_unsent) {
+        inkwell_log_warn("meshcore", "New key taken; the restart was not sent");
+    }
+}
+
 static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t *frame,
                                    size_t len) {
     const uint8_t cmd = mesh_meshcore_head_cmd(meshcore);
@@ -1442,8 +1493,11 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
      * as the head's answer, it would shift every reply after it by one - the handshake's
      * END_OF_CONTACTS then finds nothing outstanding, and the sync never finishes.
      */
+    /* And PRIVATE_KEY answers EXPORT_PRIVATE_KEY alone: one that lands after its export was
+       given up on would otherwise pop - and lose - whatever command is outstanding now. */
     if ((code == MESH_MESHCORE_RESP_DEVICE_INFO && cmd != MESH_MESHCORE_CMD_DEVICE_QUERY) ||
-        (code == MESH_MESHCORE_RESP_SELF_INFO && cmd != MESH_MESHCORE_CMD_APP_START)) {
+        (code == MESH_MESHCORE_RESP_SELF_INFO && cmd != MESH_MESHCORE_CMD_APP_START) ||
+        (code == MESH_MESHCORE_RESP_PRIVATE_KEY && cmd != MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY)) {
         inkwell_log_debug("meshcore", "Reply %u answers no command outstanding (head %u)",
                           (unsigned)code, (unsigned)cmd);
         return;
@@ -1455,6 +1509,35 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
     mesh_meshcore_pop(meshcore);
     meshcore->timeouts = 0U;
     mesh_meshcore_settle_restore(meshcore, request, code == MESH_MESHCORE_RESP_OK);
+    if (mesh_meshcore_is_identity(cmd) &&
+        meshcore->identity_state == MESH_MESHCORE_IDENTITY_ASKED) {
+        if (cmd == MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY &&
+            mesh_meshcore_decode_private_key(frame, len, meshcore->identity_key) == 0) {
+            meshcore->identity_state = MESH_MESHCORE_IDENTITY_EXPORTED;
+        } else if (cmd == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY && code == MESH_MESHCORE_RESP_OK) {
+            meshcore->identity_state = MESH_MESHCORE_IDENTITY_IMPORTED;
+            mesh_meshcore_restart_as_new(meshcore);
+        } else if (code == MESH_MESHCORE_RESP_DISABLED) {
+            meshcore->identity_state = MESH_MESHCORE_IDENTITY_DISABLED;
+        } else if (code == MESH_MESHCORE_RESP_ERR) {
+            meshcore->identity_state = MESH_MESHCORE_IDENTITY_REFUSED;
+            meshcore->identity_error = len >= 2U ? frame[1] : 0U;
+        } else {
+            meshcore->identity_state = MESH_MESHCORE_IDENTITY_LOST;
+        }
+        static const char *const k_identity_answers[] = {
+            [MESH_MESHCORE_IDENTITY_EXPORTED] = "the key arrived",
+            [MESH_MESHCORE_IDENTITY_IMPORTED] = "taken",
+            [MESH_MESHCORE_IDENTITY_DISABLED] = "not in this firmware",
+            [MESH_MESHCORE_IDENTITY_REFUSED] = "refused",
+            [MESH_MESHCORE_IDENTITY_LOST] = "answered with something else",
+            [MESH_MESHCORE_IDENTITY_UNKNOWN] = "unanswered",
+        };
+        inkwell_log_info("meshcore", "Private key %s: %s (error %u)",
+                         cmd == MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY ? "export" : "import",
+                         k_identity_answers[meshcore->identity_state],
+                         (unsigned)meshcore->identity_error);
+    }
     if (favorite_intent != MESH_MESHCORE_FAVORITE_NONE) {
         mesh_meshcore_write_favorite(meshcore, &favorite_record, favorite_intent);
     }
@@ -1643,6 +1726,8 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             meshcore->battery_valid = true;
         }
         break;
+    case MESH_MESHCORE_RESP_PRIVATE_KEY:
+        break; /* settled above; its bytes are never logged */
     case MESH_MESHCORE_RESP_ERR:
     case MESH_MESHCORE_RESP_DISABLED: {
         const unsigned error = len >= 2U ? frame[1] : 0U;
@@ -1737,6 +1822,18 @@ static void mesh_meshcore_detach(void *self) {
         meshcore->contact_restore_outstanding = false;
         meshcore->contact_restores_refused += 1U;
     }
+    /* And the key: an import on the air when the link went may have been taken; an export
+       asked for can no longer come; one arrived and not taken is not kept. */
+    if (meshcore->identity_state == MESH_MESHCORE_IDENTITY_ASKED && meshcore->awaiting &&
+        meshcore->queue_count > 0U &&
+        meshcore->queue[meshcore->queue_head].frame[0] == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY) {
+        meshcore->identity_state = MESH_MESHCORE_IDENTITY_UNKNOWN;
+    }
+    if (meshcore->identity_state == MESH_MESHCORE_IDENTITY_EXPORTED) {
+        inkwell_wipe(meshcore->identity_key, sizeof meshcore->identity_key);
+        meshcore->identity_state = MESH_MESHCORE_IDENTITY_ASKED;
+    }
+    mesh_meshcore_identity_lost(meshcore);
     /* And a request to another node: its answer can no longer reach us. Asked, it went
        unanswered; still queued, it was never sent. */
     mesh_meshcore_request_ended(meshcore, meshcore->request_until_ms != 0U
@@ -1827,6 +1924,23 @@ static void mesh_meshcore_tick(void *self, uint64_t now_ms) {
         const uint32_t packet_id = request->packet_id;
         mesh_meshcore_settle_restore(meshcore, request, false);
         mesh_meshcore_pop(meshcore);
+        /* An import unanswered may still have been taken - the radio switches keys before it
+           answers - and its late OK, which names no command, would settle whatever went next.
+           So nothing goes next: the link is called silent, to be dropped and synced again, and
+           the sync is what says which key the radio holds. */
+        /* An export's answer is a generic refusal as often as the key, and a late one would
+           settle the next command the same way: that link is resynced too. */
+        if (mesh_meshcore_is_identity(cmd)) {
+            inkwell_log_warn("meshcore", "Private key %s unanswered; resyncing the radio",
+                             cmd == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY ? "import" : "export");
+            if (meshcore->identity_state == MESH_MESHCORE_IDENTITY_ASKED) {
+                meshcore->identity_state = cmd == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY
+                                               ? MESH_MESHCORE_IDENTITY_UNKNOWN
+                                               : MESH_MESHCORE_IDENTITY_LOST;
+            }
+            meshcore->timeouts = 2U;
+            return;
+        }
         /* A reboot is never answered: the radio is gone before it could be. Where the link
            outlives the restart - a USB-serial bridge keeps the port open while the ESP32 behind
            it resets - nothing else would notice, so the conversation starts over by itself. */
@@ -1854,6 +1968,9 @@ static void mesh_meshcore_tick(void *self, uint64_t now_ms) {
         }
         if (mesh_meshcore_is_settings_write(cmd)) {
             mesh_meshcore_settle_write(meshcore, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
+        }
+        if (mesh_meshcore_is_identity(cmd)) {
+            mesh_meshcore_identity_lost(meshcore);
         }
         if (mesh_meshcore_is_remote(cmd) && cmd == meshcore->request_cmd) {
             mesh_meshcore_request_ended(meshcore, MESH_MESHCORE_ANSWER_UNSENT);
@@ -2591,6 +2708,74 @@ int mesh_meshcore_reboot(struct mesh_meshcore *meshcore) {
     const int result = mesh_meshcore_enqueue(meshcore, frame,
                                              mesh_meshcore_encode_reboot(frame, sizeof frame), 0U);
     return result < 0 ? result : 1;
+}
+
+/* The one identity command in flight, or a refusal of a second. */
+static int mesh_meshcore_identity_send(struct mesh_meshcore *meshcore, const uint8_t *frame,
+                                       int len) {
+    if (meshcore->send == NULL) {
+        return -ENOTCONN;
+    }
+    if (!mesh_meshcore_ready(meshcore)) {
+        return -EAGAIN;
+    }
+    if (meshcore->identity_state == MESH_MESHCORE_IDENTITY_ASKED ||
+        meshcore->identity_state == MESH_MESHCORE_IDENTITY_EXPORTED) {
+        return -EBUSY;
+    }
+    meshcore->identity_state = MESH_MESHCORE_IDENTITY_ASKED;
+    meshcore->identity_error = 0U;
+    meshcore->identity_restart_unsent = false;
+    const int result = mesh_meshcore_enqueue(meshcore, frame, len, 0U);
+    if (result < 0) {
+        /* A frame the link refused outright was settled LOST by the pump; one never queued
+           was never asked. */
+        meshcore->identity_state = MESH_MESHCORE_IDENTITY_IDLE;
+        return result;
+    }
+    return 1;
+}
+
+int mesh_meshcore_export_identity(struct mesh_meshcore *meshcore) {
+    if (meshcore == NULL) {
+        return -EINVAL;
+    }
+    uint8_t frame[1];
+    return mesh_meshcore_identity_send(
+        meshcore, frame, mesh_meshcore_encode_export_private_key(frame, sizeof frame));
+}
+
+int mesh_meshcore_import_identity(struct mesh_meshcore *meshcore,
+                                  const uint8_t key[MESH_MESHCORE_PRVKEY_LEN]) {
+    if (meshcore == NULL || key == NULL) {
+        return -EINVAL;
+    }
+    uint8_t frame[1U + MESH_MESHCORE_PRVKEY_LEN];
+    const int result = mesh_meshcore_identity_send(
+        meshcore, frame, mesh_meshcore_encode_import_private_key(key, frame, sizeof frame));
+    inkwell_wipe(frame, sizeof frame);
+    return result;
+}
+
+bool mesh_meshcore_take_identity(struct mesh_meshcore *meshcore,
+                                 uint8_t out[MESH_MESHCORE_PRVKEY_LEN]) {
+    if (meshcore == NULL || out == NULL ||
+        meshcore->identity_state != MESH_MESHCORE_IDENTITY_EXPORTED) {
+        return false;
+    }
+    memcpy(out, meshcore->identity_key, MESH_MESHCORE_PRVKEY_LEN);
+    inkwell_wipe(meshcore->identity_key, sizeof meshcore->identity_key);
+    meshcore->identity_state = MESH_MESHCORE_IDENTITY_IDLE;
+    return true;
+}
+
+void mesh_meshcore_identity_clear(struct mesh_meshcore *meshcore) {
+    if (meshcore != NULL && meshcore->identity_state != MESH_MESHCORE_IDENTITY_ASKED &&
+        meshcore->identity_state != MESH_MESHCORE_IDENTITY_EXPORTED) {
+        meshcore->identity_state = MESH_MESHCORE_IDENTITY_IDLE;
+        meshcore->identity_error = 0U;
+        meshcore->identity_restart_unsent = false;
+    }
 }
 
 int mesh_meshcore_import_channel(struct mesh_meshcore *meshcore, const char *name,

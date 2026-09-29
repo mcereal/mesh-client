@@ -59,6 +59,20 @@ bool mesh_ui_backups_listed_under(const struct mesh_ui_backups *backups, size_t 
    protocol, and a radio read far enough to capture. */
 bool mesh_ui_backups_can_compare(const struct mesh_ui_backups *backups, size_t e);
 
+/*
+ * What restoring a keyed backup's identity would mean for the radio on the link, which is which
+ * row - and which sheet - its entry screen offers.
+ */
+enum mesh_ui_backups_identity {
+    MESH_UI_BACKUPS_IDENTITY_NONE = 0, /* no key in it, so no row */
+    MESH_UI_BACKUPS_IDENTITY_NO_RADIO, /* no radio on the link running its firmware */
+    MESH_UI_BACKUPS_IDENTITY_HELD,     /* a MeshCore radio that is this node holds the key now */
+    MESH_UI_BACKUPS_IDENTITY_SAME,     /* the node it is of, on the same board: the plain sheet */
+    MESH_UI_BACKUPS_IDENTITY_OTHER,    /* another node: the sheet asking if it is that radio */
+};
+enum mesh_ui_backups_identity mesh_ui_backups_identity(const struct mesh_ui_backups *backups,
+                                                       size_t e);
+
 /* A radio by the name its newest backup gave it, or "!a1b2c3d4" when it gave none. */
 void mesh_ui_backups_radio_name(const struct mesh_ui_backup_radio *radio, char *out,
                                 size_t out_len);

@@ -2045,6 +2045,9 @@ static bool mesh_ui_nav_section_press(struct mesh_ui_nav *nav, const struct mesh
         if (which == MESH_UI_SETTINGS_ACTION_MAPS_DELETE) {
             inkwell_str_copy(nav->maps_pending, sizeof nav->maps_pending, item.text);
         }
+        if (mesh_ui_settings_action_is_identity(which)) {
+            nav->backups_identity_node = store->settings.backups.live_node;
+        }
         if (which == MESH_UI_SETTINGS_ACTION_PROFILES_APPLY) {
             const struct mesh_ui_profiles *p = &store->settings.profiles;
             nav->profiles_apply_node =

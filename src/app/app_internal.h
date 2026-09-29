@@ -93,8 +93,27 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
    stops the restore in flight after the contact being written. */
 void mesh_app_backup_restore_option(struct mesh_app *app, uint32_t which);
 void mesh_app_backup_restore_stop(struct mesh_app *app);
+/* Frees `count` backups allocated together, each wiped first: a backup read off the card may
+   hold a radio's private key, and freed memory is not where one should be left. */
+void mesh_app_backup_free(struct mesh_radio_backup *backups, size_t count);
 /* Lets go of a restore in flight - what it allocated - as the app shuts down. */
 void mesh_app_backup_restore_release(struct mesh_app *app);
+/*
+ * A manual backup that carries the radio's private key - taken at once from a Meshtastic radio,
+ * which reported the key with its settings, or once a MeshCore one answers the export - and said
+ * in a toast either way.
+ */
+void mesh_app_backup_take_identity(struct mesh_app *app);
+/*
+ * Puts backup `sequence` of radio `node`'s private key on the radio on the link, and restarts it.
+ * Refused unless the radio on the link is the one backed up - the same node, and on Meshtastic
+ * the same board - or `other_device` says somebody confirmed it is that radio, reset or reflashed.
+ * A MeshCore radio is never "the same" by number: the number is the key, so a radio with another
+ * key always needs the confirmation, and one with this key already needs nothing. `onto` is the
+ * radio the sheet was answered over; a link that has moved to another since is refused.
+ */
+void mesh_app_backup_restore_identity(struct mesh_app *app, uint32_t node, uint32_t sequence,
+                                      bool other_device, uint32_t onto);
 
 /* ---- app_profile.c ---------------------------------------------------------------------- */
 

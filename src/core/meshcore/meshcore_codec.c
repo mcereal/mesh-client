@@ -698,3 +698,37 @@ int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len) {
     memcpy(out + 1, k_word, sizeof k_word - 1U);
     return (int)sizeof k_word;
 }
+
+int mesh_meshcore_encode_export_private_key(uint8_t *out, size_t out_len) {
+    if (out == NULL) {
+        return -EINVAL;
+    }
+    if (out_len < 1U) {
+        return -ENOSPC;
+    }
+    out[0] = MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY;
+    return 1;
+}
+
+int mesh_meshcore_encode_import_private_key(const uint8_t key[MESH_MESHCORE_PRVKEY_LEN],
+                                            uint8_t *out, size_t out_len) {
+    if (key == NULL || out == NULL) {
+        return -EINVAL;
+    }
+    if (out_len < 1U + MESH_MESHCORE_PRVKEY_LEN) {
+        return -ENOSPC;
+    }
+    out[0] = MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY;
+    memcpy(out + 1, key, MESH_MESHCORE_PRVKEY_LEN);
+    return (int)(1U + MESH_MESHCORE_PRVKEY_LEN);
+}
+
+int mesh_meshcore_decode_private_key(const uint8_t *frame, size_t len,
+                                     uint8_t out[MESH_MESHCORE_PRVKEY_LEN]) {
+    if (frame == NULL || out == NULL || len < 1U + MESH_MESHCORE_PRVKEY_LEN ||
+        frame[0] != MESH_MESHCORE_RESP_PRIVATE_KEY) {
+        return -EBADMSG;
+    }
+    memcpy(out, frame + 1, MESH_MESHCORE_PRVKEY_LEN);
+    return 0;
+}

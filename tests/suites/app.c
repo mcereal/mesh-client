@@ -6023,9 +6023,11 @@ MESH_TEST_CASE(app_backup_restore_writes_the_difference_and_judges_it_after_the_
     /* The radio as it was before the restore went on the card first. */
     const bool kept = app_backup_count(&app, NULL, 0U) == 2;
 
-    /* It applies them and restarts; nothing is judged while it is gone. */
+    /* It applies them and restarts; nothing is judged while it is gone. The restart resets the
+       settings, and an earlier refusal's count with them: not this restore failing. */
     mesh_app_backup_tick(&app);
     const bool waited = app.backup_restore.stage != 0U;
+    app.backup_restore.transactions_failed = 2U;
     app_restore_radio_answered(&app);
     radio->lora.hop_limit = 5U;
     app.session.reboot_generation += 1U;
@@ -6804,5 +6806,341 @@ MESH_TEST_CASE(app_profile_meshcore_applies_only_its_parts, unit) {
     mesh_test_remove_tree(home);
     MESH_TEST_FAIL_IF(profile == 0U, "the profile was not made");
     MESH_TEST_FAIL_IF(!one, "the apply was not the one channel slot");
+    record_success(test_name);
+}
+
+/* ---- the identity key ----------------------------------------------------------------------- */
+
+/* The newest backup of `node` on the card, read whole into `out`; its sequence, or 0. */
+static uint32_t app_identity_newest(struct mesh_app *app, uint32_t node,
+                                    struct mesh_radio_backup *out) {
+    struct mesh_radio_backup_entry newest;
+    if (mesh_radio_backup_store_list(&app->backups, node, &newest, 1U) <= 0 ||
+        mesh_radio_backup_store_load(&app->backups, node, &newest, out) != 0) {
+        return 0U;
+    }
+    return newest.sequence;
+}
+
+/*
+ * Only the press by name carries the key. The first-connect backup does not; the keyed one does;
+ * and the automatic one after it is still skipped as unchanged - the key is not a setting.
+ */
+MESH_TEST_CASE(app_backup_identity_only_in_the_backup_asked_for, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    static struct mesh_radio_backup read;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    mesh_app_backup_tick(&app); /* backup 1, first connect */
+    const bool first_plain =
+        app_identity_newest(&app, 0x0badcafeU, &read) == 1U && !read.header.has_identity;
+    mesh_app_backup_take_identity(&app);
+    const bool keyed =
+        app_identity_newest(&app, 0x0badcafeU, &read) == 2U && read.header.has_identity &&
+        read.header.reason == MESH_RADIO_BACKUP_MANUAL &&
+        strcmp(app.ui_store.nav.toast.text, "Settings and identity key saved to the card") == 0;
+    const int after = mesh_app_backup_take(&app, MESH_RADIO_BACKUP_BEFORE_WRITE);
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!first_plain, "the first-connect backup carried the key");
+    MESH_TEST_FAIL_IF(!keyed, "the backup asked for by name did not carry the key");
+    MESH_TEST_FAIL_IF(after != 0, "the key made the next automatic backup look changed");
+    record_success(test_name);
+}
+
+/*
+ * The same board, reflashed with a new key: the backup's key goes back in one Security write
+ * inside a transaction, a copy of the radio is saved first, and the restore is judged by the
+ * public key the radio reports once it has restarted.
+ */
+MESH_TEST_CASE(app_backup_identity_restore_meshtastic_is_one_write_judged_by_the_key, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    struct mesh_radio_settings *radio = mesh_session_model_settings(&app.session);
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_take_identity(&app); /* backup 2: key 0xAB, public key 0x5C */
+
+    /* A radio still holding the key is sent nothing. */
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false, mesh_app_backup_live_node(&app));
+    const bool held =
+        app.backup_identity.stage == 0U && radio->queue_len == 0U &&
+        strcmp(app.ui_store.nav.toast.text, "The radio already has this identity") == 0;
+
+    memset(radio->security.private_key.bytes, 0xCD, 32U);
+    memset(radio->security.public_key.bytes, 0x77, 32U);
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false, mesh_app_backup_live_node(&app));
+    bool one = app.backup_identity.stage != 0U && radio->queue_len == 4U;
+    for (size_t i = 0; one && i < radio->queue_len; ++i) {
+        const struct mesh_admin_request *write =
+            &radio->queue[(radio->queue_head + i) % MESH_RADIO_SETTINGS_FETCH_MAX];
+        if (write->kind == MESH_ADMIN_SET_CONFIG) {
+            one = write->payload.config.which_payload_variant == meshtastic_Config_security_tag &&
+                  write->payload.config.payload_variant.security.private_key.bytes[0] == 0xAB &&
+                  write->payload.config.payload_variant.security.public_key.size == 0U;
+        }
+    }
+    const bool kept = app_backup_count(&app, NULL, 0U) == 3;
+
+    /* It restarts holding the key, and reports the public key that goes with it - and the
+       restart resets the settings, the failed-transaction count an earlier refusal left with
+       them, which is not this restore failing. */
+    radio->transactions_failed = 0U;
+    app.backup_identity.transactions_failed = 2U;
+    app_restore_radio_answered(&app);
+    memset(radio->security.private_key.bytes, 0xAB, 32U);
+    memset(radio->security.public_key.bytes, 0x5C, 32U);
+    app.session.reboot_generation += 1U;
+    mesh_app_backup_tick(&app); /* SENT -> RETURNING */
+    mesh_app_backup_tick(&app); /* judged */
+    const bool judged = app.backup_identity.stage == 0U &&
+                        strcmp(app.ui_store.nav.toast.text, "Identity key restored") == 0;
+
+    /* A radio a factory reset left with no region holds no key pair to judge: settings first. */
+    radio->lora.region = meshtastic_Config_LoRaConfig_RegionCode_UNSET;
+    memset(radio->security.public_key.bytes, 0x77, 32U);
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false, mesh_app_backup_live_node(&app));
+    const bool no_region =
+        app.backup_identity.stage == 0U && radio->queue_len == 0U &&
+        strcmp(app.ui_store.nav.toast.text,
+               "Restore the backup's settings first; the radio has no region") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!no_region,
+                      "a radio with no region was sent a key it could not be judged on");
+    MESH_TEST_FAIL_IF(!held, "a radio already holding the key was sent it");
+    MESH_TEST_FAIL_IF(!one, "the restore was not the backup's key in one Security write");
+    MESH_TEST_FAIL_IF(!kept, "the radio was not saved before its key was replaced");
+    MESH_TEST_FAIL_IF(!judged, "a radio reporting the backup's public key was not judged restored");
+    record_success(test_name);
+}
+
+/* Onto another node, or another board under the same number, only with the confirmation. */
+MESH_TEST_CASE(app_backup_identity_onto_another_radio_needs_the_confirmation, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    struct mesh_radio_settings *radio = mesh_session_model_settings(&app.session);
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_take_identity(&app); /* backup 2 of 0x0badcafe, with its key */
+    memset(radio->security.public_key.bytes, 0x77, 32U);
+
+    /* The same number on another board. */
+    radio->metadata.hw_model = meshtastic_HardwareModel_TBEAM;
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false, mesh_app_backup_live_node(&app));
+    const bool board =
+        app.backup_identity.stage == 0U && radio->queue_len == 0U &&
+        strcmp(app.ui_store.nav.toast.text, "Not this backup's radio; nothing was changed") == 0;
+    radio->metadata.hw_model = meshtastic_HardwareModel_HELTEC_V3;
+
+    /* A sheet answered over one radio, and the link on another by the time it is: nothing. */
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, true, 0x0badcafeU + 1U);
+    const bool moved =
+        app.backup_identity.stage == 0U && radio->queue_len == 0U &&
+        strcmp(app.ui_store.nav.toast.text, "Another radio connected; nothing was changed") == 0;
+
+    /* Another number. */
+    app.session.handshake.my_info.my_node_num = 0x12345678U;
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, false, mesh_app_backup_live_node(&app));
+    const bool node = app.backup_identity.stage == 0U && radio->queue_len == 0U;
+    mesh_app_backup_restore_identity(&app, 0x0badcafeU, 2U, true, mesh_app_backup_live_node(&app));
+    const bool confirmed = app.backup_identity.stage != 0U && radio->queue_len == 4U;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!board, "another board under the same number took the key unconfirmed");
+    MESH_TEST_FAIL_IF(!node, "another node took the key unconfirmed");
+    MESH_TEST_FAIL_IF(!moved, "a key went onto a radio other than the one its sheet was about");
+    MESH_TEST_FAIL_IF(!confirmed, "a confirmed restore onto another radio did not go out");
+    record_success(test_name);
+}
+
+/* The identity job cleared, as a judged one would leave it, between two steps of one case. */
+static void app_identity_end_for_test(struct mesh_app *app) {
+    memset(&app->backup_identity, 0, sizeof app->backup_identity);
+}
+
+/* A MeshCore radio's key in RESP_PRIVATE_KEY, every byte `fill`. */
+static void app_identity_feed_key(const struct mesh_protocol *protocol, uint8_t fill) {
+    uint8_t frame[1U + MESH_MESHCORE_PRVKEY_LEN];
+    frame[0] = MESH_MESHCORE_RESP_PRIVATE_KEY;
+    memset(frame + 1, fill, MESH_MESHCORE_PRVKEY_LEN);
+    mesh_protocol_receive(protocol, frame, sizeof frame);
+}
+
+/*
+ * MeshCore gives its key only when asked: the backup is taken when the answer lands. Put back
+ * onto a radio with another key - which is always another node, so always confirmed - it is an
+ * import and a restart, judged by the node the radio comes back as.
+ */
+MESH_TEST_CASE(app_backup_identity_meshcore_export_import_and_restart, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    static struct mesh_radio_backup read;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+
+    mesh_app_backup_take_identity(&app);
+    const bool asked =
+        mesh_test_meshcore_wire_last(&g_restore_wire) == MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY &&
+        app_identity_newest(&app, node, &read) == 1U;
+    app_identity_feed_key(&protocol, 0x55);
+    mesh_app_backup_tick(&app);
+    uint8_t key[MESH_MESHCORE_PRVKEY_LEN];
+    const bool saved = app_identity_newest(&app, node, &read) == 2U &&
+                       mesh_meshcore_backup_identity(&read, key) && key[0] == 0x55 &&
+                       app.backup_identity.stage == 0U &&
+                       app.meshcore.identity_state == MESH_MESHCORE_IDENTITY_IDLE;
+
+    /* The radio that holds it already needs nothing. */
+    const size_t idle = g_restore_wire.count;
+    mesh_app_backup_restore_identity(&app, node, 2U, true, mesh_app_backup_live_node(&app));
+    const bool held = g_restore_wire.count == idle && app.backup_identity.stage == 0U;
+
+    /* Reflashed: another key, so another node - refused until confirmed. */
+    app.meshcore.self_node = 0x01020304U;
+    mesh_app_backup_restore_identity(&app, node, 2U, false, mesh_app_backup_live_node(&app));
+    const bool refused = g_restore_wire.count == idle && app.backup_identity.stage == 0U;
+    mesh_app_backup_restore_identity(&app, node, 2U, true, mesh_app_backup_live_node(&app));
+    const size_t sent = g_restore_wire.count - 1U;
+    const bool imported = g_restore_wire.frames[sent][0] == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY &&
+                          g_restore_wire.frames[sent][1] == 0x55 &&
+                          app.backup_identity.stage != 0U &&
+                          mesh_radio_backup_store_list(&app.backups, 0x01020304U, NULL, 0U) == 1;
+
+    /* Taken: the radio is restarted, and judged once it is back as the backup's node. */
+    const uint8_t ok = MESH_MESHCORE_RESP_OK;
+    mesh_protocol_receive(&protocol, &ok, 1U);
+    mesh_app_backup_tick(&app);
+    const bool restarted =
+        mesh_test_meshcore_wire_last(&g_restore_wire) == MESH_MESHCORE_CMD_REBOOT;
+    mesh_app_backup_tick(&app);
+    const bool waited = app.backup_identity.stage != 0U;
+    mesh_protocol_detach(&protocol);
+    mesh_app_backup_tick(&app);
+    const bool synced = mesh_test_meshcore_sync(&app.meshcore, &protocol, &g_restore_wire);
+    mesh_app_backup_tick(&app);
+    const bool judged = app.backup_identity.stage == 0U && app.meshcore.self_node == node &&
+                        strcmp(app.ui_store.nav.toast.text, "Identity key restored") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!asked, "the key was not asked for, or a backup was taken before it came");
+    MESH_TEST_FAIL_IF(!saved, "the backup did not carry the key the radio gave");
+    MESH_TEST_FAIL_IF(!held, "a radio holding the key already was sent it");
+    MESH_TEST_FAIL_IF(!refused, "another node took the key unconfirmed");
+    MESH_TEST_FAIL_IF(!imported, "the confirmed import did not go out after a copy was saved");
+    MESH_TEST_FAIL_IF(!restarted, "the radio was not restarted once it took the key");
+    MESH_TEST_FAIL_IF(!waited, "the restore was judged before the radio had restarted");
+    MESH_TEST_FAIL_IF(!synced, "the radio did not sync again");
+    MESH_TEST_FAIL_IF(!judged, "the radio back as the backup's node was not judged restored");
+    record_success(test_name);
+}
+
+/* A build without the commands is said to be one, and nothing is left waiting. */
+MESH_TEST_CASE(app_backup_identity_meshcore_firmware_without_it_is_said, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    mesh_app_backup_take_identity(&app);
+    const uint8_t disabled = MESH_MESHCORE_RESP_DISABLED;
+    mesh_protocol_receive(&protocol, &disabled, 1U);
+    mesh_app_backup_tick(&app);
+    const bool said =
+        app.backup_identity.stage == 0U &&
+        mesh_radio_backup_store_list(&app.backups, node, NULL, 0U) == 1 &&
+        strcmp(app.ui_store.nav.toast.text, "This radio's firmware does not allow it") == 0;
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!said, "a firmware without the export was not said, or a backup was taken");
+    record_success(test_name);
+}
+
+/*
+ * Nothing holds later restores behind a key restore that cannot finish: a restart the link will
+ * not take ends it at once, and a radio that never comes back ends it at its deadline.
+ */
+MESH_TEST_CASE(app_backup_identity_meshcore_never_waits_for_ever, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    mesh_app_backup_take_identity(&app);
+    app_identity_feed_key(&protocol, 0x55);
+    mesh_app_backup_tick(&app); /* backup 2, with the key */
+    app.meshcore.self_node = 0x01020304U;
+
+    /* Taken, then the restart refused. */
+    mesh_app_backup_restore_identity(&app, node, 2U, true, mesh_app_backup_live_node(&app));
+    const uint8_t ok = MESH_MESHCORE_RESP_OK;
+    g_restore_wire.refuse = true;
+    mesh_protocol_receive(&protocol, &ok, 1U);
+    mesh_app_backup_tick(&app);
+    g_restore_wire.refuse = false;
+    const bool ended = app.backup_identity.stage == 0U &&
+                       strcmp(app.ui_store.nav.toast.text,
+                              "The radio took the identity key; restart it to finish") == 0;
+
+    /* Taken and restarting, and the radio never comes back. */
+    app.meshcore.self_node = 0x01020304U;
+    mesh_app_backup_restore_identity(&app, node, 2U, true, mesh_app_backup_live_node(&app));
+    mesh_protocol_receive(&protocol, &ok, 1U);
+    mesh_app_backup_tick(&app);
+    const bool waiting = app.backup_identity.stage != 0U;
+    app.backup_identity.deadline_ms = 1U;
+    mesh_app_backup_tick(&app);
+    const bool gave_up =
+        app.backup_identity.stage == 0U &&
+        strcmp(app.ui_store.nav.toast.text,
+               "The radio did not come back; the identity key was not checked") == 0;
+
+    /* Unanswered: it may have been taken, so the radio that comes back is waited for. */
+    mesh_protocol_detach(&protocol);
+    const bool resynced = mesh_test_meshcore_sync(&app.meshcore, &protocol, &g_restore_wire);
+    app.meshcore.self_node = 0x01020304U;
+    mesh_app_backup_restore_identity(&app, node, 2U, true, mesh_app_backup_live_node(&app));
+    mesh_protocol_tick(&protocol, app.meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    mesh_app_backup_tick(&app);
+    const bool unanswered = app.backup_identity.stage != 0U && mesh_protocol_silent(&protocol);
+
+    /* Taken, the restart sent, and the link gone before the app looks: the radio is coming
+       back, and is waited for rather than said to need a restart. */
+    mesh_protocol_detach(&protocol);
+    app_identity_end_for_test(&app);
+    const bool again = mesh_test_meshcore_sync(&app.meshcore, &protocol, &g_restore_wire);
+    app.meshcore.self_node = 0x01020304U;
+    mesh_app_backup_restore_identity(&app, node, 2U, true, mesh_app_backup_live_node(&app));
+    mesh_protocol_receive(&protocol, &ok, 1U);
+    mesh_protocol_detach(&protocol);
+    mesh_app_backup_tick(&app);
+    const bool dropped = again && app.backup_identity.stage != 0U &&
+                         strcmp(app.ui_store.nav.toast.text,
+                                "The radio took the identity key; restart it to finish") != 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!resynced, "the radio did not sync again");
+    MESH_TEST_FAIL_IF(!unanswered, "an unanswered import was given up on, not waited out");
+    MESH_TEST_FAIL_IF(!dropped, "a restart sent before the link dropped was reported unsent");
+    MESH_TEST_FAIL_IF(!ended, "a refused restart left the restore waiting");
+    MESH_TEST_FAIL_IF(!waiting, "the restart was not waited for");
+    MESH_TEST_FAIL_IF(!gave_up, "a radio that never came back held the restore for good");
     record_success(test_name);
 }

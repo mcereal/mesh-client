@@ -1024,3 +1024,134 @@ MESH_TEST_CASE(radio_backup_meshtastic_plan_refuses_another_protocol, unit) {
                       "a MeshCore backup was planned onto a Meshtastic radio");
     record_success(test_name);
 }
+
+/* ---- the identity key ---------------------------------------------------------------------- */
+
+/*
+ * A capture never carries the private key; one added by name does, as a section of its own that
+ * survives the card - and that nothing else sees: an unchanged radio is still unchanged, compared
+ * or planned, with the key in the backup.
+ */
+MESH_TEST_CASE(radio_backup_identity_only_when_added_and_invisible_to_everything_else, unit) {
+    static struct mesh_radio_backup plain;
+    static struct mesh_radio_backup_diff diff;
+    mesh_test_backup_radio(&g_settings, &g_status);
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup) != 0,
+                      "capture failed");
+    g_backup.header.reason = MESH_RADIO_BACKUP_MANUAL;
+    MESH_TEST_FAIL_IF(g_backup.header.has_identity || mesh_radio_backup_identity(&g_backup, NULL),
+                      "a capture carried the private key");
+    plain = g_backup;
+
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_add_identity(&g_settings, &g_backup) != 0,
+                      "the key was not added");
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_add_identity(&g_settings, &g_backup) != -EEXIST,
+                      "a second key was added");
+
+    char dir[64];
+    MESH_TEST_FAIL_IF(!backup_tempdir(dir, sizeof dir), "mkdtemp failed");
+    char path[128];
+    snprintf(path, sizeof path, "%s/keyed.backup", dir);
+    const int written = mesh_radio_backup_write_file(&g_backup, path);
+    const int read = mesh_radio_backup_read_file(&g_read, path);
+    mesh_test_remove_tree(dir);
+    MESH_TEST_FAIL_IF(written != 0 || read != 0, "a keyed backup did not round-trip");
+    const uint8_t *key = NULL;
+    MESH_TEST_FAIL_IF(!g_read.header.has_identity ||
+                          mesh_radio_backup_identity(&g_read, &key) != 32U || key[0] != 0xAB ||
+                          key[31] != 0xAB,
+                      "the key did not come back off the card");
+
+    MESH_TEST_FAIL_IF(!mesh_radio_backup_same_payload(&g_read, &plain),
+                      "the key made an unchanged radio's next backup look changed");
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_diff(&g_read, &plain, &diff) != 0 ||
+                          diff.total != 0U,
+                      "the key showed up as a difference");
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_plan(&g_read, &g_settings, &g_status, g_writes,
+                                                        MESH_RADIO_SETTINGS_TRANSACTION_MAX,
+                                                        NULL) != 0,
+                      "an ordinary restore of a keyed backup planned a write");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(radio_backup_identity_needs_a_key_the_radio_reported, unit) {
+    mesh_test_backup_radio(&g_settings, &g_status);
+    (void)mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
+    g_settings.security.private_key.size = 0U;
+    const int missing = mesh_radio_backup_meshtastic_add_identity(&g_settings, &g_backup);
+    g_settings.security.private_key.size = 32U;
+    memset(g_settings.security.private_key.bytes, 0, 32U);
+    const int empty = mesh_radio_backup_meshtastic_add_identity(&g_settings, &g_backup);
+    /* A key with no public one beside it could never be judged restored. */
+    memset(g_settings.security.private_key.bytes, 0xAB, 32U);
+    g_settings.security.public_key.size = 0U;
+    const int unjudgeable = mesh_radio_backup_meshtastic_add_identity(&g_settings, &g_backup);
+    MESH_TEST_FAIL_IF(missing != -ENOENT || empty != -ENOENT,
+                      "a backup was given a key the radio never reported");
+    MESH_TEST_FAIL_IF(unjudgeable != -ENOENT,
+                      "a backup was given a key with no public key to judge its restore by");
+    MESH_TEST_FAIL_IF(mesh_radio_backup_identity(&g_backup, NULL) != 0U,
+                      "a refused key left a section behind");
+    record_success(test_name);
+}
+
+/*
+ * The write that puts a key back: the radio's own Security config, the backup's private key in
+ * it, and the public key left for the firmware to work out - so a pair that does not match can
+ * never be written.
+ */
+MESH_TEST_CASE(radio_backup_identity_write_carries_the_backups_key_and_no_public_one, unit) {
+    mesh_test_backup_radio(&g_settings, &g_status);
+    (void)mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
+    struct mesh_admin_request write;
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_identity_write(&g_backup, &g_settings, &write) !=
+                          -ENOENT,
+                      "a backup with no key produced a write");
+    (void)mesh_radio_backup_meshtastic_add_identity(&g_settings, &g_backup);
+
+    /* The same board, reflashed: a new key, and a setting changed since. */
+    memset(g_settings.security.private_key.bytes, 0xCD, 32U);
+    memset(g_settings.security.public_key.bytes, 0x77, 32U);
+    g_settings.security.serial_enabled = !g_settings.security.serial_enabled;
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_identity_write(&g_backup, &g_settings, &write) !=
+                          0,
+                      "no write for a keyed backup");
+    const meshtastic_Config_SecurityConfig *security =
+        &write.payload.config.payload_variant.security;
+    MESH_TEST_FAIL_IF(
+        write.kind != MESH_ADMIN_SET_CONFIG ||
+            write.type != (uint32_t)meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG ||
+            write.payload.config.which_payload_variant != meshtastic_Config_security_tag,
+        "the write is not a Security config");
+    MESH_TEST_FAIL_IF(security->private_key.size != 32U || security->private_key.bytes[0] != 0xAB ||
+                          security->private_key.bytes[31] != 0xAB,
+                      "the write does not carry the backup's key");
+    MESH_TEST_FAIL_IF(security->public_key.size != 0U,
+                      "the write carries a public key the firmware should work out");
+    MESH_TEST_FAIL_IF(security->serial_enabled != g_settings.security.serial_enabled,
+                      "the write reverted a setting that is not the key");
+
+    uint8_t public_key[32];
+    MESH_TEST_FAIL_IF(!mesh_radio_backup_meshtastic_public_key(&g_backup, public_key) ||
+                          public_key[0] != 0x5C,
+                      "the backup's public key, the one its private key goes with, was not found");
+    record_success(test_name);
+}
+
+/* Whatever path makes one, a profile with a key in it never reaches the card. */
+MESH_TEST_CASE(radio_backup_profile_with_a_key_is_never_written, unit) {
+    mesh_test_backup_radio(&g_settings, &g_status);
+    (void)mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
+    (void)mesh_radio_backup_meshtastic_add_identity(&g_settings, &g_backup);
+    g_backup.header.reason = MESH_RADIO_BACKUP_PROFILE;
+    g_backup.header.node_id = 0U;
+    char dir[64];
+    MESH_TEST_FAIL_IF(!backup_tempdir(dir, sizeof dir), "mkdtemp failed");
+    char path[128];
+    snprintf(path, sizeof path, "%s/keyed.profile", dir);
+    const int written = mesh_radio_backup_write_file(&g_backup, path);
+    const bool absent = access(path, F_OK) != 0;
+    mesh_test_remove_tree(dir);
+    MESH_TEST_FAIL_IF(written != -EPERM || !absent, "a profile carrying a key was written");
+    record_success(test_name);
+}

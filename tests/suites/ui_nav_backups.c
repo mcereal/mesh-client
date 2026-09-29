@@ -792,3 +792,120 @@ MESH_TEST_CASE(ui_backups_a_choice_is_named_as_its_settings_row_names_it, unit) 
         "another module's field was named as a choice");
     record_success(test_name);
 }
+
+/*
+ * A keyed backup says so, and offers its key back under the sheet that fits the radio on the
+ * link: the plain one for the radio it is of, the one asking "is this the same radio?" for any
+ * other - and the answer to the second is the only one that carries the confirmation. The keyed
+ * backup itself is asked for behind a sheet of its own.
+ */
+MESH_TEST_CASE(ui_nav_backups_identity_asks_with_the_sheet_that_fits_the_radio, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store *store = calloc(1U, sizeof *store);
+    struct mesh_ui_settings *settings = calloc(1U, sizeof *settings);
+    MESH_TEST_FAIL_IF(store == NULL || settings == NULL, "memory");
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(store) != 0, "store init failed");
+    mesh_test_nav_populate(store);
+    backups_settings(settings);
+    struct mesh_ui_backups *b = &settings->backups;
+    snprintf(b->live_model, sizeof b->live_model, "%s", "HELTEC_V3");
+    b->entries[0].header.has_identity = true; /* Ridge's newest */
+    snprintf(b->entries[0].header.model, sizeof b->entries[0].header.model, "%s", "HELTEC_V3");
+    b->entries[3].header.has_identity = true; /* Valley's */
+    mesh_ui_store_set_settings(store, settings);
+    struct mesh_ui_action action;
+    struct mesh_ui_settings_item item;
+
+    open_backups(store);
+    mesh_test_settings_cursor_to(
+        store, find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO, "Ridge relay"));
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    const uint32_t save = find_row(store, MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY, NULL);
+    mesh_test_settings_cursor_to(store, save);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    if (save == UINT32_MAX || !store->nav.confirm.open || action.type != MESH_UI_ACTION_NONE) {
+        failure = "the keyed backup should be offered for the radio on the link, and ask first";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_RADIO_ACTION ||
+        action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY) {
+        failure = "confirming should ask the app for the keyed backup";
+        goto cleanup;
+    }
+
+    mesh_test_settings_cursor_to(store,
+                                 find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY, NULL));
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    bool says = false;
+    const uint32_t count = mesh_ui_settings_item_count(
+        &store->settings, NULL, MESH_UI_SETTINGS_BACKUPS, mesh_ui_nav_open_channel(&store->nav));
+    for (uint32_t row = 0U; row < count; ++row) {
+        says = says ||
+               (mesh_ui_settings_item(&store->settings, NULL, NULL, 0U, MESH_UI_SETTINGS_BACKUPS,
+                                      mesh_ui_nav_open_channel(&store->nav), row, &item) &&
+                strcmp(item.label, "Identity key") == 0);
+    }
+    const uint32_t same = find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY, NULL);
+    if (store->nav.backups_sequence != 2U || !says || same == UINT32_MAX ||
+        find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER, NULL) !=
+            UINT32_MAX) {
+        failure = "the radio's own keyed backup should say so and offer the plain restore";
+        goto cleanup;
+    }
+    mesh_test_settings_cursor_to(store, same);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_BACKUP_RESTORE_IDENTITY || action.dest != RIDGE ||
+        action.number != 2U || action.channel != 0U || action.reply_id != RIDGE) {
+        failure = "the plain sheet should restore this backup's key, unconfirmed";
+        goto cleanup;
+    }
+
+    /* Valley's key, with Ridge on the link: the other sheet, and the confirmation with it. */
+    mesh_ui_store_handle_key(store, INKCELL_KEY_B, &action);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_B, &action);
+    mesh_test_settings_cursor_to(
+        store, find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO, "Valley"));
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    mesh_test_settings_cursor_to(store,
+                                 find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY, NULL));
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    const uint32_t other =
+        find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER, NULL);
+    mesh_test_settings_cursor_to(store, other);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    if (other == UINT32_MAX || !store->nav.confirm.open ||
+        store->nav.confirm.subject !=
+            (uint16_t)MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER) {
+        failure = "another radio's keyed backup should ask whether this is that radio";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_BACKUP_RESTORE_IDENTITY || action.dest != VALLEY ||
+        action.number != 1U || action.channel != 1U || action.reply_id != RIDGE) {
+        failure = "only the answer to that sheet should carry the confirmation";
+        goto cleanup;
+    }
+
+    /* Another board under Ridge's number is another radio; no radio of its firmware, none. */
+    snprintf(b->live_model, sizeof b->live_model, "%s", "TBEAM");
+    const enum mesh_ui_backups_identity board = mesh_ui_backups_identity(b, 0U);
+    b->live_protocol = MESH_RADIO_BACKUP_MESHCORE;
+    const enum mesh_ui_backups_identity firmware = mesh_ui_backups_identity(b, 0U);
+    if (board != MESH_UI_BACKUPS_IDENTITY_OTHER || firmware != MESH_UI_BACKUPS_IDENTITY_NO_RADIO ||
+        mesh_ui_backups_identity(b, 1U) != MESH_UI_BACKUPS_IDENTITY_NONE) {
+        failure = "which sheet a keyed backup gets should follow the radio on the link";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(store);
+    free(store);
+    free(settings);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
