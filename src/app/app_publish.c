@@ -119,6 +119,8 @@ struct mesh_app_publish_cache {
     /* Not part of `handshake`: the session's send path is not a field of the handshake status,
        so a drop that changed nothing else in that struct would not republish without this. */
     bool link_up;
+    /* Nor is the lifetime stats' count of nodes ever heard, which the handshake carries. */
+    uint32_t lifetime_revision;
     struct mesh_handshake_status handshake;
     struct mesh_message_log messages;
     struct mesh_waypoint_book waypoints;
@@ -173,6 +175,14 @@ void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint3
     }
 
     snprintf(out, out_len, "!%08x", node_id);
+}
+
+/* A lifetime SET as the UI carries it. The set is capped at MESH_LIFETIME_NODES_MAX, so the
+   clamp never bites; it is here so the narrowing is stated rather than assumed. */
+static uint32_t mesh_app_lifetime_u32(const struct mesh_lifetime *lifetime,
+                                      enum mesh_lifetime_stat stat) {
+    const uint64_t value = mesh_lifetime_value(lifetime, stat);
+    return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
 }
 
 /*
@@ -2849,6 +2859,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         handshake_changed || messages_changed ||
         cache->roster_owner != mesh_session_roster_owner(&app->session) ||
         cache->link_up != mesh_session_attached(&app->session) ||
+        cache->lifetime_revision != app->lifetime.revision ||
         memcmp(&cache->preferences, &app->ui_preferences, sizeof app->ui_preferences) != 0;
     const struct mesh_waypoint_book *source_waypoints = mesh_session_waypoints(&app->session);
     const bool waypoints_changed =
@@ -2886,6 +2897,11 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             mesh_session_forgettable_nodes(&app->session, true);
         ui_handshake.nodes_forgettable_all = mesh_session_forgettable_nodes(&app->session, false);
         ui_handshake.nodes_discovered = mesh_session_nodes_discovered(&app->session);
+        ui_handshake.nodes_heard_ever =
+            mesh_app_lifetime_u32(&app->lifetime, MESH_LIFETIME_NODES_HEARD);
+        ui_handshake.nodes_heard_ever_rf =
+            mesh_app_lifetime_u32(&app->lifetime, MESH_LIFETIME_NODES_HEARD_RF);
+        ui_handshake.nodes_heard_ever_floor = !mesh_lifetime_complete(&app->lifetime);
         ui_handshake.cached = !status->config_complete && !status->has_my_info &&
                               !status->request_in_flight && !status->has_config;
         if (status->has_my_info) {
@@ -3266,6 +3282,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         cache->preferences = app->ui_preferences;
         cache->roster_owner = mesh_session_roster_owner(&app->session);
         cache->link_up = mesh_session_attached(&app->session);
+        cache->lifetime_revision = app->lifetime.revision;
         cache->locale = inkcell_i18n_locale();
         cache->valid = true;
     }

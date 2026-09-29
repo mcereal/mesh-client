@@ -683,6 +683,7 @@ MESH_STR_ENTRY(STATUS_LABEL_SYNC,         "Sync")
 MESH_STR_ENTRY(STATUS_LABEL_MY_NODE,      "My node")
 MESH_STR_ENTRY(STATUS_LABEL_NODEDB,       "NodeDB")
 MESH_STR_ENTRY(STATUS_LABEL_CACHED_HERE,  "Cached here")
+MESH_STR_ENTRY(STATUS_LABEL_HEARD_EVER,   "Ever heard")
 MESH_STR_ENTRY(STATUS_LABEL_CHANNEL,      "Channel")
 MESH_STR_ENTRY(STATUS_LABEL_AIRTIME,      "Airtime")
 MESH_STR_ENTRY(STATUS_LABEL_BATTERY,      "Battery")
@@ -727,6 +728,12 @@ MESH_STR_ENTRY(STATUS_NODEDB_ONLINE,      "%u nodes, %u online")
 MESH_STR_ENTRY(STATUS_NODEDB_REBOOTS,     "%u nodes, %u reboots")
 /* What this client keeps, which deliberately outlives the radio's own list. */
 MESH_STR_ENTRY(STATUS_CACHED_OFF_RADIO,   "%u nodes, %u off radio")
+/* Every distinct node this client has ever heard, across every run and radio, and how many of
+   those arrived over the air rather than only through an internet bridge. The roster above is
+   capped and evicts; this count is not a window. The + form is for a count that has passed
+   what the client can remember and is now at least the number shown. */
+MESH_STR_ENTRY(STATUS_HEARD_EVER,         "%u nodes, %u over the air")
+MESH_STR_ENTRY(STATUS_HEARD_EVER_FLOOR,   "%u+ nodes, %u+ over the air")
 /* Channel busy and our own transmit share, then the noise floor when the radio reports it. */
 MESH_STR_ENTRY(STATUS_AIRTIME,            "%s busy, %s tx")
 MESH_STR_ENTRY(STATUS_AIRTIME_FLOOR,      "%s busy, %s tx, %d dBm floor")
@@ -1636,7 +1643,7 @@ MESH_STR_ENTRY(HELP_NOTE_DEVICES_SIGNAL,  "Scanning pauses while a radio is conn
 MESH_STR_ENTRY(HELP_NOTE_DEVICES_NETWORK, "The last row reaches a node over WiFi. It takes an address like 192.168.1.50 or a name like meshtastic.local; add :4403 only for another port. Y edits, clearing forgets.")
 
 /* Status. */
-MESH_STR_ENTRY(HELP_LABEL_STATUS_COUNTS,  "Why two node counts differ")
+MESH_STR_ENTRY(HELP_LABEL_STATUS_COUNTS,  "Why the node counts differ")
 /* The Mesh card's own figures, which is the entry a reader in a field goes looking for: the
    percentages are the two that decide whether the mesh works at all, and neither of them says so
    on the card - there is a bar and a colour, and no room for a sentence. */
@@ -1648,7 +1655,7 @@ MESH_STR_ENTRY(HELP_LABEL_STATUS_FLOOR,   "The noise floor")
    as an introduction to the feature. */
 MESH_STR_ENTRY(HELP_LABEL_STATUS_BROKER,  "The Broker card")
 MESH_STR_ENTRY(HELP_NOTE_STATUS,          "How this client, its link and the radio are doing, one card each. A card the radio has told us nothing about says so rather than disappearing, so nothing moves under the cursor.")
-MESH_STR_ENTRY(HELP_NOTE_STATUS_COUNTS,   "NodeDB is what the radio still holds and Cached here is what this client remembers, which is deliberately more: a node the radio evicted is gone for good, so we keep it.")
+MESH_STR_ENTRY(HELP_NOTE_STATUS_COUNTS,   "NodeDB is what the radio holds and Cached here what this client keeps, which is more. Both are capped and drop the oldest; Ever heard counts every node this client has ever heard.")
 MESH_STR_ENTRY(HELP_NOTE_STATUS_AIRTIME,  "Busy is the share of the air every radio in earshot is using; tx is the part of it this radio sent. Past a quarter busy, hops start failing - which is where the bar is notched.")
 MESH_STR_ENTRY(HELP_NOTE_STATUS_TRAFFIC,  "Sent is what this radio transmitted, including what it relayed for others. Heard splits what arrived into new, repeats and malformed. Both are totals since the radio booted.")
 MESH_STR_ENTRY(HELP_NOTE_STATUS_FLOOR,    "How loud the channel is with nothing on it, in dBm. It is negative and nearer zero is worse: around -120 is a clean band, and a floor above -100 is something local drowning quiet nodes out.")

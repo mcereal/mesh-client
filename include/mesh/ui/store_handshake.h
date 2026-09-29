@@ -164,6 +164,20 @@ struct mesh_ui_handshake_state {
      * the rows below. 0 on a handshake nobody published: a cache, a fixture.
      */
     uint32_t nodes_discovered;
+    /*
+     * How many distinct nodes this client has ever heard, and how many of those over the air -
+     * mesh_lifetime's NODES_HEARD and NODES_HEARD_RF, across every run and every radio.
+     *
+     * Beside the roster's own count because the roster is a window: it holds
+     * MESH_SESSION_MAX_NODES and evicts, so on a big enough mesh it is full, and "256 nodes"
+     * alone reads as "256 is all I have ever found". This is the number that is not a window.
+     * `nodes_heard_ever_floor` is set once the lifetime set has had to turn a node away, and
+     * the counts are then at least this rather than exactly it. 0 on a handshake nobody
+     * published, and when the stats could not be opened and nothing has been heard this run.
+     */
+    uint32_t nodes_heard_ever;
+    uint32_t nodes_heard_ever_rf;
+    bool nodes_heard_ever_floor;
     char primary_channel[33];
     char my_short_name[6];
     struct mesh_ui_node_summary nodes[MESH_UI_MAX_HANDSHAKE_NODES];

@@ -3757,6 +3757,94 @@ cleanup:
 }
 
 /*
+ * The Status card's "Ever heard" count reaches past the roster.
+ *
+ * The roster is capped at MESH_SESSION_MAX_NODES and evicts, so on a mesh bigger than that its
+ * count is a ceiling and reads like one: "256 nodes" looks like everything the client ever found.
+ * The lifetime set is what is not a window, and this holds that it is what gets published -
+ * more distinct nodes heard than the roster could ever hold, some of them only over MQTT.
+ */
+MESH_TEST_CASE(app_publishes_nodes_heard_past_the_roster, unit) {
+    const char *failure = NULL;
+    bool app_ready = false;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "heard_ever")) {
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_SINGLE_POLL;
+    config.enable_serial = false;
+    config.enable_ble = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    /* A roster to publish at all - one node is enough; what is on it is not the question. */
+    struct mesh_node_summary seed;
+    memset(&seed, 0, sizeof seed);
+    seed.node_id = 0x5FFFFFFFU;
+    seed.last_heard = 1000000U;
+    mesh_session_seed_node(&app.session, &seed);
+
+    /* What the session tells its observer as nodes are heard: more than the roster holds, the
+       last fifty only through an internet bridge. */
+    const uint32_t heard = MESH_SESSION_MAX_NODES + 100U;
+    const uint32_t bridged = 50U;
+    for (uint32_t i = 0; i < heard; ++i) {
+        struct mesh_node_summary node;
+        memset(&node, 0, sizeof node);
+        node.node_id = 0x60000000U + i;
+        const struct mesh_session_event event = {
+            .kind = MESH_SESSION_EVENT_NODE_HEARD, .node = &node, .via_mqtt = i >= heard - bridged};
+        mesh_lifetime_observe(&app.lifetime, &app.session, &event);
+    }
+
+    mesh_app_publish_ui_state(&app);
+    const struct mesh_ui_handshake_state *hs = &app.ui_store.handshake;
+    if (hs->nodes_heard_ever != heard) {
+        failure = "every distinct node ever heard should be published, not the roster's cap";
+        goto cleanup;
+    }
+    if (hs->nodes_heard_ever_rf != heard - bridged) {
+        failure = "and how many of those came over the air, without the bridged ones";
+        goto cleanup;
+    }
+    if (hs->nodes_heard_ever_floor) {
+        failure = "a set that has turned nobody away is an exact count, not a floor";
+        goto cleanup;
+    }
+
+    /* One more heard and nothing else changed: the count alone has to republish. */
+    struct mesh_node_summary late;
+    memset(&late, 0, sizeof late);
+    late.node_id = 0x6F000000U;
+    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_NODE_HEARD, .node = &late};
+    mesh_lifetime_observe(&app.lifetime, &app.session, &event);
+    mesh_app_publish_ui_state(&app);
+    if (app.ui_store.handshake.nodes_heard_ever != heard + 1U) {
+        failure = "a node heard should move the published count even with the roster unchanged";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    if (!mesh_test_remove_tree(home_dir)) {
+        failure = failure != NULL ? failure : "cleanup failed";
+    }
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * A direct message announcing itself, and the two ways that must not misfire.
  *
  * The reporter is driven through mesh_app_publish_ui_state() rather than called directly,
