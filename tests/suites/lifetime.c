@@ -132,13 +132,13 @@ MESH_TEST_CASE(lifetime_counts_messages_by_direction_and_kind, unit) {
     record_success(test_name);
 }
 
-static void lt_settle(uint32_t packet_id, enum mesh_message_ack previous,
-                      enum mesh_message_ack now) {
+static void lt_settle_to(uint32_t packet_id, uint32_t to, enum mesh_message_ack previous,
+                         enum mesh_message_ack now) {
     struct mesh_message message;
     memset(&message, 0, sizeof message);
     message.packet_id = packet_id;
     message.from = LT_US;
-    message.to = LT_PEER;
+    message.to = to;
     message.direction = MESH_MESSAGE_OUTBOUND;
     message.ack = (uint8_t)now;
     const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_DELIVERY,
@@ -147,13 +147,23 @@ static void lt_settle(uint32_t packet_id, enum mesh_message_ack previous,
     mesh_lifetime_observe(&g_lifetime, &g_session, &event);
 }
 
+static void lt_settle(uint32_t packet_id, enum mesh_message_ack previous,
+                      enum mesh_message_ack now) {
+    lt_settle_to(packet_id, LT_PEER, previous, now);
+}
+
+static bool lt_deliveries(uint64_t delivered, uint64_t failed) {
+    return mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_DELIVERED) == delivered &&
+           mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_FAILED) == failed;
+}
+
 /*
- * A message that asked to be confirmed counts once, as delivered or as not.
+ * Each direct message is in the count its bubble says: delivered, not delivered, or neither.
  *
- * The session announces a change, not a state, so the count is by what the message left: one
- * that was never waiting (a channel message, a reaction) is neither. A late answer to one given
- * up on moves it across rather than counting it twice - it was delivered, not both - and any
- * other change is a message already counted.
+ * The session announces a change, not a state, so a message is moved between the counts rather
+ * than added to one - and a message whose answer changes, however often, is still one message.
+ * A broadcast is in neither: nothing confirms it, and MeshCore's pending on one is its place in
+ * the radio's queue, so counting it would count it only when it failed.
  */
 MESH_TEST_CASE(lifetime_counts_each_delivery_once, unit) {
     char dir[64];
@@ -163,28 +173,30 @@ MESH_TEST_CASE(lifetime_counts_each_delivery_once, unit) {
     lt_settle(1U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_DELIVERED);
     lt_settle(2U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_FAILED);
     lt_settle(3U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_FAILED);
-    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_DELIVERED) != 1U ||
-                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_FAILED) != 2U,
-                      "one delivered and two failed");
+    MESH_TEST_FAIL_IF(!lt_deliveries(1U, 2U), "one delivered and two failed");
 
-    lt_settle(4U, MESH_MESSAGE_ACK_NONE, MESH_MESSAGE_ACK_DELIVERED);
-    lt_settle(5U, MESH_MESSAGE_ACK_NONE, MESH_MESSAGE_ACK_FAILED);
-    lt_settle(6U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_NONE);
+    lt_settle(4U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_NONE);
+    lt_settle_to(5U, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_ACK_PENDING,
+                 MESH_MESSAGE_ACK_FAILED);
+    lt_settle_to(6U, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_NONE);
+    MESH_TEST_FAIL_IF(!lt_deliveries(1U, 2U), "a message nothing answers is in neither count");
+
+    /* Delivered, refused after, then answered again: one message, delivered. */
     lt_settle(1U, MESH_MESSAGE_ACK_DELIVERED, MESH_MESSAGE_ACK_FAILED);
-    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_DELIVERED) != 1U ||
-                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_FAILED) != 2U,
-                      "nothing never waiting is counted, nor a message counted already");
-
+    MESH_TEST_FAIL_IF(!lt_deliveries(0U, 3U), "a delivered message refused after moves across");
+    lt_settle(1U, MESH_MESSAGE_ACK_FAILED, MESH_MESSAGE_ACK_DELIVERED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(1U, 2U), "and back, taking only its own failure with it");
     lt_settle(2U, MESH_MESSAGE_ACK_FAILED, MESH_MESSAGE_ACK_DELIVERED);
-    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_DELIVERED) != 2U ||
-                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_FAILED) != 1U,
-                      "a late answer moves a failure to a delivery");
+    MESH_TEST_FAIL_IF(!lt_deliveries(2U, 1U), "a late answer moves a failure to a delivery");
 
     MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
     MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
-    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_DELIVERED) != 2U ||
-                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_FAILED) != 1U,
-                      "and both survive a restart");
+    MESH_TEST_FAIL_IF(!lt_deliveries(2U, 1U), "and both survive a restart");
+
+    /* A message counted before a reset that changes after it has no count to leave. */
+    MESH_TEST_FAIL_IF(mesh_lifetime_reset(&g_lifetime) != 0, "the reset failed");
+    lt_settle(1U, MESH_MESSAGE_ACK_DELIVERED, MESH_MESSAGE_ACK_FAILED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(0U, 1U), "a count never wraps below zero");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }

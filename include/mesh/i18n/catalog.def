@@ -2483,10 +2483,10 @@ MESH_STR_ENTRY(STATS_DIRECT_RECEIVED,     "Direct received")
 /* Tapbacks: an emoji sent in answer to one message. */
 MESH_STR_ENTRY(STATS_REACTIONS_SENT,      "Reactions sent")
 MESH_STR_ENTRY(STATS_REACTIONS_RECEIVED,  "Reactions received")
-/* Of the messages sent asking the recipient or the mesh to confirm them: how many were. */
+/* Of the direct messages sent, which the recipient or the mesh confirms: how many were. */
 MESH_STR_ENTRY(STATS_HEAD_DELIVERY,       "Delivery")
 MESH_STR_ENTRY(STATS_DELIVERED,           "Delivered")
-/* Sent asking to be confirmed, and an error came back instead - or it never left the radio. */
+/* A direct message an error came back for instead - or that never left the radio. */
 MESH_STR_ENTRY(STATS_FAILED,              "Not delivered")
 /* Delivered as a share of delivered and not delivered together. */
 MESH_STR_ENTRY(STATS_DELIVERY_RATE,       "Delivery rate")

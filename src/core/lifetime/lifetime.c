@@ -518,29 +518,51 @@ static void lifetime_observe_message(struct mesh_lifetime *lifetime,
     }
 }
 
+/* The count a delivery state is in: delivered, failed, or neither (waiting, or never asked). */
+static int lifetime_delivery_count(uint8_t ack) {
+    if (ack == MESH_MESSAGE_ACK_DELIVERED) {
+        return MESH_LIFETIME_MESSAGES_DELIVERED;
+    }
+    if (ack == MESH_MESSAGE_ACK_FAILED) {
+        return MESH_LIFETIME_MESSAGES_FAILED;
+    }
+    return -1;
+}
+
 /*
- * One of our messages settled. Only a message that asked to be confirmed is counted - one that
- * left PENDING - so a channel message or a reaction, which nothing ever answers, is neither.
+ * One of our direct messages changed delivery state: it leaves the count its old state was in
+ * and joins the one its new state is in.
  *
- * An answer that comes after a failure moves the message across rather than counting it twice:
- * MeshCore gives a command up at its deadline and still takes a late reply as a delivery, and
- * that message was delivered, not delivered and failed. Any other change - a second failure
- * reason, a delivered message the radio later refuses - is a message already counted once.
+ * Moved rather than added, because a message can change its answer. MeshCore gives a command up
+ * at its deadline and still takes a late reply as a delivery, and a Meshtastic message a relay
+ * acknowledged can be refused by the recipient after - each is one message, in whichever count
+ * its bubble now says. The session announces every change once with the state it left, so the
+ * two counts are how many direct messages sit in each state, for every message seen since the
+ * stats began. One that changes after a reset left a count that no longer holds it, and the
+ * floor at zero is what keeps that from wrapping.
+ *
+ * Only a direct message: nothing ever confirms a broadcast. This client sends one without
+ * want_ack, and MeshCore's pending on a channel message is its place in the radio's queue - a
+ * broadcast counted here would be one only when it failed.
  */
 static void lifetime_observe_delivery(struct mesh_lifetime *lifetime,
                                       const struct mesh_message *message, uint8_t previous) {
-    const bool delivered = message->ack == MESH_MESSAGE_ACK_DELIVERED;
-    const bool failed = message->ack == MESH_MESSAGE_ACK_FAILED;
-    if (previous == MESH_MESSAGE_ACK_PENDING && (delivered || failed)) {
-        lifetime_bump(lifetime,
-                      delivered ? MESH_LIFETIME_MESSAGES_DELIVERED : MESH_LIFETIME_MESSAGES_FAILED);
+    if (message->to == MESH_MESSAGE_BROADCAST_ADDR) {
         return;
     }
-    if (previous == MESH_MESSAGE_ACK_FAILED && delivered) {
-        if (lifetime->values[MESH_LIFETIME_MESSAGES_FAILED] > 0U) {
-            lifetime->values[MESH_LIFETIME_MESSAGES_FAILED]--;
-        }
-        lifetime_bump(lifetime, MESH_LIFETIME_MESSAGES_DELIVERED);
+    const int left = lifetime_delivery_count(previous);
+    const int joined = lifetime_delivery_count(message->ack);
+    if (left == joined) {
+        return;
+    }
+    if (left >= 0 && lifetime->values[left] > 0U) {
+        lifetime->values[left]--;
+    }
+    if (joined >= 0) {
+        lifetime_bump(lifetime, (enum mesh_lifetime_stat)joined);
+    } else {
+        lifetime->dirty = true;
+        lifetime_changed(lifetime);
     }
 }
 

@@ -46,12 +46,13 @@
  * is the first credible wall-clock second the stats saw, and stays 0 on a device that has never
  * had one; every count moves exactly the same either way.
  *
- * **A delivery is counted by the change, not the state.** The session announces one of our
- * messages moving between delivery states (MESH_SESSION_EVENT_DELIVERY), and only a move out of
- * pending counts - so a message that never asked to be confirmed is in neither count, and one
- * still waiting is in neither yet. A late answer to a message already given up on moves it from
- * failed to delivered. "Delivered" is what the message's bubble says: for a direct message that
- * may be a relay's acknowledgement rather than the recipient's.
+ * **A delivery is where a direct message is now.** The session announces each of our messages
+ * changing delivery state, once, with the state it left (MESH_SESSION_EVENT_DELIVERY), and the
+ * message moves from the count that state was in to the one its new state is in - so a message
+ * whose answer changes (a late reply to a command given up on, a relay's acknowledgement then
+ * the recipient's refusal) is one message, in whichever count its bubble shows. Only direct
+ * messages: nothing confirms a broadcast. "Delivered" is what the bubble says, which for a
+ * direct message may be a relay's acknowledgement rather than the recipient's.
  *
  * What is deliberately not counted: a node the radio lists with no heard time (a contact typed
  * in from a link), a Store & Forward replay as a hearing of its author, hops or distance over
