@@ -17,6 +17,10 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 
+#include "meshtastic/config.pb.h"
+#include "meshtastic/device_ui.pb.h"
+#include "meshtastic/module_config.pb.h"
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -483,5 +487,77 @@ cleanup:
     free(store);
     free(settings);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A difference is named by the Settings row that edits it, never "Field 12". The label table
+ * spells its tags as literals, because the UI layer does not include nanopb; these are the rows
+ * pinned against the generated numbers, one per kind of walk: a Config variant's own tag, a
+ * nested message's parent * 100 + tag, and a module - which is also told apart by the section
+ * the app named it with, since every module shares one topic and Range test's 3 is not MQTT's.
+ */
+MESH_TEST_CASE(ui_backups_field_names_a_difference_by_its_settings_row, unit) {
+    static const struct {
+        uint8_t topic;
+        uint16_t index;
+        uint16_t field;
+        inkcell_str_id label;
+    } k_rows[] = {
+        {MESH_RADIO_BACKUP_TOPIC_DISPLAY, meshtastic_Config_display_tag,
+         meshtastic_Config_DisplayConfig_use_12h_clock_tag, MESH_STR_SETTINGS_FIELD_DISPLAY_12H},
+        {MESH_RADIO_BACKUP_TOPIC_DISPLAY, meshtastic_Config_display_tag,
+         meshtastic_Config_DisplayConfig_compass_orientation_tag,
+         MESH_STR_SETTINGS_FIELD_DISPLAY_COMPASS},
+        {MESH_RADIO_BACKUP_TOPIC_MODULE, MESH_UI_SETTINGS_RANGE_TEST,
+         meshtastic_ModuleConfig_RangeTestConfig_save_tag, MESH_STR_SETTINGS_FIELD_RANGE_TEST_SAVE},
+        {MESH_RADIO_BACKUP_TOPIC_MODULE, MESH_UI_SETTINGS_MQTT,
+         meshtastic_ModuleConfig_MQTTConfig_username_tag, MESH_STR_SETTINGS_FIELD_MQTT_USERNAME},
+        {MESH_RADIO_BACKUP_TOPIC_MODULE, MESH_UI_SETTINGS_MQTT,
+         meshtastic_ModuleConfig_MQTTConfig_map_report_settings_tag * 100U +
+             meshtastic_ModuleConfig_MapReportSettings_position_precision_tag,
+         MESH_STR_SETTINGS_FIELD_MQTT_MAP_PRECISION},
+        {MESH_RADIO_BACKUP_TOPIC_NETWORK, meshtastic_Config_network_tag,
+         meshtastic_Config_NetworkConfig_ntp_server_tag, MESH_STR_NETWORK_NTP},
+        {MESH_RADIO_BACKUP_TOPIC_NETWORK, meshtastic_Config_network_tag,
+         meshtastic_Config_NetworkConfig_ipv4_config_tag * 100U +
+             meshtastic_Config_NetworkConfig_IpV4Config_gateway_tag,
+         MESH_STR_NETWORK_GATEWAY},
+        {MESH_RADIO_BACKUP_TOPIC_SECURITY, meshtastic_Config_security_tag,
+         meshtastic_Config_SecurityConfig_serial_enabled_tag,
+         MESH_STR_SETTINGS_FIELD_SECURITY_SERIAL},
+        {MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 0U, meshtastic_DeviceUIConfig_screen_brightness_tag,
+         MESH_STR_SETTINGS_FIELD_UI_BRIGHTNESS},
+    };
+    char label[64];
+    for (size_t i = 0; i < sizeof k_rows / sizeof k_rows[0]; ++i) {
+        struct mesh_radio_backup_change change;
+        memset(&change, 0, sizeof change);
+        change.topic = k_rows[i].topic;
+        change.index = k_rows[i].index;
+        change.field = k_rows[i].field;
+        mesh_ui_backups_field(MESH_RADIO_BACKUP_MESHTASTIC, &change, label, sizeof label);
+        if (strcmp(label, inkcell_str(k_rows[i].label)) != 0) {
+            fprintf(stderr, "topic %u field %u: \"%s\", expected \"%s\"\n",
+                    (unsigned)k_rows[i].topic, (unsigned)k_rows[i].field, label,
+                    inkcell_str(k_rows[i].label));
+        }
+        MESH_TEST_FAIL_IF(strcmp(label, inkcell_str(k_rows[i].label)) != 0,
+                          "a difference is not named by its Settings row");
+    }
+
+    /* A module the app could not place is still listed, by number, rather than borrowing the
+       label another module has for the same tag. */
+    struct mesh_radio_backup_change change;
+    memset(&change, 0, sizeof change);
+    change.topic = MESH_RADIO_BACKUP_TOPIC_MODULE;
+    change.index = MESH_UI_SETTINGS_SECTION_COUNT;
+    change.field = meshtastic_ModuleConfig_RangeTestConfig_save_tag;
+    mesh_ui_backups_field(MESH_RADIO_BACKUP_MESHTASTIC, &change, label, sizeof label);
+    char number[64];
+    inkcell_str_format(number, sizeof number, MESH_STR_BACKUPS_FIELD_NUMBER,
+                       (unsigned)change.field);
+    MESH_TEST_FAIL_IF(strcmp(label, number) != 0,
+                      "an unplaced module field took another module's label");
     record_success(test_name);
 }
