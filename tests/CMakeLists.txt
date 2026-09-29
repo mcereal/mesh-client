@@ -36,6 +36,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/contact_share.c
     suites/core_basics.c
     suites/crash.c
+    suites/crash_upload.c
     suites/esp_loader.c
     suites/firmware.c
     suites/firmware_catalog.c

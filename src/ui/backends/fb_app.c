@@ -21,12 +21,16 @@
 #include "mesh/ui/backends/fb.h"
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/store.h"
+#include "mesh/utils/crash.h"
+
+#include "inkwell/runtime/crash.h"
 
 #include "inkcell/ui/widgets/focus.h"
 
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 struct fb_app *fb_app_of(const struct inkcell_draw_state *state) {
@@ -84,6 +88,18 @@ static void fb_app_render(struct inkcell_draw_state *state, const void *snapshot
             inkcell_fb_state_set_theme(state, state->theme, wanted);
         }
         app->text_applied = state->scale;
+    }
+
+    /* The form factor, for a crash report: what size this frame is being laid out for. */
+    if (state->surface.width != app->noted_width || state->surface.height != app->noted_height ||
+        state->scale != app->noted_scale) {
+        app->noted_width = state->surface.width;
+        app->noted_height = state->surface.height;
+        app->noted_scale = state->scale;
+        char screen[48];
+        (void)snprintf(screen, sizeof screen, "%ux%u@%d", (unsigned)state->surface.width,
+                       (unsigned)state->surface.height, state->scale);
+        inkwell_crash_note(MESH_CRASH_NOTE_SCREEN, screen);
     }
 
     /*

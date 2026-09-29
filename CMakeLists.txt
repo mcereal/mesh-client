@@ -105,6 +105,7 @@ add_library(meshclient_core
     src/core/session/store_forward.c
     src/core/firmware/uf2.c
     src/core/update/updater.c
+    src/core/report/crash_upload.c
     src/core/maps/map_packs.c
     src/core/update/version.c
     src/transport/transport_registry.c
@@ -270,6 +271,35 @@ set(MESHCLIENT_UPDATE_ASSET "" CACHE STRING
 if(MESHCLIENT_UPDATE_ASSET)
     target_compile_definitions(meshclient_core PUBLIC
         MESHCLIENT_UPDATE_ASSET="${MESHCLIENT_UPDATE_ASSET}")
+endif()
+
+# Where About's "Send report" sends a crash report: a Sentry DSN. Empty - every local build -
+# means nowhere, and the row is not offered. A DSN is a write-only ingest key that every Sentry
+# client ships with, so compiling it in publishes nothing that was secret. See
+# include/mesh/core/crash_upload.h for what is sent, which is not the whole report.
+#
+# The cache entry, else MESHCLIENT_CRASH_DSN in the configure's environment - which is how the
+# release workflow reaches every configure its scripts run (the pak, the Linux CLI, the Mac and
+# Windows builds) without each script learning a flag. Read on every configure rather than
+# seeded into the cache, for the reason MESHCLIENT_VERSION_OVERRIDE above is: a seeded value
+# freezes. The same variable at runtime overrides whatever was compiled in.
+set(MESHCLIENT_CRASH_DSN "" CACHE STRING
+    "Sentry DSN a crash report is sent to when the user asks; empty means none")
+set(MESHCLIENT_CRASH_DSN_EFFECTIVE "${MESHCLIENT_CRASH_DSN}")
+if(NOT MESHCLIENT_CRASH_DSN_EFFECTIVE AND DEFINED ENV{MESHCLIENT_CRASH_DSN})
+    set(MESHCLIENT_CRASH_DSN_EFFECTIVE "$ENV{MESHCLIENT_CRASH_DSN}")
+endif()
+if(MESHCLIENT_CRASH_DSN_EFFECTIVE)
+    message(STATUS "Crash reports can be sent to a DSN compiled into this build")
+    set_property(SOURCE src/core/report/crash_upload.c APPEND PROPERTY COMPILE_DEFINITIONS
+        MESHCLIENT_CRASH_DSN="${MESHCLIENT_CRASH_DSN_EFFECTIVE}")
+endif()
+
+# A crash report names the binary it came from by the linker's build id, and a symbol server
+# matches uploaded debug files on the same id - so every Linux binary here carries one, whatever
+# the toolchain's default.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_link_options(-Wl,--build-id=sha1)
 endif()
 
 # inkwell as well as inkcell, and PUBLIC for the same reason inkcell is: this client's own

@@ -550,13 +550,21 @@ boundary. **Names are radio input exactly like message text is**, and `User.shor
 `char[5]` — sized for one four-byte emoji and its NUL — so multi-byte names are the norm.
 
 `crash.c` catches SIGSEGV, SIGBUS, SIGILL, SIGFPE and SIGABRT, writes
-`$HOME/.meshclient/crash.txt` (signal and fault address, uptime, load base, version/route/transport
-notes, the last 32 log lines, the PC and a frame walk), then re-raises so the process still dies
-of the signal it was given.
+`$HOME/.meshclient/crash.txt` (signal and fault address, uptime, load base, build id and image
+size, version/route/transport/backend/screen notes, the last 32 log lines, the PC and a frame
+walk), then re-raises so the process still dies of the signal it was given.
 
-**Nothing leaves the device.** This is deliberately not a crash-reporting service: the memory of
-this process holds node names, coordinates, the message log and the channel keys. What lands on
-disk is a page of text the user can read in full before attaching it to an issue.
+**Nothing leaves the device by itself.** The handler is deliberately not a crash-reporting
+service: the memory of this process holds node names, coordinates, the message log and the channel
+keys. What lands on disk is a page of text the user can read in full before attaching it to an
+issue.
+
+**Send report is a press, and it sends an allowlist.** On a build with a Sentry DSN compiled in,
+About offers a row that sends *part* of the file (`src/core/report/crash_upload.c`): the signal,
+the addresses, the build id, the version, and the route cut to its screen and level. The parser
+never reads the log section, so there is no path by which a log line reaches the request. The
+file stays until the server says it has the report, and its event id is a digest of its text, so a
+resend is the same event. Symbols go up from the release workflow and are matched by build id.
 
 **The file does not promise to be free of private data, and must not start.** Its header once
 claimed to carry no message text or names, and three quarters of that was false — the log tail is

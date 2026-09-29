@@ -35,6 +35,10 @@ struct https_fixture_request {
     bool ranged;
     uint64_t first;
     uint64_t last;
+    /* A POST's body, read to its `Content-Length`. Lives in the child until the handler returns;
+       a handler that wants a suite to see it echoes it back or writes it to a file. */
+    const char *body;
+    size_t body_len;
 };
 
 struct https_fixture_conn; /* the connection a handler answers on; lives in the child */

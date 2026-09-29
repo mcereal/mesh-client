@@ -210,6 +210,10 @@ bool mesh_app_mqtt_plan_changed(const struct mesh_app_mqtt_plan *planned,
 size_t mesh_app_mqtt_filters(const struct mesh_session *session,
                              char (*out)[INKWELL_MQTT_CLIENT_FILTER_MAX], size_t cap);
 
+/* The crash report's send is over, one way or the other: say so, and on success discard the
+   report the server now has. Handed to mesh_crash_upload_init() as its completion. */
+void mesh_app_on_crash_upload_done(void *userdata, const struct mesh_crash_upload *upload);
+
 /* Brings the proxy up with the event loop and the CA bundle the updater resolved. Call from
    mesh_app_init() once both exist. */
 void mesh_app_mqtt_init(struct mesh_app *app);

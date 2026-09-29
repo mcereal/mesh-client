@@ -78,6 +78,11 @@ jobs:
     # commits anything back.
     env:
       RELEASE_CHANNEL: ${{ github.event_name == 'push' && github.ref_name || github.event.inputs.channel || 'stable' }}
+      # Where About's "Send report" sends a crash report. Every configure a release script runs
+      # reads it from here (see MESHCLIENT_CRASH_DSN in CMakeLists.txt); unset, a release is
+      # built with nowhere to send and simply does not offer the row. Not a secret in the sense
+      # of being private - a DSN only lets somebody submit an event - but kept with the others.
+      MESHCLIENT_CRASH_DSN: ${{ secrets.SENTRY_DSN }}
     steps:
       # "Use workflow from" is a second selector, and it is not the channel. A run launched from
       # `beta` with the channel left at `stable` would take one answer from each: the write-back
@@ -247,6 +252,29 @@ jobs:
           GIT_COMMITTER_EMAIL: semantic-release-bot@users.noreply.github.com
         run: GITHUB_REF="${RELEASE_REF}" npx semantic-release
 
+      # The debug files a sent crash report is symbolicated against: the handheld's binary and
+      # the Linux CLI, as they shipped. Neither is stripped, so their symbol tables are enough
+      # for function names; Sentry matches them to a report by build id, which every Linux
+      # binary here is linked with. Skipped until the SENTRY_AUTH_TOKEN secret exists, and
+      # never fatal - a release without symbols is still a release.
+      - name: Upload debug files to Sentry
+        if: steps.semantic-release.outputs.version != ''
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: |
+          if [ -z "${SENTRY_AUTH_TOKEN}" ]; then
+            echo "No SENTRY_AUTH_TOKEN; not uploading debug files."
+            exit 0
+          fi
+          files=()
+          for f in dist/meshclient-tg5040-aarch64 dist/meshclient-linux-*; do
+            case "$f" in *.sha256) ;; *) [ -f "$f" ] && files+=("$f") ;; esac
+          done
+          npx --yes @sentry/cli@2 debug-files upload "${files[@]}"
+
   # The macOS and Windows downloads, which need a Mac and a Windows machine to build, so they
   # cannot be made inside semantic-release's prepare step with the rest. They are built from the
   # tag the job above just pushed, stamped with the same version, and attached to its release.
@@ -263,6 +291,7 @@ jobs:
     runs-on: macos-latest
     env:
       VERSION: ${{ needs.release.outputs.version }}
+      MESHCLIENT_CRASH_DSN: ${{ secrets.SENTRY_DSN }}
     steps:
       - name: Checkout the release tag
         uses: actions/checkout@v7
@@ -285,6 +314,21 @@ jobs:
             dist/MeshClient-macos.dmg dist/MeshClient-macos.dmg.sha256 \
             dist/MeshClient-macos-app.zip dist/MeshClient-macos-app.zip.sha256
 
+      # The Mac binary's symbols, matched to a report by its LC_UUID. As in the release job:
+      # skipped without a token, never fatal.
+      - name: Upload debug files to Sentry
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: |
+          if [ -z "${SENTRY_AUTH_TOKEN}" ]; then
+            echo "No SENTRY_AUTH_TOKEN; not uploading debug files."
+            exit 0
+          fi
+          npx --yes @sentry/cli@2 debug-files upload build/macos-release/meshclient
+
   windows:
     name: Windows download
     needs: release
@@ -292,6 +336,7 @@ jobs:
     runs-on: windows-2025
     env:
       VERSION: ${{ needs.release.outputs.version }}
+      MESHCLIENT_CRASH_DSN: ${{ secrets.SENTRY_DSN }}
     steps:
       - name: Preserve Unix line endings and enable long Git paths
         run: |

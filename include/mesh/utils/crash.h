@@ -7,7 +7,7 @@
  * The reporter itself is inkwell's - inkwell/runtime/crash.h has the handler, the report
  * writer, the log ring and the discipline all of it follows. None of that was ever about
  * Meshtastic. What is here is the identity inkwell cannot know: the product's name, where its
- * issues go, the three notes this client keeps, and the sentence describing what *this
+ * issues go, the notes this client keeps, and the sentence describing what *this
  * client's* log can contain.
  *
  * That last one is the reason this file exists rather than the app passing a config inline. The
@@ -43,6 +43,13 @@ enum mesh_crash_note_slot {
     /* What the link was doing - the transport's own status string. The other half of the same
        question, since most of what this client does at all is driven by a radio. */
     MESH_CRASH_NOTE_TRANSPORT,
+    /* What drew the frames - fb, sdl, headless, cli. The same client is a handheld, a window
+       on a desk and a process with no screen at all, and a fault in one is rarely in the
+       others. */
+    MESH_CRASH_NOTE_BACKEND,
+    /* The panel the frame was laid out for, as `<width>x<height>@<scale>`. The other half of
+       the form factor: a layout that only breaks at one size breaks there. */
+    MESH_CRASH_NOTE_SCREEN,
     MESH_CRASH_NOTE_SLOT_COUNT,
 };
 

@@ -6,7 +6,7 @@
  * The reporter is not this suite's subject any more - inkwell's runtime_crash suite holds the
  * handler, the forked faults, the log ring, the discard and the re-aiming install. What is left
  * here is the seam: that mesh_crash_install() hands inkwell an identity that is actually this
- * client's, and that the three note slots this client declares line up with the labels it gave
+ * client's, and that the note slots this client declares line up with the labels it gave
  * them.
  *
  * The warning is the assertion worth keeping. It is what a user reads before deciding whether
@@ -36,6 +36,8 @@ MESH_TEST_CASE(crash_report_carries_this_clients_identity, unit) {
     inkwell_crash_note(MESH_CRASH_NOTE_VERSION, "9.9.9-test");
     inkwell_crash_note(MESH_CRASH_NOTE_ROUTE, "nodes/map");
     inkwell_crash_note(MESH_CRASH_NOTE_TRANSPORT, "connected: Test Radio");
+    inkwell_crash_note(MESH_CRASH_NOTE_BACKEND, "fb");
+    inkwell_crash_note(MESH_CRASH_NOTE_SCREEN, "1024x768@2");
 
     char path[256];
     snprintf(path, sizeof path, "%s/report.txt", dir);
@@ -65,6 +67,8 @@ MESH_TEST_CASE(crash_report_carries_this_clients_identity, unit) {
     MESH_TEST_FAIL_IF(strstr(body, "route        nodes/map") == NULL, "the route note");
     MESH_TEST_FAIL_IF(strstr(body, "transport    connected: Test Radio") == NULL,
                       "the transport note");
+    MESH_TEST_FAIL_IF(strstr(body, "backend      fb") == NULL, "the backend note");
+    MESH_TEST_FAIL_IF(strstr(body, "screen       1024x768@2") == NULL, "the screen note");
 
     /* And the warning that is this client's to write, because inkwell has never seen its log. */
     MESH_TEST_FAIL_IF(strstr(body, "Please read it before attaching it") == NULL,

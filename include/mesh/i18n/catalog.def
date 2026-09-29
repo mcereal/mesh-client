@@ -1231,7 +1231,7 @@ MESH_STR_ENTRY(HELP_OVERVIEW,             "About this screen")
  * an omitted note reads in English while the rest of that language stays correct. They are the
  * one class of string in this catalog with that dispensation - see docs/i18n.md.
  */
-MESH_STR_ENTRY(SETTINGS_NOTE_ABOUT,                       "MeshClient itself: which version is running, where it keeps its data, the self-update rows, and the report it leaves behind if it ever stops unexpectedly. Nothing here reaches the radio.")
+MESH_STR_ENTRY(SETTINGS_NOTE_ABOUT,                       "MeshClient itself: version, data, self-update, and the report left if it stops unexpectedly. Send report shares its addresses, never its log. Nothing here reaches the radio.")
 MESH_STR_ENTRY(SETTINGS_NOTE_RADIO,                       "What the radio says about itself, and what firmware upstream publishes for its board. Installing one takes the radio off the mesh for minutes and cannot be undone; a row says why it cannot be.")
 MESH_STR_ENTRY(SETTINGS_NOTE_USER,                        "Your identity on the mesh. The long name is what node lists show; the short name is the few characters other radios draw on their own screens.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE,                      "How this radio behaves on the mesh: the role it plays, how often it announces itself, and what it repeats for other nodes. Role has the widest effect of anything here.")
@@ -2180,6 +2180,11 @@ MESH_STR_ENTRY(ABOUT_DATA,                "Data")
  */
 MESH_STR_ENTRY(ABOUT_CRASH_REPORT,        "Crash report")
 MESH_STR_ENTRY(ABOUT_CRASH_DISCARD,       "Discard report")
+/* The verb that sends part of the report to the project (mesh/core/crash_upload.h), offered only
+   on a build that has somewhere to send it. The value "Sending" stands in for the verb while a
+   send is in flight. */
+MESH_STR_ENTRY(ABOUT_CRASH_SEND,          "Send report")
+MESH_STR_ENTRY(ABOUT_CRASH_SENDING,       "Sending")
 MESH_STR_ENTRY(ABOUT_THEME,               "Theme")
 /* The theme is being held by MESHCLIENT_THEME, so the row is a fact rather than a switch. */
 MESH_STR_ENTRY(ABOUT_THEME_ENV,           "Theme (env)")
@@ -3077,6 +3082,13 @@ MESH_STR_ENTRY(TOAST_DEV_UPDATES_OFF,     "Dev updates off")
    cannot be turned into a bug report. */
 MESH_STR_ENTRY(TOAST_CRASH_DISCARDED,     "Crash report deleted")
 MESH_STR_ENTRY(TOAST_CRASH_DISCARD_FAILED, "Could not delete the report (%d)")
+/* Sending it. The failure's "(%d)" is the HTTP status when the server answered, or an errno
+   when nothing did - either is something a bug report can be written around. */
+MESH_STR_ENTRY(TOAST_CRASH_SENDING,       "Sending crash report")
+MESH_STR_ENTRY(TOAST_CRASH_SENT,          "Crash report sent - thank you")
+MESH_STR_ENTRY(TOAST_CRASH_SEND_FAILED,   "Could not send the report (%d)")
+/* Nothing answered, and the network could not say why. */
+MESH_STR_ENTRY(TOAST_CRASH_SEND_UNREACHABLE, "Could not reach the report server")
 MESH_STR_ENTRY(TOAST_CHECKING_UPDATES,    "Checking for updates")
 MESH_STR_ENTRY(TOAST_UPDATES_UNAVAILABLE, "Updates are unavailable here")
 MESH_STR_ENTRY(TOAST_ALREADY_CHECKING,    "Already checking")

@@ -145,6 +145,23 @@ statically links a from-source libdbus (meson, `message_bus=false`). Version pin
 toolchain and dbus live in **two** places — `.github/workflows/semantic-release.yml` and
 `docker/setup-cross.sh`. **Bump them together.**
 
+## Crash reports and their symbols
+
+A release build can send a crash report when the user presses **Send report** on About - part of
+it, never the log (`include/mesh/core/crash_upload.h` has the allowlist). Two repository settings
+decide how much of that works, and a release builds without either:
+
+| Setting | Kind | What it does |
+|---|---|---|
+| `SENTRY_DSN` | secret | Compiled into every release binary as `MESHCLIENT_CRASH_DSN`. Without it the row is not offered |
+| `SENTRY_AUTH_TOKEN` | secret | Lets the release job upload each binary's symbols (`sentry-cli debug-files upload`) so a report's addresses read as function names. Needs the `project:releases` scope |
+| `SENTRY_ORG`, `SENTRY_PROJECT` | variables | Which Sentry project the symbols go to |
+
+Symbols are matched to a report by build id, not by version: every Linux binary is linked with
+`--build-id`, and a Mac binary's `LC_UUID` is its id. The shipped binaries are not stripped, so
+their symbol tables are what is uploaded - function names, not line numbers. The upload never
+fails a release. A Windows report carries no build id yet, so it arrives unsymbolicated.
+
 ## Troubleshooting
 
 - **No release was created.** On `main` nothing is released by a push; that is the design. Run
