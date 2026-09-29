@@ -83,7 +83,9 @@ void mesh_test_event_record_fn(void *ctx, const struct mesh_session *session,
         out->node_id = event->message->from;
         out->packet_id = event->message->packet_id;
         out->direction = event->message->direction;
+        out->ack = event->message->ack;
     }
+    out->previous_ack = event->previous_ack;
     if (event->node != NULL) {
         out->node_id = event->node->node_id;
         out->has_position = event->node->position.valid;

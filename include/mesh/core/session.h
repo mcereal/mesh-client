@@ -626,6 +626,11 @@ typedef void (*mesh_session_mqtt_fn)(void *ctx, const char *topic, const uint8_t
  *                time for at all - a contact typed in from a link - is not announced.
  *   RADIO        the radio we are attached to said which node it is (`radio`). Once per
  *                handshake, so a listener hears it on a connection that never publishes a frame.
+ *   DELIVERY     one of our messages changed delivery state: an answer came back from the mesh,
+ *                the radio refused it, or it could not be sent at all. `message` is the record
+ *                after the change and `previous_ack` the state it left, so a listener counts a
+ *                change rather than a state - a duplicate answer, which changes nothing, is not
+ *                announced, and neither is the radio echoing the send.
  *
  * A node is announced only once its record holds everything the packet carried: its position,
  * its telemetry, its hop count.
@@ -637,12 +642,16 @@ enum mesh_session_event_kind {
     MESH_SESSION_EVENT_NODE_HEARD,
     MESH_SESSION_EVENT_NODE_LISTED,
     MESH_SESSION_EVENT_RADIO,
+    MESH_SESSION_EVENT_DELIVERY,
 };
 
 struct mesh_session_event {
     enum mesh_session_event_kind kind;
-    /* MESSAGE: the record as appended. Valid only for the call. */
+    /* MESSAGE: the record as appended. DELIVERY: the record after the change. Valid only for
+       the call. */
     const struct mesh_message *message;
+    /* DELIVERY: the enum mesh_message_ack the record held before; `message->ack` is the new. */
+    uint8_t previous_ack;
     /* NODE_*: the roster record, after this update. Valid only for the call. */
     const struct mesh_node_summary *node;
     /* NODE_HEARD: how this one packet arrived. */
@@ -879,6 +888,15 @@ struct mesh_message *mesh_session_model_log_message(struct mesh_session *session
                                                     const struct mesh_message *message);
 void mesh_session_model_note_node(struct mesh_session *session,
                                   const struct mesh_session_event *event);
+
+/*
+ * Applies a delivery result to the outbound message with `packet_id` and, when that changed its
+ * state, announces it (MESH_SESSION_EVENT_DELIVERY). The one way anything outside the message
+ * log's own ingest marks a message - a protocol that called mesh_message_log_mark_ack() itself
+ * would change the bubble and be counted by nobody. True when a message was found.
+ */
+bool mesh_session_model_mark_ack(struct mesh_session *session, uint32_t packet_id,
+                                 enum mesh_message_ack ack, uint8_t error);
 
 /* Decodes one FromRadio protobuf and folds it into the handshake, node cache, settings or
    message log. Admin replies never reach the message log. */

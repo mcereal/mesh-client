@@ -370,6 +370,10 @@ MESH_TEST_CASE(meshcore_direct_messages_wait_for_their_ack, unit) {
     struct mesh_protocol protocol;
     static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    /* Settled through the model, so a listener counting deliveries hears MeshCore too. */
+    static struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    mesh_session_set_observer(&g_model, mesh_test_event_record_fn, &record);
 
     uint32_t packet_id = 0U;
     MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, 0x12345678U, 0U, "x", &packet_id) !=
@@ -399,6 +403,9 @@ MESH_TEST_CASE(meshcore_direct_messages_wait_for_their_ack, unit) {
     feed(&protocol, confirmed, sizeof confirmed);
     MESH_TEST_FAIL_IF(newest_message()->ack != MESH_MESSAGE_ACK_DELIVERED,
                       "the named ack marks it delivered");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_DELIVERY, 0U) != 1U ||
+                          record.events[record.count - 1U].previous_ack != MESH_MESSAGE_ACK_PENDING,
+                      "and the delivery is announced, once, from pending");
 
     /* Now one that is never acked. */
     MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, 0x40414243U, 0U, "again", &packet_id) !=

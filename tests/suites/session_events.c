@@ -9,6 +9,7 @@
  */
 
 #include "framework/mesh_test.h"
+#include "support/proto_fixture.h"
 #include "support/session_fixture.h"
 
 #include "mesh/core/message.h"
@@ -445,5 +446,70 @@ MESH_TEST_CASE(session_nodes_a_first_neighbour_after_an_empty_sync_is_news, unit
                       "encode failed");
     MESH_TEST_FAIL_IF(mesh_session_nodes_discovered(&session) != 1U,
                       "the replay after forgetting everything is the database, not news");
+    record_success(test_name);
+}
+
+/* The last DELIVERY recorded, or NULL. */
+static const struct mesh_test_event *ev_last_delivery(const struct mesh_test_event_record *record) {
+    for (size_t i = record->count; i > 0U; --i) {
+        if (record->events[i - 1U].kind == MESH_SESSION_EVENT_DELIVERY) {
+            return &record->events[i - 1U];
+        }
+    }
+    return NULL;
+}
+
+static bool ev_routing(struct mesh_session *session, uint32_t request_id,
+                       meshtastic_Routing_Error error) {
+    meshtastic_FromRadio reply = meshtastic_FromRadio_init_default;
+    reply.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    reply.packet = mesh_test_make_routing_reply(request_id, error);
+    return mesh_test_session_feed_from_radio(session, &reply);
+}
+
+/*
+ * A message of ours settling is announced with the state it left, once.
+ *
+ * Whichever way it settles: an answer from the mesh, which the log's own ingest applies, and a
+ * refusal from the radio's queue, which the session applies. A second copy of the same answer
+ * changes nothing and is not news - a listener counting deliveries would count it twice.
+ */
+MESH_TEST_CASE(session_events_a_delivery_is_announced_once_with_what_it_left, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    struct mesh_test_event_record record;
+    ev_open(&session, &capture, &record);
+
+    uint32_t delivered_id = 0U;
+    MESH_TEST_FAIL_IF(mesh_session_send_text(&session, EV_OTHER, 0U, "out", true, &delivered_id) !=
+                          0,
+                      "the send failed");
+    MESH_TEST_FAIL_IF(!ev_routing(&session, delivered_id, meshtastic_Routing_Error_NONE),
+                      "encode failed");
+    const struct mesh_test_event *event = ev_last_delivery(&record);
+    MESH_TEST_FAIL_IF(event == NULL || event->packet_id != delivered_id ||
+                          event->previous_ack != MESH_MESSAGE_ACK_PENDING ||
+                          event->ack != MESH_MESSAGE_ACK_DELIVERED,
+                      "an answer from the mesh is announced as pending to delivered");
+    MESH_TEST_FAIL_IF(!ev_routing(&session, delivered_id, meshtastic_Routing_Error_NONE),
+                      "encode failed");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_DELIVERY, 0U) != 1U,
+                      "the same answer twice is one change");
+
+    uint32_t refused_id = 0U;
+    MESH_TEST_FAIL_IF(mesh_session_send_text(&session, EV_OTHER, 0U, "two", true, &refused_id) != 0,
+                      "the send failed");
+    meshtastic_FromRadio queue = meshtastic_FromRadio_init_default;
+    queue.which_payload_variant = meshtastic_FromRadio_queueStatus_tag;
+    queue.queueStatus.res = meshtastic_Routing_Error_TOO_LARGE;
+    queue.queueStatus.mesh_packet_id = refused_id;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &queue), "encode failed");
+    event = ev_last_delivery(&record);
+    MESH_TEST_FAIL_IF(event == NULL || event->packet_id != refused_id ||
+                          event->previous_ack != MESH_MESSAGE_ACK_PENDING ||
+                          event->ack != MESH_MESSAGE_ACK_FAILED,
+                      "a refusal from the radio is announced as pending to failed");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_DELIVERY, 0U) != 2U,
+                      "two messages settled, two changes");
     record_success(test_name);
 }

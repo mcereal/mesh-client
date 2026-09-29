@@ -518,6 +518,32 @@ static void lifetime_observe_message(struct mesh_lifetime *lifetime,
     }
 }
 
+/*
+ * One of our messages settled. Only a message that asked to be confirmed is counted - one that
+ * left PENDING - so a channel message or a reaction, which nothing ever answers, is neither.
+ *
+ * An answer that comes after a failure moves the message across rather than counting it twice:
+ * MeshCore gives a command up at its deadline and still takes a late reply as a delivery, and
+ * that message was delivered, not delivered and failed. Any other change - a second failure
+ * reason, a delivered message the radio later refuses - is a message already counted once.
+ */
+static void lifetime_observe_delivery(struct mesh_lifetime *lifetime,
+                                      const struct mesh_message *message, uint8_t previous) {
+    const bool delivered = message->ack == MESH_MESSAGE_ACK_DELIVERED;
+    const bool failed = message->ack == MESH_MESSAGE_ACK_FAILED;
+    if (previous == MESH_MESSAGE_ACK_PENDING && (delivered || failed)) {
+        lifetime_bump(lifetime,
+                      delivered ? MESH_LIFETIME_MESSAGES_DELIVERED : MESH_LIFETIME_MESSAGES_FAILED);
+        return;
+    }
+    if (previous == MESH_MESSAGE_ACK_FAILED && delivered) {
+        if (lifetime->values[MESH_LIFETIME_MESSAGES_FAILED] > 0U) {
+            lifetime->values[MESH_LIFETIME_MESSAGES_FAILED]--;
+        }
+        lifetime_bump(lifetime, MESH_LIFETIME_MESSAGES_DELIVERED);
+    }
+}
+
 void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
                            const struct mesh_session_event *event) {
     struct mesh_lifetime *lifetime = ctx;
@@ -533,6 +559,12 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
     if (event->kind == MESH_SESSION_EVENT_MESSAGE) {
         if (event->message != NULL) {
             lifetime_observe_message(lifetime, event->message);
+        }
+        return;
+    }
+    if (event->kind == MESH_SESSION_EVENT_DELIVERY) {
+        if (event->message != NULL) {
+            lifetime_observe_delivery(lifetime, event->message, event->previous_ack);
         }
         return;
     }

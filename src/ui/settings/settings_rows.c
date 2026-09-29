@@ -3452,6 +3452,25 @@ static void stats_since_row(struct item_list *list, uint32_t since) {
     item_text(list, MESH_STR_STATS_SINCE, INKSTAND_FORM_INFO, value);
 }
 
+/*
+ * How many of the messages that asked to be confirmed were: a whole percentage, rounded down so
+ * a single failure never reads as 100%. "none yet" until something has been answered either way -
+ * a rate of nothing is not 0%, and not 100% either.
+ */
+static void stats_rate_row(struct item_list *list, uint64_t delivered, uint64_t failed) {
+    const uint64_t settled = delivered + failed;
+    if (settled == 0U || settled < delivered) {
+        item_str(list, MESH_STR_STATS_DELIVERY_RATE, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
+        return;
+    }
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    const unsigned percent = (unsigned)(delivered > UINT64_MAX / 100U ? delivered / (settled / 100U)
+                                                                      : delivered * 100U / settled);
+    inkcell_str_format(value, sizeof value, MESH_STR_STATS_PERCENT,
+                       percent > 100U ? 100U : percent);
+    item_text(list, MESH_STR_STATS_DELIVERY_RATE, INKSTAND_FORM_INFO, value);
+}
+
 /* Who set the record above it, and on what day - or nothing at all when there is nobody to name:
    a record from a card written before holders were kept, which is still a record. */
 static void stats_holder_row(struct item_list *list, const struct mesh_ui_lifetime_holder *holder) {
@@ -3492,6 +3511,11 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     stats_count_row(list, MESH_STR_STATS_DIRECT_RECEIVED, stats->direct_received);
     stats_count_row(list, MESH_STR_STATS_REACTIONS_SENT, stats->reactions_sent);
     stats_count_row(list, MESH_STR_STATS_REACTIONS_RECEIVED, stats->reactions_received);
+
+    item_heading(list, MESH_STR_STATS_HEAD_DELIVERY);
+    stats_count_row(list, MESH_STR_STATS_DELIVERED, stats->messages_delivered);
+    stats_count_row(list, MESH_STR_STATS_FAILED, stats->messages_failed);
+    stats_rate_row(list, stats->messages_delivered, stats->messages_failed);
 
     item_heading(list, MESH_STR_STATS_HEAD_NODES);
     stats_nodes_row(list, MESH_STR_STATS_NODES_HEARD, stats->nodes_heard, stats->nodes_floor);

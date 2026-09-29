@@ -77,7 +77,7 @@ static void mesh_meshcore_pop(struct mesh_meshcore *meshcore) {
 static void mesh_meshcore_mark(struct mesh_meshcore *meshcore, uint32_t packet_id,
                                enum mesh_message_ack ack) {
     if (packet_id != 0U) {
-        (void)mesh_message_log_mark_ack(&meshcore->model->messages, packet_id, ack, 0U);
+        (void)mesh_session_model_mark_ack(meshcore->model, packet_id, ack, 0U);
     }
 }
 

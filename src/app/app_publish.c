@@ -1095,6 +1095,8 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
     dst->direct_received = mesh_lifetime_value(lifetime, MESH_LIFETIME_DIRECT_RECEIVED);
     dst->reactions_sent = mesh_lifetime_value(lifetime, MESH_LIFETIME_REACTIONS_SENT);
     dst->reactions_received = mesh_lifetime_value(lifetime, MESH_LIFETIME_REACTIONS_RECEIVED);
+    dst->messages_delivered = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_DELIVERED);
+    dst->messages_failed = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_FAILED);
     dst->nodes_heard = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_NODES_HEARD);
     dst->nodes_heard_rf = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_NODES_HEARD_RF);
     dst->radios = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_RADIOS);

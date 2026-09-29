@@ -132,6 +132,63 @@ MESH_TEST_CASE(lifetime_counts_messages_by_direction_and_kind, unit) {
     record_success(test_name);
 }
 
+static void lt_settle(uint32_t packet_id, enum mesh_message_ack previous,
+                      enum mesh_message_ack now) {
+    struct mesh_message message;
+    memset(&message, 0, sizeof message);
+    message.packet_id = packet_id;
+    message.from = LT_US;
+    message.to = LT_PEER;
+    message.direction = MESH_MESSAGE_OUTBOUND;
+    message.ack = (uint8_t)now;
+    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_DELIVERY,
+                                             .message = &message,
+                                             .previous_ack = (uint8_t)previous};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+}
+
+/*
+ * A message that asked to be confirmed counts once, as delivered or as not.
+ *
+ * The session announces a change, not a state, so the count is by what the message left: one
+ * that was never waiting (a channel message, a reaction) is neither. A late answer to one given
+ * up on moves it across rather than counting it twice - it was delivered, not both - and any
+ * other change is a message already counted.
+ */
+MESH_TEST_CASE(lifetime_counts_each_delivery_once, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+
+    lt_settle(1U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_DELIVERED);
+    lt_settle(2U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_FAILED);
+    lt_settle(3U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_FAILED);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_DELIVERED) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_FAILED) != 2U,
+                      "one delivered and two failed");
+
+    lt_settle(4U, MESH_MESSAGE_ACK_NONE, MESH_MESSAGE_ACK_DELIVERED);
+    lt_settle(5U, MESH_MESSAGE_ACK_NONE, MESH_MESSAGE_ACK_FAILED);
+    lt_settle(6U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_NONE);
+    lt_settle(1U, MESH_MESSAGE_ACK_DELIVERED, MESH_MESSAGE_ACK_FAILED);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_DELIVERED) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_FAILED) != 2U,
+                      "nothing never waiting is counted, nor a message counted already");
+
+    lt_settle(2U, MESH_MESSAGE_ACK_FAILED, MESH_MESSAGE_ACK_DELIVERED);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_DELIVERED) != 2U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_FAILED) != 1U,
+                      "a late answer moves a failure to a delivery");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_DELIVERED) != 2U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_FAILED) != 1U,
+                      "and both survive a restart");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(lifetime_survives_a_restart, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");

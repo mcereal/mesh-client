@@ -235,7 +235,11 @@ They are read on the **Stats** page, the `stats` verb on the Status tab's Mesh c
 since every value on it is this client's. The app copies the values out by name into
 `struct mesh_ui_lifetime_stats` on the About facts, so a stat added to `lifetime.def` reaches the
 page only once it has a field there and a row in `build_stats()`. A record nothing has set yet reads
-"none yet" rather than 0. A record that has been set has a "Set by" row under it naming the node
+"none yet" rather than 0. The Delivery group counts the messages that asked to be confirmed:
+delivered, not delivered, and the first as a share of both, rounded down so one failure never reads
+as 100%. It is fed by the session's `MESH_SESSION_EVENT_DELIVERY`, which every path that settles a
+message goes through - a Routing reply, a queue refusal, a failed send and MeshCore's
+confirmations, via `mesh_session_model_mark_ack()`. A record that has been set has a "Set by" row under it naming the node
 and the day: the core keeps the node number (`mesh_lifetime_holder()`, `<key>.holder`, `.held_value` and `.held_at` lines in
 `totals`, short enough for an older build to carry through, and believed only while
 `held_value` is still the record), and the app turns it
