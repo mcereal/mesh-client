@@ -437,6 +437,8 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
             app->backup_restore.sequence = sequence;
             app->backup_restore.stage = APP_RESTORE_SENT;
             app->backup_restore.reboot_generation = app->session.reboot_generation;
+            app->backup_restore.transactions_failed =
+                mesh_session_settings(&app->session)->transactions_failed;
             app->backup_listing.compare_node = node;
             app->backup_listing.compare_sequence = sequence;
             app->backup_listing.compare_state = MESH_UI_BACKUP_COMPARE_RESTORING;
@@ -498,6 +500,24 @@ static void app_backup_restore_tick(struct mesh_app *app) {
         const bool restarted =
             app->session.reboot_generation != app->backup_restore.reboot_generation;
         const struct mesh_radio_settings *settings = mesh_session_settings(&app->session);
+        /* The radio refused the transaction - its begin or its commit - so nothing was saved:
+           said, and the screen compares again to show the radio as it still is. */
+        if (settings != NULL &&
+            settings->transactions_failed != app->backup_restore.transactions_failed) {
+            char toast[MESH_UI_NAV_TOAST_MAX];
+            inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESTORE_REFUSED,
+                               (int)settings->last_transaction_error);
+            inkwell_log_warn("app", "Restore of backup %u of 0x%08x refused by the radio: %d",
+                             (unsigned)app->backup_restore.sequence,
+                             (unsigned)app->backup_restore.node,
+                             (int)settings->last_transaction_error);
+            const uint32_t node = app->backup_restore.node;
+            const uint32_t sequence = app->backup_restore.sequence;
+            app_backup_restore_end(app);
+            mesh_app_backup_compare(app, node, sequence);
+            mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+            return;
+        }
         const bool linked = mesh_session_handshake(&app->session) != NULL &&
                             mesh_session_handshake(&app->session)->has_my_info;
         if (!restarted && linked && settings != NULL && mesh_radio_settings_busy(settings)) {

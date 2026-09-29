@@ -3321,6 +3321,8 @@ MESH_STR_ENTRY(TOAST_RESTORE_UNWRITABLE,  "What differs cannot be written to thi
 MESH_STR_ENTRY(TOAST_RESTORE_NO_COPY,     "Not restored: could not save the radio first (%d)")
 MESH_STR_ENTRY(TOAST_RESTORE_BUSY,        "The radio is busy; try again in a moment")
 MESH_STR_ENTRY(TOAST_RESTORE_FAILED,      "Could not restore the backup (%d)")
+/* The radio said no to the restore as a whole; the number is its reason, for a bug report. */
+MESH_STR_ENTRY(TOAST_RESTORE_REFUSED,     "The radio refused the restore (%d); nothing was changed")
 MESH_STR_ENTRY(TOAST_RESTORE_DONE,        "Radio restored from the backup")
 MESH_STR_PLURAL_ENTRY(TOAST_RESTORE_PARTIAL, "Restored; %u setting still differs", "Restored; %u settings still differ")
 

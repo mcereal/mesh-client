@@ -6006,3 +6006,29 @@ MESH_TEST_CASE(app_backup_restore_refuses_without_a_copy_or_a_write, unit) {
     MESH_TEST_FAIL_IF(!refused, "a restore went ahead without the radio saved first");
     record_success(test_name);
 }
+
+MESH_TEST_CASE(app_backup_restore_refused_by_the_radio_is_said_and_ended, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    struct mesh_radio_settings *radio = mesh_session_model_settings(&app.session);
+    mesh_app_backup_tick(&app);
+    radio->lora.hop_limit = 3U;
+    mesh_app_backup_restore(&app, 0x0badcafeU, 1U);
+    const bool sent = app.backup_restore.stage != 0U;
+    /* The radio refused the begin: the queue has dropped the transaction and counted it. */
+    app_restore_radio_answered(&app);
+    radio->transactions_failed += 1U;
+    radio->last_transaction_error = 11;
+    mesh_app_backup_tick(&app);
+    const bool ended = app.backup_restore.stage == 0U && app.backups.protect_node == 0U &&
+                       app.backup_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE &&
+                       app.backup_listing.diff.total == 1U;
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!sent, "the restore was not sent");
+    MESH_TEST_FAIL_IF(!ended, "a refused restore was not ended with the radio compared again");
+    record_success(test_name);
+}

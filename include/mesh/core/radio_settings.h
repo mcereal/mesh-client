@@ -419,6 +419,9 @@ struct mesh_radio_settings {
        of the two deadlines above applies, and whether the reply may be folded into the
        sections this struct keeps. */
     uint32_t pending_dest;
+    /* The kind of the request in flight, for the two whose answer decides what happens to the
+       rest of the queue: an edit transaction's begin and commit. */
+    uint8_t pending_kind; /* enum mesh_admin_request_kind */
     unsigned timeouts;
     /* Consecutive unanswered *remote* requests, against MESH_RADIO_SETTINGS_REMOTE_GIVE_UP.
        Reset by any admin reply. */
@@ -437,6 +440,15 @@ struct mesh_radio_settings {
     uint32_t writes_failed;   /* Routing error, timeout, or the GATT write itself failed */
     int32_t last_write_error; /* meshtastic_Routing_Error, MESH_RADIO_SETTINGS_WRITE_TIMEOUT,
                                  or a negative errno from the transport */
+    /*
+     * Edit transactions that did not take, and why: a begin_edit_settings rejected or unanswered,
+     * in which case the transaction's writes and its commit are dropped from the queue unsent -
+     * sent outside a transaction, the first write that restarts the radio would lose the rest -
+     * or a commit_edit_settings rejected. A commit that goes unanswered is not counted: the
+     * radio restarting before it can ack is the commit working.
+     */
+    uint32_t transactions_failed;
+    int32_t last_transaction_error; /* as last_write_error */
 };
 
 /*

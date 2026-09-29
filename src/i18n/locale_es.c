@@ -1903,6 +1903,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_RESTORE_NO_COPY] = "No restaurada: no se pudo guardar antes la radio (%d)",
     [MESH_STR_TOAST_RESTORE_BUSY] = "La radio está ocupada; inténtalo de nuevo en un momento",
     [MESH_STR_TOAST_RESTORE_FAILED] = "No se pudo restaurar la copia (%d)",
+    [MESH_STR_TOAST_RESTORE_REFUSED] = "La radio rechazó la restauración (%d); no se cambió nada",
     [MESH_STR_TOAST_RESTORE_DONE] = "Radio restaurada desde la copia",
     [MESH_STR_TOAST_RESTORE_PARTIAL_ONE] = "Restaurada; %u ajuste sigue siendo distinto",
     [MESH_STR_TOAST_RESTORE_PARTIAL_OTHER] = "Restaurada; %u ajustes siguen siendo distintos",

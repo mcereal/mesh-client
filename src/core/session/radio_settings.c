@@ -66,6 +66,7 @@ void mesh_radio_settings_reset_session(struct mesh_radio_settings *settings) {
     settings->pending_sent_at_ms = 0U;
     settings->pending_is_write = false;
     settings->pending_dest = 0U;
+    settings->pending_kind = 0U;
     settings->timeouts = 0U;
     settings->remote_silence = 0U;
     settings->local_silence = 0U;
@@ -458,6 +459,47 @@ static void mesh_radio_settings_record_write_result(struct mesh_radio_settings *
     }
 }
 
+/*
+ * An edit transaction that cannot go on: its begin was refused or went unanswered. What it had
+ * queued behind the begin - the writes and the commit - is dropped unsent, since each write
+ * outside a transaction is saved on its own and the first that restarts the radio takes the
+ * rest of the restore down with it. Anything queued after the commit stays.
+ */
+static void mesh_radio_settings_abort_transaction(struct mesh_radio_settings *settings,
+                                                  int32_t error) {
+    settings->transactions_failed += 1U;
+    settings->last_transaction_error = error;
+    size_t dropped = 0U;
+    while (settings->queue_len > 0U) {
+        const enum mesh_admin_request_kind kind = settings->queue[settings->queue_head].kind;
+        settings->queue_head = (settings->queue_head + 1U) % MESH_RADIO_SETTINGS_FETCH_MAX;
+        settings->queue_len -= 1U;
+        dropped += 1U;
+        if (kind == MESH_ADMIN_COMMIT_EDIT) {
+            break;
+        }
+    }
+    inkwell_log_warn("admin", "Edit transaction abandoned (%d): %zu requests dropped", (int)error,
+                     dropped);
+}
+
+/* What the answer to the request in flight means for an edit transaction, if it was one's. */
+static void mesh_radio_settings_transaction_result(struct mesh_radio_settings *settings,
+                                                   int32_t error) {
+    if (error == 0) {
+        return;
+    }
+    if (settings->pending_kind == (uint8_t)MESH_ADMIN_BEGIN_EDIT) {
+        mesh_radio_settings_abort_transaction(settings, error);
+    } else if (settings->pending_kind == (uint8_t)MESH_ADMIN_COMMIT_EDIT &&
+               error != MESH_RADIO_SETTINGS_WRITE_TIMEOUT) {
+        settings->transactions_failed += 1U;
+        settings->last_transaction_error = error;
+        inkwell_log_warn("admin", "Edit transaction's commit rejected: routing error %d",
+                         (int)error);
+    }
+}
+
 /* Releases the queue when `request_id` answers the request in flight. `error` is the Routing
    error the reply carried (0 for an AdminMessage reply or a clean ack). */
 static bool mesh_radio_settings_finish_pending(struct mesh_radio_settings *settings,
@@ -468,6 +510,8 @@ static bool mesh_radio_settings_finish_pending(struct mesh_radio_settings *setti
     if (settings->pending_is_write) {
         mesh_radio_settings_record_write_result(settings, error);
     }
+    mesh_radio_settings_transaction_result(settings, error);
+    settings->pending_kind = 0U;
     settings->pending_request_id = 0U;
     settings->pending_sent_at_ms = 0U;
     settings->pending_is_write = false;
@@ -1570,6 +1614,11 @@ bool mesh_radio_settings_write_pending(const struct mesh_radio_settings *setting
 
 void mesh_radio_settings_mark_unsent(struct mesh_radio_settings *settings,
                                      const struct mesh_admin_request *request, int error) {
+    if (settings != NULL && request != NULL && request->kind == MESH_ADMIN_BEGIN_EDIT) {
+        /* A begin that never left: the transaction behind it must not go out without one. */
+        mesh_radio_settings_abort_transaction(settings, error != 0 ? (int32_t)error : -EIO);
+        return;
+    }
     if (settings == NULL || request == NULL || !mesh_admin_request_is_write(request->kind)) {
         return;
     }
@@ -1668,6 +1717,8 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
         if (settings->pending_is_write) {
             mesh_radio_settings_record_write_result(settings, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
         }
+        mesh_radio_settings_transaction_result(settings, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
+        settings->pending_kind = 0U;
         const bool give_up = settings->remote_silence >= MESH_RADIO_SETTINGS_REMOTE_GIVE_UP;
         const bool link_silent = settings->local_silence >= MESH_RADIO_SETTINGS_LOCAL_GIVE_UP;
         settings->pending_request_id = 0U;
@@ -1717,6 +1768,7 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
        correctly. The caller's mark_sent() confirms it actually left. */
     settings->pending_is_write = mesh_admin_request_is_write(out->kind);
     settings->pending_dest = out->dest;
+    settings->pending_kind = (uint8_t)out->kind;
     return true;
 }
 

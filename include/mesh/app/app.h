@@ -268,6 +268,8 @@ struct mesh_app {
         uint32_t sequence;
         uint8_t stage;
         uint64_t reboot_generation;
+        /* The admin queue's failed-transaction count when this one was queued. */
+        uint32_t transactions_failed;
     } backup_restore;
     /* The node whose trend was last read off the card, so the read happens when the reader moves
        rather than on every publish. 0 when no detail screen is open. */
