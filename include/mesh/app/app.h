@@ -17,6 +17,7 @@
 #include "mesh/core/lifetime.h"
 #include "mesh/core/map_packs.h"
 #include "mesh/core/meshcore.h"
+#include "mesh/core/meshcore_backup.h"
 #include "mesh/core/protocol.h"
 #include "mesh/core/radio_backup.h"
 #include "mesh/core/session.h"
@@ -259,9 +260,9 @@ struct mesh_app {
        the store opens and after every write to it, never on a publish. See app_backup.c. */
     struct mesh_ui_backups backup_listing;
     /*
-     * A restore in flight: which backup, and how far it has got - SENT while the transaction is
-     * in the admin queue, READING once the radio is being read again (after a restart, or a
-     * refresh when it did not restart), NONE once the result has been judged. See app_backup.c.
+     * A restore in flight: which backup, and how far it has got - SENT while the writes are going
+     * out (Meshtastic's transaction in the admin queue, or MeshCore's saves), READING once the
+     * radio is being read again, NONE once the result has been judged. See app_backup.c.
      */
     struct {
         uint32_t node;
@@ -270,6 +271,11 @@ struct mesh_app {
         uint64_t reboot_generation;
         /* The admin queue's failed-transaction count when this one was queued. */
         uint32_t transactions_failed;
+        /* A MeshCore restore's saves, one sent at a time as the last is answered; `step` is
+           the next to send. */
+        struct mesh_meshcore_settings_write steps[MESH_MESHCORE_BACKUP_PLAN_MAX];
+        uint8_t step_count;
+        uint8_t step;
     } backup_restore;
     /* The node whose trend was last read off the card, so the read happens when the reader moves
        rather than on every publish. 0 when no detail screen is open. */

@@ -272,8 +272,13 @@ names them with the Settings tab's own labels, or by the field's number when the
 it. A MeshCore comparison matches contacts by key and leaves out routes and timestamps, which move
 every time the radio hears a contact again.
 
-**Restoring** is offered over a comparison that found something, for a Meshtastic radio on the
-link. `mesh_radio_backup_meshtastic_plan()` turns each section whose bytes differ into the write
+**Restoring** is offered over a comparison that found something other than contacts, for the
+radio on the link. A Meshtastic radio's is one transaction and a MeshCore radio's is ordinary
+saves; either way the radio as it stands is saved to the card first, and the backup is compared
+with the radio once more at the end - no difference is a restore that took, and anything left is
+listed on the same screen.
+
+On Meshtastic, `mesh_radio_backup_meshtastic_plan()` turns each section whose bytes differ into the write
 that puts it back, and the writes go as one edit transaction
 (`mesh_radio_settings_queue_transaction()`): a passkey refresh, `begin_edit_settings`, the writes,
 `commit_edit_settings`. The firmware holds the save and the restart until the commit, so a LoRa
@@ -281,9 +286,17 @@ write early in the list does not reboot the radio before the rest arrive. There 
 per write - three slots a section would not fit a whole radio in the 48-slot queue - and a
 transaction that does not fit is refused before anything is queued. The radio keeps its own key
 pair: the Security and owner writes carry the keys it has now, never the backup's empty private
-key. The radio as it stands is saved to the card first, and once it has restarted and been read
-again (or refreshed, when it did not restart) the backup is compared with it once more: no
-difference is a restore that took, and anything left is listed on the same screen.
+key. The comparison waits for the radio to restart and be read again (or be refreshed, when it
+did not restart).
+
+On MeshCore, `mesh_meshcore_backup_plan()` makes a save of every settings group that differs,
+written whole with the backup's values, and one save per channel slot that differs, since a save
+carries one slot. The conversation holds one save outstanding and sixteen commands queued, so the
+saves go out one at a time as each is answered, and each reads its part back; nothing restarts. A
+value outside the firmware's bounds (`mesh_meshcore_radio_params_valid()`, the power ceiling the
+radio reports), the advert type, and a slot the radio does not have are counted rather than sent,
+and so are contacts, which a restore does not write: the comparison at the end still lists them,
+and the toast says the settings were restored and the contacts left as they are.
 
 ## Input
 
@@ -1294,7 +1307,7 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `airtime BUSY [TX]`, `airtime history MINUTES` | the airtime row and meter; a chart's worth of it |
 | `update check\|download [PCT]\|available\|ready` | the self-updater's state |
 | `firmware ... `, `firmware-channel stable\|alpha` | what the client knows about the *radio's* firmware |
-| `backups list\|compare\|restoring\|same` | the backups on the card as the app publishes them; a finished comparison of the newest, or a restore of it in flight |
+| `backups list\|compare\|restoring\|same\|left` | the backups on the card as the app publishes them; a finished comparison of the newest, or a restore of it in flight; after `protocol meshcore`, a MeshCore radio's, and `left` what a restore leaves (a contact) |
 | `syncing on\|off` | put the config handshake back in flight |
 | `link up\|down` | attach or drop the radio, leaving the roster and config alone |
 | `offradio NAME\|all` | mark nodes the radio's NodeDB no longer carries |

@@ -2,12 +2,13 @@
  * MeshCore's companion protocol: the framing a serial link wraps it in, the codec, and the
  * conversation that fills the session's model.
  *
- * The SELF_INFO and DEVICE_INFO frames below are the ones a Heltec V3 on companion-v1.17.1
- * sent over BLE, byte for byte; the rest are built to the firmware's layouts
+ * The SELF_INFO and DEVICE_INFO frames are the ones a Heltec V3 on companion-v1.17.1 sent over
+ * BLE, byte for byte (support/meshcore_fixture.c); the rest are built to the firmware's layouts
  * (examples/companion_radio/MyMesh.cpp).
  */
 
 #include "framework/mesh_test.h"
+#include "support/meshcore_fixture.h"
 #include "support/session_fixture.h"
 
 #include "inkwell/base/time.h"
@@ -26,88 +27,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/* ------------------------------------------------------------------ captured from a radio */
-
-static const uint8_t k_device_info[] = {
-    0x0d, 0x0d, 0xaf, 0x28, 0x1a, 0xa5, 0x09, 0x00, 0x31, 0x34, 0x2d, 0x41, 0x75, 0x67,
-    0x2d, 0x32, 0x30, 0x32, 0x36, 0x00, 0x48, 0x65, 0x6c, 0x74, 0x65, 0x63, 0x20, 0x56,
-    0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x76, 0x31, 0x2e, 0x31, 0x37, 0x2e, 0x31, 0x2d, 0x64, 0x39,
-    0x32, 0x39, 0x36, 0x34, 0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-};
-
-static const uint8_t k_self_info[] = {
-    0x05, 0x01, 0x16, 0x16, 0xb8, 0xda, 0x09, 0xb0, 0x98, 0xf4, 0xdd, 0x8c, 0x5d, 0xe6, 0x21, 0xf1,
-    0xfc, 0x92, 0x3b, 0x02, 0x84, 0xb3, 0xf6, 0xc7, 0x72, 0x7d, 0x41, 0x29, 0xeb, 0x10, 0xa2, 0xb2,
-    0xe3, 0xd4, 0xa4, 0x58, 0x2a, 0xd7, 0x17, 0x01, 0xdf, 0x18, 0xfe, 0xfb, 0x00, 0x00, 0x00, 0x00,
-    0xbd, 0xe4, 0x0d, 0x00, 0x24, 0xf4, 0x00, 0x00, 0x07, 0x05, 0x4d, 0x50, 0x42, 0x43,
-};
-
-/* ------------------------------------------------------------------ frames built to layout */
-
-static void put_u32(uint8_t *out, uint32_t value) {
-    out[0] = (uint8_t)value;
-    out[1] = (uint8_t)(value >> 8U);
-    out[2] = (uint8_t)(value >> 16U);
-    out[3] = (uint8_t)(value >> 24U);
-}
-
-/* A 148-byte contact record for a key starting with `lead`. */
-static size_t build_contact(uint8_t *out, uint8_t code, uint8_t lead, const char *name,
-                            uint8_t type, uint8_t path_len, uint32_t lastmod) {
-    memset(out, 0, 148U);
-    size_t i = 0U;
-    out[i++] = code;
-    for (size_t k = 0; k < 32U; ++k) {
-        out[i + k] = (uint8_t)(lead + k);
-    }
-    i += 32U;
-    out[i++] = type;
-    out[i++] = 0U;
-    out[i++] = path_len;
-    i += 64U;
-    memcpy(out + i, name, strlen(name));
-    i += 32U;
-    put_u32(out + i, lastmod - 60U); /* the sender's own advert stamp */
-    i += 4U;
-    put_u32(out + i, (uint32_t)(int32_t)37774900);
-    i += 4U;
-    put_u32(out + i, (uint32_t)(int32_t)-122419400);
-    i += 4U;
-    put_u32(out + i, lastmod);
-    i += 4U;
-    return i;
-}
-
-/* ------------------------------------------------------------------ a fake link */
-
-struct wire {
-    uint8_t frames[32][MESH_MESHCORE_MAX_FRAME];
-    size_t lens[32];
-    uint32_t ids[32];
-    size_t count;
-    bool refuse; /* the link's queue is full */
-};
-
-static int wire_send(void *ctx, const uint8_t *frame, size_t len, uint32_t frame_id) {
-    struct wire *wire = ctx;
-    if (wire->refuse) {
-        return -EAGAIN;
-    }
-    if (wire->count >= 32U || len > MESH_MESHCORE_MAX_FRAME) {
-        return -ENOBUFS;
-    }
-    memcpy(wire->frames[wire->count], frame, len);
-    wire->lens[wire->count] = len;
-    wire->ids[wire->count] = frame_id;
-    wire->count += 1U;
-    return 0;
-}
-
-static uint8_t wire_last(const struct wire *wire) {
-    return wire->count > 0U ? wire->frames[wire->count - 1U][0] : 0U;
-}
+/* The recorded frames, the fake link and the contact builder are support/meshcore_fixture.c. */
 
 static struct mesh_session g_model;
 static struct mesh_meshcore g_meshcore;
@@ -120,60 +40,12 @@ static void feed_code(const struct mesh_protocol *protocol, uint8_t code) {
     feed(protocol, &code, 1U);
 }
 
-/* Drives a handshake to READY: one known contact ("Alice", key 0x40...), one channel. */
-static bool handshake(struct mesh_protocol *protocol, struct wire *wire) {
+/* A handshake to READY on a fresh model: one known contact ("Alice", key 0x40...), one channel. */
+static bool handshake(struct mesh_protocol *protocol, struct mesh_test_meshcore_wire *wire) {
     mesh_session_init(&g_model);
     mesh_meshcore_init(&g_meshcore, &g_model);
     *protocol = mesh_meshcore_protocol(&g_meshcore);
-    memset(wire, 0, sizeof *wire);
-    mesh_protocol_attach(protocol, wire_send, wire);
-    if (mesh_protocol_begin(protocol) != 0 || wire_last(wire) != MESH_MESHCORE_CMD_DEVICE_QUERY ||
-        wire->count != 1U) {
-        return false;
-    }
-    uint8_t device[sizeof k_device_info];
-    memcpy(device, k_device_info, sizeof device);
-    device[3] = 1U; /* one channel slot, so the walk is short */
-    feed(protocol, device, sizeof device);
-    if (wire_last(wire) != MESH_MESHCORE_CMD_APP_START) {
-        return false;
-    }
-    feed(protocol, k_self_info, sizeof k_self_info);
-    if (wire_last(wire) == MESH_MESHCORE_CMD_SET_DEVICE_TIME) {
-        feed_code(protocol, MESH_MESHCORE_RESP_OK);
-    }
-    if (wire_last(wire) != MESH_MESHCORE_CMD_GET_CONTACTS) {
-        return false;
-    }
-    uint8_t frame[160];
-    uint8_t start[5] = {MESH_MESHCORE_RESP_CONTACTS_START, 1, 0, 0, 0};
-    feed(protocol, start, sizeof start);
-    feed(protocol, frame,
-         build_contact(frame, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice", MESH_MESHCORE_ADV_CHAT, 2U,
-                       1700000000U));
-    uint8_t end[5] = {MESH_MESHCORE_RESP_END_OF_CONTACTS};
-    put_u32(end + 1, 1700000000U);
-    feed(protocol, end, sizeof end);
-    if (wire_last(wire) != MESH_MESHCORE_CMD_GET_CHANNEL) {
-        return false;
-    }
-    uint8_t channel[2 + 32 + 16];
-    memset(channel, 0, sizeof channel);
-    channel[0] = MESH_MESHCORE_RESP_CHANNEL_INFO;
-    memcpy(channel + 2, "Public", 6U);
-    channel[34] = 0x8b;
-    feed(protocol, channel, sizeof channel);
-    /* Ready: the message queue is drained, then the battery asked for. */
-    if (wire_last(wire) != MESH_MESHCORE_CMD_SYNC_NEXT_MESSAGE) {
-        return false;
-    }
-    feed_code(protocol, MESH_MESHCORE_RESP_NO_MORE_MESSAGES);
-    if (wire_last(wire) != MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE) {
-        return false;
-    }
-    uint8_t battery[11] = {MESH_MESHCORE_RESP_BATT_AND_STORAGE, 0x10, 0x0f};
-    feed(protocol, battery, sizeof battery);
-    return mesh_meshcore_ready(&g_meshcore);
+    return mesh_test_meshcore_sync(&g_meshcore, protocol, wire);
 }
 
 static const struct mesh_node_summary *model_node(uint32_t id) {
@@ -260,9 +132,10 @@ MESH_TEST_CASE(meshcore_framing_parses_split_frames_among_junk, unit) {
 
 MESH_TEST_CASE(meshcore_decodes_what_a_heltec_sent, unit) {
     struct mesh_meshcore_device_info device;
-    MESH_TEST_FAIL_IF(
-        mesh_meshcore_decode_device_info(k_device_info, sizeof k_device_info, &device) != 0,
-        "DEVICE_INFO decodes");
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_device_info(mesh_test_meshcore_device_info,
+                                                       sizeof mesh_test_meshcore_device_info,
+                                                       &device) != 0,
+                      "DEVICE_INFO decodes");
     MESH_TEST_FAIL_IF(device.firmware_version != 13U || device.max_contacts != 350U ||
                           device.max_channels != 40U || device.ble_pin != 632090U,
                       "version 13, 350 contacts, 40 channels, the fixed PIN");
@@ -272,7 +145,9 @@ MESH_TEST_CASE(meshcore_decodes_what_a_heltec_sent, unit) {
                       "the fixed-width strings stop at their padding");
 
     struct mesh_meshcore_self_info self;
-    MESH_TEST_FAIL_IF(mesh_meshcore_decode_self_info(k_self_info, sizeof k_self_info, &self) != 0,
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_self_info(mesh_test_meshcore_self_info,
+                                                     sizeof mesh_test_meshcore_self_info,
+                                                     &self) != 0,
                       "SELF_INFO decodes");
     MESH_TEST_FAIL_IF(self.adv_type != MESH_MESHCORE_ADV_CHAT || self.tx_power_dbm != 22U ||
                           self.public_key[0] != 0xb8 || self.public_key[31] != 0x58,
@@ -283,7 +158,8 @@ MESH_TEST_CASE(meshcore_decodes_what_a_heltec_sent, unit) {
     MESH_TEST_FAIL_IF(strcmp(self.name, "MPBC") != 0, "the name runs to the end, unterminated");
     MESH_TEST_FAIL_IF(mesh_meshcore_node_id(self.public_key, 32U) != 0xb8da09b0U,
                       "a node's number is its key's first four bytes, big-endian");
-    MESH_TEST_FAIL_IF(mesh_meshcore_decode_self_info(k_self_info, 20U, &self) != -EBADMSG,
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_self_info(mesh_test_meshcore_self_info, 20U, &self) !=
+                          -EBADMSG,
                       "a short SELF_INFO is refused, not read past");
     record_success(test_name);
 }
@@ -358,7 +234,7 @@ MESH_TEST_CASE(meshcore_encodes_commands_to_layout, unit) {
  */
 MESH_TEST_CASE(meshcore_handshake_fills_the_model, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
 
     const struct mesh_handshake_status *status = &g_model.handshake;
@@ -403,18 +279,18 @@ MESH_TEST_CASE(meshcore_handshake_fills_the_model, unit) {
  */
 MESH_TEST_CASE(meshcore_drains_messages_into_the_log, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
 
     feed_code(&protocol, MESH_MESHCORE_PUSH_MSG_WAITING);
-    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_SYNC_NEXT_MESSAGE,
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_SYNC_NEXT_MESSAGE,
                       "a waiting message is asked for");
     const uint8_t direct[] = {16,   0x14, 0, 0, 0x40, 0x41, 0x42, 0x43, 0x44,
                               0x45, 0xFF, 0, 0, 0,    0,    0,    'y',  'o'};
     const size_t before = wire.count;
     feed(&protocol, direct, sizeof direct);
-    MESH_TEST_FAIL_IF(wire.count != before + 1U ||
-                          wire_last(&wire) != MESH_MESHCORE_CMD_SYNC_NEXT_MESSAGE,
+    MESH_TEST_FAIL_IF(wire.count != before + 1U || mesh_test_meshcore_wire_last(&wire) !=
+                                                       MESH_MESHCORE_CMD_SYNC_NEXT_MESSAGE,
                       "each message asks for the next");
     const struct mesh_message *message = newest_message();
     MESH_TEST_FAIL_IF(message == NULL || message->from != 0x40414243U ||
@@ -451,7 +327,7 @@ MESH_TEST_CASE(meshcore_drains_messages_into_the_log, unit) {
  */
 MESH_TEST_CASE(meshcore_direct_messages_wait_for_their_ack, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
 
     uint32_t packet_id = 0U;
@@ -469,16 +345,16 @@ MESH_TEST_CASE(meshcore_direct_messages_wait_for_their_ack, unit) {
     MESH_TEST_FAIL_IF(newest_message()->ack != MESH_MESSAGE_ACK_PENDING, "logged as pending");
 
     uint8_t sent[10] = {MESH_MESHCORE_RESP_SENT, 1};
-    put_u32(sent + 2, 0xDEADBEEFU);
-    put_u32(sent + 6, 1000U);
+    mesh_test_put_u32(sent + 2, 0xDEADBEEFU);
+    mesh_test_put_u32(sent + 6, 1000U);
     feed(&protocol, sent, sizeof sent);
 
     /* The wrong ack changes nothing; the right one delivers. */
     uint8_t confirmed[9] = {MESH_MESHCORE_PUSH_SEND_CONFIRMED};
-    put_u32(confirmed + 1, 0x0BADF00DU);
+    mesh_test_put_u32(confirmed + 1, 0x0BADF00DU);
     feed(&protocol, confirmed, sizeof confirmed);
     MESH_TEST_FAIL_IF(newest_message()->ack != MESH_MESSAGE_ACK_PENDING, "another ack is ignored");
-    put_u32(confirmed + 1, 0xDEADBEEFU);
+    mesh_test_put_u32(confirmed + 1, 0xDEADBEEFU);
     feed(&protocol, confirmed, sizeof confirmed);
     MESH_TEST_FAIL_IF(newest_message()->ack != MESH_MESSAGE_ACK_DELIVERED,
                       "the named ack marks it delivered");
@@ -492,12 +368,12 @@ MESH_TEST_CASE(meshcore_direct_messages_wait_for_their_ack, unit) {
         const uint8_t *frame = wire.frames[wire.count - 1U];
         MESH_TEST_FAIL_IF(frame[0] != MESH_MESHCORE_CMD_SEND_TXT_MSG || frame[2] != attempt,
                           "each attempt counts up");
-        put_u32(sent + 2, 0x1000U + attempt);
+        mesh_test_put_u32(sent + 2, 0x1000U + attempt);
         feed(&protocol, sent, sizeof sent);
         now = g_meshcore.now_ms + 60000U;
         mesh_protocol_tick(&protocol, now);
         if (attempt + 2U == MESH_MESHCORE_SEND_ATTEMPTS) {
-            MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_RESET_PATH,
+            MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_RESET_PATH,
                               "the last attempt resets the route first");
             feed_code(&protocol, MESH_MESHCORE_RESP_OK);
         }
@@ -506,10 +382,11 @@ MESH_TEST_CASE(meshcore_direct_messages_wait_for_their_ack, unit) {
     MESH_TEST_FAIL_IF(failed == NULL || failed->ack != MESH_MESSAGE_ACK_FAILED,
                       "unacknowledged after every attempt, it failed");
 
-    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR, 0U, "all",
-                                              &packet_id) != 0 ||
-                          wire_last(&wire) != MESH_MESHCORE_CMD_SEND_CHANNEL_TXT_MSG,
-                      "a channel message goes out");
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_send_text(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR, 0U, "all", &packet_id) !=
+                0 ||
+            mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_SEND_CHANNEL_TXT_MSG,
+        "a channel message goes out");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     MESH_TEST_FAIL_IF(newest_message()->ack != MESH_MESSAGE_ACK_NONE,
                       "OK is all a channel message gets, and it is not left pending");
@@ -519,7 +396,7 @@ MESH_TEST_CASE(meshcore_direct_messages_wait_for_their_ack, unit) {
 /* A command the radio never answers is given up on, and two in a row is a dead link. */
 MESH_TEST_CASE(meshcore_unanswered_commands_end_the_link, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
 
     MESH_TEST_FAIL_IF(mesh_meshcore_send_advert(&g_meshcore, true) != 0 ||
@@ -539,15 +416,15 @@ MESH_TEST_CASE(meshcore_unanswered_commands_end_the_link, unit) {
 /* A handshake that loses a step can never finish: DEVICE_INFO with no SELF_INFO after it is a
    dead link at the first timeout, not the second, since nothing else would be sent to time out. */
 MESH_TEST_CASE(meshcore_a_handshake_step_unanswered_ends_the_link, unit) {
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     memset(&wire, 0, sizeof wire);
     mesh_session_init(&g_model);
     mesh_meshcore_init(&g_meshcore, &g_model);
     const struct mesh_protocol protocol = mesh_meshcore_protocol(&g_meshcore);
-    mesh_protocol_attach(&protocol, wire_send, &wire);
+    mesh_protocol_attach(&protocol, mesh_test_meshcore_wire_send, &wire);
     (void)mesh_protocol_begin(&protocol);
-    feed(&protocol, k_device_info, sizeof k_device_info);
-    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_APP_START,
+    feed(&protocol, mesh_test_meshcore_device_info, sizeof mesh_test_meshcore_device_info);
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_APP_START,
                       "the radio described, APP_START asks for its identity");
     MESH_TEST_FAIL_IF(mesh_protocol_silent(&protocol), "an answer due is not silence");
     mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
@@ -569,12 +446,12 @@ static uint32_t frame_u32(const uint8_t *bytes) {
  */
 MESH_TEST_CASE(meshcore_stamps_from_the_radio_clock_without_ours, unit) {
     inkwell_time_wall_set_fixed(1000U); /* a clock that has not been told the date */
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     memset(&wire, 0, sizeof wire);
     mesh_session_init(&g_model);
     mesh_meshcore_init(&g_meshcore, &g_model);
     const struct mesh_protocol protocol = mesh_meshcore_protocol(&g_meshcore);
-    mesh_protocol_attach(&protocol, wire_send, &wire);
+    mesh_protocol_attach(&protocol, mesh_test_meshcore_wire_send, &wire);
 
     uint32_t packet_id = 0U;
     const bool undated = mesh_meshcore_send_text(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR, 0U, "a",
@@ -583,13 +460,13 @@ MESH_TEST_CASE(meshcore_stamps_from_the_radio_clock_without_ours, unit) {
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
 
     (void)mesh_protocol_begin(&protocol);
-    feed(&protocol, k_device_info, sizeof k_device_info);
-    feed(&protocol, k_self_info, sizeof k_self_info);
-    const bool asked = wire_last(&wire) == MESH_MESHCORE_CMD_GET_DEVICE_TIME;
+    feed(&protocol, mesh_test_meshcore_device_info, sizeof mesh_test_meshcore_device_info);
+    feed(&protocol, mesh_test_meshcore_self_info, sizeof mesh_test_meshcore_self_info);
+    const bool asked = mesh_test_meshcore_wire_last(&wire) == MESH_MESHCORE_CMD_GET_DEVICE_TIME;
     uint8_t clock[5] = {MESH_MESHCORE_RESP_CURR_TIME};
-    put_u32(clock + 1, 1750000000U);
+    mesh_test_put_u32(clock + 1, 1750000000U);
     feed(&protocol, clock, sizeof clock);
-    const bool walked_on = wire_last(&wire) == MESH_MESHCORE_CMD_GET_CONTACTS;
+    const bool walked_on = mesh_test_meshcore_wire_last(&wire) == MESH_MESHCORE_CMD_GET_CONTACTS;
     uint8_t end[5] = {MESH_MESHCORE_RESP_END_OF_CONTACTS};
     feed(&protocol, end, sizeof end);
 
@@ -619,7 +496,7 @@ MESH_TEST_CASE(meshcore_stamps_from_the_radio_clock_without_ours, unit) {
  */
 MESH_TEST_CASE(meshcore_room_posts_keep_their_author, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
 
     feed_code(&protocol, MESH_MESHCORE_PUSH_MSG_WAITING);
@@ -647,7 +524,7 @@ MESH_TEST_CASE(meshcore_room_posts_keep_their_author, unit) {
  */
 MESH_TEST_CASE(meshcore_unreadable_sent_fails_the_message, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
 
     uint32_t packet_id = 0U;
@@ -676,7 +553,7 @@ MESH_TEST_CASE(meshcore_channel_text_leaves_room_for_the_name, unit) {
                       "before the radio has named itself the longest name is assumed");
 
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const size_t name = strlen(g_meshcore.self.name);
     const size_t channel_max = mesh_meshcore_text_max(&g_meshcore, MESH_MESSAGE_BROADCAST_ADDR);
@@ -701,7 +578,7 @@ MESH_TEST_CASE(meshcore_channel_text_leaves_room_for_the_name, unit) {
    Meshtastic's shape: the name is the owner, the four radio numbers a preset-off LoRa config. */
 MESH_TEST_CASE(meshcore_self_info_projects_the_settings, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const struct mesh_radio_settings *settings = mesh_session_settings(&g_model);
     MESH_TEST_FAIL_IF(settings == NULL || !settings->has_owner ||
@@ -723,15 +600,15 @@ MESH_TEST_CASE(meshcore_self_info_projects_the_settings, unit) {
    Position rows do not show - and a save does not send back - coordinates the radio dropped. */
 MESH_TEST_CASE(meshcore_self_info_without_a_location_clears_the_fix, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const struct mesh_node_summary *self =
         mesh_session_model_node(&g_model, g_meshcore.self_node, false);
     MESH_TEST_FAIL_IF(self == NULL || !self->position.valid, "the captured radio has a fix");
 
     MESH_TEST_FAIL_IF(mesh_meshcore_refresh_settings(&g_meshcore) != 1, "a refresh is asked");
-    uint8_t cleared[sizeof k_self_info];
-    memcpy(cleared, k_self_info, sizeof cleared);
+    uint8_t cleared[sizeof mesh_test_meshcore_self_info];
+    memcpy(cleared, mesh_test_meshcore_self_info, sizeof cleared);
     memset(cleared + 36, 0, 8U); /* lat_e6, lon_e6 */
     feed(&protocol, cleared, sizeof cleared);
     self = mesh_session_model_node(&g_model, g_meshcore.self_node, false);
@@ -743,7 +620,7 @@ MESH_TEST_CASE(meshcore_self_info_without_a_location_clears_the_fix, unit) {
    and the next one is not held off behind it. */
 MESH_TEST_CASE(meshcore_settings_write_the_link_refuses_is_settled, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const struct mesh_radio_settings *settings = mesh_session_settings(&g_model);
     const uint32_t failed = settings->writes_failed;
@@ -767,7 +644,7 @@ MESH_TEST_CASE(meshcore_settings_write_the_link_refuses_is_settled, unit) {
    answer, with no APP_START after it, and a value the firmware would refuse is never sent. */
 MESH_TEST_CASE(meshcore_settings_write_sets_the_bluetooth_pin, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const struct mesh_radio_settings *settings = mesh_session_settings(&g_model);
     const uint32_t acked = settings->writes_acked;
@@ -807,7 +684,7 @@ MESH_TEST_CASE(meshcore_settings_write_sets_the_bluetooth_pin, unit) {
    answers settle into the write counters the app's save toast watches. */
 MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const struct mesh_radio_settings *settings = mesh_session_settings(&g_model);
     const uint32_t acked = settings->writes_acked;
@@ -856,7 +733,8 @@ MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {
     MESH_TEST_FAIL_IF(settings->writes_acked != acked, "nothing is settled while one is out");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     MESH_TEST_FAIL_IF(settings->writes_acked != acked + 1U, "the last OK settles the save");
-    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_APP_START, "and the read-back follows");
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_APP_START,
+                      "and the read-back follows");
     MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EBUSY,
                       "and no save is built over values a read-back is about to replace");
     /* Each OK moved the baseline, so a save made before the read-back lands is built over
@@ -871,7 +749,7 @@ MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {
                       "and so do the settings the screens read");
 
     /* The other parameters are one command, all four bytes, and move the baseline too. */
-    feed(&protocol, k_self_info, sizeof k_self_info);
+    feed(&protocol, mesh_test_meshcore_self_info, sizeof mesh_test_meshcore_self_info);
     struct mesh_meshcore_settings_write other;
     memset(&other, 0, sizeof other);
     other.set_other = true;
@@ -893,7 +771,7 @@ MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {
 
     /* A refusal fails the save with the radio's own code. */
     const uint32_t failed = settings->writes_failed;
-    feed(&protocol, k_self_info, sizeof k_self_info);
+    feed(&protocol, mesh_test_meshcore_self_info, sizeof mesh_test_meshcore_self_info);
     write.set_radio = false;
     write.set_position = false;
     write.set_name = false;
@@ -909,7 +787,7 @@ MESH_TEST_CASE(meshcore_settings_write_is_commands_then_a_read_back, unit) {
    by GET_CHANNEL for that slot alone. Its OK lands in the roster's channel and the settings. */
 MESH_TEST_CASE(meshcore_channel_write_is_one_slot_whole, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     g_meshcore.device.max_channels = 8U;
     const struct mesh_radio_settings *settings = mesh_session_settings(&g_model);
@@ -919,7 +797,7 @@ MESH_TEST_CASE(meshcore_channel_write_is_one_slot_whole, unit) {
     /* A new handshake forgets every slot until its walk reads it again. */
     mesh_protocol_detach(&protocol);
     memset(&wire, 0, sizeof wire);
-    mesh_protocol_attach(&protocol, wire_send, &wire);
+    mesh_protocol_attach(&protocol, mesh_test_meshcore_wire_send, &wire);
     MESH_TEST_FAIL_IF(mesh_protocol_begin(&protocol) < 0 || settings->has_channel[0],
                       "a reconnect's walk starts with no slot to edit");
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "and walks to ready again");
@@ -940,7 +818,7 @@ MESH_TEST_CASE(meshcore_channel_write_is_one_slot_whole, unit) {
                           frame[2 + 29] != 0U || frame[34] != 0x5a || frame[49] != 0x5a,
                       "slot, name in its field, secret");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
-    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_GET_CHANNEL ||
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_GET_CHANNEL ||
                           wire.frames[wire.count - 1U][1] != 2U,
                       "read back by its own slot, not the whole handshake");
     MESH_TEST_FAIL_IF(strcmp(g_model.handshake.channels[2].name, "#a-long-hashtag-channel-name") !=
@@ -976,7 +854,7 @@ MESH_TEST_CASE(meshcore_channel_write_is_one_slot_whole, unit) {
 
 MESH_TEST_CASE(meshcore_settings_write_refuses_what_it_cannot_send_whole, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     struct mesh_meshcore_settings_write write;
     memset(&write, 0, sizeof write);
@@ -988,7 +866,8 @@ MESH_TEST_CASE(meshcore_settings_write_refuses_what_it_cannot_send_whole, unit) 
     MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1,
                       "a name at the firmware's limit is written");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
-    feed(&protocol, k_self_info, sizeof k_self_info); /* the read-back */
+    feed(&protocol, mesh_test_meshcore_self_info,
+         sizeof mesh_test_meshcore_self_info); /* the read-back */
     write.set_name = true;
     write.name[0] = '\0';
     const size_t before = wire.count;
@@ -1003,7 +882,7 @@ MESH_TEST_CASE(meshcore_settings_write_refuses_what_it_cannot_send_whole, unit) 
    nothing reads the list back, and it returns by itself when the node next adverts. */
 MESH_TEST_CASE(meshcore_remove_contact_takes_it_off_both_lists, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, g_meshcore.self_node) != -EINVAL,
                       "this radio is not a contact of its own");
@@ -1042,11 +921,12 @@ MESH_TEST_CASE(meshcore_remove_contact_takes_it_off_both_lists, unit) {
    advert gave - key, kind, name, stamp, position, no route - and it joins the list on OK. */
 MESH_TEST_CASE(meshcore_add_contact_from_a_heard_advert, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     uint8_t advert[160];
-    const size_t advert_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x60, "Bob",
-                                            MESH_MESHCORE_ADV_REPEATER, 0xffU, 1700000100U);
+    const size_t advert_len =
+        mesh_test_meshcore_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x60, "Bob",
+                                   MESH_MESHCORE_ADV_REPEATER, 0xffU, 1700000100U);
     feed(&protocol, advert, advert_len);
     const uint32_t bob = 0x60616263U;
     MESH_TEST_FAIL_IF(model_node(bob) == NULL || model_node(bob)->in_nodedb,
@@ -1069,8 +949,9 @@ MESH_TEST_CASE(meshcore_add_contact_from_a_heard_advert, unit) {
     MESH_TEST_FAIL_IF(!model_node(bob)->in_nodedb, "the OK makes it one");
 
     /* A node pushed off the roster while its add waits comes back on the OK, from the record. */
-    size_t carol_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x80, "Carol",
-                                     MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000150U);
+    size_t carol_len =
+        mesh_test_meshcore_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x80, "Carol",
+                                   MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000150U);
     feed(&protocol, advert, carol_len);
     MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x80818283U) != 1, "Carol is added");
     MESH_TEST_FAIL_IF(mesh_session_model_drop_node(g_meshcore.model, 0x80818283U) != 0,
@@ -1085,8 +966,9 @@ MESH_TEST_CASE(meshcore_add_contact_from_a_heard_advert, unit) {
     MESH_TEST_FAIL_IF(model_node(0x80818283U)->last_heard == 0U,
                       "and heard as of the OK, not never");
     static const char k_long[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
-    const size_t long_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x70, k_long,
-                                          MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000200U);
+    const size_t long_len =
+        mesh_test_meshcore_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x70, k_long,
+                                   MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000200U);
     feed(&protocol, advert, long_len);
     const size_t again = wire.count;
     MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x70717273U) != 1 ||
@@ -1099,21 +981,21 @@ MESH_TEST_CASE(meshcore_add_contact_from_a_heard_advert, unit) {
 /* The adverts kept for adding are the newest: a node heard again is kept over one heard once. */
 MESH_TEST_CASE(meshcore_heard_adverts_keep_the_newest, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     uint8_t advert[160];
     for (uint8_t n = 0U; n < MESH_MESHCORE_HEARD_ADVERTS; ++n) {
         const size_t len =
-            build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, (uint8_t)(0x90U + n), "Node",
-                          MESH_MESHCORE_ADV_CHAT, 0xffU, 1700001000U + n);
+            mesh_test_meshcore_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, (uint8_t)(0x90U + n),
+                                       "Node", MESH_MESHCORE_ADV_CHAT, 0xffU, 1700001000U + n);
         feed(&protocol, advert, len);
     }
     /* The first is heard again, and then a node not heard before takes the oldest slot. */
-    size_t len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x90U, "Node",
-                               MESH_MESHCORE_ADV_CHAT, 0xffU, 1700002000U);
+    size_t len = mesh_test_meshcore_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x90U, "Node",
+                                            MESH_MESHCORE_ADV_CHAT, 0xffU, 1700002000U);
     feed(&protocol, advert, len);
-    len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xB0U, "Node",
-                        MESH_MESHCORE_ADV_CHAT, 0xffU, 1700003000U);
+    len = mesh_test_meshcore_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xB0U, "Node",
+                                     MESH_MESHCORE_ADV_CHAT, 0xffU, 1700003000U);
     feed(&protocol, advert, len);
     size_t before = wire.count;
     MESH_TEST_FAIL_IF(mesh_meshcore_add_contact(&g_meshcore, 0x90919293U) != 1 ||
@@ -1142,7 +1024,7 @@ MESH_TEST_CASE(meshcore_heard_adverts_keep_the_newest, unit) {
  */
 MESH_TEST_CASE(meshcore_announces_what_it_writes_into_the_model, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     static struct mesh_test_event_record record;
     memset(&record, 0, sizeof record);
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
@@ -1151,16 +1033,16 @@ MESH_TEST_CASE(meshcore_announces_what_it_writes_into_the_model, unit) {
     mesh_session_set_observer(&g_model, mesh_test_event_record_fn, &record);
     uint8_t frame[160];
     feed(&protocol, frame,
-         build_contact(frame, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice", MESH_MESHCORE_ADV_CHAT, 2U,
-                       1700000000U));
+         mesh_test_meshcore_contact(frame, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice",
+                                    MESH_MESHCORE_ADV_CHAT, 2U, 1700000000U));
     MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_NODE_LISTED, 0x40414243U) !=
                           1U,
                       "a contact the radio heard is listed");
     MESH_TEST_FAIL_IF(record.events[0].hops != 2U || !record.events[0].has_hops,
                       "with the path the radio holds for it");
 
-    const size_t len = build_contact(frame, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x90U, "Node",
-                                     MESH_MESHCORE_ADV_CHAT, 0U, 1700001000U);
+    const size_t len = mesh_test_meshcore_contact(frame, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x90U,
+                                                  "Node", MESH_MESHCORE_ADV_CHAT, 0U, 1700001000U);
     feed(&protocol, frame, len);
     MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_NODE_HEARD, 0x90919293U) !=
                           1U,
@@ -1193,7 +1075,7 @@ MESH_TEST_CASE(meshcore_announces_what_it_writes_into_the_model, unit) {
        radio's record is read first and written back with that bit alone changed, route and all. */
 MESH_TEST_CASE(meshcore_favorite_rewrites_the_radios_record, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const uint32_t alice = 0x40414243U;
     MESH_TEST_FAIL_IF(model_node(alice) == NULL || model_node(alice)->is_favorite,
@@ -1205,8 +1087,8 @@ MESH_TEST_CASE(meshcore_favorite_rewrites_the_radios_record, unit) {
                           wire.frames[before][1] != 0x40,
                       "pinning reads the radio's record first");
     uint8_t record[160];
-    const size_t record_len = build_contact(record, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice",
-                                            MESH_MESHCORE_ADV_CHAT, 2U, 1700000300U);
+    const size_t record_len = mesh_test_meshcore_contact(
+        record, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice", MESH_MESHCORE_ADV_CHAT, 2U, 1700000300U);
     record[34] = 0x04U; /* a permission bit above the favourite, left as it is */
     record[36] = 0xAAU;
     record[37] = 0xBBU;
@@ -1233,8 +1115,9 @@ MESH_TEST_CASE(meshcore_favorite_rewrites_the_radios_record, unit) {
                       "a radio that no longer has the contact leaves the flag, and writes nothing");
 
     uint8_t advert[160];
-    const size_t advert_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x60, "Bob",
-                                            MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000100U);
+    const size_t advert_len =
+        mesh_test_meshcore_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x60, "Bob",
+                                   MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000100U);
     feed(&protocol, advert, advert_len);
     const uint32_t bob = 0x60616263U;
     MESH_TEST_FAIL_IF(mesh_meshcore_set_favorite(&g_meshcore, bob, true) != -ENOENT,
@@ -1254,8 +1137,9 @@ MESH_TEST_CASE(meshcore_favorite_rewrites_the_radios_record, unit) {
                       "Alice's write goes ahead of Bob's lookup");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     uint8_t bob_record[160];
-    const size_t bob_len = build_contact(bob_record, MESH_MESHCORE_RESP_CONTACT, 0x60, "Bob",
-                                         MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000100U);
+    const size_t bob_len =
+        mesh_test_meshcore_contact(bob_record, MESH_MESHCORE_RESP_CONTACT, 0x60, "Bob",
+                                   MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000100U);
     feed(&protocol, bob_record, bob_len);
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     bool alice_written = false;
@@ -1320,7 +1204,7 @@ MESH_TEST_CASE(meshcore_favorite_rewrites_the_radios_record, unit) {
    the roster - never heard - on the radio's OK. */
 MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     uint8_t key[MESH_MESHCORE_PUBKEY_LEN];
     for (size_t i = 0; i < sizeof key; ++i) {
@@ -1382,8 +1266,9 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     /* A heard node added with no advert kept - one from before this connection - carries no
        stamp either, and is still heard as of the OK if the roster let it go meanwhile. */
     uint8_t advert[160];
-    const size_t advert_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xD0, "Erin",
-                                            MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000700U);
+    const size_t advert_len =
+        mesh_test_meshcore_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xD0, "Erin",
+                                   MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000700U);
     feed(&protocol, advert, advert_len);
     memset(g_meshcore.heard_age, 0, sizeof g_meshcore.heard_age);
     g_meshcore.radio_clock = 1700000800U;
@@ -1398,8 +1283,9 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
                       "the OK brings her back heard, since she was");
 
     /* And a link for a node already heard keeps it heard, whatever the roster did meanwhile. */
-    const size_t frank_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xE0, "Frank",
-                                           MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000900U);
+    const size_t frank_len =
+        mesh_test_meshcore_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xE0, "Frank",
+                                   MESH_MESHCORE_ADV_CHAT, 0xffU, 1700000900U);
     feed(&protocol, advert, frank_len);
     uint8_t frank[MESH_MESHCORE_PUBKEY_LEN];
     for (size_t i = 0; i < sizeof frank; ++i) {
@@ -1422,8 +1308,9 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     MESH_TEST_FAIL_IF(
         mesh_meshcore_import_contact(&g_meshcore, gina, "Gina", MESH_MESHCORE_ADV_CHAT) != 1,
         "Gina's link is asked");
-    const size_t henry_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xA0, "Henry",
-                                           MESH_MESHCORE_ADV_CHAT, 0xffU, 1700001100U);
+    const size_t henry_len =
+        mesh_test_meshcore_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xA0, "Henry",
+                                   MESH_MESHCORE_ADV_CHAT, 0xffU, 1700001100U);
     advert[32] ^= 0xFFU; /* the same first four bytes, a different key */
     feed(&protocol, advert, henry_len);
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
@@ -1442,8 +1329,9 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     MESH_TEST_FAIL_IF(
         mesh_meshcore_import_contact(&g_meshcore, ivy, "Ivy", MESH_MESHCORE_ADV_CHAT) != 1,
         "Ivy's link is asked");
-    const size_t jack_len = build_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xB8, "Jack",
-                                          MESH_MESHCORE_ADV_CHAT, 0xffU, 1700001200U);
+    const size_t jack_len =
+        mesh_test_meshcore_contact(advert, MESH_MESHCORE_PUSH_NEW_ADVERT, 0xB8, "Jack",
+                                   MESH_MESHCORE_ADV_CHAT, 0xffU, 1700001200U);
     advert[32] ^= 0xFFU;
     feed(&protocol, advert, jack_len);
     uint8_t jack[MESH_MESHCORE_PUBKEY_LEN];
@@ -1507,7 +1395,7 @@ MESH_TEST_CASE(meshcore_lpp_reads_what_a_node_reports, unit) {
 /* A telemetry request names a contact by its whole key; the answer lands on its record. */
 MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const uint32_t alice = 0x40414243U;
     MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, g_meshcore.self_node) != -EINVAL,
@@ -1651,7 +1539,7 @@ MESH_TEST_CASE(meshcore_telemetry_request_fills_the_node, unit) {
    request as a telemetry request, since the radio keeps one pending and a new one orphans it. */
 MESH_TEST_CASE(meshcore_login_is_answered_and_shares_the_lock, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const uint32_t alice = 0x40414243U;
     MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "0123456789abcdef") != -EINVAL,
@@ -1797,7 +1685,7 @@ static size_t status_push(uint8_t *out, size_t tail) {
    status request that meets silence is the one said to need a login first. */
 MESH_TEST_CASE(meshcore_status_lands_on_the_node, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const uint32_t alice = 0x40414243U;
     struct mesh_node_summary *node = mesh_session_model_node(g_meshcore.model, alice, false);
@@ -1867,7 +1755,7 @@ MESH_TEST_CASE(meshcore_status_lands_on_the_node, unit) {
    model's traceroute, under the one lock every request to another node shares. */
 MESH_TEST_CASE(meshcore_path_discovery_is_the_traceroute, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const uint32_t alice = 0x40414243U;
     /* A second node under Alice's first byte, so that byte alone names nobody. */
@@ -1964,7 +1852,7 @@ MESH_TEST_CASE(meshcore_path_discovery_is_the_traceroute, unit) {
    and a command nobody answered is failed without being sent again, since it may have run. */
 MESH_TEST_CASE(meshcore_a_repeater_is_sent_commands, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const uint32_t alice = 0x40414243U;
     struct mesh_node_summary *node = mesh_session_model_node(g_meshcore.model, alice, false);
@@ -1989,7 +1877,7 @@ MESH_TEST_CASE(meshcore_a_repeater_is_sent_commands, unit) {
                           frame[7] != 0x40 || memcmp(frame + 13, "get radio", 9U) != 0,
                       "as CLI data, to Alice's prefix");
     uint8_t sent[10] = {MESH_MESHCORE_RESP_SENT, 0};
-    put_u32(sent + 6, 1000U); /* no ack: the four bytes stay zero */
+    mesh_test_put_u32(sent + 6, 1000U); /* no ack: the four bytes stay zero */
     feed(&protocol, sent, sizeof sent);
     uint8_t confirmed[5] = {MESH_MESHCORE_PUSH_SEND_CONFIRMED};
     feed(&protocol, confirmed, sizeof confirmed);
@@ -2128,7 +2016,7 @@ static struct mesh_node_summary *add_contact(uint32_t id, uint8_t lead, uint32_t
    to somebody else still goes while they wait out their grace for a late reply. */
 MESH_TEST_CASE(meshcore_quiet_repeaters_neither_hold_slots_nor_lose_notices, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const uint32_t alice = 0x40414243U;
     const uint32_t carol = 0x60616263U;
@@ -2138,7 +2026,7 @@ MESH_TEST_CASE(meshcore_quiet_repeaters_neither_hold_slots_nor_lose_notices, uni
                       "Carol, a repeater, and Bob, a companion, are contacts");
 
     uint8_t sent[10] = {MESH_MESHCORE_RESP_SENT, 0};
-    put_u32(sent + 6, 1000U);
+    mesh_test_put_u32(sent + 6, 1000U);
     uint32_t id = 0U;
     for (unsigned i = 0; i < MESH_MESHCORE_PENDING_SENDS; ++i) {
         MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&g_meshcore, i % 2U == 0U ? alice : carol, 0U,
@@ -2190,7 +2078,7 @@ MESH_TEST_CASE(meshcore_quiet_repeaters_neither_hold_slots_nor_lose_notices, uni
    record Meshtastic's NeighborInfo fills, each neighbour by its key's first four bytes. */
 MESH_TEST_CASE(meshcore_neighbours_land_on_the_repeater, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     const uint32_t alice = 0x40414243U;
     struct mesh_node_summary *node = mesh_session_model_node(g_meshcore.model, alice, false);
@@ -2213,7 +2101,7 @@ MESH_TEST_CASE(meshcore_neighbours_land_on_the_repeater, unit) {
                       "a status waits behind it");
 
     uint8_t push[2U + 4U + 4U + 2U * 9U] = {MESH_MESHCORE_PUSH_BINARY_RESPONSE, 0};
-    put_u32(push + 2, 0x11223344U);
+    mesh_test_put_u32(push + 2, 0x11223344U);
     push[6] = 5; /* five held, two sent */
     push[8] = 2;
     const uint8_t k_entries[] = {0x0A, 0x0B, 0x0C, 0x0D, 30, 0, 0, 0, 20,
@@ -2225,14 +2113,14 @@ MESH_TEST_CASE(meshcore_neighbours_land_on_the_repeater, unit) {
                       "an answer before the SENT that tags it is nobody's");
 
     uint8_t sent[10] = {MESH_MESHCORE_RESP_SENT, 0};
-    put_u32(sent + 2, 0x11223344U);
-    put_u32(sent + 6, 3000U);
+    mesh_test_put_u32(sent + 2, 0x11223344U);
+    mesh_test_put_u32(sent + 6, 3000U);
     feed(&protocol, sent, sizeof sent);
-    put_u32(push + 2, 0x99999999U);
+    mesh_test_put_u32(push + 2, 0x99999999U);
     feed(&protocol, push, sizeof push);
     MESH_TEST_FAIL_IF(g_meshcore.notices != notices, "another tag is another request's");
 
-    put_u32(push + 2, 0x11223344U);
+    mesh_test_put_u32(push + 2, 0x11223344U);
     feed(&protocol, push, sizeof push);
     MESH_TEST_FAIL_IF(g_meshcore.notices != notices + 1U ||
                           g_meshcore.notice.cmd != MESH_MESHCORE_CMD_SEND_BINARY_REQ ||
@@ -2260,7 +2148,7 @@ MESH_TEST_CASE(meshcore_neighbours_land_on_the_repeater, unit) {
    slot read is in use. */
 MESH_TEST_CASE(meshcore_channel_link_joins_a_free_slot, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     static const uint8_t k_public[16] = {0x8b}; /* the fixture's: 0x8b, then zeros */
     static const uint8_t k_owls[16] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
@@ -2301,7 +2189,7 @@ MESH_TEST_CASE(meshcore_channel_link_joins_a_free_slot, unit) {
    node's roster entry. */
 MESH_TEST_CASE(meshcore_card_is_handed_to_the_radio_whole, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     uint8_t packet[1U + 1U + 32U + 4U + 64U + 5U];
     for (size_t i = 0; i < sizeof packet; ++i) {
@@ -2338,12 +2226,12 @@ MESH_TEST_CASE(meshcore_card_is_handed_to_the_radio_whole, unit) {
    it is written first, and its SENT arms the deadline its answer is held to. */
 MESH_TEST_CASE(meshcore_request_outlives_a_reboot_restart, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != 1, "the reboot is queued");
     MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, 0x40414243U, "") != 0, "a login behind it");
     mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
-    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_SEND_LOGIN ||
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_SEND_LOGIN ||
                           g_meshcore.request_cmd != MESH_MESHCORE_CMD_SEND_LOGIN,
                       "the login goes out first, still the open request");
     static const uint8_t k_sent[10] = {MESH_MESHCORE_RESP_SENT, 0, 1, 2, 3, 4, 0x88, 0x13, 0, 0};
@@ -2355,10 +2243,10 @@ MESH_TEST_CASE(meshcore_request_outlives_a_reboot_restart, unit) {
 /* An advert is SEND_SELF_ADVERT with 1 to flood it and 0 for the nodes in earshot. */
 MESH_TEST_CASE(meshcore_advert_is_flooded_or_not, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     MESH_TEST_FAIL_IF(mesh_meshcore_send_advert(&g_meshcore, false) != 0, "a nearby advert");
-    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_SEND_SELF_ADVERT ||
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_SEND_SELF_ADVERT ||
                           wire.frames[wire.count - 1U][1] != 0U,
                       "goes out zero-hop");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
@@ -2372,7 +2260,7 @@ MESH_TEST_CASE(meshcore_advert_is_flooded_or_not, unit) {
    it resets - so once the answer is overdue the conversation starts over by itself. */
 MESH_TEST_CASE(meshcore_reboot_syncs_again, unit) {
     struct mesh_protocol protocol;
-    static struct wire wire;
+    static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
     MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != 1, "the reboot is queued");
     struct mesh_meshcore_settings_write write;
@@ -2382,17 +2270,17 @@ MESH_TEST_CASE(meshcore_reboot_syncs_again, unit) {
     MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EBUSY,
                       "no save is queued behind it");
     MESH_TEST_FAIL_IF(mesh_meshcore_reboot(&g_meshcore) != 0, "nor a second reboot");
-    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_REBOOT ||
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_REBOOT ||
                           wire.lens[wire.count - 1U] != 7U ||
                           memcmp(wire.frames[wire.count - 1U] + 1, "reboot", 6U) != 0,
                       "carrying the word the firmware checks for");
     mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
-    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_DEVICE_QUERY,
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_DEVICE_QUERY,
                       "the silence that follows starts the handshake over");
     MESH_TEST_FAIL_IF(mesh_protocol_silent(&protocol), "and is not counted against the link");
     /* But a handshake the link will not take leaves nothing to time out, so the link is
        called silent at once rather than left unsynced. */
-    feed(&protocol, k_device_info, sizeof k_device_info);
+    feed(&protocol, mesh_test_meshcore_device_info, sizeof mesh_test_meshcore_device_info);
     while (g_meshcore.queue_count > 0U) {
         feed_code(&protocol, MESH_MESHCORE_RESP_ERR);
     }
@@ -2404,7 +2292,7 @@ MESH_TEST_CASE(meshcore_reboot_syncs_again, unit) {
     g_meshcore.timeouts = 0U;
 
     /* A reboot the link refuses outright was never asked for. */
-    feed(&protocol, k_device_info, sizeof k_device_info);
+    feed(&protocol, mesh_test_meshcore_device_info, sizeof mesh_test_meshcore_device_info);
     wire.refuse = true;
     while (g_meshcore.queue_count > 0U) {
         feed_code(&protocol, MESH_MESHCORE_RESP_ERR);
@@ -2426,12 +2314,12 @@ MESH_TEST_CASE(meshcore_backup_waits_for_the_whole_sync, unit) {
     mesh_session_init(&g_model);
     mesh_meshcore_init(&g_meshcore, &g_model);
     struct mesh_protocol protocol = mesh_meshcore_protocol(&g_meshcore);
-    struct wire wire;
+    struct mesh_test_meshcore_wire wire;
     memset(&wire, 0, sizeof wire);
-    mesh_protocol_attach(&protocol, wire_send, &wire);
+    mesh_protocol_attach(&protocol, mesh_test_meshcore_wire_send, &wire);
     (void)mesh_protocol_begin(&protocol);
-    feed(&protocol, k_device_info, sizeof k_device_info);
-    feed(&protocol, k_self_info, sizeof k_self_info);
+    feed(&protocol, mesh_test_meshcore_device_info, sizeof mesh_test_meshcore_device_info);
+    feed(&protocol, mesh_test_meshcore_self_info, sizeof mesh_test_meshcore_self_info);
     /* SELF_INFO is in, the contact list is not: a backup now would be a radio with none. */
     MESH_TEST_FAIL_IF(mesh_meshcore_backup_capture(&g_meshcore, &g_backup) != -EAGAIN,
                       "a radio still reading its contacts was captured");
@@ -2441,7 +2329,7 @@ MESH_TEST_CASE(meshcore_backup_waits_for_the_whole_sync, unit) {
 
 MESH_TEST_CASE(meshcore_backup_keeps_settings_channels_and_contacts_whole, unit) {
     struct mesh_protocol protocol;
-    struct wire wire;
+    struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
     MESH_TEST_FAIL_IF(mesh_meshcore_backup_capture(&g_meshcore, &g_backup) != 0,
                       "a synced radio was not captured");
@@ -2497,7 +2385,7 @@ MESH_TEST_CASE(meshcore_backup_keeps_settings_channels_and_contacts_whole, unit)
 
 MESH_TEST_CASE(meshcore_contact_book_follows_the_radio, unit) {
     struct mesh_protocol protocol;
-    struct wire wire;
+    struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
     MESH_TEST_FAIL_IF(mesh_meshcore_contact_count(&g_meshcore) != 1U,
                       "the synced contact is not in the book");
@@ -2510,12 +2398,12 @@ MESH_TEST_CASE(meshcore_contact_book_follows_the_radio, unit) {
         push[1U + k] = (uint8_t)(0x40U + k);
     }
     feed(&protocol, push, sizeof push);
-    MESH_TEST_FAIL_IF(wire_last(&wire) != MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY,
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY,
                       "a path update did not ask for the record");
     uint8_t frame[160];
     feed(&protocol, frame,
-         build_contact(frame, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice", MESH_MESHCORE_ADV_CHAT, 4U,
-                       1700000500U));
+         mesh_test_meshcore_contact(frame, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice",
+                                    MESH_MESHCORE_ADV_CHAT, 4U, 1700000500U));
     const struct mesh_meshcore_contact *kept = mesh_meshcore_contact_at(&g_meshcore, 0U);
     MESH_TEST_FAIL_IF(mesh_meshcore_contact_count(&g_meshcore) != 1U || kept == NULL ||
                           kept->out_path_len != 4U,
@@ -2523,8 +2411,8 @@ MESH_TEST_CASE(meshcore_contact_book_follows_the_radio, unit) {
 
     /* A heard advert the radio did not add is not on its list. */
     feed(&protocol, frame,
-         build_contact(frame, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x60, "Bob", MESH_MESHCORE_ADV_CHAT,
-                       MESH_MESHCORE_PATH_NONE, 1700000600U));
+         mesh_test_meshcore_contact(frame, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x60, "Bob",
+                                    MESH_MESHCORE_ADV_CHAT, MESH_MESHCORE_PATH_NONE, 1700000600U));
     MESH_TEST_FAIL_IF(mesh_meshcore_contact_count(&g_meshcore) != 1U,
                       "an advert the radio did not add went into the book");
 
@@ -2538,13 +2426,13 @@ MESH_TEST_CASE(meshcore_contact_book_follows_the_radio, unit) {
 
 MESH_TEST_CASE(meshcore_contact_book_starts_again_on_a_new_connection, unit) {
     struct mesh_protocol protocol;
-    struct wire wire;
+    struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
     MESH_TEST_FAIL_IF(mesh_meshcore_contact_count(&g_meshcore) != 1U, "fixture: no contact");
     /* Another radio on the next link: its list is read from the start, and until it is, this
        radio's contacts must not be taken for that one's. */
     mesh_protocol_detach(&protocol);
-    mesh_protocol_attach(&protocol, wire_send, &wire);
+    mesh_protocol_attach(&protocol, mesh_test_meshcore_wire_send, &wire);
     (void)mesh_protocol_begin(&protocol);
     MESH_TEST_FAIL_IF(mesh_meshcore_contact_count(&g_meshcore) != 0U,
                       "the last connection's contacts survived into this one");
@@ -2554,7 +2442,7 @@ MESH_TEST_CASE(meshcore_contact_book_starts_again_on_a_new_connection, unit) {
 
 MESH_TEST_CASE(meshcore_backup_refuses_a_book_that_dropped_a_contact, unit) {
     struct mesh_protocol protocol;
-    struct wire wire;
+    struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
     /* A radio that reports the protocol's most - 255 * 2 - fits the book whole. */
     MESH_TEST_FAIL_IF(MESH_MESHCORE_CONTACTS_MAX < 255U * 2U,
@@ -2571,7 +2459,7 @@ static struct mesh_radio_backup_diff g_diff;
 
 MESH_TEST_CASE(meshcore_backup_diff_of_the_same_radio_is_empty, unit) {
     struct mesh_protocol protocol;
-    struct wire wire;
+    struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
     mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
     mesh_meshcore_backup_capture(&g_meshcore, &g_backup_read);
@@ -2583,7 +2471,7 @@ MESH_TEST_CASE(meshcore_backup_diff_of_the_same_radio_is_empty, unit) {
 
 MESH_TEST_CASE(meshcore_backup_diff_names_the_one_setting_changed, unit) {
     struct mesh_protocol protocol;
-    struct wire wire;
+    struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
     mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
     const uint32_t was = g_meshcore.self.frequency_khz;
@@ -2611,7 +2499,7 @@ MESH_TEST_CASE(meshcore_backup_diff_names_the_one_setting_changed, unit) {
 
 MESH_TEST_CASE(meshcore_backup_diff_lists_contacts_by_key_not_by_route, unit) {
     struct mesh_protocol protocol;
-    struct wire wire;
+    struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
     mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
 
@@ -2646,5 +2534,152 @@ MESH_TEST_CASE(meshcore_backup_diff_lists_contacts_by_key_not_by_route, unit) {
     mesh_meshcore_backup_diff(&g_backup_read, &g_backup, &g_diff);
     MESH_TEST_FAIL_IF(g_diff.count != 2U || g_diff.changes[1].kind != MESH_RADIO_BACKUP_REMOVED,
                       "a contact the radio no longer has was not a removal");
+    record_success(test_name);
+}
+
+static struct mesh_meshcore_settings_write g_plan[MESH_MESHCORE_BACKUP_PLAN_MAX];
+
+MESH_TEST_CASE(meshcore_backup_plan_of_an_unchanged_radio_sends_nothing, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    size_t unwritable = 99U;
+    const int planned = mesh_meshcore_backup_plan(&g_backup, &g_meshcore, g_plan,
+                                                  MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable);
+    MESH_TEST_FAIL_IF(planned != 0 || unwritable != 0U, "a radio matching its backup had a plan");
+    record_success(test_name);
+}
+
+/* One slot changed on the radio: the plan is that slot, whole, and nothing else - and on the
+   wire it is one SET_CHANNEL and the read-back of that slot. */
+MESH_TEST_CASE(meshcore_backup_plan_writes_one_changed_channel_and_reads_it_back, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    snprintf(g_meshcore.channels[0].name, sizeof g_meshcore.channels[0].name, "%s", "Renamed");
+    g_meshcore.channels[0].secret[0] = 0x11;
+    size_t unwritable = 0U;
+    const int planned = mesh_meshcore_backup_plan(&g_backup, &g_meshcore, g_plan,
+                                                  MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable);
+    MESH_TEST_FAIL_IF(planned != 1 || unwritable != 0U, "not exactly one save");
+    const struct mesh_meshcore_settings_write *write = &g_plan[0];
+    MESH_TEST_FAIL_IF(!write->set_channel || write->channel_index != 0U || write->set_name ||
+                          write->set_radio || write->set_tx_power || write->set_position ||
+                          write->set_other || write->set_pin,
+                      "the save is not the slot alone");
+    MESH_TEST_FAIL_IF(strncmp(write->channel_name, "Public", MESH_MESHCORE_NAME_LEN) != 0 ||
+                          write->channel_secret[0] != 0x8b,
+                      "the slot is not the backup's name and secret");
+
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, write) <= 0, "the save refused");
+    MESH_TEST_FAIL_IF(wire.count != before + 1U ||
+                          mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_SET_CHANNEL,
+                      "the slot did not go out as one SET_CHANNEL");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(wire.count != before + 2U ||
+                          mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_GET_CHANNEL,
+                      "the slot was not read back");
+    MESH_TEST_FAIL_IF(g_model.settings.writes_acked == 0U, "the OK was not counted");
+    record_success(test_name);
+}
+
+/*
+ * The radio parameters and the power as a group each: a frequency changed is the four numbers
+ * written whole, and a power past what this radio reports it can do is counted unwritable and
+ * not sent - never quietly written as something else. And a group the radio refuses is a save
+ * that failed.
+ */
+MESH_TEST_CASE(meshcore_backup_plan_writes_groups_whole_and_counts_what_it_cannot, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    const uint32_t frequency = g_meshcore.self.frequency_khz;
+    g_meshcore.self.tx_power_dbm = (uint8_t)(g_meshcore.self.max_tx_power_dbm + 5U);
+    g_meshcore.self.adv_type = (uint8_t)(g_meshcore.self.adv_type + 1U);
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    g_meshcore.self.tx_power_dbm = 10U;
+    g_meshcore.self.adv_type = (uint8_t)(g_meshcore.self.adv_type - 1U);
+    g_meshcore.self.frequency_khz = frequency + 125U;
+    size_t unwritable = 0U;
+    const int planned = mesh_meshcore_backup_plan(&g_backup, &g_meshcore, g_plan,
+                                                  MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable);
+    MESH_TEST_FAIL_IF(planned != 1, "not one save");
+    MESH_TEST_FAIL_IF(!g_plan[0].set_radio || g_plan[0].frequency_khz != frequency ||
+                          g_plan[0].bandwidth_hz != g_meshcore.self.bandwidth_hz ||
+                          g_plan[0].spreading_factor != g_meshcore.self.spreading_factor,
+                      "the radio parameters were not the backup's, whole");
+    MESH_TEST_FAIL_IF(g_plan[0].set_tx_power, "a power past the radio's ceiling was planned");
+    MESH_TEST_FAIL_IF(unwritable != 2U, "the power and the advert type were not both counted");
+
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &g_plan[0]) <= 0,
+                      "the save refused");
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_SET_RADIO_PARAMS,
+                      "not the radio");
+    const uint32_t failed = g_model.settings.writes_failed;
+    feed_code(&protocol, MESH_MESHCORE_RESP_ERR);
+    MESH_TEST_FAIL_IF(g_model.settings.writes_failed != failed + 1U,
+                      "a group the radio refused was not a failed save");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(meshcore_backup_plan_refuses_another_radios_backup, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    g_meshcore.self.public_key[5] ^= 0xffU;
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    g_meshcore.self.public_key[5] ^= 0xffU;
+    size_t unwritable = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_plan(&g_backup, &g_meshcore, g_plan,
+                                                MESH_MESHCORE_BACKUP_PLAN_MAX,
+                                                &unwritable) != -ENODEV,
+                      "a backup under another key was planned onto this radio");
+    /* Nor one that does not say whose it is: channels and a PIN with no settings section. */
+    mesh_radio_backup_reset(&g_backup);
+    g_backup.header.protocol = MESH_RADIO_BACKUP_MESHCORE;
+    g_backup.header.node_id = g_meshcore.self_node;
+    const uint8_t pin[4] = {0x40, 0xe2, 0x01, 0x00};
+    mesh_radio_backup_add(&g_backup, MESH_MESHCORE_BACKUP_PIN, pin, sizeof pin);
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_plan(&g_backup, &g_meshcore, g_plan,
+                                                MESH_MESHCORE_BACKUP_PLAN_MAX,
+                                                &unwritable) != -ENODEV,
+                      "a backup with no key to check was planned onto this radio");
+    /* And contacts are not written yet: one gone from the radio is counted, not planned. */
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    g_meshcore.contact_count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_plan(&g_backup, &g_meshcore, g_plan,
+                                                MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable) != 0 ||
+                          unwritable != 1U,
+                      "a missing contact was not counted unwritable");
+    record_success(test_name);
+}
+
+/* Values the radio can report but its commands cannot set back - a channel name filling all 32
+   bytes, an empty advert name - are counted unwritable, and the rest of the plan still goes. */
+MESH_TEST_CASE(meshcore_backup_plan_counts_names_its_commands_cannot_carry, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    memset(g_meshcore.channels[0].name, 'x', MESH_MESHCORE_NAME_LEN);
+    g_meshcore.channels[0].name[MESH_MESHCORE_NAME_LEN] = '\0';
+    g_meshcore.self.name[0] = '\0';
+    const uint8_t power = g_meshcore.self.tx_power_dbm;
+    mesh_meshcore_backup_capture(&g_meshcore, &g_backup);
+    snprintf(g_meshcore.channels[0].name, sizeof g_meshcore.channels[0].name, "%s", "Public");
+    snprintf(g_meshcore.self.name, sizeof g_meshcore.self.name, "%s", "MPBC");
+    g_meshcore.self.tx_power_dbm = 10U;
+    size_t unwritable = 0U;
+    const int planned = mesh_meshcore_backup_plan(&g_backup, &g_meshcore, g_plan,
+                                                  MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable);
+    MESH_TEST_FAIL_IF(planned != 1 || g_plan[0].set_channel || g_plan[0].set_name,
+                      "a name the commands cannot carry was planned");
+    MESH_TEST_FAIL_IF(!g_plan[0].set_tx_power || g_plan[0].tx_power_dbm != (int8_t)power,
+                      "the power that can be written was dropped with them");
+    MESH_TEST_FAIL_IF(unwritable != 2U, "the two names were not counted unwritable");
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &g_plan[0]) <= 0,
+                      "what was planned did not encode");
     record_success(test_name);
 }

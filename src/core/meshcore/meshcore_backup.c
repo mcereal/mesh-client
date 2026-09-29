@@ -510,3 +510,184 @@ int mesh_meshcore_backup_diff(const struct mesh_radio_backup *a, const struct me
     free(contents);
     return result;
 }
+
+/* ---- restoring ----------------------------------------------------------------------------- */
+
+static bool mc_channel_same(const struct mesh_meshcore_channel *a, bool in_b,
+                            const struct mesh_meshcore_channel *b) {
+    const bool in_a = mc_channel_used(a);
+    in_b = in_b && mc_channel_used(b);
+    if (!in_a || !in_b) {
+        return in_a == in_b;
+    }
+    return strcmp(a->name, b->name) == 0 && memcmp(a->secret, b->secret, sizeof a->secret) == 0;
+}
+
+/* The contacts the radio and the backup disagree about, which this restore does not write. */
+static size_t mc_contacts_differing(const struct mesh_meshcore_backup_contents *saved,
+                                    const struct mesh_meshcore *meshcore) {
+    size_t differing = 0U;
+    for (size_t i = 0; i < saved->contact_count; ++i) {
+        const struct mesh_meshcore_contact *want = &saved->contacts[i];
+        const struct mesh_meshcore_contact *have = NULL;
+        for (size_t k = 0; k < meshcore->contact_count && have == NULL; ++k) {
+            if (memcmp(meshcore->contacts[k].public_key, want->public_key,
+                       MESH_MESHCORE_PUBKEY_LEN) == 0) {
+                have = &meshcore->contacts[k];
+            }
+        }
+        if (have == NULL || strcmp(have->name, want->name) != 0 || have->type != want->type ||
+            have->flags != want->flags) {
+            ++differing;
+        }
+    }
+    for (size_t k = 0; k < meshcore->contact_count; ++k) {
+        bool kept = false;
+        for (size_t i = 0; i < saved->contact_count && !kept; ++i) {
+            kept = memcmp(meshcore->contacts[k].public_key, saved->contacts[i].public_key,
+                          MESH_MESHCORE_PUBKEY_LEN) == 0;
+        }
+        differing += kept ? 0U : 1U;
+    }
+    return differing;
+}
+
+/* The settings groups that differ, into `write`; each one that cannot be written is counted. */
+static void mc_plan_self(const struct mesh_meshcore_backup_contents *saved,
+                         const struct mesh_meshcore *meshcore,
+                         struct mesh_meshcore_settings_write *write, size_t *unwritable) {
+    const struct mesh_meshcore_self_info *want = &saved->self;
+    const struct mesh_meshcore_self_info *have = &meshcore->self;
+    /* The firmware takes a name of one byte or more; an empty one is not a name it can set. */
+    if (strcmp(want->name, have->name) != 0) {
+        if (want->name[0] != '\0') {
+            write->set_name = true;
+            inkwell_str_copy(write->name, sizeof write->name, want->name);
+        } else {
+            ++*unwritable;
+        }
+    }
+    if (want->frequency_khz != have->frequency_khz || want->bandwidth_hz != have->bandwidth_hz ||
+        want->spreading_factor != have->spreading_factor ||
+        want->coding_rate != have->coding_rate) {
+        if (mesh_meshcore_radio_params_valid(want->frequency_khz, want->bandwidth_hz,
+                                             want->spreading_factor, want->coding_rate)) {
+            write->set_radio = true;
+            write->frequency_khz = want->frequency_khz;
+            write->bandwidth_hz = want->bandwidth_hz;
+            write->spreading_factor = want->spreading_factor;
+            write->coding_rate = want->coding_rate;
+        } else {
+            ++*unwritable;
+        }
+    }
+    if (want->tx_power_dbm != have->tx_power_dbm) {
+        const int8_t dbm = (int8_t)want->tx_power_dbm;
+        if (mesh_meshcore_tx_power_valid(meshcore, dbm)) {
+            write->set_tx_power = true;
+            write->tx_power_dbm = dbm;
+        } else {
+            ++*unwritable;
+        }
+    }
+    if (want->latitude_e6 != have->latitude_e6 || want->longitude_e6 != have->longitude_e6) {
+        write->set_position = true;
+        write->latitude_e6 = want->latitude_e6;
+        write->longitude_e6 = want->longitude_e6;
+    }
+    if (want->manual_add_contacts != have->manual_add_contacts ||
+        want->telemetry_modes != have->telemetry_modes ||
+        want->advert_loc_policy != have->advert_loc_policy ||
+        want->multi_acks != have->multi_acks) {
+        write->set_other = true;
+        write->manual_add_contacts = want->manual_add_contacts;
+        write->telemetry_modes = want->telemetry_modes;
+        write->advert_loc_policy = want->advert_loc_policy;
+        write->multi_acks = want->multi_acks;
+    }
+    if (want->adv_type != have->adv_type) {
+        ++*unwritable; /* the companion firmware says what it is; no command changes it */
+    }
+    const uint32_t pin = meshcore->has_device ? meshcore->device.ble_pin : 0U;
+    if (saved->has_pin && saved->ble_pin != pin) {
+        if (saved->ble_pin == 0U || (saved->ble_pin >= 100000U && saved->ble_pin <= 999999U)) {
+            write->set_pin = true;
+            write->ble_pin = saved->ble_pin;
+        } else {
+            ++*unwritable;
+        }
+    }
+}
+
+int mesh_meshcore_backup_plan(const struct mesh_radio_backup *backup,
+                              const struct mesh_meshcore *meshcore,
+                              struct mesh_meshcore_settings_write *writes, size_t max,
+                              size_t *unwritable) {
+    if (backup == NULL || meshcore == NULL || writes == NULL || unwritable == NULL) {
+        return -EINVAL;
+    }
+    *unwritable = 0U;
+    if (backup->header.protocol != MESH_RADIO_BACKUP_MESHCORE) {
+        return -EPROTO;
+    }
+    if (!mesh_meshcore_backup_ready(meshcore)) {
+        return -EAGAIN;
+    }
+    struct mesh_meshcore_backup_contents *saved = malloc(sizeof *saved);
+    if (saved == NULL) {
+        return -ENOMEM;
+    }
+    int result = mesh_meshcore_backup_read(backup, saved);
+    /* The key is the radio: a backup of another one is not restored onto this one, whatever
+       its node number says - and one that does not say whose it is cannot be checked, so it is
+       refused the same way. */
+    if (result == 0 &&
+        (!saved->has_self || memcmp(saved->self.public_key, meshcore->self.public_key,
+                                    MESH_MESHCORE_PUBKEY_LEN) != 0)) {
+        result = -ENODEV;
+    }
+    struct mesh_meshcore_settings_write planned[MESH_MESHCORE_BACKUP_PLAN_MAX];
+    size_t count = 0U;
+    size_t skipped = 0U;
+    if (result == 0) {
+        memset(planned, 0, sizeof planned);
+        struct mesh_meshcore_settings_write *self = &planned[0];
+        mc_plan_self(saved, meshcore, self, &skipped);
+        if (self->set_name || self->set_radio || self->set_tx_power || self->set_position ||
+            self->set_other || self->set_pin) {
+            count = 1U;
+        }
+        for (uint8_t slot = 0U; slot < MESH_MESHCORE_CHANNELS_KEPT; ++slot) {
+            if (!saved->has_channel[slot] ||
+                mc_channel_same(&saved->channels[slot], meshcore->has_channel[slot],
+                                &meshcore->channels[slot])) {
+                continue;
+            }
+            /* A slot the walk did not read is one this radio does not have; and a name that
+               fills all 32 bytes, which the radio can report, is one SET_CHANNEL cannot carry
+               with the terminator it needs. */
+            if (!meshcore->has_channel[slot] ||
+                strlen(saved->channels[slot].name) >= MESH_MESHCORE_NAME_LEN) {
+                ++skipped;
+                continue;
+            }
+            struct mesh_meshcore_settings_write *write = &planned[count++];
+            write->set_channel = true;
+            write->channel_index = slot;
+            /* An unused slot restored is a slot cleared: an empty name and a zero secret. */
+            memcpy(write->channel_name, saved->channels[slot].name, MESH_MESHCORE_NAME_LEN);
+            memcpy(write->channel_secret, saved->channels[slot].secret, MESH_MESHCORE_SECRET_LEN);
+        }
+        skipped += mc_contacts_differing(saved, meshcore);
+        if (count > max) {
+            result = -ENOSPC;
+        }
+    }
+    free(saved);
+    if (result != 0) {
+        return result;
+    }
+    memcpy(writes, planned, count * sizeof *writes);
+    *unwritable = skipped;
+    return (int)count;
+}

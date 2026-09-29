@@ -103,6 +103,7 @@
 
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
+#include "mesh/core/meshcore_backup.h"
 #include "mesh/core/message.h"
 /* For MESH_TRACEROUTE_DONE: the demo scene seeds measured routes, and a route the client kept
    is a finished one. */
@@ -2978,6 +2979,11 @@ static const struct inkstand_scene_seed uicap_seeds[] = {
  *   backups list              the card, with the demo radio on the link
  *   backups compare|same      a finished comparison of the newest backup with the radio
  *   backups restoring         that backup being written back, before the radio is read again
+ *   backups left              (MeshCore) what a restore leaves: a contact added since
+ *
+ * After `protocol meshcore` the radio on the link is a MeshCore one: its backups are MeshCore's,
+ * the device's earlier backup is from before it was switched from Meshtastic, and a comparison
+ * names MeshCore's fields.
  */
 static void uicap_backup_entry(struct mesh_ui_backups *b, uint8_t radio, uint32_t node,
                                uint32_t sequence, uint8_t protocol, uint8_t reason,
@@ -3052,26 +3058,33 @@ static int verb_backups(struct inkstand_scene *scene, char *rest, void *userdata
     const uint32_t node = cap->store.handshake.my_info.node_num != 0U
                               ? cap->store.handshake.my_info.node_num
                               : 0x0badcafeU;
+    const bool meshcore = !mesh_ui_settings_supports(&settings, MESH_UI_FEATURE_FULL_CONFIG);
+    const uint8_t live = meshcore ? MESH_RADIO_BACKUP_MESHCORE : MESH_RADIO_BACKUP_MESHTASTIC;
+    const uint8_t before = meshcore ? MESH_RADIO_BACKUP_MESHTASTIC : MESH_RADIO_BACKUP_MESHCORE;
+    const char *firmware = meshcore ? "v1.17.1" : "2.5.6.d55c08d";
+    if (meshcore) {
+        inkwell_str_copy(settings.firmware_version, sizeof settings.firmware_version, firmware);
+    }
     if (strcmp(what, "list") == 0) {
         memset(b, 0, sizeof *b);
         b->enabled = true;
         b->live_node = node;
-        b->live_protocol = MESH_RADIO_BACKUP_MESHTASTIC;
+        b->live_protocol = live;
         const uint32_t now = (uint32_t)inkwell_time_wall_s();
-        uicap_backup_radio(b, node, "Ridge relay", MESH_RADIO_BACKUP_MESHTASTIC, 3U,
+        uicap_backup_radio(b, node, meshcore ? "Ridge" : "Ridge relay", live, 3U,
                            "AA:BB:CC:DD:EE:FF");
-        uicap_backup_radio(b, 0x5a5a0001U, "Ridge", MESH_RADIO_BACKUP_MESHCORE, 1U,
+        uicap_backup_radio(b, 0x5a5a0001U, meshcore ? "Ridge relay" : "Ridge", before, 1U,
                            "AA:BB:CC:DD:EE:FF");
         uicap_backup_radio(b, 0x22220002U, "Valley base", MESH_RADIO_BACKUP_MESHTASTIC, 2U,
                            "/dev/ttyACM0");
-        uicap_backup_entry(b, 0U, node, 3U, MESH_RADIO_BACKUP_MESHTASTIC,
-                           MESH_RADIO_BACKUP_BEFORE_WRITE, now - 3600U, "2.5.6.d55c08d");
-        uicap_backup_entry(b, 0U, node, 2U, MESH_RADIO_BACKUP_MESHTASTIC, MESH_RADIO_BACKUP_MANUAL,
-                           now - 86400U * 2U, "2.5.6.d55c08d");
-        uicap_backup_entry(b, 0U, node, 1U, MESH_RADIO_BACKUP_MESHTASTIC,
-                           MESH_RADIO_BACKUP_FIRST_CONNECT, now - 86400U * 9U, "2.5.4.8d2a7f1");
-        uicap_backup_entry(b, 1U, 0x5a5a0001U, 1U, MESH_RADIO_BACKUP_MESHCORE,
-                           MESH_RADIO_BACKUP_BEFORE_FIRMWARE, now - 86400U * 20U, "v1.7.1");
+        uicap_backup_entry(b, 0U, node, 3U, live, MESH_RADIO_BACKUP_BEFORE_WRITE, now - 3600U,
+                           firmware);
+        uicap_backup_entry(b, 0U, node, 2U, live, MESH_RADIO_BACKUP_MANUAL, now - 86400U * 2U,
+                           firmware);
+        uicap_backup_entry(b, 0U, node, 1U, live, MESH_RADIO_BACKUP_FIRST_CONNECT,
+                           now - 86400U * 9U, meshcore ? "v1.16.0" : "2.5.4.8d2a7f1");
+        uicap_backup_entry(b, 1U, 0x5a5a0001U, 1U, before, MESH_RADIO_BACKUP_BEFORE_FIRMWARE,
+                           now - 86400U * 20U, meshcore ? "2.5.6.d55c08d" : "v1.7.1");
         uicap_backup_entry(b, 2U, 0x22220002U, 2U, MESH_RADIO_BACKUP_MESHTASTIC,
                            MESH_RADIO_BACKUP_BEFORE_WRITE, now - 86400U * 5U, "2.5.6.d55c08d");
         uicap_backup_entry(b, 2U, 0x22220002U, 1U, MESH_RADIO_BACKUP_MESHTASTIC,
@@ -3080,12 +3093,38 @@ static int verb_backups(struct inkstand_scene *scene, char *rest, void *userdata
         b->compare_node = node;
         b->compare_sequence = 3U;
         b->compare_state = MESH_UI_BACKUP_COMPARE_RESTORING;
-    } else if (strcmp(what, "compare") == 0 || strcmp(what, "same") == 0) {
+    } else if (strcmp(what, "compare") == 0 || strcmp(what, "same") == 0 ||
+               (meshcore && strcmp(what, "left") == 0)) {
         b->compare_node = node;
         b->compare_sequence = 3U;
         b->compare_state = MESH_UI_BACKUP_COMPARE_DONE;
-        mesh_radio_backup_diff_reset(&b->diff, MESH_RADIO_BACKUP_MESHTASTIC);
-        if (strcmp(what, "compare") == 0) {
+        mesh_radio_backup_diff_reset(&b->diff, live);
+        /* The power went up, the advert stopped carrying a position, the second slot was
+           renamed, and a contact was heard and added since - which a restore leaves be, so
+           `left` is what is still there after one. */
+        if (meshcore && strcmp(what, "compare") == 0) {
+            uicap_backup_change(&b->diff, MESH_RADIO_BACKUP_TOPIC_LORA, 0U,
+                                MESH_MESHCORE_BACKUP_FIELD_TX_POWER, 17, 20);
+            uicap_backup_change(&b->diff, MESH_RADIO_BACKUP_TOPIC_POSITION, 0U,
+                                MESH_MESHCORE_BACKUP_FIELD_ADVERT_LOCATION, 1, 0);
+            struct mesh_radio_backup_change *name = mesh_radio_backup_diff_add(
+                &b->diff, MESH_RADIO_BACKUP_CHANGED, MESH_RADIO_BACKUP_TOPIC_CHANNEL, 1U,
+                MESH_MESHCORE_BACKUP_FIELD_CHANNEL_NAME);
+            if (name != NULL) {
+                inkwell_str_copy(name->subject, sizeof name->subject, "Hike crew");
+                mesh_radio_backup_value_text(&name->before, "Hike", 4U);
+                mesh_radio_backup_value_text(&name->after, "Hike crew", 9U);
+            }
+        }
+        if (meshcore && strcmp(what, "same") != 0) {
+            struct mesh_radio_backup_change *contact = mesh_radio_backup_diff_add(
+                &b->diff, MESH_RADIO_BACKUP_ADDED, MESH_RADIO_BACKUP_TOPIC_CONTACT, 0U,
+                MESH_MESHCORE_BACKUP_FIELD_NAME);
+            if (contact != NULL) {
+                inkwell_str_copy(contact->subject, sizeof contact->subject, "Bob");
+                mesh_radio_backup_value_text(&contact->after, "Bob", 3U);
+            }
+        } else if (strcmp(what, "compare") == 0) {
             /* The radio as it is now against the backup from before the last save: the hop
                limit and the power went up, the screen stays on longer, and slot 2 was renamed. */
             uicap_backup_change(&b->diff, MESH_RADIO_BACKUP_TOPIC_LORA, 0U, 8U, 3, 5);
@@ -3104,7 +3143,7 @@ static int verb_backups(struct inkstand_scene *scene, char *rest, void *userdata
             }
         }
     } else {
-        return inkstand_scene_fail(scene, "'backups' is list, compare, restoring or same");
+        return inkstand_scene_fail(scene, "'backups' is list, compare, restoring, same or left");
     }
     mesh_ui_store_set_settings(&cap->store, &settings);
     return 0;

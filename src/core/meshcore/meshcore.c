@@ -2482,6 +2482,17 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
     return (int)count;
 }
 
+bool mesh_meshcore_radio_params_valid(uint32_t frequency_khz, uint32_t bandwidth_hz,
+                                      uint8_t spreading_factor, uint8_t coding_rate) {
+    return frequency_khz >= 150000U && frequency_khz <= 2500000U && spreading_factor >= 5U &&
+           spreading_factor <= 12U && coding_rate >= 5U && coding_rate <= 8U &&
+           bandwidth_hz >= 7000U && bandwidth_hz <= 500000U;
+}
+
+bool mesh_meshcore_tx_power_valid(const struct mesh_meshcore *meshcore, int32_t dbm) {
+    return meshcore != NULL && dbm >= -9 && dbm <= (int32_t)meshcore->self.max_tx_power_dbm;
+}
+
 int mesh_meshcore_refresh_settings(struct mesh_meshcore *meshcore) {
     if (meshcore == NULL) {
         return -EINVAL;

@@ -1161,6 +1161,13 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
     mesh_ui_settings_confirm_for_protocol(&settings, MESH_UI_SETTINGS_RADIO_DETAILS,
                                           MESH_UI_SETTINGS_ACTION_REBOOT, text, sizeof text);
     MESH_TEST_FAIL_IF(strcmp(text, reboot) != 0, "while a verb's own sheet is left alone");
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_BACKUPS, MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE,
+                                  text, sizeof text);
+    mesh_ui_settings_confirm_for_protocol(&settings, MESH_UI_SETTINGS_BACKUPS,
+                                          MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE, text,
+                                          sizeof text);
+    MESH_TEST_FAIL_IF(strcmp(text, inkcell_str(MESH_STR_CONFIRM_TEXT_BACKUPS_RESTORE_PLAIN)) != 0,
+                      "a restore promises no restart and says its contacts stay as they are");
     settings.protocol_lacks = 0U;
     mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_LORA, MESH_UI_SETTINGS_ACTION_NONE, text,
                                   sizeof text);

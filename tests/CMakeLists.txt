@@ -18,6 +18,7 @@ set(MESHCLIENT_TEST_SUPPORT
     support/fs_fixture.c
     support/https_fixture.c
     support/map_fixture.c
+    support/meshcore_fixture.c
     support/mqtt_fixture.c
     support/proto_fixture.c
     support/serial_fixture.c
