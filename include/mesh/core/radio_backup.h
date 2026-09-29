@@ -49,8 +49,8 @@ extern "C" {
  * Capacity. A section is one protobuf or one record - the largest today is a Meshtastic
  * ModuleConfig at 246 bytes - so 512 leaves room without letting a line grow unbounded. The
  * section count and the payload are sized for a MeshCore radio with a full contact list: the
- * companion firmware's largest builds keep 350 contacts of 148 bytes each, and the store is
- * given headroom past that rather than a limit that is exactly today's.
+ * protocol cannot report more than 510 contacts of 148 bytes each, and the store is given room
+ * for the contact book's 512 (meshcore_backup.c checks the sum at compile time).
  */
 #define MESH_RADIO_BACKUP_SECTION_MAX 512U
 #define MESH_RADIO_BACKUP_SECTIONS_MAX 640U

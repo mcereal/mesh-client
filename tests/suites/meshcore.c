@@ -2551,3 +2551,18 @@ MESH_TEST_CASE(meshcore_contact_book_starts_again_on_a_new_connection, unit) {
     MESH_TEST_FAIL_IF(g_meshcore.has_channel[0], "the last connection's channels survived");
     record_success(test_name);
 }
+
+MESH_TEST_CASE(meshcore_backup_refuses_a_book_that_dropped_a_contact, unit) {
+    struct mesh_protocol protocol;
+    struct wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    /* A radio that reports the protocol's most - 255 * 2 - fits the book whole. */
+    MESH_TEST_FAIL_IF(MESH_MESHCORE_CONTACTS_MAX < 255U * 2U,
+                      "the book is smaller than a limit DEVICE_INFO can report");
+    /* And one past it anyway: the backup would say complete about a list with holes. */
+    g_meshcore.contacts_unkept = 1U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_backup_capture(&g_meshcore, &g_backup) != -EOVERFLOW,
+                      "a backup was written with contacts missing from it");
+    MESH_TEST_FAIL_IF(g_backup.section_count != 0U, "a refused capture left sections behind");
+    record_success(test_name);
+}

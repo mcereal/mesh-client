@@ -61,8 +61,8 @@ bool mesh_meshcore_backup_ready(const struct mesh_meshcore *meshcore);
  * Fills `backup` - header and sections - from what the conversation holds about the radio. The
  * caller sets the reason, the time and the device.
  *
- * 0, -EAGAIN before the sync has finished, -ENOSPC or -EINVAL from the container. `backup` is
- * reset first either way.
+ * 0, -EAGAIN before the sync has finished, -EOVERFLOW when the radio has more contacts than the
+ * book could keep, -ENOSPC or -EINVAL from the container. `backup` is reset first either way.
  */
 int mesh_meshcore_backup_capture(const struct mesh_meshcore *meshcore,
                                  struct mesh_radio_backup *backup);

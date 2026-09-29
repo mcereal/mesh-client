@@ -414,11 +414,13 @@ uint32_t mesh_meshcore_node_id(const uint8_t *key, size_t key_len);
 
 #define MESH_MESHCORE_QUEUE_LEN 16U
 /*
- * How many of the radio's contact records are kept whole. The companion firmware's largest
- * builds keep 350; the rest keep fewer. A radio past this still works - the roster is not
- * bounded by it - and only a backup of it is short, which `contacts_unkept` says.
+ * How many of the radio's contact records are kept whole: every one a radio can have. DEVICE_INFO
+ * reports its limit as one byte of half the count, so no companion firmware can say more than
+ * 510, and the book is sized past that rather than to what today's builds happen to keep. A
+ * record that still arrives with the book full is counted in `contacts_unkept`, and a backup is
+ * refused rather than written short.
  */
-#define MESH_MESHCORE_CONTACTS_MAX 400U
+#define MESH_MESHCORE_CONTACTS_MAX 512U
 /* Channel slots kept whole: as many as the session shows, which the walk never goes past. */
 #define MESH_MESHCORE_CHANNELS_KEPT 8U
 #define MESH_MESHCORE_PENDING_SENDS 8U

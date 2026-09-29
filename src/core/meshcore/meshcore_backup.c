@@ -150,6 +150,11 @@ int mesh_meshcore_backup_capture(const struct mesh_meshcore *meshcore,
     if (!mesh_meshcore_backup_ready(meshcore)) {
         return -EAGAIN;
     }
+    /* A book that dropped a record is a radio with contacts this client does not hold, and a
+       backup of it would say "complete" about a list with holes in it. */
+    if (meshcore->contacts_unkept > 0U) {
+        return -EOVERFLOW;
+    }
     mc_header(meshcore, &backup->header);
 
     int result = mc_add_self(&meshcore->self, backup);
