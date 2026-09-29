@@ -274,8 +274,65 @@ jobs:
       - name: Install dependencies
         run: ./scripts/setup-macos.sh
 
+      # The certificate is exported with its private key as a password-protected .p12. Keep it
+      # out of the checkout and import it only into this job's temporary keychain.
+      - name: Install Developer ID signing identity
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          certificate_path="${RUNNER_TEMP}/developer-id.p12"
+          keychain_path="${RUNNER_TEMP}/meshclient-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          printf '%s' "${MACOS_CERTIFICATE_P12_BASE64}" | base64 --decode -o "${certificate_path}"
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${certificate_path}" -P "${MACOS_CERTIFICATE_PASSWORD}" \
+            -A -t cert -f pkcs12 -k "${keychain_path}"
+          security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "${keychain_password}" "${keychain_path}"
+          security list-keychains -d user -s "${keychain_path}"
+          identity="$(security find-identity -v -p codesigning "${keychain_path}" |
+            awk -v team="${APPLE_TEAM_ID}" \
+              'index($0, "Developer ID Application:") && index($0, "(" team ")") { print $2; exit }')"
+          if [[ -z "${identity}" ]]; then
+            echo "::error::No valid Developer ID Application identity for team ${APPLE_TEAM_ID}." >&2
+            exit 1
+          fi
+          echo "MACOS_SIGN_IDENTITY=${identity}" >> "${GITHUB_ENV}"
+          rm -f "${certificate_path}"
+
       - name: Build the bundle and the disk image
         run: ./scripts/package-macos.sh "${VERSION}"
+
+      - name: Notarize and staple the disk image
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          result="${RUNNER_TEMP}/meshclient-notarization.json"
+          xcrun notarytool submit dist/MeshClient-macos.dmg \
+            --apple-id "${APPLE_ID}" --password "${APPLE_APP_SPECIFIC_PASSWORD}" \
+            --team-id "${APPLE_TEAM_ID}" --wait --output-format json > "${result}"
+          status="$(jq -r '.status // empty' "${result}")"
+          if [[ "${status}" != "Accepted" ]]; then
+            submission_id="$(jq -r '.id // empty' "${result}")"
+            if [[ -n "${submission_id}" ]]; then
+              xcrun notarytool log "${submission_id}" \
+                --apple-id "${APPLE_ID}" --password "${APPLE_APP_SPECIFIC_PASSWORD}" \
+                --team-id "${APPLE_TEAM_ID}" || true
+            fi
+            echo "::error::Apple notarization status: ${status:-unknown}." >&2
+            exit 1
+          fi
+          xcrun stapler staple dist/MeshClient-macos.dmg
+          xcrun stapler validate dist/MeshClient-macos.dmg
+          ( cd dist && shasum -a 256 MeshClient-macos.dmg > MeshClient-macos.dmg.sha256 )
 
       - name: Attach to the release
         env:

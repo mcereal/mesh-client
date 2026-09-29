@@ -85,12 +85,20 @@ updater unpacks the zip beside the installed bundle with `ditto -x -k`, parks th
 as `MeshClient.app.old` and renames the new one into place. `package-macos.sh` makes the same
 round trip and verifies the signature at the far end.
 
-Signing is ad hoc on macOS and absent on Windows, so Gatekeeper and SmartScreen both warn on a
-first install (README.md says how to get past each). `MACOS_SIGN_IDENTITY` switches the macOS
-build to a Developer ID and the hardened runtime; notarising, and signing on Windows, need
-certificates this repository does not have yet. Until the Mac build has a stable identity,
-macOS may ask for Bluetooth permission again after an update: it keys that permission to an ad
-hoc binary's hash.
+The release job imports a Developer ID Application certificate, signs the macOS app and disk
+image with the hardened runtime, submits the disk image to Apple's notary service, staples its
+ticket, and then uploads the assets. It checks for an `Accepted` notarization result and updates
+the disk image checksum after stapling. The updater's app zip contains the same signed app;
+Apple publishes the app's notarization ticket online when it notarizes the disk image. PR builds
+remain ad hoc signed because they do not have release secrets. Windows signing is still absent,
+so SmartScreen can warn on a first install (README.md explains how to proceed).
+
+The macOS release job requires these Actions secrets: `MACOS_CERTIFICATE_P12_BASE64` (the
+Base64-encoded Developer ID Application certificate and private key exported as a `.p12`),
+`MACOS_CERTIFICATE_PASSWORD` (its export password), `APPLE_ID` (the Apple Account email),
+`APPLE_APP_SPECIFIC_PASSWORD` (an app-specific password for notarization), and `APPLE_TEAM_ID`.
+The `.p12` and password belong only in Actions secrets, never in the repository. A missing or
+invalid identity or rejected notarization fails the macOS job before it can upload an asset.
 
 **The icon is one image, drawn two ways.** `packaging/icon/meshclient.png` is the artwork;
 [`scripts/gen-icons.py`](../scripts/gen-icons.py) (by hand, needs Pillow, output committed) cuts
