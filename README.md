@@ -51,10 +51,9 @@ network. Each [release](https://github.com/mcereal/mesh-client/releases/latest) 
 installer for both:
 
 - **macOS** (Apple silicon and Intel, macOS 11 or later): download `MeshClient-macos.dmg`, open
-  it, and drag **MeshClient** to **Applications**. The app is not notarised yet, so the first
-  launch is blocked. Open **System Settings → Privacy & Security**, scroll to the message about
-  MeshClient and choose **Open Anyway**. It asks for Bluetooth the first time it looks for a
-  radio.
+  it, and drag **MeshClient** to **Applications**. New releases are signed and notarized; older
+  downloads may still require **System Settings → Privacy & Security → Open Anyway**. The app
+  asks for Bluetooth the first time it looks for a radio.
 - **Windows** (x64, Windows 10 or later): download and run
   `MeshClient-windows-x86_64-setup.exe`. It installs for your user only and needs no
   administrator. The installer is not code-signed yet, so SmartScreen may say "Windows protected
