@@ -327,6 +327,17 @@ struct mesh_radio_settings {
     meshtastic_ModuleConfig_TrafficManagementConfig traffic_management;
     bool has_mesh_beacon;
     meshtastic_ModuleConfig_MeshBeaconConfig mesh_beacon;
+    /* Four modules no Settings screen edits, kept so a backup holds them and a restore puts
+       them back: a radio's serial module, its canned-message input, its audio and its remote
+       hardware are settings somebody chose. */
+    bool has_serial;
+    meshtastic_ModuleConfig_SerialConfig serial;
+    bool has_canned_message;
+    meshtastic_ModuleConfig_CannedMessageConfig canned_message;
+    bool has_audio;
+    meshtastic_ModuleConfig_AudioConfig audio;
+    bool has_remote_hardware;
+    meshtastic_ModuleConfig_RemoteHardwareConfig remote_hardware;
     bool has_owner;
     meshtastic_User owner;
     bool has_metadata;

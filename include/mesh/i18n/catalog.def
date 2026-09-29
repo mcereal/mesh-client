@@ -3305,10 +3305,20 @@ MESH_STR_PLURAL_ENTRY(BACKUPS_MORE,       "%u more not shown", "%u more not show
 MESH_STR_ENTRY(BACKUPS_TOPIC_CONTACTS,    "Contacts")
 MESH_STR_ENTRY(BACKUPS_TOPIC_RINGTONE,    "Ringtone")
 MESH_STR_ENTRY(BACKUPS_TOPIC_OTHER,       "Other")
+/* Headings for the Meshtastic modules a backup keeps that no Settings screen edits. */
+MESH_STR_ENTRY(BACKUPS_MODULE_SERIAL,     "Serial module")
+MESH_STR_ENTRY(BACKUPS_MODULE_CANNED,     "Canned message input")
+MESH_STR_ENTRY(BACKUPS_MODULE_AUDIO,      "Audio")
+MESH_STR_ENTRY(BACKUPS_MODULE_REMOTE_HARDWARE, "Remote hardware")
 /* Labels for a difference in a field the Settings tab has no row for. */
 MESH_STR_ENTRY(BACKUPS_FIELD_PUBLIC_KEY,  "Public key")
 MESH_STR_ENTRY(BACKUPS_FIELD_CONTACT_TYPE, "Type")
 MESH_STR_ENTRY(BACKUPS_FIELD_CONTACT_FLAGS, "Flags")
+/* One field the Settings tab shows as several rows: the three admin keys, the beacon's
+   listen/send/split switches and its broadcast targets. */
+MESH_STR_ENTRY(BACKUPS_FIELD_ADMIN_KEYS,  "Admin keys")
+MESH_STR_ENTRY(BACKUPS_FIELD_BEACON_FLAGS, "Listen and send")
+MESH_STR_ENTRY(BACKUPS_FIELD_BEACON_TARGETS, "Targets")
 /* A whole section or channel that one side has and the other does not. */
 MESH_STR_ENTRY(BACKUPS_FIELD_WHOLE,       "All of it")
 /* A field this client has no name for, by the firmware's own number for it. */

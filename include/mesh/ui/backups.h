@@ -88,6 +88,23 @@ bool mesh_ui_backups_title(const struct mesh_ui_backups *backups, uint8_t view, 
 void mesh_ui_backups_restore_note(const struct mesh_ui_settings *settings, uint8_t view, char *text,
                                   size_t text_len);
 
+/*
+ * A Meshtastic module change's index, once the app has named it (app_backup_name_modules()): the
+ * Settings section that edits the module, or this plus its ModuleConfig tag for one no section
+ * edits - the serial module, say - so the heading can still say which module it is.
+ */
+#define MESH_UI_BACKUPS_MODULE_UNPLACED ((uint16_t)MESH_UI_SETTINGS_SECTION_COUNT)
+
+/*
+ * Whether a restore can act on a change. Not on a contact only the radio has, and not, on
+ * Meshtastic, on a whole section only the radio has - a module a newer firmware added, or one a
+ * backup from an older build did not keep - which mesh_radio_backup_meshtastic_plan() leaves
+ * where it is. Counted as either, such a change offered a restore that could not remove it, and
+ * judged the restore as having failed on it.
+ */
+bool mesh_ui_backups_change_restorable(uint8_t protocol,
+                                       const struct mesh_radio_backup_change *change);
+
 /* A comparison's heading for a change: its section's name, or "Channel 2", or "Contacts". */
 void mesh_ui_backups_topic(const struct mesh_radio_backup_change *change, char *out,
                            size_t out_len);

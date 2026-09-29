@@ -17,6 +17,10 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 
+#include "meshtastic/config.pb.h"
+#include "meshtastic/device_ui.pb.h"
+#include "meshtastic/module_config.pb.h"
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -254,6 +258,85 @@ MESH_TEST_CASE(ui_nav_backups_other_firmware_and_absent_radios_cannot_compare, u
     record_success(test_name);
 }
 
+/*
+ * Seen on a Heltec V3 switched to MeshCore and back: the radio's list put every Meshtastic backup
+ * above every MeshCore one, so the switch read as history out of order. A radio's list is newest
+ * first across both firmwares.
+ */
+MESH_TEST_CASE(ui_nav_backups_a_radios_list_is_in_time_order_across_firmwares, unit) {
+    struct mesh_ui_settings *settings = calloc(1U, sizeof *settings);
+    MESH_TEST_FAIL_IF(settings == NULL, "memory");
+    backups_settings(settings);
+    struct mesh_ui_backups *b = &settings->backups;
+    b->entries[0].header.saved_at = 1790000300U; /* Ridge 2: after the switch back */
+    b->entries[1].header.saved_at = 1790000100U; /* Ridge 1: before the switch */
+    b->entries[2].header.saved_at = 1790000200U; /* the MeshCore one, in between */
+    unsigned order[4] = {0};
+    size_t listed = 0U;
+    struct mesh_ui_settings_item item;
+    for (uint32_t row = 0U; row < 16U && listed < 4U; ++row) {
+        if (mesh_ui_settings_item(settings, NULL, NULL, 0U, MESH_UI_SETTINGS_BACKUPS,
+                                  mesh_ui_backups_view(MESH_UI_BACKUPS_RADIO, 0U), row, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY) {
+            order[listed++] = (unsigned)strtoul(item.text, NULL, 10);
+        }
+    }
+    free(settings);
+    MESH_TEST_FAIL_IF(listed != 3U || order[0] != 0U || order[1] != 2U || order[2] != 1U,
+                      "the other firmware's backup was not listed between the two it came between");
+    record_success(test_name);
+}
+
+/*
+ * Seen on a Heltec V3 once the serial, canned-message, audio and remote-hardware modules were
+ * kept: a backup from before listed all four as "Modules - All of it - Only on the radio", four
+ * rows no one could tell apart, and offered a restore that leaves a section only the radio has
+ * exactly where it is - and then reported the four as what the restore had failed to put back.
+ */
+MESH_TEST_CASE(ui_backups_a_section_only_the_radio_has_is_named_and_not_restorable, unit) {
+    struct mesh_radio_backup_diff *diff = calloc(1U, sizeof *diff);
+    MESH_TEST_FAIL_IF(diff == NULL, "memory");
+    mesh_radio_backup_diff_reset(diff, MESH_RADIO_BACKUP_MESHTASTIC);
+    struct mesh_radio_backup_change *serial = mesh_radio_backup_diff_add(
+        diff, MESH_RADIO_BACKUP_ADDED, MESH_RADIO_BACKUP_TOPIC_MODULE,
+        (uint16_t)(MESH_UI_BACKUPS_MODULE_UNPLACED + meshtastic_ModuleConfig_serial_tag), 0U);
+    char topic[64];
+    mesh_ui_backups_topic(serial, topic, sizeof topic);
+    const bool serial_named = strcmp(topic, "Serial module") == 0;
+    struct mesh_radio_backup_change audio = *serial;
+    audio.index = (uint16_t)(MESH_UI_BACKUPS_MODULE_UNPLACED + meshtastic_ModuleConfig_audio_tag);
+    mesh_ui_backups_topic(&audio, topic, sizeof topic);
+    const bool audio_named = strcmp(topic, "Audio") == 0;
+    struct mesh_radio_backup_change canned = *serial;
+    canned.index =
+        (uint16_t)(MESH_UI_BACKUPS_MODULE_UNPLACED + meshtastic_ModuleConfig_canned_message_tag);
+    mesh_ui_backups_topic(&canned, topic, sizeof topic);
+    const bool canned_named = strcmp(topic, "Canned message input") == 0;
+    struct mesh_radio_backup_change hardware = *serial;
+    hardware.index =
+        (uint16_t)(MESH_UI_BACKUPS_MODULE_UNPLACED + meshtastic_ModuleConfig_remote_hardware_tag);
+    mesh_ui_backups_topic(&hardware, topic, sizeof topic);
+    const bool hardware_named = strcmp(topic, "Remote hardware") == 0;
+
+    const bool whole_radio_only =
+        mesh_ui_backups_change_restorable(MESH_RADIO_BACKUP_MESHTASTIC, serial);
+    struct mesh_radio_backup_change backup_only = *serial;
+    backup_only.kind = MESH_RADIO_BACKUP_REMOVED;
+    const bool whole_backup_only =
+        mesh_ui_backups_change_restorable(MESH_RADIO_BACKUP_MESHTASTIC, &backup_only);
+    struct mesh_radio_backup_change field = *serial;
+    field.field = 3U;
+    const bool field_added =
+        mesh_ui_backups_change_restorable(MESH_RADIO_BACKUP_MESHTASTIC, &field);
+    free(diff);
+    MESH_TEST_FAIL_IF(!serial_named || !audio_named || !canned_named || !hardware_named,
+                      "a module no Settings section edits was not named");
+    MESH_TEST_FAIL_IF(whole_radio_only, "a section only the radio has was offered to restore");
+    MESH_TEST_FAIL_IF(!whole_backup_only || !field_added,
+                      "a section only the backup has, or a field set since, was not restorable");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_nav_backups_delete_asks_then_leaves_the_backup, unit) {
     const char *failure = NULL;
     struct mesh_ui_store *store = calloc(1U, sizeof *store);
@@ -483,5 +566,77 @@ cleanup:
     free(store);
     free(settings);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A difference is named by the Settings row that edits it, never "Field 12". The label table
+ * spells its tags as literals, because the UI layer does not include nanopb; these are the rows
+ * pinned against the generated numbers, one per kind of walk: a Config variant's own tag, a
+ * nested message's parent * 100 + tag, and a module - which is also told apart by the section
+ * the app named it with, since every module shares one topic and Range test's 3 is not MQTT's.
+ */
+MESH_TEST_CASE(ui_backups_field_names_a_difference_by_its_settings_row, unit) {
+    static const struct {
+        uint8_t topic;
+        uint16_t index;
+        uint16_t field;
+        inkcell_str_id label;
+    } k_rows[] = {
+        {MESH_RADIO_BACKUP_TOPIC_DISPLAY, meshtastic_Config_display_tag,
+         meshtastic_Config_DisplayConfig_use_12h_clock_tag, MESH_STR_SETTINGS_FIELD_DISPLAY_12H},
+        {MESH_RADIO_BACKUP_TOPIC_DISPLAY, meshtastic_Config_display_tag,
+         meshtastic_Config_DisplayConfig_compass_orientation_tag,
+         MESH_STR_SETTINGS_FIELD_DISPLAY_COMPASS},
+        {MESH_RADIO_BACKUP_TOPIC_MODULE, MESH_UI_SETTINGS_RANGE_TEST,
+         meshtastic_ModuleConfig_RangeTestConfig_save_tag, MESH_STR_SETTINGS_FIELD_RANGE_TEST_SAVE},
+        {MESH_RADIO_BACKUP_TOPIC_MODULE, MESH_UI_SETTINGS_MQTT,
+         meshtastic_ModuleConfig_MQTTConfig_username_tag, MESH_STR_SETTINGS_FIELD_MQTT_USERNAME},
+        {MESH_RADIO_BACKUP_TOPIC_MODULE, MESH_UI_SETTINGS_MQTT,
+         meshtastic_ModuleConfig_MQTTConfig_map_report_settings_tag * 100U +
+             meshtastic_ModuleConfig_MapReportSettings_position_precision_tag,
+         MESH_STR_SETTINGS_FIELD_MQTT_MAP_PRECISION},
+        {MESH_RADIO_BACKUP_TOPIC_NETWORK, meshtastic_Config_network_tag,
+         meshtastic_Config_NetworkConfig_ntp_server_tag, MESH_STR_NETWORK_NTP},
+        {MESH_RADIO_BACKUP_TOPIC_NETWORK, meshtastic_Config_network_tag,
+         meshtastic_Config_NetworkConfig_ipv4_config_tag * 100U +
+             meshtastic_Config_NetworkConfig_IpV4Config_gateway_tag,
+         MESH_STR_NETWORK_GATEWAY},
+        {MESH_RADIO_BACKUP_TOPIC_SECURITY, meshtastic_Config_security_tag,
+         meshtastic_Config_SecurityConfig_serial_enabled_tag,
+         MESH_STR_SETTINGS_FIELD_SECURITY_SERIAL},
+        {MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 0U, meshtastic_DeviceUIConfig_screen_brightness_tag,
+         MESH_STR_SETTINGS_FIELD_UI_BRIGHTNESS},
+    };
+    char label[64];
+    for (size_t i = 0; i < sizeof k_rows / sizeof k_rows[0]; ++i) {
+        struct mesh_radio_backup_change change;
+        memset(&change, 0, sizeof change);
+        change.topic = k_rows[i].topic;
+        change.index = k_rows[i].index;
+        change.field = k_rows[i].field;
+        mesh_ui_backups_field(MESH_RADIO_BACKUP_MESHTASTIC, &change, label, sizeof label);
+        if (strcmp(label, inkcell_str(k_rows[i].label)) != 0) {
+            fprintf(stderr, "topic %u field %u: \"%s\", expected \"%s\"\n",
+                    (unsigned)k_rows[i].topic, (unsigned)k_rows[i].field, label,
+                    inkcell_str(k_rows[i].label));
+        }
+        MESH_TEST_FAIL_IF(strcmp(label, inkcell_str(k_rows[i].label)) != 0,
+                          "a difference is not named by its Settings row");
+    }
+
+    /* A module the app could not place is still listed, by number, rather than borrowing the
+       label another module has for the same tag. */
+    struct mesh_radio_backup_change change;
+    memset(&change, 0, sizeof change);
+    change.topic = MESH_RADIO_BACKUP_TOPIC_MODULE;
+    change.index = MESH_UI_SETTINGS_SECTION_COUNT;
+    change.field = meshtastic_ModuleConfig_RangeTestConfig_save_tag;
+    mesh_ui_backups_field(MESH_RADIO_BACKUP_MESHTASTIC, &change, label, sizeof label);
+    char number[64];
+    inkcell_str_format(number, sizeof number, MESH_STR_BACKUPS_FIELD_NUMBER,
+                       (unsigned)change.field);
+    MESH_TEST_FAIL_IF(strcmp(label, number) != 0,
+                      "an unplaced module field took another module's label");
     record_success(test_name);
 }

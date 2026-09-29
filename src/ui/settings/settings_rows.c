@@ -978,10 +978,33 @@ static void build_backups_radio(const struct mesh_ui_backups *b, uint8_t r,
     const struct mesh_ui_backup_radio *radio = &b->radios[r];
     backups_save_row(b, radio->node, list);
     item_heading(list, MESH_STR_BACKUPS_HEAD_LIST);
+    /*
+     * Newest first across both firmwares. The published entries are one block per radio, and the
+     * other firmware's block lands before or after this radio's by which radio saved last - so a
+     * switch read as history out of order. Entries of one node keep their own order (by
+     * sequence, which is right even for backups taken with no clock); only entries of two nodes
+     * are put in time order against each other.
+     */
+    uint8_t order[MESH_UI_BACKUP_ENTRIES_MAX];
+    size_t listed = 0U;
     for (uint8_t e = 0U; e < b->entry_count && e < MESH_UI_BACKUP_ENTRIES_MAX; ++e) {
         if (!mesh_ui_backups_listed_under(b, r, e)) {
             continue;
         }
+        size_t at = listed++;
+        while (at > 0U) {
+            const struct mesh_radio_backup_header *before = &b->entries[order[at - 1U]].header;
+            const struct mesh_radio_backup_header *header = &b->entries[e].header;
+            if (before->node_id == header->node_id || before->saved_at >= header->saved_at) {
+                break;
+            }
+            order[at] = order[at - 1U];
+            --at;
+        }
+        order[at] = e;
+    }
+    for (size_t i = 0; i < listed; ++i) {
+        const uint8_t e = order[i];
         const struct mesh_ui_backup_entry *entry = &b->entries[e];
         char when[MESH_UI_SETTINGS_LABEL_MAX];
         mesh_ui_backups_when(&entry->header, entry->sequence, when, sizeof when);
@@ -1166,11 +1189,10 @@ static void build_backups_compare(const struct mesh_ui_backups *b, uint8_t e,
     bool contacts_restorable = false;
     for (size_t i = 0; i < diff->count; ++i) {
         const struct mesh_radio_backup_change *change = &diff->changes[i];
-        if (change->topic != MESH_RADIO_BACKUP_TOPIC_CONTACT) {
+        if (mesh_ui_backups_change_restorable(diff->protocol, change)) {
             restorable = true;
-        } else if (change->kind != MESH_RADIO_BACKUP_ADDED) {
-            restorable = true;
-            contacts_restorable = true;
+            contacts_restorable =
+                contacts_restorable || change->topic == MESH_RADIO_BACKUP_TOPIC_CONTACT;
         }
     }
     /* Contacts come last, so a list cut short may have more of them than it kept. */
