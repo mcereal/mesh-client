@@ -129,6 +129,32 @@ bool mesh_ui_backups_can_compare(const struct mesh_ui_backups *backups, size_t e
     return header->node_id == backups->live_node && header->protocol == backups->live_protocol;
 }
 
+/*
+ * A MeshCore node number is its key's first bytes, so a radio that is the backup's node holds its
+ * key already, and one that is not is another node until the key goes on - which is why MeshCore
+ * never gets the plain sheet. A Meshtastic number is the board's, and survives a reflash that
+ * made a new key; the same number on the same model is the one case the plain sheet is for.
+ */
+enum mesh_ui_backups_identity mesh_ui_backups_identity(const struct mesh_ui_backups *backups,
+                                                       size_t e) {
+    if (backups == NULL || e >= backups->entry_count || !backups->entries[e].header.has_identity) {
+        return MESH_UI_BACKUPS_IDENTITY_NONE;
+    }
+    const struct mesh_radio_backup_header *header = &backups->entries[e].header;
+    if (backups->live_node == 0U || header->protocol != backups->live_protocol) {
+        return MESH_UI_BACKUPS_IDENTITY_NO_RADIO;
+    }
+    if (header->node_id != backups->live_node) {
+        return MESH_UI_BACKUPS_IDENTITY_OTHER;
+    }
+    if (header->protocol == MESH_RADIO_BACKUP_MESHCORE) {
+        return MESH_UI_BACKUPS_IDENTITY_HELD;
+    }
+    const bool same_model = header->model[0] == '\0' || backups->live_model[0] == '\0' ||
+                            strcmp(header->model, backups->live_model) == 0;
+    return same_model ? MESH_UI_BACKUPS_IDENTITY_SAME : MESH_UI_BACKUPS_IDENTITY_OTHER;
+}
+
 void mesh_ui_backups_when(const struct mesh_radio_backup_header *header, uint32_t sequence,
                           char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {

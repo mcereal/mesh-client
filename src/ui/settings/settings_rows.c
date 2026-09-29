@@ -939,12 +939,23 @@ static void backups_save_row(const struct mesh_ui_backups *b, uint32_t node,
     }
 }
 
+/* The keyed backup, under the plain one on the two lists - not on a backup's own screen, which
+   is about that backup. */
+static void backups_save_identity_row(const struct mesh_ui_backups *b, uint32_t node,
+                                      struct item_list *list) {
+    if (b->live_node != 0U && (node == 0U || node == b->live_node)) {
+        item_verb(list, MESH_STR_ACTION_SAVE_BACKUP_IDENTITY,
+                  MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY);
+    }
+}
+
 static void build_backups_radios(const struct mesh_ui_backups *b, struct item_list *list) {
     if (!b->enabled) {
         item_str(list, MESH_STR_BACKUPS_NO_CARD, INKSTAND_FORM_INFO, INKCELL_STR_NONE);
         return;
     }
     backups_save_row(b, 0U, list);
+    backups_save_identity_row(b, 0U, list);
     if (b->radio_count == 0U) {
         item_str(list, MESH_STR_BACKUPS_EMPTY, INKSTAND_FORM_INFO, MESH_STR_BACKUPS_EMPTY_VALUE);
         return;
@@ -978,6 +989,7 @@ static void build_backups_radio(const struct mesh_ui_backups *b, uint8_t r,
     }
     const struct mesh_ui_backup_radio *radio = &b->radios[r];
     backups_save_row(b, radio->node, list);
+    backups_save_identity_row(b, radio->node, list);
     item_heading(list, MESH_STR_BACKUPS_HEAD_LIST);
     /*
      * Newest first across both firmwares. The published entries are one block per radio, and the
@@ -1131,6 +1143,10 @@ static void build_backups_entry(const struct mesh_ui_backups *b, uint8_t e,
         snprintf(value, sizeof value, "%" PRIu32, h->contacts);
         item_fact(list, MESH_STR_BACKUPS_CONTACTS, value);
     }
+    if (h->has_identity) {
+        item_str(list, MESH_STR_BACKUPS_IDENTITY, INKSTAND_FORM_INFO,
+                 MESH_STR_BACKUPS_IDENTITY_VALUE);
+    }
 
     backups_header_facts(h, list);
 
@@ -1147,6 +1163,28 @@ static void build_backups_entry(const struct mesh_ui_backups *b, uint8_t e,
                         other ? MESH_STR_BACKUPS_COMPARE_OFF_OTHER
                               : MESH_STR_BACKUPS_COMPARE_OFF_LINK,
                         MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE);
+    }
+    /* Its key back onto the radio on the link: the plain sheet for the radio it is of, the one
+       that asks for any other. */
+    switch (mesh_ui_backups_identity(b, e)) {
+    case MESH_UI_BACKUPS_IDENTITY_SAME:
+        item_verb(list, MESH_STR_BACKUPS_RESTORE_IDENTITY,
+                  MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY);
+        break;
+    case MESH_UI_BACKUPS_IDENTITY_OTHER:
+        item_verb(list, MESH_STR_BACKUPS_RESTORE_IDENTITY,
+                  MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER);
+        break;
+    case MESH_UI_BACKUPS_IDENTITY_HELD:
+        item_action_off(list, MESH_STR_BACKUPS_RESTORE_IDENTITY, MESH_STR_BACKUPS_IDENTITY_OFF_SAME,
+                        MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY);
+        break;
+    case MESH_UI_BACKUPS_IDENTITY_NO_RADIO:
+        item_action_off(list, MESH_STR_BACKUPS_RESTORE_IDENTITY, MESH_STR_BACKUPS_IDENTITY_OFF_LINK,
+                        MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY);
+        break;
+    default:
+        break;
     }
     /* A profile out of it: any backup that reads, of any radio, connected or not. */
     item_verb(list, MESH_STR_BACKUPS_MAKE_PROFILE, MESH_UI_SETTINGS_ACTION_BACKUPS_MAKE_PROFILE);

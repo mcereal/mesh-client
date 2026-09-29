@@ -242,6 +242,9 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE] = INKCELL_ICON_SWAP,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_STOP] = INKCELL_ICON_CLOSE,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_MAKE_PROFILE] = INKCELL_ICON_SHARE,
+    [MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY] = INKCELL_ICON_SECURITY,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY] = INKCELL_ICON_SECURITY,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER] = INKCELL_ICON_SECURITY,
     [MESH_UI_SETTINGS_ACTION_PROFILES_PART] = INKCELL_ICON_CHECK,
     [MESH_UI_SETTINGS_ACTION_PROFILES_SAVE] = INKCELL_ICON_BACKUP,
     [MESH_UI_SETTINGS_ACTION_PROFILES_OPEN] = INKCELL_ICON_SHARE,
@@ -362,6 +365,9 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_STOP] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_MAKE_PROFILE] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY] = INKCELL_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY] = INKCELL_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER] = INKCELL_TONE_WARNING,
     [MESH_UI_SETTINGS_ACTION_PROFILES_PART] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_PROFILES_SAVE] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_PROFILES_OPEN] = INKCELL_TONE_NORMAL,
@@ -3000,8 +3006,16 @@ bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) 
            action == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE ||
            action == MESH_UI_SETTINGS_ACTION_PROFILES_APPLY ||
            action == MESH_UI_SETTINGS_ACTION_PROFILES_DELETE ||
+           mesh_ui_settings_action_is_identity(action) ||
            mesh_ui_settings_action_is_install_firmware(action) ||
            mesh_ui_settings_action_is_forget(action);
+}
+
+/* The three presses that move a radio's private key, each behind a sheet of its own. */
+bool mesh_ui_settings_action_is_identity(enum mesh_ui_settings_action action) {
+    return action == MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY ||
+           action == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY ||
+           action == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER;
 }
 
 /*
@@ -3092,6 +3106,7 @@ bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action) {
            action == MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP ||
            action == MESH_UI_SETTINGS_ACTION_SAVE_BACKUP ||
+           action == MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY ||
            action == MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY ||
            action == MESH_UI_SETTINGS_ACTION_SEND_ADVERT ||
            action == MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT;
@@ -3153,6 +3168,15 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
         return;
     case MESH_UI_SETTINGS_ACTION_PROFILES_DELETE:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_PROFILES_DELETE));
+        return;
+    case MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_SAVE_IDENTITY));
+        return;
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_RESTORE_IDENTITY));
+        return;
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_RESTORE_IDENTITY_OTHER));
         return;
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FW_USB));
@@ -3218,6 +3242,14 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_PROFILES_APPLY);
     case MESH_UI_SETTINGS_ACTION_PROFILES_DELETE:
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_PROFILES_DELETE);
+    case MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY:
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_SAVE_IDENTITY);
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY:
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_RESTORE_IDENTITY);
+    /* "It is the same radio", not "Restore": what is being agreed to is a fact about the radio
+       in the reader's hand, which only they can know. */
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER:
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_RESTORE_IDENTITY_OTHER);
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB:
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FW_USB);
     case MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE:
@@ -3259,7 +3291,8 @@ void mesh_ui_settings_confirm_add_subject(const struct mesh_ui_settings *setting
         action == MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE ||
         action == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE ||
         action == MESH_UI_SETTINGS_ACTION_PROFILES_APPLY ||
-        action == MESH_UI_SETTINGS_ACTION_PROFILES_DELETE) {
+        action == MESH_UI_SETTINGS_ACTION_PROFILES_DELETE ||
+        mesh_ui_settings_action_is_identity(action)) {
         return;
     }
     const size_t at = strlen(text);
@@ -3390,6 +3423,15 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
         return;
     case MESH_UI_SETTINGS_ACTION_PROFILES_DELETE:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_PROFILES_DELETE));
+        return;
+    case MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_SAVE_IDENTITY));
+        return;
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_RESTORE_IDENTITY));
+        return;
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_RESTORE_IDENTITY_OTHER));
         return;
     /* The one sheet here that is neither a reset nor an install: what it costs is the mesh the
        radio is on, because amateur rules require the encryption it turns off. */

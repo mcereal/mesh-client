@@ -35,6 +35,9 @@ struct mesh_session;
 #define MESH_MESHCORE_PREFIX_LEN 6U
 #define MESH_MESHCORE_NAME_LEN 32U
 #define MESH_MESHCORE_SECRET_LEN 16U
+/* The radio's private key as EXPORT_PRIVATE_KEY gives it and IMPORT_PRIVATE_KEY takes it: an
+   Ed25519 key in its expanded 64-byte form, from which the firmware derives the public one. */
+#define MESH_MESHCORE_PRVKEY_LEN 64U
 /* What an app says it understands in DEVICE_QUERY. 3 is the first with SNR on a message. */
 #define MESH_MESHCORE_APP_VERSION 3U
 /* MAX_TEXT_LEN in the firmware: ten AES blocks. A channel message spends some of it on the
@@ -63,6 +66,12 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_REBOOT = 19,
     MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE = 20,
     MESH_MESHCORE_CMD_DEVICE_QUERY = 22,
+    /* The radio's private key out, and one in. Both are compiled in only with
+       ENABLE_PRIVATE_KEY_EXPORT / _IMPORT, which the firmware's own build turns on and a
+       variant may turn off; without them the answer is RESP_DISABLED. An import the radio
+       takes becomes its identity at once, with its contacts' shared secrets worked out again. */
+    MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY = 23,
+    MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY = 24,
     MESH_MESHCORE_CMD_SEND_LOGIN = 26,
     MESH_MESHCORE_CMD_SEND_STATUS_REQ = 27,
     MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY = 30,
@@ -92,6 +101,7 @@ enum mesh_meshcore_resp {
     MESH_MESHCORE_RESP_NO_MORE_MESSAGES = 10,
     MESH_MESHCORE_RESP_BATT_AND_STORAGE = 12,
     MESH_MESHCORE_RESP_DEVICE_INFO = 13,
+    MESH_MESHCORE_RESP_PRIVATE_KEY = 14, /* the answer to EXPORT_PRIVATE_KEY: the 64 bytes */
     MESH_MESHCORE_RESP_DISABLED = 15,
     MESH_MESHCORE_RESP_CONTACT_MSG_RECV_V3 = 16,
     MESH_MESHCORE_RESP_CHANNEL_MSG_RECV_V3 = 17,
@@ -399,6 +409,15 @@ int mesh_meshcore_decode_neighbours(const uint8_t *data, size_t len,
 /* REBOOT carries the word, so a stray byte cannot reboot a radio. */
 int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len);
 
+/* EXPORT_PRIVATE_KEY is the code alone; IMPORT_PRIVATE_KEY the code and the 64 bytes. The
+   length written, or -EINVAL / -ENOSPC. */
+int mesh_meshcore_encode_export_private_key(uint8_t *out, size_t out_len);
+int mesh_meshcore_encode_import_private_key(const uint8_t key[MESH_MESHCORE_PRVKEY_LEN],
+                                            uint8_t *out, size_t out_len);
+/* RESP_PRIVATE_KEY into `out`. 0, or -EBADMSG for another frame or one too short. */
+int mesh_meshcore_decode_private_key(const uint8_t *frame, size_t len,
+                                     uint8_t out[MESH_MESHCORE_PRVKEY_LEN]);
+
 /*
  * The roster's number for a MeshCore key: its first four bytes, big-endian.
  *
@@ -614,6 +633,25 @@ struct mesh_meshcore {
     uint32_t contact_restores_refused;
     /* The link's answer to the last frame it refused outright, for a caller that must say so. */
     int send_error;
+    /*
+     * The radio's private key asked out, or one sent in (mesh_meshcore_export_identity(),
+     * mesh_meshcore_import_identity()): where that stands, enum mesh_meshcore_identity_state,
+     * the radio's error code when it refused, and - once an export has arrived - the key, until
+     * mesh_meshcore_take_identity() takes it and wipes it. One at a time.
+     */
+    uint8_t identity_state;
+    uint8_t identity_error;
+    uint8_t identity_key[MESH_MESHCORE_PRVKEY_LEN];
+};
+
+enum mesh_meshcore_identity_state {
+    MESH_MESHCORE_IDENTITY_IDLE = 0,
+    MESH_MESHCORE_IDENTITY_ASKED,    /* sent, and not yet answered */
+    MESH_MESHCORE_IDENTITY_EXPORTED, /* the key has arrived, in `identity_key` */
+    MESH_MESHCORE_IDENTITY_IMPORTED, /* the radio took the key sent */
+    MESH_MESHCORE_IDENTITY_DISABLED, /* the firmware was built without the command */
+    MESH_MESHCORE_IDENTITY_REFUSED,  /* the radio refused it: `identity_error` says why */
+    MESH_MESHCORE_IDENTITY_LOST,     /* unanswered, or the link went first */
 };
 
 /*
@@ -833,6 +871,27 @@ bool mesh_meshcore_tx_power_valid(const struct mesh_meshcore *meshcore, int32_t 
 int mesh_meshcore_refresh_settings(struct mesh_meshcore *meshcore);
 /* Reboots the radio. The link drops without an answer and auto-connect brings it back. */
 int mesh_meshcore_reboot(struct mesh_meshcore *meshcore);
+
+/*
+ * Asks the radio for its private key, or gives it one, for a backup that carries the radio's
+ * identity and a restore of it. The answer lands in `identity_state`. 1 when sent, -EBUSY while
+ * the last one is unsettled (ASKED, or an EXPORTED key not yet taken), -EAGAIN before the radio
+ * has finished syncing, -ENOTCONN without a link, or the queue's -ENOBUFS.
+ *
+ * The import's frame carries the key, and is wiped off the queue once answered - as a login's
+ * is. What the radio does with it is take it at once: the conversation's own idea of the radio
+ * is then out of date, so the caller restarts the radio, and the sync that follows reads it as
+ * the node the key makes it.
+ */
+int mesh_meshcore_export_identity(struct mesh_meshcore *meshcore);
+int mesh_meshcore_import_identity(struct mesh_meshcore *meshcore,
+                                  const uint8_t key[MESH_MESHCORE_PRVKEY_LEN]);
+/* An exported key into `out`, wiped from the conversation, and the state back to IDLE. False
+   when none has arrived. */
+bool mesh_meshcore_take_identity(struct mesh_meshcore *meshcore,
+                                 uint8_t out[MESH_MESHCORE_PRVKEY_LEN]);
+/* A settled answer - anything but ASKED and an untaken key - forgotten, back to IDLE. */
+void mesh_meshcore_identity_clear(struct mesh_meshcore *meshcore);
 
 #ifdef __cplusplus
 }

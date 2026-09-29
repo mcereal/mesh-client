@@ -30,8 +30,13 @@
  * does know mean. Unknown keys inside a known format are skipped, which is how a field is added
  * without a new format.
  *
- * **No private key, ever, in this version.** The Meshtastic capture drops it on the way in; the
- * MeshCore radio never reports one. Whether a backup may carry one is a decision of its own.
+ * **A private key only when somebody asked for it by name.** Every capture leaves the radio's key
+ * out; a backup taken from the "with identity key" press carries it as one section of its own,
+ * MESH_RADIO_BACKUP_IDENTITY, which no protocol's reader, comparison, plan or profile knows - so
+ * a keyed backup is an ordinary one to everything but the two calls that put the key back. The
+ * automatic backups never carry one: they are written without anybody watching, to a card
+ * anyone can copy, and the key is the radio's identity on the mesh. A profile never carries one,
+ * whatever made it: mesh_radio_backup_write_file() refuses a profile with the section in it.
  */
 
 #include <stdbool.h>
@@ -60,6 +65,14 @@ extern "C" {
 #define MESH_RADIO_BACKUP_TEXT 48U
 #define MESH_RADIO_BACKUP_DEVICE 64U
 #define MESH_RADIO_BACKUP_PATH_MAX 512U
+/*
+ * The section a radio's private key rides in, the same number under either protocol, and above
+ * every protocol's own tags so it is never mistaken for one. Its bytes are the key as that
+ * protocol's radio takes it back: Meshtastic's 32-byte X25519 key, MeshCore's 64-byte Ed25519
+ * one. An older build reads it as a tag it does not know, and skips it.
+ */
+#define MESH_RADIO_BACKUP_IDENTITY 0x100U
+
 /* How many automatic backups one radio keeps; the oldest goes first. Manual ones are never
    pruned: somebody asked for each of them by name. Nor is the first-connect one, which is never
    taken twice. */
@@ -143,6 +156,9 @@ struct mesh_radio_backup_header {
     uint32_t contacts;
     /* A profile's parts; zero on a backup, which carries every part its radio had. */
     struct mesh_radio_backup_parts parts;
+    /* Whether it carries the radio's private key (MESH_RADIO_BACKUP_IDENTITY). Not a line in the
+       file: it is set whenever that section is added or read, so it cannot say otherwise. */
+    bool has_identity;
 };
 
 /* One section: a protocol's tag, and where its bytes sit in the payload. */
@@ -183,8 +199,16 @@ mesh_radio_backup_section_at(const struct mesh_radio_backup *backup, size_t inde
 /* How many sections carry `tag`. */
 size_t mesh_radio_backup_count_tag(const struct mesh_radio_backup *backup, uint16_t tag);
 
+/* The private key a backup carries, its length (0 for none) with its bytes in *data. */
+size_t mesh_radio_backup_identity(const struct mesh_radio_backup *backup, const uint8_t **data);
+
+/* Overwrites the payload and resets the backup: for one that held a key, before it is freed. */
+void mesh_radio_backup_wipe(struct mesh_radio_backup *backup);
+
 /* Whether two backups carry the same sections in the same order - the header aside, which
-   always differs by its time. How an automatic backup is skipped when nothing has changed. */
+   always differs by its time. How an automatic backup is skipped when nothing has changed.
+   A private key is not a setting and is left out of the question: the automatic backup after
+   a keyed one is still skipped when nothing else moved. */
 bool mesh_radio_backup_same_payload(const struct mesh_radio_backup *a,
                                     const struct mesh_radio_backup *b);
 
@@ -193,14 +217,15 @@ const char *mesh_radio_backup_protocol_key(uint8_t protocol);
 
 /*
  * Writes `backup` to `path` through a temporary, synced, then renamed over it. 0 or a negative
- * errno; -EINVAL for a backup with no protocol or no node - a profile, which has no node, aside.
+ * errno; -EINVAL for a backup with no protocol or no node - a profile, which has no node, aside -
+ * and -EPERM for a profile carrying a private key.
  */
 int mesh_radio_backup_write_file(const struct mesh_radio_backup *backup, const char *path);
 
 /*
  * Reads a file back. 0, or:
  *   -ENOENT   no such file
- *   -EBADMSG  not a backup, cut short, or its digest does not match
+ *   -EBADMSG  not a backup, cut short, or its digest does not match - or a profile with a key
  *   -EPROTO   a format newer than MESH_RADIO_BACKUP_FORMAT
  * `backup` is left reset on any failure: a half-read one is never handed back.
  */

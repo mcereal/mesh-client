@@ -820,6 +820,7 @@ int mesh_meshcore_backup_keep(const struct mesh_radio_backup *backup,
     }
     mesh_radio_backup_reset(out);
     out->header = backup->header;
+    out->header.has_identity = false; /* the key is no part, and is never kept */
     const bool self = mesh_radio_profile_parts_has(parts, MESH_RADIO_BACKUP_TOPIC_LORA, 0U) ||
                       mesh_radio_profile_parts_has(parts, MESH_RADIO_BACKUP_TOPIC_DEVICE, 0U);
     int result = 0;
@@ -968,4 +969,31 @@ int mesh_meshcore_backup_plan_contacts(const struct mesh_radio_backup *backup,
     }
     qsort(out, count, sizeof *out, mc_contact_order);
     return (int)count;
+}
+
+/* ---- the identity -------------------------------------------------------------------------- */
+
+int mesh_meshcore_backup_add_identity(struct mesh_radio_backup *backup,
+                                      const uint8_t key[MESH_MESHCORE_PRVKEY_LEN]) {
+    if (backup == NULL || key == NULL) {
+        return -EINVAL;
+    }
+    if (backup->header.protocol != MESH_RADIO_BACKUP_MESHCORE) {
+        return -EPROTO;
+    }
+    if (mesh_radio_backup_identity(backup, NULL) > 0U) {
+        return -EEXIST;
+    }
+    return mesh_radio_backup_add(backup, MESH_RADIO_BACKUP_IDENTITY, key, MESH_MESHCORE_PRVKEY_LEN);
+}
+
+bool mesh_meshcore_backup_identity(const struct mesh_radio_backup *backup,
+                                   uint8_t out[MESH_MESHCORE_PRVKEY_LEN]) {
+    const uint8_t *key = NULL;
+    if (backup == NULL || out == NULL || backup->header.protocol != MESH_RADIO_BACKUP_MESHCORE ||
+        mesh_radio_backup_identity(backup, &key) != MESH_MESHCORE_PRVKEY_LEN) {
+        return false;
+    }
+    memcpy(out, key, MESH_MESHCORE_PRVKEY_LEN);
+    return true;
 }

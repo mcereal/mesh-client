@@ -10,9 +10,12 @@
  * same argument channel_share.c makes for comparing LoRa configs by their bytes.
  *
  * **The private key is dropped on the way in.** `SecurityConfig.private_key` is emptied before
- * the section is encoded: a backup is a file on a removable card, and whether one may carry the
- * key that *is* the radio's identity on the mesh is a separate decision. The public key and the
- * admin keys stay; they are not secrets.
+ * the section is encoded: a backup is a file on a removable card, and the key *is* the radio's
+ * identity on the mesh. The public key and the admin keys stay; they are not secrets. A backup
+ * somebody asked to carry the key has it added afterwards, as the container's
+ * MESH_RADIO_BACKUP_IDENTITY section (mesh_radio_backup_meshtastic_add_identity()), which
+ * nothing below reads - so a comparison, a restore and a profile treat a keyed backup exactly as
+ * they treat any other.
  *
  * **Only a radio that has finished telling us about itself is captured.** The want_config
  * handshake streams every Config section, every module and every channel; a backup taken while
@@ -66,6 +69,36 @@ bool mesh_radio_backup_meshtastic_ready(const struct mesh_radio_settings *settin
 int mesh_radio_backup_meshtastic_capture(const struct mesh_radio_settings *settings,
                                          const struct mesh_handshake_status *status,
                                          struct mesh_radio_backup *backup);
+
+/* The length of a Meshtastic private key: an X25519 scalar. */
+#define MESH_RADIO_BACKUP_MT_KEY_LEN 32U
+
+/*
+ * Adds the radio's private key to a backup just captured from it, as its identity section. 0,
+ * -ENOENT when the radio has not reported a key (or reported an empty one), -EPROTO for a backup
+ * of another protocol, -EEXIST when it already has one, or the container's -ENOSPC.
+ */
+int mesh_radio_backup_meshtastic_add_identity(const struct mesh_radio_settings *settings,
+                                              struct mesh_radio_backup *backup);
+
+/*
+ * The public key a backup's Security section holds, which is the one its private key goes with:
+ * true with it in `out`, false when the backup has no Security section or no key in it.
+ */
+bool mesh_radio_backup_meshtastic_public_key(const struct mesh_radio_backup *backup,
+                                             uint8_t out[MESH_RADIO_BACKUP_MT_KEY_LEN]);
+
+/*
+ * The one write that puts a keyed backup's identity back on the radio `settings` describes: its
+ * own Security config as it stands - the admin keys and flags this is not about - with the
+ * backup's private key in it and the public key left empty, so the firmware works it out from
+ * the private one rather than taking a pair on trust. 0, -ENOENT for a backup with no key (or one
+ * of the wrong length), -EPROTO for a backup of another protocol, -EAGAIN when the radio has not
+ * reported its Security config.
+ */
+int mesh_radio_backup_meshtastic_identity_write(const struct mesh_radio_backup *backup,
+                                                const struct mesh_radio_settings *settings,
+                                                struct mesh_admin_request *write);
 
 /*
  * The other direction: every section folded into `settings` as if the radio had sent it, through

@@ -227,6 +227,26 @@ int mesh_radio_backup_meshtastic_capture(const struct mesh_radio_settings *setti
     return result;
 }
 
+int mesh_radio_backup_meshtastic_add_identity(const struct mesh_radio_settings *settings,
+                                              struct mesh_radio_backup *backup) {
+    if (settings == NULL || backup == NULL) {
+        return -EINVAL;
+    }
+    if (backup->header.protocol != MESH_RADIO_BACKUP_MESHTASTIC) {
+        return -EPROTO;
+    }
+    if (mesh_radio_backup_identity(backup, NULL) > 0U) {
+        return -EEXIST;
+    }
+    static const uint8_t zero[MESH_RADIO_BACKUP_MT_KEY_LEN] = {0};
+    const meshtastic_Config_SecurityConfig_private_key_t *key = &settings->security.private_key;
+    if (!settings->has_security || key->size != MESH_RADIO_BACKUP_MT_KEY_LEN ||
+        memcmp(key->bytes, zero, sizeof zero) == 0) {
+        return -ENOENT;
+    }
+    return mesh_radio_backup_add(backup, MESH_RADIO_BACKUP_IDENTITY, key->bytes, key->size);
+}
+
 /* ---- reading back -------------------------------------------------------------------------- */
 
 static bool mt_decode(const uint8_t *data, size_t len, const pb_msgdesc_t *fields, void *out) {
@@ -936,6 +956,64 @@ int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
     return result == 0 ? (int)planned : result;
 }
 
+/* ---- the identity -------------------------------------------------------------------------- */
+
+bool mesh_radio_backup_meshtastic_public_key(const struct mesh_radio_backup *backup,
+                                             uint8_t out[MESH_RADIO_BACKUP_MT_KEY_LEN]) {
+    if (backup == NULL || out == NULL || backup->header.protocol != MESH_RADIO_BACKUP_MESHTASTIC) {
+        return false;
+    }
+    const uint8_t *data = NULL;
+    const struct mesh_radio_backup_section *section = NULL;
+    for (size_t i = 0; (section = mesh_radio_backup_section_at(backup, i, &data)) != NULL; ++i) {
+        if (section->tag != MESH_RADIO_BACKUP_MT_CONFIG) {
+            continue;
+        }
+        meshtastic_Config config = meshtastic_Config_init_zero;
+        if (!mt_decode(data, section->len, meshtastic_Config_fields, &config) ||
+            config.which_payload_variant != meshtastic_Config_security_tag) {
+            continue;
+        }
+        const meshtastic_Config_SecurityConfig_public_key_t *key =
+            &config.payload_variant.security.public_key;
+        if (key->size != MESH_RADIO_BACKUP_MT_KEY_LEN) {
+            return false;
+        }
+        memcpy(out, key->bytes, MESH_RADIO_BACKUP_MT_KEY_LEN);
+        return true;
+    }
+    return false;
+}
+
+int mesh_radio_backup_meshtastic_identity_write(const struct mesh_radio_backup *backup,
+                                                const struct mesh_radio_settings *settings,
+                                                struct mesh_admin_request *write) {
+    if (backup == NULL || settings == NULL || write == NULL) {
+        return -EINVAL;
+    }
+    if (backup->header.protocol != MESH_RADIO_BACKUP_MESHTASTIC) {
+        return -EPROTO;
+    }
+    const uint8_t *key = NULL;
+    if (mesh_radio_backup_identity(backup, &key) != MESH_RADIO_BACKUP_MT_KEY_LEN) {
+        return -ENOENT;
+    }
+    if (!settings->has_security) {
+        return -EAGAIN;
+    }
+    memset(write, 0, sizeof *write);
+    write->kind = MESH_ADMIN_SET_CONFIG;
+    write->type = (uint32_t)meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG;
+    write->payload.config.which_payload_variant = meshtastic_Config_security_tag;
+    meshtastic_Config_SecurityConfig *security = &write->payload.config.payload_variant.security;
+    *security = settings->security;
+    security->private_key.size = MESH_RADIO_BACKUP_MT_KEY_LEN;
+    memcpy(security->private_key.bytes, key, MESH_RADIO_BACKUP_MT_KEY_LEN);
+    /* Empty, so the firmware derives it: a pair it works out itself cannot fail to match. */
+    memset(&security->public_key, 0, sizeof security->public_key);
+    return 0;
+}
+
 /* ---- profiles ------------------------------------------------------------------------------ */
 
 /*
@@ -998,6 +1076,7 @@ int mesh_radio_backup_meshtastic_keep(const struct mesh_radio_backup *backup,
     }
     mesh_radio_backup_reset(out);
     out->header = backup->header;
+    out->header.has_identity = false; /* the key is no part, and is never kept */
     union mt_message *message = malloc(sizeof *message);
     if (message == NULL) {
         return -ENOMEM;

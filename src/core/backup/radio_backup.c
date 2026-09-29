@@ -2,6 +2,7 @@
 
 #include "inkwell/base/file.h"
 #include "inkwell/base/record_file.h"
+#include "inkwell/base/wipe.h"
 #include "inkwell/codec/sha256.h"
 
 #include <errno.h>
@@ -43,6 +44,9 @@ int mesh_radio_backup_add(struct mesh_radio_backup *backup, uint16_t tag, const 
         memcpy(backup->payload + backup->used, data, len);
     }
     backup->used += len;
+    if (tag == MESH_RADIO_BACKUP_IDENTITY) {
+        backup->header.has_identity = true;
+    }
     return 0;
 }
 
@@ -67,17 +71,54 @@ size_t mesh_radio_backup_count_tag(const struct mesh_radio_backup *backup, uint1
     return count;
 }
 
+size_t mesh_radio_backup_identity(const struct mesh_radio_backup *backup, const uint8_t **data) {
+    for (size_t i = 0; backup != NULL && i < backup->section_count; ++i) {
+        if (backup->sections[i].tag == MESH_RADIO_BACKUP_IDENTITY) {
+            if (data != NULL) {
+                *data = backup->payload + backup->sections[i].offset;
+            }
+            return backup->sections[i].len;
+        }
+    }
+    return 0U;
+}
+
+void mesh_radio_backup_wipe(struct mesh_radio_backup *backup) {
+    if (backup == NULL) {
+        return;
+    }
+    inkwell_wipe(backup->payload, sizeof backup->payload);
+    mesh_radio_backup_reset(backup);
+}
+
+/* The next section at or after `*index` that is a setting, and not the key. */
+static const struct mesh_radio_backup_section *
+radio_backup_next_setting(const struct mesh_radio_backup *backup, size_t *index) {
+    while (*index < backup->section_count &&
+           backup->sections[*index].tag == MESH_RADIO_BACKUP_IDENTITY) {
+        ++*index;
+    }
+    return *index < backup->section_count ? &backup->sections[*index] : NULL;
+}
+
 bool mesh_radio_backup_same_payload(const struct mesh_radio_backup *a,
                                     const struct mesh_radio_backup *b) {
-    if (a == NULL || b == NULL || a->section_count != b->section_count || a->used != b->used) {
+    if (a == NULL || b == NULL) {
         return false;
     }
-    for (size_t i = 0; i < a->section_count; ++i) {
-        if (a->sections[i].tag != b->sections[i].tag || a->sections[i].len != b->sections[i].len) {
+    size_t i = 0U;
+    size_t j = 0U;
+    for (;; ++i, ++j) {
+        const struct mesh_radio_backup_section *x = radio_backup_next_setting(a, &i);
+        const struct mesh_radio_backup_section *y = radio_backup_next_setting(b, &j);
+        if (x == NULL || y == NULL) {
+            return x == y;
+        }
+        if (x->tag != y->tag || x->len != y->len ||
+            memcmp(a->payload + x->offset, b->payload + y->offset, x->len) != 0) {
             return false;
         }
     }
-    return memcmp(a->payload, b->payload, a->used) == 0;
 }
 
 /* ---- names --------------------------------------------------------------------------------- */
@@ -228,6 +269,11 @@ int mesh_radio_backup_write_file(const struct mesh_radio_backup *backup, const c
         mesh_radio_backup_protocol_key(backup->header.protocol) == NULL ||
         !radio_backup_node_ok(&backup->header)) {
         return -EINVAL;
+    }
+    /* Whatever path made it: two radios with one key are one node on the mesh. */
+    if (backup->header.reason == MESH_RADIO_BACKUP_PROFILE &&
+        mesh_radio_backup_identity(backup, NULL) > 0U) {
+        return -EPERM;
     }
     char temp[MESH_RADIO_BACKUP_PATH_MAX + 8U];
     return inkwell_record_replace(path, temp, sizeof temp, radio_backup_write_records,
@@ -449,6 +495,11 @@ int mesh_radio_backup_read_file(struct mesh_radio_backup *backup, const char *pa
     }
     if (result == 0 && (backup->header.protocol == MESH_RADIO_BACKUP_PROTOCOL_NONE ||
                         !radio_backup_node_ok(&backup->header))) {
+        result = -EBADMSG;
+    }
+    /* A profile with a key in it was not written by this client, and is not one to apply. */
+    if (result == 0 && backup->header.reason == MESH_RADIO_BACKUP_PROFILE &&
+        backup->header.has_identity) {
         result = -EBADMSG;
     }
     if (result != 0) {

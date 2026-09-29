@@ -1180,6 +1180,10 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_BACKUP_RESTORE_OPTION,
     /* Stop the restore in flight after the contact being written; what was written stays. */
     MESH_UI_ACTION_BACKUP_RESTORE_STOP,
+    /* Put the private key backup `number` of radio `dest` carries on the radio on the link, and
+       restart it. `channel` is 1 when the sheet answered was the one asking whether the radio on
+       the link is that radio - the only way one that is not the backup's node gets the key. */
+    MESH_UI_ACTION_BACKUP_RESTORE_IDENTITY,
     /*
      * Profiles (mesh/core/radio_profile.h). DRAFT starts one out of backup `number` of radio
      * `dest`, DRAFT_TOGGLE ticks its part `number`, and MAKE saves it named `text`. COMPARE,

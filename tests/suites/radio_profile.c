@@ -121,6 +121,40 @@ MESH_TEST_CASE(radio_profile_from_a_backup_has_no_identity, unit) {
     record_success(test_name);
 }
 
+/* Nor from one that carries the radio's private key: every part ticked still leaves it behind,
+   and a profile that somehow had one would not be written. */
+MESH_TEST_CASE(radio_profile_from_a_keyed_backup_has_no_key, unit) {
+    profile_capture();
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_add_identity(&g_settings, &g_backup) != 0,
+                      "fixture: the key was not added");
+    const struct mesh_radio_backup_parts every = profile_every();
+    MESH_TEST_FAIL_IF(mesh_radio_profile_make(&g_backup, &every, "Ridge kit", &g_profile) != 0,
+                      "the profile was not made");
+    MESH_TEST_FAIL_IF(g_profile.header.has_identity ||
+                          mesh_radio_backup_identity(&g_profile, NULL) != 0U,
+                      "the private key went into a profile");
+    bool key_bytes = false;
+    const uint8_t *data = NULL;
+    const struct mesh_radio_backup_section *section = NULL;
+    const uint8_t run[8] = {0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB};
+    for (size_t i = 0; (section = mesh_radio_backup_section_at(&g_profile, i, &data)) != NULL;
+         ++i) {
+        for (size_t at = 0; at + sizeof run <= section->len; ++at) {
+            key_bytes = key_bytes || memcmp(data + at, run, sizeof run) == 0;
+        }
+    }
+    MESH_TEST_FAIL_IF(key_bytes, "the private key's bytes are in the profile");
+
+    /* And into a .cfg, which is where a profile goes to leave this client. */
+    const int len = mesh_radio_profile_cfg_encode(&g_profile, g_cfg, sizeof g_cfg);
+    bool cfg_key = false;
+    for (int at = 0; len > 0 && at + (int)sizeof run <= len; ++at) {
+        cfg_key = cfg_key || memcmp(g_cfg + at, run, sizeof run) == 0;
+    }
+    MESH_TEST_FAIL_IF(len <= 0 || cfg_key, "the private key went into a .cfg");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(radio_profile_keeps_only_the_parts_picked, unit) {
     profile_capture();
     struct mesh_radio_profile_part offer[MESH_RADIO_PROFILE_PARTS_MAX];

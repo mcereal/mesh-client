@@ -243,7 +243,7 @@ a backup is text and why it is not Meshtastic's `DeviceProfile`, is in
 |---|---|---|
 | Sections | every `Config`, every `ModuleConfig` the radio sends (those no Settings screen edits too), eight `Channel`s, the owner, the UI config, canned messages, ringtone, a fixed position | SELF_INFO's settings and public key, the Bluetooth PIN, every channel slot, every contact record whole |
 | Counted | nodes the radio has heard | contacts the radio keeps |
-| Never kept | the private key | (the protocol never reports one) |
+| The private key | only in a backup asked for with it (below) - from the Security config it reported | only in a backup asked for with it - EXPORT_PRIVATE_KEY, when the firmware has it |
 
 A backup is taken the first time a radio is read (and only if it has none), just before a
 settings save, an import, a factory reset or a restore from flash, and just before a radio
@@ -315,6 +315,30 @@ screen counts them through ("12 of 40 contacts") once the saves are done, and of
 ends the restore after the contact in flight. The toast is judged on what the restore saw:
 contacts refused or left out for want of room are counted, and a contact only on the radio, still
 listed afterwards, is not.
+
+**The identity key** is the radio's private key: what makes it the node the mesh knows, and on
+MeshCore its node number. No automatic backup carries it - they are written unwatched, to a card
+anyone can copy - and no profile does, whatever made it (`mesh_radio_backup_write_file()` refuses
+one). **Save with identity key**, on the radio lists behind a sheet of its own, takes a manual
+backup with the key added as one more section, `MESH_RADIO_BACKUP_IDENTITY`, which no protocol's
+reader, comparison, plan or profile knows: a keyed backup is an ordinary one to all of them, and
+the entry screen says **Identity key: Included**.
+
+**Restore identity key** on that screen puts the key back and restarts the radio; its settings and
+contacts are an ordinary restore afterwards. It asks with one of two sheets
+(`mesh_ui_backups_identity()`): the plain one for the radio the backup is of - on Meshtastic the
+same node number on the same board, which a reflash keeps - and "Is this the same radio?" for any
+other, whose answer is the only one that carries the confirmation the app requires
+(`mesh_app_backup_restore_identity()`). A MeshCore radio with another key is always another node,
+so it always gets the second. Meshtastic's is one Security write in a transaction, with the
+backup's private key and an empty public key for the firmware to derive; it is judged by the
+public key the radio reports afterwards. A radio with no region - which a factory reset leaves -
+is refused with a toast saying to restore the backup's settings first: the firmware stores a key
+written to it then, but derives and reports the public key only once a region is set, so the
+restore could not be judged (found on a Heltec V3, 2.7.26). MeshCore's is IMPORT_PRIVATE_KEY and a restart, judged by
+the radio coming back as the backup's node - after which the backup is that radio's again, and can
+be compared and restored. A MeshCore build without the two commands answers `RESP_DISABLED`, and
+the toast says the firmware does not allow it.
 
 ### Profiles
 
