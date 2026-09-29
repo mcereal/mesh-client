@@ -14,6 +14,7 @@
  *
  *   COUNT   one more each time it happens      - x += 1
  *   MAX     the largest seen                   - x = max(x, v)
+ *   MIN     the smallest seen, and signed      - x = min(x, v)
  *   SET     how many distinct things           - set.size, off the seen file; never written
  *
  * Rules for a good row:
@@ -36,3 +37,7 @@ MESH_LIFETIME_STAT(MOST_HOPS, "most_hops", MAX)
 MESH_LIFETIME_STAT(FARTHEST_DIRECT_M, "farthest_direct_m", MAX)
 MESH_LIFETIME_STAT(MESSAGES_DELIVERED, "messages_delivered", COUNT)
 MESH_LIFETIME_STAT(MESSAGES_FAILED, "messages_failed", COUNT)
+MESH_LIFETIME_STAT(RECEIVED_MQTT, "received_mqtt", COUNT)
+MESH_LIFETIME_STAT(DIRECT_RECEIVED_PRIVATE, "direct_received_private", COUNT)
+MESH_LIFETIME_STAT(FARTHEST_HEARD_M, "farthest_heard_m", MAX)
+MESH_LIFETIME_STAT(WEAKEST_SNR_QDB, "weakest_snr_qdb", MIN)

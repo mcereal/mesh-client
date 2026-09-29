@@ -2483,6 +2483,10 @@ MESH_STR_ENTRY(STATS_DIRECT_RECEIVED,     "Direct received")
 /* Tapbacks: an emoji sent in answer to one message. */
 MESH_STR_ENTRY(STATS_REACTIONS_SENT,      "Reactions sent")
 MESH_STR_ENTRY(STATS_REACTIONS_RECEIVED,  "Reactions received")
+/* Messages received through an internet bridge (MQTT) rather than picked up by our own radio. */
+MESH_STR_ENTRY(STATS_RECEIVED_MQTT,       "Received over MQTT")
+/* Direct messages received encrypted with our own key, so no other node could read them. */
+MESH_STR_ENTRY(STATS_DIRECT_PRIVATE,      "Private direct received")
 /* Of the direct messages sent, which the recipient or the mesh confirms: how many were. */
 MESH_STR_ENTRY(STATS_HEAD_DELIVERY,       "Delivery")
 MESH_STR_ENTRY(STATS_DELIVERED,           "Delivered")
@@ -2504,6 +2508,11 @@ MESH_STR_ENTRY(STATS_HEAD_RECORDS,        "Records")
 MESH_STR_ENTRY(STATS_MOST_HOPS,           "Most hops")
 /* The longest distance a packet has come straight to our radio, with no relay. */
 MESH_STR_ENTRY(STATS_FARTHEST_DIRECT,     "Farthest direct")
+/* The farthest node our radio has heard over the air, through any number of relays. */
+MESH_STR_ENTRY(STATS_FARTHEST_HEARD,      "Farthest heard")
+/* The faintest packet our radio has still decoded, as a signal-to-noise ratio: below zero is
+   under the noise. */
+MESH_STR_ENTRY(STATS_WEAKEST_SNR,         "Weakest signal")
 /* The row under a record: the node that set it. */
 MESH_STR_ENTRY(STATS_HELD_BY,             "Set by")
 /* The same, with the day it was set: the node's name, then year, month and day. Reorder to

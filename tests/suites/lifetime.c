@@ -79,6 +79,32 @@ static void lt_node(enum mesh_session_event_kind kind, const struct mesh_node_su
     mesh_lifetime_observe(&g_lifetime, &g_session, &event);
 }
 
+/* A received message, and how it arrived and was encrypted. */
+static void lt_received(uint32_t to, bool via_mqtt, bool pki) {
+    struct mesh_message message;
+    memset(&message, 0, sizeof message);
+    message.from = LT_PEER;
+    message.to = to;
+    message.direction = (uint8_t)MESH_MESSAGE_INBOUND;
+    message.pki_encrypted = pki;
+    const struct mesh_session_event event = {
+        .kind = MESH_SESSION_EVENT_MESSAGE, .message = &message, .via_mqtt = via_mqtt};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+}
+
+/* A node heard over the air at `snr` dB. */
+static void lt_heard_snr(const struct mesh_node_summary *node, bool via_mqtt, bool has_hops,
+                         uint8_t hops, float snr) {
+    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_NODE_HEARD,
+                                             .node = node,
+                                             .via_mqtt = via_mqtt,
+                                             .has_hops = has_hops,
+                                             .hops = hops,
+                                             .has_snr = true,
+                                             .snr = snr};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+}
+
 static struct mesh_node_summary lt_summary(uint32_t id) {
     struct mesh_node_summary node;
     memset(&node, 0, sizeof node);
@@ -578,9 +604,146 @@ MESH_TEST_CASE(lifetime_holder_lines_survive_an_older_build, unit) {
             fits && key_len < MESH_LIFETIME_FOREIGN_KEY && value_len < MESH_LIFETIME_FOREIGN_VALUE;
     }
     fclose(file);
-    /* Heard straight to us, so the one hearing set both records: three lines each. */
-    MESH_TEST_FAIL_IF(holder_lines != 6U, "a record's holder is three lines");
+    /* Heard straight to us, so the one hearing set all three distance and hop records: three
+       lines each. */
+    MESH_TEST_FAIL_IF(holder_lines != 9U, "a record's holder is three lines");
     MESH_TEST_FAIL_IF(!fits, "every holder line should fit an older build's foreign key");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/*
+ * Of the messages received, the ones that came over MQTT and the direct ones encrypted with our
+ * key each have a count of their own. Only received: a send is on the log before the radio has
+ * decided how it goes.
+ */
+MESH_TEST_CASE(lifetime_counts_mqtt_and_private_messages, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+
+    lt_received(MESH_MESSAGE_BROADCAST_ADDR, true, false);
+    lt_received(LT_US, true, true);
+    lt_received(LT_US, false, true);
+    lt_received(LT_US, false, false);
+    /* A broadcast is never private, whatever the flag says. */
+    lt_received(MESH_MESSAGE_BROADCAST_ADDR, false, true);
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_RECEIVED) != 5U,
+                      "every one of them is a message received");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_RECEIVED_MQTT) != 2U,
+                      "two came over MQTT");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_DIRECT_RECEIVED_PRIVATE) != 2U,
+                      "two were direct and encrypted with our key");
+
+    /* A reaction is not a message, and a send is not received. */
+    struct mesh_message reaction;
+    memset(&reaction, 0, sizeof reaction);
+    reaction.from = LT_PEER;
+    reaction.to = LT_US;
+    reaction.direction = (uint8_t)MESH_MESSAGE_INBOUND;
+    reaction.is_reaction = true;
+    reaction.pki_encrypted = true;
+    const struct mesh_session_event event = {
+        .kind = MESH_SESSION_EVENT_MESSAGE, .message = &reaction, .via_mqtt = true};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+    lt_message(LT_US, LT_PEER, MESH_MESSAGE_OUTBOUND, false);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_RECEIVED_MQTT) != 2U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_DIRECT_RECEIVED_PRIVATE) !=
+                              2U,
+                      "a reaction and a send move neither");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* The farthest node heard is heard over the air at any hop count, and never over MQTT. */
+MESH_TEST_CASE(lifetime_farthest_heard_takes_any_hop_count, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(515000000, 0);
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    peer.position.valid = true;
+    peer.position.latitude_i = 520000000; /* about 55.6 km north */
+
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, true, true, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_LISTED, &peer, false, true, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_FARTHEST_HEARD_M),
+                      "MQTT and a listing say nothing about our reach");
+
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, true, 3U);
+    const uint64_t heard = mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_FARTHEST_HEARD_M);
+    MESH_TEST_FAIL_IF(heard < 55000U || heard > 56000U, "three hops out is still heard");
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M),
+                      "and is not a direct record");
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_FARTHEST_HEARD_M, &holder, NULL) ||
+            holder != LT_PEER,
+        "the record names the node heard");
+
+    /* A packet with no hop count is still a packet our radio heard. */
+    struct mesh_node_summary other = lt_summary(LT_OTHER);
+    other.position.valid = true;
+    other.position.latitude_i = 530000000;
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &other, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_FARTHEST_HEARD_M) <= heard,
+                      "a farther node with no hop count raises it");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/*
+ * The weakest signal decoded: the smallest SNR of a packet that came straight to our radio.
+ *
+ * A relayed packet's SNR is the last relay's, not the node's the record would name, and an MQTT
+ * packet's is somebody else's antenna, so neither is taken. The record is signed - a packet under
+ * the noise is below zero - and has to come back with its sign and its holder after a restart.
+ */
+MESH_TEST_CASE(lifetime_weakest_signal_is_the_faintest_heard_direct, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    const struct mesh_node_summary peer = lt_summary(LT_PEER);
+    const struct mesh_node_summary other = lt_summary(LT_OTHER);
+
+    lt_heard_snr(&peer, true, true, 0U, -18.0f);
+    lt_heard_snr(&peer, false, true, 2U, -18.0f);
+    lt_heard_snr(&peer, false, false, 0U, -18.0f);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB),
+                      "MQTT, a relay and an unknown path set no signal record");
+
+    lt_heard_snr(&peer, false, true, 0U, strtof("nan", NULL));
+    lt_heard_snr(&peer, false, true, 0U, strtof("-inf", NULL));
+    lt_heard_snr(&peer, false, true, 0U, -1.0e30f);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB),
+                      "a reading no radio makes is a malformed packet's, not a record");
+    lt_heard_snr(&peer, false, true, 0U, 6.5f);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB) ||
+                          mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB) != 26,
+                      "the first direct packet is the record, in quarters of a dB");
+    lt_heard_snr(&other, false, true, 0U, -7.25f);
+    lt_heard_snr(&peer, false, true, 0U, -3.0f);
+    lt_heard_snr(&peer, false, true, 0U, -7.25f);
+    MESH_TEST_FAIL_IF(mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB) != -29,
+                      "the fainter packet lowers it, a stronger one does not");
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB, &holder, NULL) ||
+            holder != LT_OTHER,
+        "and a tie keeps the node that was that faint first");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB) != 0U,
+                      "a signed record is not read as an unsigned one");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    holder = 0U;
+    MESH_TEST_FAIL_IF(mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB) != -29 ||
+                          !mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB),
+                      "a record below zero comes back with its sign");
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB, &holder, NULL) ||
+            holder != LT_OTHER,
+        "and with its holder");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }
@@ -826,6 +989,38 @@ MESH_TEST_CASE(lifetime_counts_what_the_session_announces, unit) {
                       "one node heard, and not our own");
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_RADIOS) != 1U,
                       "and the radio counted from its MyNodeInfo, with nothing published");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_RECEIVED_MQTT) != 0U,
+                      "nothing so far came over MQTT");
+
+    /* A message over MQTT, and a direct packet heard under the noise. */
+    meshtastic_FromRadio bridged = meshtastic_FromRadio_init_default;
+    bridged.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    bridged.packet.from = LT_OTHER;
+    bridged.packet.to = MESH_MESSAGE_BROADCAST_ADDR;
+    bridged.packet.id = 0x5151U;
+    bridged.packet.via_mqtt = true;
+    bridged.packet.rx_snr = -19.0f;
+    bridged.packet.hop_start = 3U;
+    bridged.packet.hop_limit = 3U;
+    bridged.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    bridged.packet.decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    memcpy(bridged.packet.decoded.payload.bytes, "far", 3U);
+    bridged.packet.decoded.payload.size = 3U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&g_session, &bridged), "encode failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_RECEIVED_MQTT) != 1U,
+                      "a message over MQTT is counted as one");
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB),
+                      "and its SNR is not our radio's");
+
+    meshtastic_FromRadio faint = bridged;
+    faint.packet.id = 0x5152U;
+    faint.packet.via_mqtt = false;
+    faint.packet.rx_snr = -12.5f;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&g_session, &faint), "encode failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB) != -50,
+                      "a direct packet's SNR is the record");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_RECEIVED_MQTT) != 1U,
+                      "and the one over the air is not MQTT's");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }

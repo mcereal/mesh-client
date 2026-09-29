@@ -53,6 +53,9 @@
 #define LIFETIME_HELD_VALUE_SUFFIX ".held_value"
 #define LIFETIME_HELD_AT_SUFFIX ".held_at"
 #define LIFETIME_LINE_MAX 128U
+/* An SNR further from zero than this is no reading a LoRa radio makes - they decode to about
+   -20 dB and saturate in the teens - and is dropped as a malformed packet's. */
+#define LIFETIME_SNR_LIMIT_DB 64.0f
 
 /* What the set knows about a node. Each is one line in the seen file, keyed by its name. */
 enum {
@@ -96,6 +99,11 @@ enum mesh_lifetime_kind mesh_lifetime_kind_of(enum mesh_lifetime_stat stat) {
 }
 
 static void lifetime_changed(struct mesh_lifetime *lifetime) { lifetime->revision++; }
+
+/* A MAX or a MIN: a stat that is a record, with a holder and a "measured" of its own. */
+static bool lifetime_is_record(size_t stat) {
+    return k_stat_kinds[stat] == MESH_LIFETIME_MAX || k_stat_kinds[stat] == MESH_LIFETIME_MIN;
+}
 
 /* The first credible second, written down once. The clock may become credible mid-run - a
    device whose time is set over Wi-Fi after launch - so this is asked on every event. */
@@ -261,14 +269,21 @@ static void lifetime_bump(struct mesh_lifetime *lifetime, enum mesh_lifetime_sta
     lifetime_changed(lifetime);
 }
 
-/* Raises a MAX to `value` when it beats the record, or is the first measurement, and credits
-   `holder` with it. A tie is not a new record: see mesh_lifetime_holder(). */
+/* Whether `value` beats a record of `current`: larger for a MAX, smaller for a MIN, which holds
+   an int64_t. A tie never does - see mesh_lifetime_holder(). */
+static bool lifetime_beats(enum mesh_lifetime_stat stat, uint64_t value, uint64_t current) {
+    if (k_stat_kinds[stat] == MESH_LIFETIME_MIN) {
+        return (int64_t)value < (int64_t)current;
+    }
+    return value > current;
+}
+
+/* Moves a record to `value` when it beats it, or is the first measurement, and credits `holder`
+   with it. A MIN's `value` is an int64_t's bits. */
 static void lifetime_raise(struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat,
                            uint64_t value, uint32_t holder) {
-    if (value > lifetime->values[stat] || !lifetime->measured[stat]) {
-        if (value > lifetime->values[stat]) {
-            lifetime->values[stat] = value;
-        }
+    if (!lifetime->measured[stat] || lifetime_beats(stat, value, lifetime->values[stat])) {
+        lifetime->values[stat] = value;
         lifetime->measured[stat] = true;
         lifetime->holders[stat] = holder;
         lifetime->held_at[stat] = inkwell_time_wall_credible_s();
@@ -277,7 +292,7 @@ static void lifetime_raise(struct mesh_lifetime *lifetime, enum mesh_lifetime_st
     }
 }
 
-/* "<key><suffix>" for a MAX, or false: whether `key` is one of a record's own lines. */
+/* "<key><suffix>" for a record, or false: whether `key` is one of a record's own lines. */
 static bool lifetime_record_key(const char *key, const char *suffix_text, size_t *out_stat) {
     const size_t len = strlen(key);
     const size_t suffix = strlen(suffix_text);
@@ -285,7 +300,7 @@ static bool lifetime_record_key(const char *key, const char *suffix_text, size_t
         return false;
     }
     for (size_t i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
-        if (k_stat_kinds[i] == MESH_LIFETIME_MAX && strlen(k_stat_keys[i]) == len - suffix &&
+        if (lifetime_is_record(i) && strlen(k_stat_keys[i]) == len - suffix &&
             strncmp(key, k_stat_keys[i], len - suffix) == 0) {
             *out_stat = i;
             return true;
@@ -330,6 +345,29 @@ static bool lifetime_parse_number(const char *text, int base, uint64_t max, uint
     return true;
 }
 
+/* A stat's value as the card spells it: decimal, and signed for a MIN, whose bits it answers. */
+static bool lifetime_parse_value(size_t stat, const char *text, uint64_t *out) {
+    if (k_stat_kinds[stat] != MESH_LIFETIME_MIN) {
+        return lifetime_parse_number(text, 10, UINT64_MAX, out);
+    }
+    char *end = NULL;
+    errno = 0;
+    const long long parsed = strtoll(text, &end, 10);
+    if (end == text || *end != '\0' || errno == ERANGE) {
+        return false;
+    }
+    *out = (uint64_t)(int64_t)parsed;
+    return true;
+}
+
+static void lifetime_write_value(FILE *file, size_t stat, uint64_t value) {
+    if (k_stat_kinds[stat] == MESH_LIFETIME_MIN) {
+        fprintf(file, "%" PRId64, (int64_t)value);
+    } else {
+        fprintf(file, "%" PRIu64, value);
+    }
+}
+
 /* One of a record's three holder lines, or false when `key` is none of them. */
 static bool lifetime_read_holder(struct lifetime_totals_read *read, const char *key,
                                  const char *value) {
@@ -344,7 +382,7 @@ static bool lifetime_read_holder(struct lifetime_totals_read *read, const char *
         return true;
     }
     if (lifetime_record_key(key, LIFETIME_HELD_VALUE_SUFFIX, &record)) {
-        if (lifetime_parse_number(value, 10, UINT64_MAX, &parsed)) {
+        if (lifetime_parse_value(record, value, &parsed)) {
             read->holder_values[record] = parsed;
             read->holder_read[record] |= HOLDER_READ_VALUE;
         }
@@ -399,9 +437,8 @@ static void lifetime_read_totals(void *context, const char *key, char *value) {
         if (strcmp(key, k_stat_keys[i]) != 0) {
             continue;
         }
-        char *end = NULL;
-        const unsigned long long parsed = strtoull(value, &end, 10);
-        if (k_stat_kinds[i] != MESH_LIFETIME_SET && end != value && *end == '\0') {
+        uint64_t parsed = 0U;
+        if (k_stat_kinds[i] != MESH_LIFETIME_SET && lifetime_parse_value(i, value, &parsed)) {
             lifetime->values[i] = parsed;
         }
         return;
@@ -422,17 +459,19 @@ static void lifetime_write_totals(FILE *file, void *context) {
     }
     for (size_t i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
         if (k_stat_kinds[i] != MESH_LIFETIME_SET) {
-            fprintf(file, "%s=%" PRIu64 "\n", k_stat_keys[i], lifetime->values[i]);
+            fprintf(file, "%s=", k_stat_keys[i]);
+            lifetime_write_value(file, i, lifetime->values[i]);
+            fputc('\n', file);
         }
-        if (k_stat_kinds[i] == MESH_LIFETIME_MAX && lifetime->measured[i]) {
+        if (lifetime_is_record(i) && lifetime->measured[i]) {
             fprintf(file, "%s%s=1\n", k_stat_keys[i], LIFETIME_MEASURED_SUFFIX);
         }
-        if (k_stat_kinds[i] == MESH_LIFETIME_MAX && lifetime->measured[i] &&
-            lifetime->holders[i] != 0U) {
+        if (lifetime_is_record(i) && lifetime->measured[i] && lifetime->holders[i] != 0U) {
             fprintf(file, "%s%s=%08" PRIx32 "\n", k_stat_keys[i], LIFETIME_HOLDER_SUFFIX,
                     lifetime->holders[i]);
-            fprintf(file, "%s%s=%" PRIu64 "\n", k_stat_keys[i], LIFETIME_HELD_VALUE_SUFFIX,
-                    lifetime->values[i]);
+            fprintf(file, "%s%s=", k_stat_keys[i], LIFETIME_HELD_VALUE_SUFFIX);
+            lifetime_write_value(file, i, lifetime->values[i]);
+            fputc('\n', file);
             fprintf(file, "%s%s=%" PRIu32 "\n", k_stat_keys[i], LIFETIME_HELD_AT_SUFFIX,
                     lifetime->held_at[i]);
         }
@@ -502,8 +541,14 @@ static bool lifetime_distance(const struct mesh_session *session,
     return false;
 }
 
+/*
+ * One message appended. Of the ones received, two more counts are kept: those that came over
+ * MQTT rather than from our own radio's air, and the direct ones encrypted with our key rather
+ * than a channel's, which nobody else on the mesh could read. Received only - a message we send
+ * is on the log before the radio has decided either.
+ */
 static void lifetime_observe_message(struct mesh_lifetime *lifetime,
-                                     const struct mesh_message *message) {
+                                     const struct mesh_message *message, bool via_mqtt) {
     const bool outbound = message->direction == MESH_MESSAGE_OUTBOUND;
     if (message->is_reaction) {
         lifetime_bump(lifetime,
@@ -512,9 +557,19 @@ static void lifetime_observe_message(struct mesh_lifetime *lifetime,
     }
     lifetime_bump(lifetime,
                   outbound ? MESH_LIFETIME_MESSAGES_SENT : MESH_LIFETIME_MESSAGES_RECEIVED);
-    if (message->to != MESH_MESSAGE_BROADCAST_ADDR) {
+    const bool direct = message->to != MESH_MESSAGE_BROADCAST_ADDR;
+    if (direct) {
         lifetime_bump(lifetime,
                       outbound ? MESH_LIFETIME_DIRECT_SENT : MESH_LIFETIME_DIRECT_RECEIVED);
+    }
+    if (outbound) {
+        return;
+    }
+    if (via_mqtt) {
+        lifetime_bump(lifetime, MESH_LIFETIME_RECEIVED_MQTT);
+    }
+    if (direct && message->pki_encrypted) {
+        lifetime_bump(lifetime, MESH_LIFETIME_DIRECT_RECEIVED_PRIVATE);
     }
 }
 
@@ -639,7 +694,7 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
     }
     if (event->kind == MESH_SESSION_EVENT_MESSAGE) {
         if (event->message != NULL) {
-            lifetime_observe_message(lifetime, event->message);
+            lifetime_observe_message(lifetime, event->message, event->via_mqtt);
         }
         return;
     }
@@ -656,20 +711,40 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
     lifetime_record(lifetime, node->node_id,
                     (uint8_t)(SEEN_HEARD | (event->via_mqtt ? 0U : SEEN_RF)));
 
-    /* The path records are about this radio's reach, so they take only what we watched arrive,
-       over the air; a listing or a bridged packet says nothing about either. */
-    if (event->kind != MESH_SESSION_EVENT_NODE_HEARD || event->via_mqtt || !event->has_hops) {
+    /* The records are about this radio's reach, so they take only what we watched arrive, over
+       the air; a listing or a bridged packet says nothing about any of them. */
+    if (event->kind != MESH_SESSION_EVENT_NODE_HEARD || event->via_mqtt) {
+        return;
+    }
+    uint64_t distance_m = 0U;
+    const bool has_distance = lifetime_distance(session, node, &distance_m);
+    if (has_distance) {
+        lifetime_raise(lifetime, MESH_LIFETIME_FARTHEST_HEARD_M, distance_m, node->node_id);
+    }
+    if (!event->has_hops) {
         return;
     }
     lifetime_raise(lifetime, MESH_LIFETIME_MOST_HOPS, event->hops, node->node_id);
-    uint64_t distance_m = 0U;
-    if (event->hops == 0U && lifetime_distance(session, node, &distance_m)) {
+    if (event->hops != 0U) {
+        return;
+    }
+    if (has_distance) {
         lifetime_raise(lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M, distance_m, node->node_id);
+    }
+    /* Written as a range rather than as two tests, so a NaN - which compares false either way -
+       is turned away too: a reading off a malformed packet converts to no integer at all. */
+    if (event->has_snr && event->snr >= -LIFETIME_SNR_LIMIT_DB &&
+        event->snr <= LIFETIME_SNR_LIMIT_DB) {
+        const int64_t quarters = (int64_t)(event->snr * 4.0f + (event->snr < 0.0f ? -0.5f : 0.5f));
+        lifetime_raise(lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB, (uint64_t)quarters, node->node_id);
     }
 }
 
 uint64_t mesh_lifetime_value(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat) {
     if (lifetime == NULL || (unsigned)stat >= MESH_LIFETIME_STAT_COUNT) {
+        return 0U;
+    }
+    if (k_stat_kinds[stat] == MESH_LIFETIME_MIN) {
         return 0U;
     }
     switch (stat) {
@@ -684,18 +759,25 @@ uint64_t mesh_lifetime_value(const struct mesh_lifetime *lifetime, enum mesh_lif
     }
 }
 
+int64_t mesh_lifetime_signed(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat) {
+    if (lifetime == NULL || (unsigned)stat >= MESH_LIFETIME_STAT_COUNT ||
+        k_stat_kinds[stat] != MESH_LIFETIME_MIN) {
+        return 0;
+    }
+    return (int64_t)lifetime->values[stat];
+}
+
 bool mesh_lifetime_measured(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat) {
     if (lifetime == NULL || (unsigned)stat >= MESH_LIFETIME_STAT_COUNT) {
         return false;
     }
-    return k_stat_kinds[stat] != MESH_LIFETIME_MAX || lifetime->measured[stat];
+    return !lifetime_is_record(stat) || lifetime->measured[stat];
 }
 
 bool mesh_lifetime_holder(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat,
                           uint32_t *out_node, uint32_t *out_at) {
     if (lifetime == NULL || (unsigned)stat >= MESH_LIFETIME_STAT_COUNT ||
-        k_stat_kinds[stat] != MESH_LIFETIME_MAX || !lifetime->measured[stat] ||
-        lifetime->holders[stat] == 0U) {
+        !lifetime_is_record(stat) || !lifetime->measured[stat] || lifetime->holders[stat] == 0U) {
         return false;
     }
     if (out_node != NULL) {

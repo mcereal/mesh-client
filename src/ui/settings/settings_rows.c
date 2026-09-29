@@ -3511,6 +3511,8 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     stats_count_row(list, MESH_STR_STATS_DIRECT_RECEIVED, stats->direct_received);
     stats_count_row(list, MESH_STR_STATS_REACTIONS_SENT, stats->reactions_sent);
     stats_count_row(list, MESH_STR_STATS_REACTIONS_RECEIVED, stats->reactions_received);
+    stats_count_row(list, MESH_STR_STATS_RECEIVED_MQTT, stats->received_mqtt);
+    stats_count_row(list, MESH_STR_STATS_DIRECT_PRIVATE, stats->direct_received_private);
 
     item_heading(list, MESH_STR_STATS_HEAD_DELIVERY);
     stats_count_row(list, MESH_STR_STATS_DELIVERED, stats->messages_delivered);
@@ -3538,6 +3540,22 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
         stats_holder_row(list, &stats->farthest_direct_holder);
     } else {
         item_str(list, MESH_STR_STATS_FARTHEST_DIRECT, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
+    }
+    if (stats->farthest_heard_measured) {
+        mesh_ui_format_distance((double)stats->farthest_heard_m, list->imperial, value,
+                                sizeof value);
+        item_text(list, MESH_STR_STATS_FARTHEST_HEARD, INKSTAND_FORM_INFO, value);
+        stats_holder_row(list, &stats->farthest_heard_holder);
+    } else {
+        item_str(list, MESH_STR_STATS_FARTHEST_HEARD, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
+    }
+    if (stats->weakest_snr_measured) {
+        inkcell_str_format(value, sizeof value, MESH_STR_NODE_VAL_SNR,
+                           (double)stats->weakest_snr_qdb / 4.0);
+        item_text(list, MESH_STR_STATS_WEAKEST_SNR, INKSTAND_FORM_INFO, value);
+        stats_holder_row(list, &stats->weakest_snr_holder);
+    } else {
+        item_str(list, MESH_STR_STATS_WEAKEST_SNR, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
     }
 
     item_heading(list, MESH_STR_STATS_HEAD_RESET);
