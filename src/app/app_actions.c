@@ -728,6 +728,24 @@ static const struct radio_admin_verb *radio_admin_verb_for(uint32_t row) {
     return NULL;
 }
 
+/* The card's copy of the radio's settings, asked for by name: always written, never skipped as
+   unchanged (mesh_app_backup_take()), and said as what happened to it. */
+static void radio_save_backup(struct mesh_app *app, uint64_t now) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const int result = mesh_app_backup_take(app, MESH_RADIO_BACKUP_MANUAL);
+    if (result > 0) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_CARD_BACKUP_SAVED));
+    } else if (result == -EAGAIN) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_CARD_BACKUP_WAIT));
+    } else if (result == -ENODEV) {
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_CARD_BACKUP_NO_CARD));
+    } else {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CARD_BACKUP_FAILED, result);
+        inkwell_log_warn("ui", "Backup to the card failed: %d", result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 /*
  * Asking a Store & Forward router for what we missed. Not an AdminMessage at all - it is a
  * packet to another node on the mesh - so it leaves before the admin queue, the way the
@@ -782,6 +800,10 @@ static void on_radio_action(struct mesh_app *app, const struct mesh_ui_action *a
         radio_request_history(app, now);
         return;
     }
+    if (row == MESH_UI_SETTINGS_ACTION_SAVE_BACKUP) {
+        radio_save_backup(app, now);
+        return;
+    }
     if (row == MESH_UI_SETTINGS_ACTION_SEND_ADVERT ||
         row == MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT) {
         radio_send_advert(app, row == MESH_UI_SETTINGS_ACTION_SEND_FLOOD_ADVERT, now);
@@ -795,6 +817,13 @@ static void on_radio_action(struct mesh_app *app, const struct mesh_ui_action *a
     /* MeshCore has a reboot and none of the rest; the rows for the rest are not listed for it
        (MESH_UI_FEATURE_RADIO_MAINTENANCE), so a press that gets here anyway is refused. */
     int result = 0;
+    /* The three that replace what the radio holds - with its defaults, or with whatever its
+       flash copy was - are the ones worth a copy of what it held first. */
+    if (row == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG ||
+        row == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE ||
+        row == MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG) {
+        mesh_app_backup_before(app, MESH_RADIO_BACKUP_BEFORE_WRITE);
+    }
     if (app->meshcore_bound) {
         result =
             row == MESH_UI_SETTINGS_ACTION_REBOOT ? mesh_meshcore_reboot(&app->meshcore) : -ENOTSUP;
@@ -2282,6 +2311,9 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
         mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
         return;
     }
+    /* While the radio is still on the link to be read: a switch erases the whole flash, and
+       even an update is a write nobody can take back. A refusal below costs a spare copy. */
+    mesh_app_backup_before(app, MESH_RADIO_BACKUP_BEFORE_FIRMWARE);
     /*
      * The bus the sheet named, against the bus this would actually use.
      *
@@ -2444,6 +2476,7 @@ static void import_meshcore_channel(struct mesh_app *app, const struct mesh_ui_a
         return;
     }
     uint8_t slot = 0U;
+    mesh_app_backup_before(app, MESH_RADIO_BACKUP_BEFORE_WRITE);
     const int result = mesh_meshcore_import_channel(&app->meshcore, link.name, link.secret, &slot);
     if (result > 0) {
         import_save_started(app, now);
@@ -2484,6 +2517,7 @@ static void on_import_channels(struct mesh_app *app, const struct mesh_ui_action
         return;
     }
 
+    mesh_app_backup_before(app, MESH_RADIO_BACKUP_BEFORE_WRITE);
     const int queued = mesh_session_import_channels(&app->session, &set, add);
     if (queued > 0) {
         /*

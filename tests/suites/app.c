@@ -6,6 +6,8 @@
 
 #include "../../src/app/app_internal.h"
 #include "framework/mesh_test.h"
+#include "support/backup_fixture.h"
+#include "support/fs_fixture.h"
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
 #include "support/session_fixture.h"
@@ -21,6 +23,7 @@
 #include "mesh/core/config.h"
 #include "mesh/core/meshcore.h"
 #include "mesh/core/message.h"
+#include "mesh/core/radio_backup.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
 #include "mesh/i18n/strings.h"
@@ -5720,5 +5723,120 @@ cleanup:
         mesh_app_shutdown(&app);
     }
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* ---- backups on the card -------------------------------------------------------------------- */
+
+/*
+ * An app with a Meshtastic radio already read: the handshake complete and the settings whole,
+ * as they are once the want_config stream has ended. No link - the triggers read what the
+ * session holds, and the device field is simply empty.
+ */
+static bool app_backup_open(struct mesh_app *app, char *home, size_t home_cap, const char *tag) {
+    if (!app_test_home(home, home_cap, tag)) {
+        return false;
+    }
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_SINGLE_POLL;
+    config.enable_serial = false;
+    memset(app, 0, sizeof *app);
+    if (mesh_app_init(app, &config) != 0) {
+        return false;
+    }
+    mesh_test_backup_radio(mesh_session_model_settings(&app->session), &app->session.handshake);
+    app->session.handshake.config_complete = true;
+    return true;
+}
+
+static int app_backup_count(struct mesh_app *app, struct mesh_radio_backup_entry *entries,
+                            size_t max) {
+    return mesh_radio_backup_store_list(&app->backups, 0x0badcafeU, entries, max);
+}
+
+MESH_TEST_CASE(app_backup_first_connect_fires_once_per_radio, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_backup_open(&app, home, sizeof home, "backup_first");
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+
+    /* Not while the radio is still arriving. */
+    app.session.handshake.config_complete = false;
+    mesh_app_backup_tick(&app);
+    const int before_ready = app_backup_count(&app, NULL, 0U);
+
+    app.session.handshake.config_complete = true;
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    struct mesh_radio_backup_entry entries[4];
+    const int after = app_backup_count(&app, entries, 4U);
+
+    /* A later run meets the same radio: it has a backup already, so this is not a first. */
+    app.backup_checked_node = 0U;
+    mesh_app_backup_tick(&app);
+    const int later_run = app_backup_count(&app, NULL, 0U);
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+
+    MESH_TEST_FAIL_IF(before_ready != 0, "a radio still sending its config was backed up");
+    MESH_TEST_FAIL_IF(after != 1, "the first connect wrote other than exactly one backup");
+    MESH_TEST_FAIL_IF(entries[0].reason != MESH_RADIO_BACKUP_FIRST_CONNECT,
+                      "the first backup is not marked first_connect");
+    MESH_TEST_FAIL_IF(later_run != 1, "a radio with a backup got a second first-connect one");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(app_backup_before_write_only_when_something_changed, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_backup_open(&app, home, sizeof home, "backup_write");
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+
+    mesh_app_backup_tick(&app);
+    /* Two saves in a row with nothing between them: the copy from before the first is the
+       copy from before the second, and one of it is enough. */
+    const int same = mesh_app_backup_take(&app, MESH_RADIO_BACKUP_BEFORE_WRITE);
+    mesh_session_model_settings(&app.session)->lora.hop_limit = 3U;
+    const int changed = mesh_app_backup_take(&app, MESH_RADIO_BACKUP_BEFORE_WRITE);
+    const int firmware = mesh_app_backup_take(&app, MESH_RADIO_BACKUP_BEFORE_FIRMWARE);
+    /* And a press is always written, unchanged or not. */
+    const int manual = mesh_app_backup_take(&app, MESH_RADIO_BACKUP_MANUAL);
+    struct mesh_radio_backup_entry entries[8];
+    const int total = app_backup_count(&app, entries, 8U);
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+
+    MESH_TEST_FAIL_IF(same != 0, "an unchanged radio was backed up again before a write");
+    MESH_TEST_FAIL_IF(changed != 1, "a changed radio was not backed up before a write");
+    MESH_TEST_FAIL_IF(firmware != 0, "an unchanged radio was backed up again before firmware");
+    MESH_TEST_FAIL_IF(manual != 1, "a manual backup was skipped as unchanged");
+    MESH_TEST_FAIL_IF(total != 3, "expected first_connect, before_write and manual");
+    MESH_TEST_FAIL_IF(entries[0].reason != MESH_RADIO_BACKUP_MANUAL ||
+                          entries[1].reason != MESH_RADIO_BACKUP_BEFORE_WRITE,
+                      "the backups are not the ones taken, newest first");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(app_backup_refuses_a_radio_not_yet_read, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_backup_open(&app, home, sizeof home, "backup_wait");
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+
+    mesh_session_model_settings(&app.session)->has_channel[3] = false;
+    const int manual = mesh_app_backup_take(&app, MESH_RADIO_BACKUP_MANUAL);
+    mesh_app_backup_tick(&app);
+    const int total = app_backup_count(&app, NULL, 0U);
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+
+    MESH_TEST_FAIL_IF(manual != -EAGAIN, "a half-read radio was not refused with -EAGAIN");
+    MESH_TEST_FAIL_IF(total != 0, "a half-read radio was written to the card");
     record_success(test_name);
 }

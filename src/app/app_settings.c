@@ -1279,6 +1279,7 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
     const struct mesh_ui_settings *ui = &app->ui_store.settings;
     int result = 0;
 
+    mesh_app_backup_before(app, MESH_RADIO_BACKUP_BEFORE_WRITE);
     if (clearing && app->meshcore_bound) {
         /* MeshCore has no fixed-position flag: its advert location is cleared by writing 0,0. */
         struct mesh_meshcore_settings_write write;
@@ -1433,6 +1434,7 @@ void mesh_app_save_ham_mode(struct mesh_app *app, const struct mesh_ui_action *a
         return;
     }
 
+    mesh_app_backup_before(app, MESH_RADIO_BACKUP_BEFORE_WRITE);
     const int result = mesh_session_set_ham_mode(
         &app->session, call_sign, mesh_app_unscale_float(frequency, MESH_UI_FREQUENCY_DIGITS),
         tx_power);
@@ -1775,6 +1777,7 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
     const char *section_name = section_label;
     struct mesh_admin_request write;
     int result = 0;
+    mesh_app_backup_before(app, MESH_RADIO_BACKUP_BEFORE_WRITE);
     if (app->meshcore_bound) {
         result = mesh_app_meshcore_settings_write(app, action);
     } else {

@@ -13,8 +13,8 @@
  *
  * **Not Meshtastic's DeviceProfile.** That message is the one Meshtastic's own apps export, and
  * it has no room for a MeshCore radio - nor for a contact list, which on MeshCore is the part of
- * a radio most worth keeping. It is an import and export format for later, over the Meshtastic
- * sections here, not the shape of the file.
+ * a radio most worth keeping. It is an import and export format over the Meshtastic sections
+ * here, not the shape of the file.
  *
  * **Text, not bytes.** The file is inkwell's key=value record, a section's bytes in hex. Twice
  * the size of a binary file - a Meshtastic backup is a few kilobytes, a MeshCore one with a full

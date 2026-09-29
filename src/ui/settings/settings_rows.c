@@ -2671,9 +2671,16 @@ static void build_forget_verbs(const struct mesh_ui_handshake_state *handshake,
 }
 
 /* Backup before the factory resets, which is the order every list of these runs in: least to
-   most destructive, and a backup is the thing you want to have pressed before the row below. */
+   most destructive, and a backup is the thing you want to have pressed before the row below.
+   The card's copy first of all: it is the one every protocol has, and the one that does not
+   depend on the radio surviving whatever comes next. */
 static void build_backup_verbs(const struct mesh_ui_settings *s, bool connected,
                                struct item_list *list) {
+    if (s->admin_dest == 0U) {
+        item_heading(list, MESH_STR_HEAD_CARD_BACKUP);
+        item_radio_action(list, MESH_STR_ACTION_SAVE_BACKUP, MESH_UI_SETTINGS_ACTION_SAVE_BACKUP,
+                          connected);
+    }
     if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_RADIO_MAINTENANCE)) {
         return;
     }
