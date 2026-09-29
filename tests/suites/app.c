@@ -5970,3 +5970,39 @@ MESH_TEST_CASE(app_backup_restore_writes_the_difference_and_judges_it_after_the_
     MESH_TEST_FAIL_IF(!partial, "a setting that did not take was not reported");
     record_success(test_name);
 }
+
+MESH_TEST_CASE(app_backup_restore_refuses_without_a_copy_or_a_write, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    struct mesh_radio_settings *radio = mesh_session_model_settings(&app.session);
+    mesh_app_backup_tick(&app); /* backup 1 */
+
+    /* What differs is Security, and the radio never said its private key: nothing can be
+       written, and that is not the same answer as "it already matches". */
+    radio->security.serial_enabled = !radio->security.serial_enabled;
+    radio->security.private_key.size = 0U;
+    mesh_app_backup_restore(&app, 0x0badcafeU, 1U);
+    const bool unwritable =
+        app.backup_restore.stage == 0U && radio->queue_len == 0U &&
+        strcmp(app.ui_store.nav.toast.text, "What differs cannot be written to this radio") == 0;
+
+    /* A difference that can be written, but no card to save the radio to first: refused. */
+    radio->security.private_key.size = 32U;
+    radio->lora.hop_limit = 3U;
+    char kept_dir[sizeof app.backups.dir];
+    memcpy(kept_dir, app.backups.dir, sizeof kept_dir);
+    snprintf(app.backups.dir, sizeof app.backups.dir, "%s", "/proc/no-such-card");
+    mesh_app_backup_restore(&app, 0x0badcafeU, 1U);
+    const bool refused =
+        app.backup_restore.stage == 0U && radio->queue_len == 0U && app.backups.protect_node == 0U;
+    memcpy(app.backups.dir, kept_dir, sizeof kept_dir);
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!unwritable, "a difference with no write was reported as a match or sent");
+    MESH_TEST_FAIL_IF(!refused, "a restore went ahead without the radio saved first");
+    record_success(test_name);
+}

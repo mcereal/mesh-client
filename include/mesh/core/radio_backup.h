@@ -202,6 +202,11 @@ struct mesh_radio_backup_store {
     char dir[MESH_RADIO_BACKUP_PATH_MAX];
     bool enabled;
     unsigned keep_automatic;
+    /* One backup a prune must leave alone whatever its age, 0 for none: the one being
+       restored, which the safety copy taken just before the restore would otherwise be the
+       very save that pushes it out. Set and cleared by whoever is using it. */
+    uint32_t protect_node;
+    uint32_t protect_sequence;
 };
 
 /* One file in a radio's directory, as its name describes it. */

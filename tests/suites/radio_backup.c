@@ -418,6 +418,32 @@ MESH_TEST_CASE(radio_backup_store_prunes_automatic_and_keeps_manual, unit) {
     record_success(test_name);
 }
 
+MESH_TEST_CASE(radio_backup_store_prune_leaves_the_protected_backup, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!backup_tempdir(dir, sizeof dir), "mkdtemp failed");
+    char root[96];
+    snprintf(root, sizeof root, "%s/backups", dir);
+    struct mesh_radio_backup_store store;
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_radio_backup_store_init(&store, root) != 0,
+                              mesh_test_remove_tree(dir), "store init failed");
+    store.keep_automatic = 3U;
+    /* The oldest is the one being restored: the save that would push it out leaves it. */
+    store.protect_node = 0xa1b2c3d4U;
+    store.protect_sequence = 1U;
+    bool saved = true;
+    for (size_t i = 0; i < 5U; ++i) {
+        backup_fill(&g_backup, MESH_RADIO_BACKUP_BEFORE_WRITE);
+        saved = saved && mesh_radio_backup_store_save(&store, &g_backup, NULL) == 0;
+    }
+    struct mesh_radio_backup_entry entries[8];
+    const int total = mesh_radio_backup_store_list(&store, 0xa1b2c3d4U, entries, 8U);
+    mesh_test_remove_tree(dir);
+    MESH_TEST_FAIL_IF(!saved, "a save failed");
+    MESH_TEST_FAIL_IF(total != 4 || entries[total - 1].sequence != 1U,
+                      "the protected backup was pruned, or the others were not");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(radio_backup_store_without_a_directory_is_quiet, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!backup_tempdir(dir, sizeof dir), "mkdtemp failed");
@@ -746,7 +772,8 @@ MESH_TEST_CASE(radio_backup_meshtastic_plan_of_an_unchanged_radio_is_empty, unit
     mesh_test_backup_radio(&g_settings, &g_status);
     mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
     MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_plan(&g_backup, &g_settings, &g_status, g_writes,
-                                                        MESH_RADIO_SETTINGS_TRANSACTION_MAX) != 0,
+                                                        MESH_RADIO_SETTINGS_TRANSACTION_MAX,
+                                                        NULL) != 0,
                       "a radio that matches its backup was given writes");
     record_success(test_name);
 }
@@ -756,7 +783,7 @@ MESH_TEST_CASE(radio_backup_meshtastic_plan_writes_only_what_differs, unit) {
     mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
     g_settings.lora.hop_limit = 3U;
     const int planned = mesh_radio_backup_meshtastic_plan(
-        &g_backup, &g_settings, &g_status, g_writes, MESH_RADIO_SETTINGS_TRANSACTION_MAX);
+        &g_backup, &g_settings, &g_status, g_writes, MESH_RADIO_SETTINGS_TRANSACTION_MAX, NULL);
     MESH_TEST_FAIL_IF(planned != 1, "not exactly one write for one changed section");
     MESH_TEST_FAIL_IF(
         g_writes[0].kind != MESH_ADMIN_SET_CONFIG ||
@@ -772,7 +799,7 @@ MESH_TEST_CASE(radio_backup_meshtastic_plan_keeps_the_radios_own_keys, unit) {
     mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
     g_settings.security.serial_enabled = !g_settings.security.serial_enabled;
     const int planned = mesh_radio_backup_meshtastic_plan(
-        &g_backup, &g_settings, &g_status, g_writes, MESH_RADIO_SETTINGS_TRANSACTION_MAX);
+        &g_backup, &g_settings, &g_status, g_writes, MESH_RADIO_SETTINGS_TRANSACTION_MAX, NULL);
     MESH_TEST_FAIL_IF(planned != 1 || g_writes[0].kind != MESH_ADMIN_SET_CONFIG ||
                           g_writes[0].payload.config.which_payload_variant !=
                               meshtastic_Config_security_tag,
@@ -787,9 +814,12 @@ MESH_TEST_CASE(radio_backup_meshtastic_plan_keeps_the_radios_own_keys, unit) {
                       "the restore would have written the radio an empty private key");
     /* And with no key of the radio's own to carry, the section is not written at all. */
     g_settings.security.private_key.size = 0U;
+    size_t unwritable = 0U;
     MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_plan(&g_backup, &g_settings, &g_status, g_writes,
-                                                        MESH_RADIO_SETTINGS_TRANSACTION_MAX) != 0,
-                      "a Security write went out with no private key to put in it");
+                                                        MESH_RADIO_SETTINGS_TRANSACTION_MAX,
+                                                        &unwritable) != 0 ||
+                          unwritable != 1U,
+                      "a Security write went out with no private key, or was not counted");
     record_success(test_name);
 }
 
@@ -815,8 +845,8 @@ MESH_TEST_CASE(radio_backup_meshtastic_plan_for_a_reset_radio_fits_one_transacti
         reset->channels[i].index = (int8_t)i;
     }
     memset(&reset->owner.long_name, 0, sizeof reset->owner.long_name);
-    const int planned = mesh_radio_backup_meshtastic_plan(&g_backup, reset, &g_status, g_writes,
-                                                          MESH_RADIO_SETTINGS_TRANSACTION_MAX);
+    const int planned = mesh_radio_backup_meshtastic_plan(
+        &g_backup, reset, &g_status, g_writes, MESH_RADIO_SETTINGS_TRANSACTION_MAX, NULL);
     /* The fixture's LoRa, device role, owner and its two named channels are what a reset
        loses; every other section it holds is at its defaults already. */
     MESH_TEST_FAIL_IF(planned != 5, "a reset radio was not planned the five sections it lost");
@@ -834,7 +864,7 @@ MESH_TEST_CASE(radio_backup_meshtastic_plan_refuses_another_protocol, unit) {
     mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
     g_backup.header.protocol = MESH_RADIO_BACKUP_MESHCORE;
     MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_plan(&g_backup, &g_settings, &g_status, g_writes,
-                                                        4U) != -EPROTO,
+                                                        4U, NULL) != -EPROTO,
                       "a MeshCore backup was planned onto a Meshtastic radio");
     record_success(test_name);
 }

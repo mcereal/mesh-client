@@ -397,18 +397,41 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
         result = app_backup_load(app, node, sequence, backup);
     }
     int planned = 0;
+    size_t unwritable = 0U;
+    bool said = false; /* the toast already says why */
     if (result == 0) {
-        planned = mesh_radio_backup_meshtastic_plan(backup, mesh_session_settings(&app->session),
-                                                    mesh_session_handshake(&app->session), writes,
-                                                    MESH_RADIO_SETTINGS_TRANSACTION_MAX);
+        planned = mesh_radio_backup_meshtastic_plan(
+            backup, mesh_session_settings(&app->session), mesh_session_handshake(&app->session),
+            writes, MESH_RADIO_SETTINGS_TRANSACTION_MAX, &unwritable);
         result = planned < 0 ? planned : 0;
     }
     if (result == 0 && planned == 0) {
-        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_RESTORE_SAME));
+        /* Nothing to write is two answers: nothing differs, or what differs has no write. */
+        inkwell_str_copy(toast, sizeof toast,
+                         inkcell_str(unwritable > 0U ? MESH_STR_TOAST_RESTORE_UNWRITABLE
+                                                     : MESH_STR_TOAST_RESTORE_SAME));
     } else if (result == 0) {
-        /* The radio as it is now goes on the card first, so a restore can itself be undone. */
-        mesh_app_backup_before(app, MESH_RADIO_BACKUP_BEFORE_WRITE);
-        result = mesh_session_restore_settings(&app->session, writes, (size_t)planned);
+        /*
+         * The radio as it is now goes on the card first, so a restore can itself be undone - and
+         * the restore does not go ahead without it, which is what the sheet promised. A copy
+         * already there (0: unchanged since the newest) is as good as a new one.
+         *
+         * The backup being restored is protected from the prune that save may run: at ten
+         * automatic backups the save would otherwise push out the oldest, and that can be this
+         * one - still needed to judge the restore, and to try it again.
+         */
+        app->backups.protect_node = node;
+        app->backups.protect_sequence = sequence;
+        const int saved = mesh_app_backup_take(app, MESH_RADIO_BACKUP_BEFORE_WRITE);
+        if (saved < 0) {
+            result = saved;
+            said = true;
+            inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESTORE_NO_COPY, saved);
+            inkwell_log_warn("app", "Restore refused: the radio's current state was not saved (%d)",
+                             saved);
+        } else {
+            result = mesh_session_restore_settings(&app->session, writes, (size_t)planned);
+        }
         if (result > 0) {
             app->backup_restore.node = node;
             app->backup_restore.sequence = sequence;
@@ -421,9 +444,14 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
             inkwell_log_info("app", "Restoring backup %u of 0x%08x: %d sections",
                              (unsigned)sequence, (unsigned)node, planned);
             result = 0;
+        } else {
+            app->backups.protect_node = 0U;
+            app->backups.protect_sequence = 0U;
         }
     }
-    if (result == -ENOSPC) {
+    if (said) {
+        /* nothing to add */
+    } else if (result == -ENOSPC) {
         inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_RESTORE_BUSY));
     } else if (result < 0) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESTORE_FAILED, result);
@@ -436,11 +464,18 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
 }
 
 /* The radio read again and compared with the backup it was restored from. */
+/* The restore is over, judged or abandoned: its backup is an ordinary one again. */
+static void app_backup_restore_end(struct mesh_app *app) {
+    app->backup_restore.stage = APP_RESTORE_NONE;
+    app->backups.protect_node = 0U;
+    app->backups.protect_sequence = 0U;
+}
+
 static void app_backup_restore_judge(struct mesh_app *app) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint32_t node = app->backup_restore.node;
     const uint32_t sequence = app->backup_restore.sequence;
-    app->backup_restore.stage = APP_RESTORE_NONE;
+    app_backup_restore_end(app);
     mesh_app_backup_compare(app, node, sequence);
     const struct mesh_ui_backups *listing = &app->backup_listing;
     if (listing->compare_state != MESH_UI_BACKUP_COMPARE_DONE) {
@@ -484,7 +519,7 @@ static void app_backup_restore_tick(struct mesh_app *app) {
             /* Another radio came back on the link: this restore cannot be judged from here. */
             inkwell_log_warn("app", "Restore of 0x%08x not judged: 0x%08x connected instead",
                              (unsigned)app->backup_restore.node, (unsigned)ready);
-            app->backup_restore.stage = APP_RESTORE_NONE;
+            app_backup_restore_end(app);
             app->backup_listing.compare_state = MESH_UI_BACKUP_COMPARE_NONE;
             return;
         }

@@ -778,7 +778,11 @@ static bool mt_restore_write(const struct mt_key *key, const union mt_message *m
 int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
                                       const struct mesh_radio_settings *settings,
                                       const struct mesh_handshake_status *status,
-                                      struct mesh_admin_request *writes, size_t max) {
+                                      struct mesh_admin_request *writes, size_t max,
+                                      size_t *unwritable) {
+    if (unwritable != NULL) {
+        *unwritable = 0U;
+    }
     if (backup == NULL || settings == NULL || status == NULL || (writes == NULL && max > 0U)) {
         return -EINVAL;
     }
@@ -825,6 +829,9 @@ int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
         }
         struct mesh_admin_request write;
         if (!mt_restore_write(&key, message, data, section->len, settings, &write)) {
+            if (unwritable != NULL) {
+                ++*unwritable;
+            }
             continue;
         }
         if (planned >= max) {
