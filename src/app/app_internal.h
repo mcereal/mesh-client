@@ -83,6 +83,8 @@ void mesh_app_backup_publish(struct mesh_app *app, struct mesh_ui_backups *out);
 /* The two presses on one backup: compare it with the radio, and delete it. */
 void mesh_app_backup_compare(struct mesh_app *app, uint32_t node, uint32_t sequence);
 void mesh_app_backup_delete(struct mesh_app *app, uint32_t node, uint32_t sequence);
+/* Writes a backup back to the radio it came from (see app_backup.c for how it is judged). */
+void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t sequence);
 
 /* ---- app_actions.c ---------------------------------------------------------------------- */
 

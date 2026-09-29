@@ -106,7 +106,8 @@ int mesh_radio_backup_meshtastic_diff(const struct mesh_radio_backup *a,
  * SecurityConfig as it stands would hand the radio an empty one, which the firmware answers by
  * making a new key pair - a new identity on the mesh, and every node that trusted the old one
  * refusing the new. So the Security write carries the radio's current key pair, and the owner
- * write its current public key, whatever else they restore.
+ * write its current public key, whatever else they restore. A radio that has not reported its
+ * private key is not sent a Security write at all.
  *
  * Returns how many writes were planned (0 is a radio that already matches), -EPROTO for a
  * backup of another protocol, -EAGAIN when the radio has not been read far enough to compare

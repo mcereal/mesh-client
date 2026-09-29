@@ -253,8 +253,7 @@ backups are kept per radio, and manual ones are never pruned.
 
 **A backup reads whole or not at all.** Its last line is a SHA-256 over every record before it,
 so a file cut off by a pulled battery is refused rather than read back as a radio with fewer
-channels than it had. The client keeps and lists backups; nothing in it writes one back to a
-radio.
+channels than it had.
 
 **Settings > Backups** is four levels of one section: the radios, one radio's backups, one
 backup's header, and that backup compared with the radio on the link. A radio's list also holds
@@ -272,6 +271,19 @@ a topic, the protocol's number for the field, and both values, and `src/ui/table
 names them with the Settings tab's own labels, or by the field's number when there is no row for
 it. A MeshCore comparison matches contacts by key and leaves out routes and timestamps, which move
 every time the radio hears a contact again.
+
+**Restoring** is offered over a comparison that found something, for a Meshtastic radio on the
+link. `mesh_radio_backup_meshtastic_plan()` turns each section whose bytes differ into the write
+that puts it back, and the writes go as one edit transaction
+(`mesh_radio_settings_queue_transaction()`): a passkey refresh, `begin_edit_settings`, the writes,
+`commit_edit_settings`. The firmware holds the save and the restart until the commit, so a LoRa
+write early in the list does not reboot the radio before the rest arrive. There is no read-back
+per write - three slots a section would not fit a whole radio in the 48-slot queue - and a
+transaction that does not fit is refused before anything is queued. The radio keeps its own key
+pair: the Security and owner writes carry the keys it has now, never the backup's empty private
+key. The radio as it stands is saved to the card first, and once it has restarted and been read
+again (or refreshed, when it did not restart) the backup is compared with it once more: no
+difference is a restore that took, and anything left is listed on the same screen.
 
 ## Input
 
@@ -1282,7 +1294,7 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `airtime BUSY [TX]`, `airtime history MINUTES` | the airtime row and meter; a chart's worth of it |
 | `update check\|download [PCT]\|available\|ready` | the self-updater's state |
 | `firmware ... `, `firmware-channel stable\|alpha` | what the client knows about the *radio's* firmware |
-| `backups list\|compare\|same` | the backups on the card as the app publishes them; a finished comparison of the newest |
+| `backups list\|compare\|restoring\|same` | the backups on the card as the app publishes them; a finished comparison of the newest, or a restore of it in flight |
 | `syncing on\|off` | put the config handshake back in flight |
 | `link up\|down` | attach or drop the radio, leaving the roster and config alone |
 | `offradio NAME\|all` | mark nodes the radio's NodeDB no longer carries |

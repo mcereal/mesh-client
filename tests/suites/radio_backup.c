@@ -785,6 +785,11 @@ MESH_TEST_CASE(radio_backup_meshtastic_plan_keeps_the_radios_own_keys, unit) {
                           memcmp(security->private_key.bytes, g_settings.security.private_key.bytes,
                                  security->private_key.size) != 0,
                       "the restore would have written the radio an empty private key");
+    /* And with no key of the radio's own to carry, the section is not written at all. */
+    g_settings.security.private_key.size = 0U;
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_plan(&g_backup, &g_settings, &g_status, g_writes,
+                                                        MESH_RADIO_SETTINGS_TRANSACTION_MAX) != 0,
+                      "a Security write went out with no private key to put in it");
     record_success(test_name);
 }
 

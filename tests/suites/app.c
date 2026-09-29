@@ -5889,3 +5889,84 @@ MESH_TEST_CASE(app_backup_listing_compares_and_deletes, unit) {
     MESH_TEST_FAIL_IF(!gone, "a deleted backup stayed on the card or in the list");
     record_success(test_name);
 }
+
+/* An app attached to a radio that swallows what it is sent, with the fixture radio read whole. */
+static bool app_restore_open(struct mesh_app *app, char *home, size_t home_cap) {
+    if (!app_backup_open(app, home, home_cap, "backup_restore")) {
+        return false;
+    }
+    mesh_session_attach(&app->session, app_verify_sink, NULL);
+    mesh_test_backup_radio(mesh_session_model_settings(&app->session), &app->session.handshake);
+    app->session.handshake.config_complete = true;
+    return true;
+}
+
+/* The radio took everything it was sent: the queue is empty and nothing is in flight. */
+static void app_restore_radio_answered(struct mesh_app *app) {
+    struct mesh_radio_settings *radio = mesh_session_model_settings(&app->session);
+    radio->queue_len = 0U;
+    radio->pending_request_id = 0U;
+}
+
+MESH_TEST_CASE(app_backup_restore_writes_the_difference_and_judges_it_after_the_restart, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    struct mesh_radio_settings *radio = mesh_session_model_settings(&app.session);
+
+    mesh_app_backup_tick(&app); /* backup 1, the radio as the fixture has it */
+    /* A radio that matches its backup is sent nothing. */
+    mesh_app_backup_restore(&app, 0x0badcafeU, 1U);
+    const bool nothing = app.backup_restore.stage == 0U && radio->queue_len == 0U;
+
+    /* One field moved: the restore is the passkey, begin, that one section, and the commit. */
+    radio->lora.hop_limit = 3U;
+    mesh_app_backup_restore(&app, 0x0badcafeU, 1U);
+    const bool sent = app.backup_restore.stage != 0U && radio->queue_len == 4U &&
+                      app.backup_listing.compare_state == MESH_UI_BACKUP_COMPARE_RESTORING;
+    bool wrapped = sent;
+    const enum mesh_admin_request_kind kinds[] = {MESH_ADMIN_GET_OWNER, MESH_ADMIN_BEGIN_EDIT,
+                                                  MESH_ADMIN_SET_CONFIG, MESH_ADMIN_COMMIT_EDIT};
+    for (size_t i = 0; wrapped && i < 4U; ++i) {
+        wrapped =
+            radio->queue[(radio->queue_head + i) % MESH_RADIO_SETTINGS_FETCH_MAX].kind == kinds[i];
+    }
+    /* The radio as it was before the restore went on the card first. */
+    const bool kept = app_backup_count(&app, NULL, 0U) == 2;
+
+    /* It applies them and restarts; nothing is judged while it is gone. */
+    mesh_app_backup_tick(&app);
+    const bool waited = app.backup_restore.stage != 0U;
+    app_restore_radio_answered(&app);
+    radio->lora.hop_limit = 5U;
+    app.session.reboot_generation += 1U;
+    mesh_app_backup_tick(&app); /* SENT -> READING */
+    mesh_app_backup_tick(&app); /* read again, and the same: judged */
+    const bool judged = app.backup_restore.stage == 0U &&
+                        app.backup_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE &&
+                        app.backup_listing.diff.total == 0U;
+
+    /* And a radio that did not take a setting says so, with the setting in the comparison. */
+    radio->lora.hop_limit = 3U;
+    mesh_app_backup_restore(&app, 0x0badcafeU, 1U);
+    app_restore_radio_answered(&app);
+    app.session.reboot_generation += 1U;
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool partial = app.backup_restore.stage == 0U &&
+                         app.backup_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE &&
+                         app.backup_listing.diff.total == 1U;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+
+    MESH_TEST_FAIL_IF(!nothing, "an unchanged radio was sent a restore");
+    MESH_TEST_FAIL_IF(!sent || !wrapped, "the restore was not one section inside begin/commit");
+    MESH_TEST_FAIL_IF(!kept, "the radio's state before the restore was not saved first");
+    MESH_TEST_FAIL_IF(!waited, "the restore was judged before the radio had answered");
+    MESH_TEST_FAIL_IF(!judged, "a radio that matches after the restart did not report success");
+    MESH_TEST_FAIL_IF(!partial, "a setting that did not take was not reported");
+    record_success(test_name);
+}

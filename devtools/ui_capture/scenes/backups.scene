@@ -39,6 +39,18 @@ hold 900
 backups compare
 hold 3400
 
+# Put back: the sheet first, then the restore in flight, then the radio read again and matching.
+key down
+hold 900
+key a
+hold 2800
+key up
+key a
+backups restoring
+hold 2200
+backups same
+hold 2200
+
 # Back out, each level landing on the row it was opened from.
 key b
 hold 900

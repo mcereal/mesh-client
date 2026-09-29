@@ -779,6 +779,9 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY,
     MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE,
     MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE,
+    /* The comparison's settings, written back to the radio behind a sheet: the answer is
+       MESH_UI_ACTION_BACKUP_RESTORE for the backup the comparison is of. */
+    MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE,
     /* Not an action: what the two verb tables below are sized by, so a row added above without
        a symbol or a weight is a hole in an array rather than a row that quietly draws nothing.
        Last, so no existing value moves - nav->confirm.subject carries one in a uint8_t. */

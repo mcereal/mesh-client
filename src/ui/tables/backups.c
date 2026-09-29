@@ -222,6 +222,26 @@ bool mesh_ui_backups_title(const struct mesh_ui_backups *backups, uint8_t view, 
     }
 }
 
+void mesh_ui_backups_restore_note(const struct mesh_ui_settings *settings, uint8_t view, char *text,
+                                  size_t text_len) {
+    uint8_t index = 0U;
+    if (settings == NULL || text == NULL || text_len == 0U ||
+        mesh_ui_backups_level_of(view, &index) != MESH_UI_BACKUPS_COMPARE ||
+        index >= settings->backups.entry_count) {
+        return;
+    }
+    const char *was = settings->backups.entries[index].header.firmware;
+    const char *now = settings->firmware_version;
+    if (was[0] == '\0' || now[0] == '\0' || strcmp(was, now) == 0) {
+        return;
+    }
+    const size_t at = strlen(text);
+    if (at < text_len) {
+        inkcell_str_format(text + at, text_len - at, MESH_STR_CONFIRM_TEXT_RESTORE_FIRMWARE, was,
+                           now);
+    }
+}
+
 /* ---- the words for a change ---------------------------------------------------------------- */
 
 /* The Settings tab's section for a topic, which is where its heading comes from. */

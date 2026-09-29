@@ -361,3 +361,67 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+MESH_TEST_CASE(ui_nav_backups_restore_is_offered_over_the_comparison_and_asks_first, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store *store = calloc(1U, sizeof *store);
+    struct mesh_ui_settings *settings = calloc(1U, sizeof *settings);
+    MESH_TEST_FAIL_IF(store == NULL || settings == NULL, "memory");
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(store) != 0, "store init failed");
+    mesh_test_nav_populate(store);
+    backups_settings(settings);
+    mesh_ui_store_set_settings(store, settings);
+    struct mesh_ui_action action;
+
+    open_backups(store);
+    mesh_test_settings_cursor_to(
+        store, find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_RADIO, "Ridge relay"));
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    mesh_test_settings_cursor_to(store,
+                                 find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY, NULL));
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    mesh_test_settings_cursor_to(store,
+                                 find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE, NULL));
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+
+    /* Nothing to restore until the comparison has found something. */
+    if (find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE, NULL) != UINT32_MAX) {
+        failure = "restore was offered before the comparison answered";
+        goto cleanup;
+    }
+    struct mesh_ui_backups *b = &settings->backups;
+    b->compare_node = RIDGE;
+    b->compare_sequence = 2U;
+    b->compare_state = MESH_UI_BACKUP_COMPARE_DONE;
+    mesh_radio_backup_diff_reset(&b->diff, MESH_RADIO_BACKUP_MESHTASTIC);
+    struct mesh_radio_backup_change *change = mesh_radio_backup_diff_add(
+        &b->diff, MESH_RADIO_BACKUP_CHANGED, MESH_RADIO_BACKUP_TOPIC_LORA, 0U, 8U);
+    mesh_radio_backup_value_uint(&change->before, 5U);
+    mesh_radio_backup_value_uint(&change->after, 3U);
+    mesh_ui_store_set_settings(store, settings);
+
+    const uint32_t restore = find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE, NULL);
+    if (restore == UINT32_MAX || !mesh_test_settings_cursor_to(store, restore)) {
+        failure = "a comparison with a difference did not offer the restore";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    if (!store->nav.confirm.open || action.type != MESH_UI_ACTION_NONE) {
+        failure = "restore did not ask first";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_BACKUP_RESTORE || action.dest != RIDGE ||
+        action.number != 2U || !store->nav.backups_compare) {
+        failure = "confirming should restore the backup on screen, and stay to show the result";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(store);
+    free(store);
+    free(settings);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

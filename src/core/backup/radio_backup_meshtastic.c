@@ -722,7 +722,12 @@ static bool mt_restore_write(const struct mt_key *key, const union mt_message *m
         write->type = (uint32_t)(message->config.which_payload_variant - 1U);
         write->payload.config = message->config;
         if (message->config.which_payload_variant == meshtastic_Config_security_tag) {
-            /* The radio's own key pair, never the backup's empty one: see the header. */
+            /* The radio's own key pair, never the backup's empty one: see the header. A radio
+               that has not told us its private key gets no Security write at all - there is
+               no key to carry, and the comparison afterwards lists what was left. */
+            if (settings->security.private_key.size != 32U) {
+                return false;
+            }
             write->payload.config.payload_variant.security.private_key =
                 settings->security.private_key;
             write->payload.config.payload_variant.security.public_key =

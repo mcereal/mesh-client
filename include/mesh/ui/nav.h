@@ -1151,6 +1151,9 @@ enum mesh_ui_action_type {
      */
     MESH_UI_ACTION_BACKUP_COMPARE,
     MESH_UI_ACTION_BACKUP_DELETE,
+    /* Write backup `number` of radio `dest` back to that radio, which must be the one on the
+       link. The sheet in front of it has been answered. */
+    MESH_UI_ACTION_BACKUP_RESTORE,
     /* Not a verb: how many there are. It is what pins the dispatch table in
        src/app/app_actions.c to this list - a verb added above and not given a row there is a
        press that reaches the app and does nothing, with nothing to see at the seam. */
