@@ -1082,8 +1082,14 @@ MESH_TEST_CASE(radio_backup_identity_needs_a_key_the_radio_reported, unit) {
     g_settings.security.private_key.size = 32U;
     memset(g_settings.security.private_key.bytes, 0, 32U);
     const int empty = mesh_radio_backup_meshtastic_add_identity(&g_settings, &g_backup);
+    /* A key with no public one beside it could never be judged restored. */
+    memset(g_settings.security.private_key.bytes, 0xAB, 32U);
+    g_settings.security.public_key.size = 0U;
+    const int unjudgeable = mesh_radio_backup_meshtastic_add_identity(&g_settings, &g_backup);
     MESH_TEST_FAIL_IF(missing != -ENOENT || empty != -ENOENT,
                       "a backup was given a key the radio never reported");
+    MESH_TEST_FAIL_IF(unjudgeable != -ENOENT,
+                      "a backup was given a key with no public key to judge its restore by");
     MESH_TEST_FAIL_IF(mesh_radio_backup_identity(&g_backup, NULL) != 0U,
                       "a refused key left a section behind");
     record_success(test_name);

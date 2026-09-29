@@ -319,7 +319,6 @@ struct mesh_app {
         uint64_t deadline_ms;
         /* A Meshtastic restore's public key: what the radio should report once it holds the
            backup's private one. */
-        bool has_public_key;
         uint8_t public_key[32];
     } backup_identity;
     /*

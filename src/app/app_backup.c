@@ -1111,9 +1111,13 @@ static int app_identity_restore_meshtastic(struct mesh_app *app,
         settings->lora.region == meshtastic_Config_LoRaConfig_RegionCode_UNSET) {
         return -ENXIO;
     }
+    /* The public key the radio should report once it holds this private one: the restore is
+       judged by nothing else, so a backup without it is not restored. */
     uint8_t public_key[32];
-    const bool has_public_key = mesh_radio_backup_meshtastic_public_key(backup, public_key);
-    if (has_public_key && settings->security.public_key.size == sizeof public_key &&
+    if (!mesh_radio_backup_meshtastic_public_key(backup, public_key)) {
+        return -ENOENT;
+    }
+    if (settings->security.public_key.size == sizeof public_key &&
         memcmp(settings->security.public_key.bytes, public_key, sizeof public_key) == 0) {
         return 0;
     }
@@ -1138,10 +1142,7 @@ static int app_identity_restore_meshtastic(struct mesh_app *app,
     app->backup_identity.stage = APP_IDENTITY_SENT;
     app->backup_identity.reboot_generation = app->session.reboot_generation;
     app->backup_identity.transactions_failed = settings->transactions_failed;
-    app->backup_identity.has_public_key = has_public_key;
-    if (has_public_key) {
-        memcpy(app->backup_identity.public_key, public_key, sizeof public_key);
-    }
+    memcpy(app->backup_identity.public_key, public_key, sizeof public_key);
     return 1;
 }
 
@@ -1252,10 +1253,9 @@ static void app_identity_judge(struct mesh_app *app, uint32_t ready) {
         took = ready == app->backup_identity.node;
     } else {
         const struct mesh_radio_settings *settings = mesh_session_settings(&app->session);
-        took = !app->backup_identity.has_public_key ||
-               (settings->security.public_key.size == sizeof app->backup_identity.public_key &&
-                memcmp(settings->security.public_key.bytes, app->backup_identity.public_key,
-                       sizeof app->backup_identity.public_key) == 0);
+        took = settings->security.public_key.size == sizeof app->backup_identity.public_key &&
+               memcmp(settings->security.public_key.bytes, app->backup_identity.public_key,
+                      sizeof app->backup_identity.public_key) == 0;
     }
     inkwell_log_info("app", "Identity key of 0x%08x %s (0x%08x on the link)",
                      (unsigned)app->backup_identity.node, took ? "restored" : "not taken",

@@ -240,8 +240,11 @@ int mesh_radio_backup_meshtastic_add_identity(const struct mesh_radio_settings *
     }
     static const uint8_t zero[MESH_RADIO_BACKUP_MT_KEY_LEN] = {0};
     const meshtastic_Config_SecurityConfig_private_key_t *key = &settings->security.private_key;
+    /* And the public key beside it, which the backup's Security section carries: it is what a
+       restore of this key is judged by, and a key with nothing to judge it by is not kept. */
     if (!settings->has_security || key->size != MESH_RADIO_BACKUP_MT_KEY_LEN ||
-        memcmp(key->bytes, zero, sizeof zero) == 0) {
+        memcmp(key->bytes, zero, sizeof zero) == 0 ||
+        settings->security.public_key.size != MESH_RADIO_BACKUP_MT_KEY_LEN) {
         return -ENOENT;
     }
     return mesh_radio_backup_add(backup, MESH_RADIO_BACKUP_IDENTITY, key->bytes, key->size);

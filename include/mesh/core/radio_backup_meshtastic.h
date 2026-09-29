@@ -75,7 +75,8 @@ int mesh_radio_backup_meshtastic_capture(const struct mesh_radio_settings *setti
 
 /*
  * Adds the radio's private key to a backup just captured from it, as its identity section. 0,
- * -ENOENT when the radio has not reported a key (or reported an empty one), -EPROTO for a backup
+ * -ENOENT when the radio has not reported a key (or reported an empty one) or no public key to
+ * go with it - which a restore is judged by - -EPROTO for a backup
  * of another protocol, -EEXIST when it already has one, or the container's -ENOSPC.
  */
 int mesh_radio_backup_meshtastic_add_identity(const struct mesh_radio_settings *settings,
