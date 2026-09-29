@@ -3692,27 +3692,6 @@ static void build_section(const struct mesh_ui_settings *settings,
     }
 }
 
-/*
- * Whether anything in this section is a press rather than a value.
- *
- * Built rather than tabulated, because it is not a property of the section: About radio grows
- * its install press only once a check has found something, and Radio actions is nothing but
- * presses. The bar asks so it can name A exactly where A does something - the same reason the
- * help keycap asks mesh_ui_help_offered() rather than testing the nav itself.
- */
-bool mesh_ui_settings_section_has_verbs(const struct mesh_ui_settings *settings,
-                                        const struct mesh_ui_handshake_state *handshake,
-                                        enum mesh_ui_settings_section section, uint8_t channel) {
-    struct item_list list;
-    build_section(settings, handshake, NULL, 0U, section, channel, &list);
-    for (uint32_t i = 0; i < list.count; ++i) {
-        if (list.items[i].kind == INKSTAND_FORM_ACTION) {
-            return true;
-        }
-    }
-    return false;
-}
-
 uint32_t mesh_ui_settings_item_count(const struct mesh_ui_settings *settings,
                                      const struct mesh_ui_handshake_state *handshake,
                                      enum mesh_ui_settings_section section, uint8_t channel) {

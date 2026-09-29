@@ -1205,3 +1205,44 @@ MESH_TEST_CASE(actions_thread_jump_names_where_l2_lands, unit) {
                       "at the unread line, L2 goes to the oldest");
     record_success(test_name);
 }
+
+/*
+ * A page of facts with a verb among them names A only on the verb. Radio details is the page:
+ * its rows are readings (Connected, Signal, a version) with Reboot and the install press among
+ * them, and "run" asked of the whole section sat under every reading, where A does nothing.
+ * Walked row by row against the rows as built, so it holds whichever rows the page grows.
+ */
+MESH_TEST_CASE(actions_radio_page_names_a_only_on_a_verb, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct inkcell_action_bar bar;
+
+    actions_snapshot(&snapshot);
+    snapshot.settings.loaded = true;
+    snapshot.settings.has_metadata = true;
+    snapshot.settings.fw_supported = true;
+    snprintf(snapshot.settings.fw_latest, sizeof snapshot.settings.fw_latest, "2.7.26");
+    snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
+    snapshot.nav.radio_page = MESH_UI_RADIO_PAGE_DETAILS;
+
+    struct mesh_ui_settings_item items[48];
+    const uint32_t count = mesh_ui_settings_items(
+        &snapshot.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_DETAILS,
+        MESH_UI_SETTINGS_NO_CHANNEL, items, (uint32_t)(sizeof items / sizeof items[0]));
+    bool saw_verb = false;
+    bool saw_fact = false;
+    for (uint32_t row = 0U; row < count; ++row) {
+        snapshot.nav.cursor[MESH_UI_SCREEN_RADIO] = row;
+        mesh_ui_actions_for(&snapshot, &bar);
+        const bool verb = items[row].kind == INKSTAND_FORM_ACTION;
+        const bool offered = actions_label_for(&bar, INKCELL_BUTTON_A) == MESH_STR_ACTION_RUN;
+        saw_verb = saw_verb || verb;
+        saw_fact = saw_fact || !verb;
+        MESH_TEST_FAIL_IF(verb && !offered, "A should be named on a verb row");
+        MESH_TEST_FAIL_IF(!verb && offered, "A should not be named on a row it does nothing on");
+        MESH_TEST_FAIL_IF(actions_label_for(&bar, INKCELL_BUTTON_B) != MESH_STR_ACTION_BACK,
+                          "B leaves the page from any row");
+    }
+    MESH_TEST_FAIL_IF(!saw_verb || !saw_fact,
+                      "the page should hold both a verb and a fact for this case to mean anything");
+    record_success(test_name);
+}

@@ -602,6 +602,21 @@ static void commands_add_help(const struct mesh_ui_snapshot *snapshot,
 }
 
 /*
+ * Whether A does anything on the row under the cursor of a section with no fields: only a verb
+ * answers it there. Asked of the row rather than of the section, because a page of facts with one
+ * verb at its foot is exactly the page where "run" under the cursor would be a press that lies.
+ */
+static bool cursor_on_verb(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
+                           enum mesh_ui_settings_section section, uint8_t channel) {
+    struct mesh_ui_settings_item item;
+    return snapshot != NULL &&
+           mesh_ui_settings_item(&snapshot->settings,
+                                 snapshot->handshake_valid ? &snapshot->handshake : NULL, NULL, 0U,
+                                 section, channel, nav->cursor[nav->screen], &item) &&
+           item.kind == INKSTAND_FORM_ACTION;
+}
+
+/*
  * The install's screen: B and nothing else, and what B is called depends on whether the job is
  * still running. While it runs, B hides the screen and the job carries on, which "back" would
  * not say; once it has finished, B is the reader being done with the answer.
@@ -727,10 +742,12 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
      * never named A.
      *
      * Both halves are now asked rather than listed. Whether anything steps is a fact about the
-     * field table; whether anything is a verb is a fact about the rows as built, which is what
-     * makes it the same answer as the row itself - About radio's install press appears only
-     * once a check has found something, and a build with no TLS draws no verb here at all.
-     * That was already the condition this arm tested by hand, spelled as `fw_supported`.
+     * field table; whether A does anything is a fact about the row under the cursor as built,
+     * which is what makes it the same answer as the row itself - About radio's install press
+     * appears only once a check has found something, and a build with no TLS draws no verb here
+     * at all. It was asked of the whole section once, and "run" then sat under every fact on a
+     * page with one verb at its foot: Radio details promised A over "Connected", where A does
+     * nothing.
      *
      * A is named here and left off an editable section below for the same reason in both
      * places: the bar names the gesture that works on every row, and on a section of values
@@ -760,10 +777,7 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
         return;
     }
     if (!mesh_ui_settings_section_has_fields(section)) {
-        if (snapshot != NULL &&
-            mesh_ui_settings_section_has_verbs(
-                &snapshot->settings, snapshot->handshake_valid ? &snapshot->handshake : NULL,
-                section, nav->settings_channel)) {
+        if (cursor_on_verb(nav, snapshot, section, nav->settings_channel)) {
             command_add(bar, MESH_UI_COMMAND_RUN, MESH_STR_ACTION_RUN, INKCELL_BUTTON_A);
         }
         command_add(bar, MESH_UI_COMMAND_BACK, MESH_STR_ACTION_BACK, INKCELL_BUTTON_B);
@@ -787,16 +801,15 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
 
 /*
  * A Radio tab page: a settings section with nothing to step, as About radio and Radio actions
- * were on the Settings tab, and the bar they had - A when a row is a verb, B back to the cards,
- * X to re-read what the radio says. No edit keys and no save: a page has no fields, and the
- * edits the Settings tab may be holding are not this screen's to offer.
+ * were on the Settings tab, and the bar they had - A when the row under the cursor is a verb, B
+ * back to the cards, X to re-read what the radio says. No edit keys and no save: a page has no
+ * fields, and the edits the Settings tab may be holding are not this screen's to offer.
  */
 static void actions_radio_page(const struct mesh_ui_nav *nav,
                                const struct mesh_ui_snapshot *snapshot,
                                struct mesh_ui_command_set *bar) {
-    if (snapshot != NULL &&
-        mesh_ui_settings_section_has_verbs(
-            &snapshot->settings, snapshot->handshake_valid ? &snapshot->handshake : NULL,
+    if (cursor_on_verb(
+            nav, snapshot,
             (enum mesh_ui_settings_section)mesh_ui_nav_radio_page_section(nav->radio_page),
             MESH_UI_SETTINGS_NO_CHANNEL)) {
         command_add(bar, MESH_UI_COMMAND_RUN, MESH_STR_ACTION_RUN, INKCELL_BUTTON_A);
