@@ -296,14 +296,15 @@ static int app_backup_load(struct mesh_app *app, uint32_t node, uint32_t sequenc
 }
 
 /* A Meshtastic module's number, as the comparison names it, is its ModuleConfig variant tag;
-   the screen names the Settings section that edits it instead. */
+   the screen names the Settings section that edits it instead - or, for a module no section
+   edits, MESH_UI_BACKUPS_MODULE_UNPLACED plus the tag, so the screen can still say which. */
 static void app_backup_name_modules(struct mesh_radio_backup_diff *diff) {
     for (size_t i = 0; i < diff->count; ++i) {
         struct mesh_radio_backup_change *change = &diff->changes[i];
         if (change->topic != MESH_RADIO_BACKUP_TOPIC_MODULE) {
             continue;
         }
-        uint16_t section = (uint16_t)MESH_UI_SETTINGS_SECTION_COUNT;
+        uint16_t section = (uint16_t)(MESH_UI_BACKUPS_MODULE_UNPLACED + change->index);
         for (uint32_t m = 0U; m < mesh_ui_settings_module_count(); ++m) {
             const enum mesh_ui_settings_section candidate = mesh_ui_settings_module_at(m);
             uint32_t type = 0U;
@@ -590,14 +591,21 @@ static void app_backup_restore_judge(struct mesh_app *app) {
     const struct mesh_ui_backups *listing = &app->backup_listing;
     /* Contacts come last in a comparison, so every setting ahead of them is in the list that
        was kept, and the ones after are not what "still differs" counts: a restore leaves a
-       contact only the radio has, and one it changed since, where they are. */
+       contact only the radio has, and one it changed since, where they are. Nor is a whole
+       section only the radio has, which it leaves too (mesh_ui_backups_change_restorable()). */
     size_t settings_left = listing->diff.total;
+    size_t kept_behind = 0U;
     for (size_t i = 0; i < listing->diff.count; ++i) {
-        if (listing->diff.changes[i].topic == MESH_RADIO_BACKUP_TOPIC_CONTACT) {
+        const struct mesh_radio_backup_change *change = &listing->diff.changes[i];
+        if (change->topic == MESH_RADIO_BACKUP_TOPIC_CONTACT) {
             settings_left = i;
             break;
         }
+        if (!mesh_ui_backups_change_restorable(listing->diff.protocol, change)) {
+            ++kept_behind;
+        }
     }
+    settings_left -= kept_behind;
     if (listing->compare_state != MESH_UI_BACKUP_COMPARE_DONE) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESTORE_FAILED,
                            (int)listing->compare_error);

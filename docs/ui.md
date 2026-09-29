@@ -241,7 +241,7 @@ a backup is text and why it is not Meshtastic's `DeviceProfile`, is in
 
 | | Meshtastic | MeshCore |
 |---|---|---|
-| Sections | every `Config` and `ModuleConfig`, eight `Channel`s, the owner, the UI config, canned messages, ringtone, a fixed position | SELF_INFO's settings and public key, the Bluetooth PIN, every channel slot, every contact record whole |
+| Sections | every `Config`, every `ModuleConfig` the radio sends (those no Settings screen edits too), eight `Channel`s, the owner, the UI config, canned messages, ringtone, a fixed position | SELF_INFO's settings and public key, the Bluetooth PIN, every channel slot, every contact record whole |
 | Counted | nodes the radio has heard | contacts the radio keeps |
 | Never kept | the private key | (the protocol never reports one) |
 
@@ -249,7 +249,8 @@ A backup is taken the first time a radio is read (and only if it has none), just
 settings save, an import, a factory reset or a restore from flash, and just before a radio
 firmware install - `src/app/app_backup.c` - and on Actions' **Save settings to card**. An automatic
 one identical to the radio's newest backup is skipped; a pressed one never is. Ten automatic
-backups are kept per radio, and manual ones are never pruned.
+backups are kept per radio; manual ones are never pruned, and nor is the first-connect one, which
+is the radio as this client found it and is never taken again.
 
 **A backup reads whole or not at all.** Its last line is a SHA-256 over every record before it,
 so a file cut off by a pulled battery is refused rather than read back as a radio with fewer
@@ -271,6 +272,11 @@ a topic, the protocol's number for the field, and both values, and `src/ui/table
 names them with the Settings tab's own labels, or by the field's number when there is no row for
 it. A MeshCore comparison matches contacts by key and leaves out routes and timestamps, which move
 every time the radio hears a contact again.
+
+A Meshtastic comparison leaves out what a restore cannot put back: with `use_preset` on, the
+bandwidth, spreading factor and coding rate the firmware works out of the preset (and writes into
+the config only after a LoRa save), and the radio's own key pair, which a restore keeps by design.
+Compared, either made a restore that had worked read as one that had not, and offer itself again.
 
 **Restoring** is offered over a comparison that found something a restore would write - anything
 but a contact only the radio has - for the radio on the link. A Meshtastic radio's is one transaction and a MeshCore radio's is ordinary

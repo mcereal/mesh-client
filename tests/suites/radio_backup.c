@@ -418,6 +418,34 @@ MESH_TEST_CASE(radio_backup_store_prunes_automatic_and_keeps_manual, unit) {
     record_success(test_name);
 }
 
+/*
+ * Seen on a Heltec V3: ten settings saves in one afternoon, and the eleventh backup removed the
+ * radio's first-connect one - which is taken only when a radio has none, so never again.
+ */
+MESH_TEST_CASE(radio_backup_store_prune_keeps_the_first_connect_backup, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!backup_tempdir(dir, sizeof dir), "mkdtemp failed");
+    struct mesh_radio_backup_store store;
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_radio_backup_store_init(&store, dir) != 0,
+                              mesh_test_remove_tree(dir), "store init failed");
+    store.keep_automatic = 3U;
+    backup_fill(&g_backup, MESH_RADIO_BACKUP_FIRST_CONNECT);
+    mesh_radio_backup_store_save(&store, &g_backup, NULL);
+    for (int i = 0; i < 6; ++i) {
+        backup_fill(&g_backup, MESH_RADIO_BACKUP_BEFORE_WRITE);
+        mesh_radio_backup_store_save(&store, &g_backup, NULL);
+    }
+    struct mesh_radio_backup_entry entries[8];
+    const int total = mesh_radio_backup_store_list(&store, 0xa1b2c3d4U, entries, 8U);
+    mesh_test_remove_tree(dir);
+    MESH_TEST_FAIL_IF(total != 4, "expected the first-connect backup and three others");
+    MESH_TEST_FAIL_IF(entries[total - 1].sequence != 1U ||
+                          entries[total - 1].reason != MESH_RADIO_BACKUP_FIRST_CONNECT,
+                      "the first-connect backup was pruned");
+    MESH_TEST_FAIL_IF(entries[total - 2].sequence != 5U, "the pruned ones were not the oldest");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(radio_backup_store_prune_leaves_the_protected_backup, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!backup_tempdir(dir, sizeof dir), "mkdtemp failed");
@@ -629,6 +657,7 @@ MESH_TEST_CASE(radio_backup_meshtastic_refuses_another_protocols_backup, unit) {
 /* ---- comparing ----------------------------------------------------------------------------- */
 
 static struct mesh_radio_backup_diff g_diff;
+static struct mesh_admin_request g_writes[MESH_RADIO_SETTINGS_TRANSACTION_MAX];
 
 MESH_TEST_CASE(radio_backup_meshtastic_diff_of_the_same_radio_is_empty, unit) {
     mesh_test_backup_radio(&g_settings, &g_status);
@@ -702,6 +731,101 @@ MESH_TEST_CASE(radio_backup_meshtastic_diff_pairs_sections_by_what_they_are, uni
     record_success(test_name);
 }
 
+/*
+ * Seen on a Heltec V3 on 2.7.26: its first-connect backup had no coding rate, and after any LoRa
+ * save the firmware reported the preset's 5. A restore of that backup then "failed" on the one
+ * field it cannot write, and offered itself again - a reboot per press, forever.
+ */
+MESH_TEST_CASE(radio_backup_meshtastic_preset_derived_modem_fields_are_not_a_difference, unit) {
+    mesh_test_backup_radio(&g_settings, &g_status);
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
+    g_settings.lora.bandwidth = 250U;
+    g_settings.lora.spread_factor = 11U;
+    g_settings.lora.coding_rate = 5U;
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_read);
+    mesh_radio_backup_meshtastic_diff(&g_backup, &g_read, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.total != 0U, "a preset's own modem numbers were listed as changed");
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_plan(&g_backup, &g_settings, &g_status, g_writes,
+                                                        MESH_RADIO_SETTINGS_TRANSACTION_MAX,
+                                                        NULL) != 0,
+                      "a restore was planned for a preset's own modem numbers");
+    /* Off the preset they are the settings, and a change to one is a change. */
+    g_settings.lora.use_preset = false;
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
+    g_settings.lora.coding_rate = 8U;
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_read);
+    mesh_radio_backup_meshtastic_diff(&g_backup, &g_read, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.total != 1U ||
+                          g_diff.changes[0].field != meshtastic_Config_LoRaConfig_coding_rate_tag,
+                      "a custom coding rate's change was not listed");
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_plan(&g_backup, &g_settings, &g_status, g_writes,
+                                                        MESH_RADIO_SETTINGS_TRANSACTION_MAX,
+                                                        NULL) != 1,
+                      "a custom coding rate's change was not planned");
+    record_success(test_name);
+}
+
+/*
+ * Seen on the same V3 back from MeshCore: the reflash made a new key pair, a restore put back
+ * everything else, and the two public keys it keeps by design were "left" - with Restore offered
+ * again, a reboot per press. The admin keys are settings, and still count.
+ */
+MESH_TEST_CASE(radio_backup_meshtastic_a_new_key_pair_is_not_a_difference, unit) {
+    mesh_test_backup_radio(&g_settings, &g_status);
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
+    memset(g_settings.security.public_key.bytes, 0x6d, g_settings.security.public_key.size);
+    memset(g_settings.security.private_key.bytes, 0x3a, g_settings.security.private_key.size);
+    g_settings.owner.public_key.size = 32U;
+    memset(g_settings.owner.public_key.bytes, 0x6d, 32U);
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_read);
+    mesh_radio_backup_meshtastic_diff(&g_backup, &g_read, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.total != 0U, "the radio's own key pair was listed as a difference");
+    MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_plan(&g_backup, &g_settings, &g_status, g_writes,
+                                                        MESH_RADIO_SETTINGS_TRANSACTION_MAX,
+                                                        NULL) != 0,
+                      "a restore was planned for a key it keeps by design");
+    g_settings.security.admin_key_count = 1U;
+    g_settings.security.admin_key[0].size = 32U;
+    memset(g_settings.security.admin_key[0].bytes, 0x11, 32U);
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_read);
+    mesh_radio_backup_meshtastic_diff(&g_backup, &g_read, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.total != 1U ||
+                          g_diff.changes[0].field != meshtastic_Config_SecurityConfig_admin_key_tag,
+                      "an admin key added since was not listed");
+    record_success(test_name);
+}
+
+/*
+ * A Heltec V3 on 2.7.26 streams its serial, canned-message, audio and remote-hardware modules in
+ * the handshake, and a backup dropped all four for want of a Settings screen. One with no screen
+ * is still a setting: it is kept, compared and put back.
+ */
+MESH_TEST_CASE(radio_backup_meshtastic_keeps_a_module_no_screen_edits, unit) {
+    mesh_test_backup_radio(&g_settings, &g_status);
+    meshtastic_ModuleConfig module = meshtastic_ModuleConfig_init_zero;
+    module.which_payload_variant = meshtastic_ModuleConfig_serial_tag;
+    module.payload_variant.serial.enabled = true;
+    module.payload_variant.serial.baud =
+        meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_38400;
+    mesh_radio_settings_apply_module_config(&g_settings, &module);
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
+    g_settings.serial.enabled = false;
+    mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_read);
+    mesh_radio_backup_meshtastic_diff(&g_backup, &g_read, &g_diff);
+    MESH_TEST_FAIL_IF(g_diff.total != 1U ||
+                          g_diff.changes[0].topic != MESH_RADIO_BACKUP_TOPIC_MODULE ||
+                          g_diff.changes[0].index != meshtastic_ModuleConfig_serial_tag,
+                      "the serial module's change was not listed");
+    const int planned = mesh_radio_backup_meshtastic_plan(
+        &g_backup, &g_settings, &g_status, g_writes, MESH_RADIO_SETTINGS_TRANSACTION_MAX, NULL);
+    MESH_TEST_FAIL_IF(planned != 1 || g_writes[0].kind != MESH_ADMIN_SET_MODULE_CONFIG ||
+                          g_writes[0].type !=
+                              (uint32_t)meshtastic_AdminMessage_ModuleConfigType_SERIAL_CONFIG ||
+                          !g_writes[0].payload.module_config.payload_variant.serial.enabled,
+                      "the serial module was not written back");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(radio_backup_meshtastic_diff_counts_past_what_it_keeps, unit) {
     mesh_test_backup_radio(&g_settings, &g_status);
     mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
@@ -765,8 +889,6 @@ MESH_TEST_CASE(radio_backup_meshtastic_diff_refuses_another_protocol, unit) {
 }
 
 /* ---- restoring ----------------------------------------------------------------------------- */
-
-static struct mesh_admin_request g_writes[MESH_RADIO_SETTINGS_TRANSACTION_MAX];
 
 MESH_TEST_CASE(radio_backup_meshtastic_plan_of_an_unchanged_radio_is_empty, unit) {
     mesh_test_backup_radio(&g_settings, &g_status);

@@ -61,7 +61,8 @@ extern "C" {
 #define MESH_RADIO_BACKUP_DEVICE 64U
 #define MESH_RADIO_BACKUP_PATH_MAX 512U
 /* How many automatic backups one radio keeps; the oldest goes first. Manual ones are never
-   pruned: somebody asked for each of them by name. */
+   pruned: somebody asked for each of them by name. Nor is the first-connect one, which is never
+   taken twice. */
 #define MESH_RADIO_BACKUP_KEEP_AUTOMATIC 10U
 
 enum mesh_radio_backup_protocol {
@@ -73,9 +74,10 @@ enum mesh_radio_backup_protocol {
 /* Why a backup was taken. Written into the file by name, so the numbers are free to move. */
 enum mesh_radio_backup_reason {
     MESH_RADIO_BACKUP_REASON_NONE = 0,
-    /* Somebody pressed for it. The only kind a prune never removes. */
+    /* Somebody pressed for it. A prune never removes one. */
     MESH_RADIO_BACKUP_MANUAL = 1,
-    /* The first time this client finished reading this radio. */
+    /* The first time this client finished reading this radio. Taken only when the radio has no
+       backup, so it is never taken again - and a prune never removes one either. */
     MESH_RADIO_BACKUP_FIRST_CONNECT = 2,
     /* The settings as they stood just before this client wrote to them. */
     MESH_RADIO_BACKUP_BEFORE_WRITE = 3,

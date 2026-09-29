@@ -593,7 +593,11 @@ struct radio_backup_prune {
 static void radio_backup_note_automatic(void *context, const char *name) {
     struct radio_backup_prune *prune = context;
     struct mesh_radio_backup_entry entry;
+    /* The first-connect backup is taken once, when a radio has none on the card, so a prune
+       that removed it could never be followed by another: the radio as it came to this client
+       would be gone after ten saves. It is kept like a pressed one. */
     if (!radio_backup_parse_name(name, &entry) || entry.reason == MESH_RADIO_BACKUP_MANUAL ||
+        entry.reason == MESH_RADIO_BACKUP_FIRST_CONNECT ||
         (prune->protected_sequence != 0U && entry.sequence == prune->protected_sequence)) {
         return;
     }

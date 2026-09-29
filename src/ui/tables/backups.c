@@ -103,6 +103,17 @@ bool mesh_ui_backups_listed_under(const struct mesh_ui_backups *backups, size_t 
            header->protocol != radio->protocol;
 }
 
+bool mesh_ui_backups_change_restorable(uint8_t protocol,
+                                       const struct mesh_radio_backup_change *change) {
+    if (change == NULL || change->kind != MESH_RADIO_BACKUP_ADDED) {
+        return change != NULL;
+    }
+    if (change->topic == MESH_RADIO_BACKUP_TOPIC_CONTACT) {
+        return false;
+    }
+    return !(protocol == MESH_RADIO_BACKUP_MESHTASTIC && change->field == 0U);
+}
+
 bool mesh_ui_backups_can_compare(const struct mesh_ui_backups *backups, size_t e) {
     if (backups == NULL || e >= backups->entry_count || backups->live_node == 0U) {
         return false;
@@ -284,14 +295,37 @@ void mesh_ui_backups_topic(const struct mesh_radio_backup_change *change, char *
     case MESH_RADIO_BACKUP_TOPIC_CHANNEL:
         inkcell_str_format(out, out_len, MESH_STR_SETTINGS_TITLE_CHANNEL, (unsigned)change->index);
         return;
-    case MESH_RADIO_BACKUP_TOPIC_MODULE:
-        /* The app has turned the protocol's module number into the section that edits it. */
+    case MESH_RADIO_BACKUP_TOPIC_MODULE: {
+        /* The app has turned the protocol's module number into the section that edits it, or
+           for a module no section edits kept its ModuleConfig tag past the sections. The tags
+           are literals for the reason the label table's are; a test pins them. */
+        inkcell_str_id module = INKCELL_STR_NONE;
+        switch (change->index >= MESH_UI_BACKUPS_MODULE_UNPLACED
+                    ? change->index - MESH_UI_BACKUPS_MODULE_UNPLACED
+                    : 0U) {
+        case 2U:
+            module = MESH_STR_BACKUPS_MODULE_SERIAL;
+            break;
+        case 7U:
+            module = MESH_STR_BACKUPS_MODULE_CANNED;
+            break;
+        case 8U:
+            module = MESH_STR_BACKUPS_MODULE_AUDIO;
+            break;
+        case 9U:
+            module = MESH_STR_BACKUPS_MODULE_REMOTE_HARDWARE;
+            break;
+        default:
+            break;
+        }
         inkwell_str_copy(
             out, out_len,
             change->index < MESH_UI_SETTINGS_SECTION_COUNT
                 ? mesh_ui_settings_section_name((enum mesh_ui_settings_section)change->index)
-                : mesh_ui_settings_section_name(MESH_UI_SETTINGS_MODULES));
+            : module != INKCELL_STR_NONE ? inkcell_str(module)
+                                         : mesh_ui_settings_section_name(MESH_UI_SETTINGS_MODULES));
         return;
+    }
     case MESH_RADIO_BACKUP_TOPIC_CONTACT:
         inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_BACKUPS_TOPIC_CONTACTS));
         return;

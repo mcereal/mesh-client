@@ -286,6 +286,16 @@ static const struct mesh_module_binding k_modules[] = {
                    traffic_management),
     MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_MESHBEACON_CONFIG,
                    meshtastic_ModuleConfig_mesh_beacon_tag, has_mesh_beacon, mesh_beacon),
+    /* No Settings screen for these four; held so a backup keeps them. */
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_SERIAL_CONFIG,
+                   meshtastic_ModuleConfig_serial_tag, has_serial, serial),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_CANNEDMSG_CONFIG,
+                   meshtastic_ModuleConfig_canned_message_tag, has_canned_message, canned_message),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_AUDIO_CONFIG,
+                   meshtastic_ModuleConfig_audio_tag, has_audio, audio),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_REMOTEHARDWARE_CONFIG,
+                   meshtastic_ModuleConfig_remote_hardware_tag, has_remote_hardware,
+                   remote_hardware),
 };
 
 size_t mesh_radio_module_count(void) { return sizeof k_modules / sizeof k_modules[0]; }

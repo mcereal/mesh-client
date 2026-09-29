@@ -412,6 +412,42 @@ static bool mt_variant(const pb_msgdesc_t *fields, const void *message,
     return false;
 }
 
+/*
+ * A section as it is compared, rather than as the radio sent it.
+ *
+ * A LoRa config running a preset does not own its bandwidth, spreading factor or coding rate:
+ * the firmware works them out of the preset, and writes them back into the config it reports
+ * only after a LoRa write - so a radio's first-connect backup has a coding rate of 0 and the
+ * same radio after any LoRa save has the preset's 5. Compared as they stand, a restore of that
+ * backup "fails" on the one field it cannot put back and offers to try again, each try a
+ * reboot. With use_preset on, the three are not settings, and they are left out.
+ *
+ * The radio's key pair is left out for the same reason: a restore keeps the radio's own keys
+ * (see mesh_radio_backup_meshtastic_plan()), so after a reflash, which makes a new pair, the
+ * public key in the Security section and the owner can never be put back - and compared, they
+ * made every restore of such a radio "fail" on them and offer itself again. The admin keys are
+ * settings, and stay.
+ */
+static void mt_canonical(uint16_t tag, union mt_message *message) {
+    if (tag == MESH_RADIO_BACKUP_MT_CONFIG &&
+        message->config.which_payload_variant == meshtastic_Config_lora_tag &&
+        message->config.payload_variant.lora.use_preset) {
+        meshtastic_Config_LoRaConfig *lora = &message->config.payload_variant.lora;
+        lora->bandwidth = 0U;
+        lora->spread_factor = 0U;
+        lora->coding_rate = 0U;
+    }
+    if (tag == MESH_RADIO_BACKUP_MT_CONFIG &&
+        message->config.which_payload_variant == meshtastic_Config_security_tag) {
+        meshtastic_Config_SecurityConfig *security = &message->config.payload_variant.security;
+        memset(&security->public_key, 0, sizeof security->public_key);
+        memset(&security->private_key, 0, sizeof security->private_key);
+    }
+    if (tag == MESH_RADIO_BACKUP_MT_OWNER) {
+        memset(&message->owner.public_key, 0, sizeof message->owner.public_key);
+    }
+}
+
 static struct mt_key mt_key_of(uint16_t tag, const uint8_t *data, size_t len,
                                union mt_message *message) {
     struct mt_key key = {.tag = tag, .ok = true};
@@ -421,6 +457,7 @@ static struct mt_key mt_key_of(uint16_t tag, const uint8_t *data, size_t len,
         key.ok = false;
         return key;
     }
+    mt_canonical(tag, message);
     switch (tag) {
     case MESH_RADIO_BACKUP_MT_CONFIG:
         key.index = message->config.which_payload_variant;
@@ -775,6 +812,37 @@ static bool mt_restore_write(const struct mt_key *key, const union mt_message *m
     }
 }
 
+/*
+ * Whether a backup's section and the radio's would compare the same: identical bytes, or the
+ * same once each is put in the form it is compared in (mt_canonical()). `scratch` is somewhere to
+ * decode into, and is left holding the radio's side.
+ */
+static bool mt_same_section(uint16_t tag, const uint8_t *a, size_t len_a, const uint8_t *b,
+                            size_t len_b, union mt_message *scratch) {
+    if (len_a == len_b && memcmp(a, b, len_a) == 0) {
+        return true;
+    }
+    const pb_msgdesc_t *fields = mt_fields(tag);
+    if (fields == NULL) {
+        return false;
+    }
+    uint8_t encoded[2][MESH_RADIO_BACKUP_SECTION_MAX];
+    size_t written[2];
+    const uint8_t *data[2] = {a, b};
+    const size_t len[2] = {len_a, len_b};
+    for (size_t i = 0; i < 2U; ++i) {
+        if (!mt_key_of(tag, data[i], len[i], scratch).ok) {
+            return false;
+        }
+        pb_ostream_t stream = pb_ostream_from_buffer(encoded[i], sizeof encoded[i]);
+        if (!pb_encode(&stream, fields, scratch)) {
+            return false;
+        }
+        written[i] = stream.bytes_written;
+    }
+    return written[0] == written[1] && memcmp(encoded[0], encoded[1], written[0]) == 0;
+}
+
 int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
                                       const struct mesh_radio_settings *settings,
                                       const struct mesh_handshake_status *status,
@@ -790,7 +858,7 @@ int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
         return -EPROTO;
     }
     struct mesh_radio_backup *live = malloc(sizeof *live);
-    union mt_message *message = malloc(sizeof *message);
+    union mt_message *message = malloc(2U * sizeof *message);
     if (live == NULL || message == NULL) {
         free(live);
         free(message);
@@ -820,7 +888,8 @@ int mesh_radio_backup_meshtastic_plan(const struct mesh_radio_backup *backup,
             if (keys[j].ok && keys[j].tag == key.tag && keys[j].index == key.index) {
                 const struct mesh_radio_backup_section *other =
                     mesh_radio_backup_section_at(live, j, &live_data);
-                same = other->len == section->len && memcmp(live_data, data, section->len) == 0;
+                same = mt_same_section(key.tag, data, section->len, live_data, other->len,
+                                       message + 1);
                 break;
             }
         }
