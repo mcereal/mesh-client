@@ -758,6 +758,31 @@ MESH_TEST_CASE(ui_backups_a_choice_is_named_as_its_settings_row_names_it, unit) 
                               "250", "an unknown region is not shown as its number"),
         "an unknown region is not shown as its number");
 
+    /* Radio UI's choices, the clock face among them though it is a bool on the wire. */
+    change = backups_number_change(MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 0U,
+                                   meshtastic_DeviceUIConfig_theme_tag, 0U, 1U);
+    MESH_TEST_FAIL_IF(!backups_change_reads(&change,
+                                            mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_THEME, 0U),
+                                            mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_THEME, 1U),
+                                            "a theme is shown as a number"),
+                      "a theme is shown as a number");
+    change = backups_number_change(MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 0U,
+                                   meshtastic_DeviceUIConfig_gps_format_tag, 0U, 1U);
+    MESH_TEST_FAIL_IF(
+        !backups_change_reads(&change, mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_GPS_FORMAT, 0U),
+                              mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_GPS_FORMAT, 1U),
+                              "a GPS format is shown as a number"),
+        "a GPS format is shown as a number");
+    change = backups_number_change(MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 0U,
+                                   meshtastic_DeviceUIConfig_is_clockface_analog_tag, 0U, 1U);
+    change.before.kind = MESH_RADIO_BACKUP_VALUE_BOOL;
+    change.after.kind = MESH_RADIO_BACKUP_VALUE_BOOL;
+    MESH_TEST_FAIL_IF(
+        !backups_change_reads(&change, mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_CLOCKFACE, 0U),
+                              mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_CLOCKFACE, 1U),
+                              "a clock face is shown as on and off"),
+        "a clock face is shown as on and off");
+
     /* The same tag on another module is not a choice. */
     change = backups_number_change(
         MESH_RADIO_BACKUP_TOPIC_MODULE, MESH_UI_SETTINGS_RANGE_TEST,

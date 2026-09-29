@@ -772,7 +772,10 @@ static const struct backups_choice k_meshtastic_choices[] = {
      MESH_UI_FIELD_BEACON_OFFER_REGION},
     {MESH_RADIO_BACKUP_TOPIC_MODULE, 7, MESH_UI_SETTINGS_BEACON, 1,
      MESH_UI_FIELD_BEACON_OFFER_PRESET},
+    {MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 7, 0, 0, MESH_UI_FIELD_UI_THEME},
     {MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 16, 0, 0, MESH_UI_FIELD_UI_COMPASS_MODE},
+    {MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 18, 0, 0, MESH_UI_FIELD_UI_CLOCKFACE},
+    {MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 19, 0, 0, MESH_UI_FIELD_UI_GPS_FORMAT},
 };
 
 static const struct backups_choice *backups_choice(uint8_t protocol,
@@ -814,8 +817,10 @@ void mesh_ui_backups_field(uint8_t protocol, const struct mesh_radio_backup_chan
 
 static void backups_value(const struct mesh_radio_backup_value *value, uint8_t format,
                           const struct backups_choice *choice, char *out, size_t out_len) {
+    /* A bool too: the clock face is one on the wire and a choice of two on its row. */
     if (choice != NULL && (value->kind == MESH_RADIO_BACKUP_VALUE_INT ||
-                           value->kind == MESH_RADIO_BACKUP_VALUE_UINT)) {
+                           value->kind == MESH_RADIO_BACKUP_VALUE_UINT ||
+                           value->kind == MESH_RADIO_BACKUP_VALUE_BOOL)) {
         /* One past the settings model's list - a value from newer firmware - stays a number,
            which says more than the model's "unknown" would. */
         const int64_t at = value->number + choice->offset;
