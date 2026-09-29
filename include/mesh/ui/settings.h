@@ -1566,19 +1566,14 @@ uint32_t mesh_ui_settings_section_excluded_bit(enum mesh_ui_settings_section sec
 inkcell_str_id mesh_ui_settings_availability_reason(enum mesh_ui_settings_availability state);
 
 /*
- * Whether anything in this section can be stepped in place, and whether anything in it is a
- * verb - which is the pair the action bar's two universal keycaps promise.
- *
- * The first is a fact about the field table and is answered from it; the second depends on the
- * radio's own data (About radio grows its install press only when there is one), so it is
- * answered from the rows as built. Both exist so the bar can stop naming sections: a read-only
- * section that offered "Left/Right edit" was advertising a press that worked on none of its
- * rows, which is the keycap-that-does-nothing this client refuses everywhere else.
+ * Whether anything in this section can be stepped in place - the promise the action bar's
+ * "Left/Right edit" makes, answered from the field table. A read-only section that offered it
+ * was advertising a press that worked on none of its rows, which is the keycap-that-does-nothing
+ * this client refuses everywhere else. Whether A does anything is asked of the row under the
+ * cursor instead (mesh_ui_settings_item()), because a section of facts with one verb in it is a
+ * section where A does nothing on most rows.
  */
 bool mesh_ui_settings_section_has_fields(enum mesh_ui_settings_section section);
-bool mesh_ui_settings_section_has_verbs(const struct mesh_ui_settings *settings,
-                                        const struct mesh_ui_handshake_state *handshake,
-                                        enum mesh_ui_settings_section section, uint8_t channel);
 
 /* Items in a section for the current data. Zero when the section has not loaded. `channel`
    is the open slot in the Channels section, MESH_UI_SETTINGS_NO_CHANNEL otherwise. */

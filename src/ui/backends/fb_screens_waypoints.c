@@ -216,8 +216,10 @@ void fb_render_waypoints(struct inkcell_draw_state *state, const struct mesh_ui_
             /* Ours in the accent, the way the node list marks our own radio: a place you shared
                is one you can withdraw, and that is worth seeing from the list. The row that
                makes a place is dim for the same reason the "New message" row is - it is a
-               button among things, not a thing. */
-            .tone = is_new ? INKCELL_TONE_DIM
+               button among things, not a thing. With no things, it is the only thing to do on
+               the screen, and a dim headline over a bright "nothing here" line read as a
+               disabled button above the point. */
+            .tone = is_new ? (places == 0U ? INKCELL_TONE_NORMAL : INKCELL_TONE_DIM)
                            : (waypoint.ours ? INKCELL_TONE_PRIMARY : INKCELL_TONE_NORMAL),
             /* The range, in the column a node row puts its signal in - the same question asked
                of a place instead of a link. Empty when there is no answer, which draws nothing
@@ -228,6 +230,9 @@ void fb_render_waypoints(struct inkcell_draw_state *state, const struct mesh_ui_
                Once something is, it stops saying it - a list with places in it is not empty,
                and the row is then only a button. */
             .supporting = supporting,
+            /* Under the new row it is a reason - why it cannot be pressed, or that nothing is
+               here yet - and a reason is quieter than the button it explains. */
+            .supporting_tone = is_new ? INKCELL_TONE_DIM : INKCELL_TONE_NORMAL,
             .supporting_quiet = true,
         };
         inkcell_fb_list_item(state, &list, i, &row);
