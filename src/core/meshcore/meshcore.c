@@ -1418,6 +1418,39 @@ static void mesh_meshcore_write_favorite(struct mesh_meshcore *meshcore,
 }
 
 /* The answer to the command at the head of the queue. */
+/*
+ * The radio took a new key, and is another node from this moment: everything this conversation
+ * holds about it - its number, the model's roster - is the old one's. Nothing queued behind the
+ * import goes out as that radio: each is settled as a dropped link would settle it, and the
+ * restart goes next, so the sync after it reads the node the radio has become.
+ */
+static void mesh_meshcore_restart_as_new(struct mesh_meshcore *meshcore) {
+    while (meshcore->queue_count > 0U) {
+        struct mesh_meshcore_request *request = mesh_meshcore_head(meshcore);
+        const uint8_t cmd = request->frame[0];
+        const uint32_t packet_id = request->packet_id;
+        mesh_meshcore_settle_restore(meshcore, request, false);
+        mesh_meshcore_pop(meshcore);
+        if (mesh_meshcore_is_settings_write(cmd)) {
+            mesh_meshcore_settle_write(meshcore, -ECANCELED);
+        }
+        if (mesh_meshcore_is_remote(cmd) && cmd == meshcore->request_cmd) {
+            mesh_meshcore_request_ended(meshcore, MESH_MESHCORE_ANSWER_UNSENT);
+        }
+        struct mesh_meshcore_pending *pending = mesh_meshcore_pending_for(meshcore, packet_id);
+        if (pending != NULL) {
+            mesh_meshcore_pending_done(meshcore, pending, MESH_MESSAGE_ACK_FAILED);
+        } else {
+            mesh_meshcore_mark(meshcore, packet_id, MESH_MESSAGE_ACK_FAILED);
+        }
+    }
+    inkwell_wipe(meshcore->queue, sizeof meshcore->queue);
+    meshcore->queue_head = 0U;
+    if (mesh_meshcore_reboot(meshcore) < 0) {
+        inkwell_log_warn("meshcore", "New key taken; the restart was not sent");
+    }
+}
+
 static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t *frame,
                                    size_t len) {
     const uint8_t cmd = mesh_meshcore_head_cmd(meshcore);
@@ -1482,6 +1515,7 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             meshcore->identity_state = MESH_MESHCORE_IDENTITY_EXPORTED;
         } else if (cmd == MESH_MESHCORE_CMD_IMPORT_PRIVATE_KEY && code == MESH_MESHCORE_RESP_OK) {
             meshcore->identity_state = MESH_MESHCORE_IDENTITY_IMPORTED;
+            mesh_meshcore_restart_as_new(meshcore);
         } else if (code == MESH_MESHCORE_RESP_DISABLED) {
             meshcore->identity_state = MESH_MESHCORE_IDENTITY_DISABLED;
         } else if (code == MESH_MESHCORE_RESP_ERR) {

@@ -3205,3 +3205,24 @@ MESH_TEST_CASE(meshcore_identity_import_timeout_quarantines_the_link, unit) {
     MESH_TEST_FAIL_IF(!mesh_protocol_silent(&protocol), "the link was not called silent");
     record_success(test_name);
 }
+
+/* A key taken makes the radio another node at once: what was queued behind the import does not
+   go out as the old one, and the restart that resyncs it is the next thing sent. */
+MESH_TEST_CASE(meshcore_identity_import_taken_restarts_before_anything_else, unit) {
+    struct mesh_protocol protocol;
+    struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "handshake did not reach READY");
+    uint8_t key[MESH_MESHCORE_PRVKEY_LEN];
+    memset(key, 0x77, sizeof key);
+    (void)mesh_meshcore_import_identity(&g_meshcore, key);
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_advert(&g_meshcore, false) < 0, "the advert was refused");
+    const size_t sent = wire.count;
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(g_meshcore.identity_state != MESH_MESHCORE_IDENTITY_IMPORTED,
+                      "the import was not taken");
+    MESH_TEST_FAIL_IF(wire.count != sent + 1U ||
+                          mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_REBOOT ||
+                          g_meshcore.queue_count != 1U,
+                      "something queued behind the import went out before the restart");
+    record_success(test_name);
+}
