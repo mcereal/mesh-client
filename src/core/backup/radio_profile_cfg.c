@@ -458,6 +458,35 @@ int mesh_radio_profile_cfg_write(const struct mesh_radio_backup *profile, const 
     return result;
 }
 
+int mesh_radio_profile_cfg_create(const struct mesh_radio_backup *profile, const char *path) {
+    if (path == NULL || path[0] == '\0') {
+        return -EINVAL;
+    }
+    uint8_t *bytes = malloc(MESH_RADIO_PROFILE_CFG_MAX);
+    if (bytes == NULL) {
+        return -ENOMEM;
+    }
+    const int len = mesh_radio_profile_cfg_encode(profile, bytes, MESH_RADIO_PROFILE_CFG_MAX);
+    int result = len < 0 ? len : 0;
+    if (result == 0) {
+        /* "x": created here or not at all, in the one call - a file that appeared since the name
+           was chosen is never the one written. */
+        FILE *file = fopen(path, "wbx");
+        if (file == NULL) {
+            result = errno != 0 ? -errno : -EIO;
+        } else {
+            const bool whole = fwrite(bytes, 1U, (size_t)len, file) == (size_t)len;
+            const bool closed = fclose(file) == 0;
+            if (!whole || !closed) {
+                result = -EIO;
+                (void)remove(path);
+            }
+        }
+    }
+    free(bytes);
+    return result;
+}
+
 int mesh_radio_profile_cfg_read(const char *path, const char *name, struct mesh_radio_backup *out) {
     if (path == NULL || out == NULL) {
         return -EINVAL;

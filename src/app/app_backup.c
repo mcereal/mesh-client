@@ -457,7 +457,7 @@ static void app_restore(struct mesh_app *app, uint32_t node, uint32_t sequence, 
         /* Not the radio on the link. For a profile, `node` is the radio its comparison - the
            screen the sheet was accepted over - was made with, so a link that moved to another
            radio since is not written without that one being compared first. */
-        result = profile != 0U && live != 0U ? -ESTALE : -ENODEV;
+        result = profile != 0U && live != 0U ? -EXDEV : -ENODEV;
     }
     if (result == 0) {
         result = profile != 0U ? mesh_radio_profile_store_load(&app->profiles, profile, backup)
@@ -590,7 +590,7 @@ static void app_restore(struct mesh_app *app, uint32_t node, uint32_t sequence, 
         /* nothing to add */
     } else if (result == -ENOSPC) {
         inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_RESTORE_BUSY));
-    } else if (result == -ESTALE) {
+    } else if (result == -EXDEV) {
         inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_PROFILE_OTHER_RADIO));
         inkwell_log_warn("app", "Profile %u refused: compared with 0x%08x, 0x%08x is on the link",
                          (unsigned)profile, (unsigned)node, (unsigned)live);

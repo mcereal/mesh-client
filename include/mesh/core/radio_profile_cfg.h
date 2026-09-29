@@ -58,6 +58,14 @@ int mesh_radio_profile_cfg_decode(const uint8_t *data, size_t len, const char *n
 
 /* The same through a file: written whole through a temporary, and read whole. */
 int mesh_radio_profile_cfg_write(const struct mesh_radio_backup *profile, const char *path);
+
+/*
+ * The same written only where there is no file yet: the name is claimed as the file is created,
+ * in one step, and -EEXIST is the answer when something is already there - which is never
+ * touched. Written in place rather than through a temporary, since a rename is what would
+ * replace a file that turned up in between.
+ */
+int mesh_radio_profile_cfg_create(const struct mesh_radio_backup *profile, const char *path);
 int mesh_radio_profile_cfg_read(const char *path, const char *name, struct mesh_radio_backup *out);
 
 #ifdef __cplusplus

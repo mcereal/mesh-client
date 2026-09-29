@@ -28,7 +28,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <unistd.h>
 
 static void app_profile_toast(struct mesh_app *app, const char *text) {
     mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), text);
@@ -386,7 +385,8 @@ void mesh_app_profile_export(struct mesh_app *app, uint32_t sequence) {
          * Never over a file that is there. The likeliest one is the .cfg this profile was
          * imported from, which still holds the names and keys an import leaves behind - and
          * two names that come out the same once made safe would otherwise take turns erasing
-         * each other. So the first free name of "MPBC.cfg", "MPBC-2.cfg", ...
+         * each other. So the first free name of "MPBC.cfg", "MPBC-2.cfg", ... - claimed as the
+         * file is created, so one copied in a moment before is passed over rather than replaced.
          */
         char path[MESH_RADIO_BACKUP_PATH_MAX + MESH_RADIO_PROFILE_FILE_MAX];
         result = -EEXIST;
@@ -394,8 +394,8 @@ void mesh_app_profile_export(struct mesh_app *app, uint32_t sequence) {
             app_profile_file_name(profile->header.name, copy, file, sizeof file);
             if (!mesh_radio_profile_store_path(&app->profiles, file, path, sizeof path)) {
                 result = -ENAMETOOLONG;
-            } else if (access(path, F_OK) != 0) {
-                result = mesh_radio_profile_cfg_write(profile, path);
+            } else {
+                result = mesh_radio_profile_cfg_create(profile, path);
             }
         }
     }

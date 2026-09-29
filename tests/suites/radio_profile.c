@@ -15,6 +15,7 @@
 #include "support/backup_fixture.h"
 #include "support/fs_fixture.h"
 
+#include "inkwell/base/file.h"
 #include "mesh/core/radio_backup.h"
 #include "mesh/core/radio_backup_meshtastic.h"
 #include "mesh/core/radio_profile.h"
@@ -529,5 +530,35 @@ MESH_TEST_CASE(radio_profile_cfg_file_round_trips, unit) {
     MESH_TEST_FAIL_IF(temp_left, "the temporary was left beside the file");
     MESH_TEST_FAIL_IF(!mesh_radio_backup_same_payload(&g_read, &g_profile),
                       "the profile read back is not the one written");
+    record_success(test_name);
+}
+
+/* Created only where nothing is: a file already under the name is refused and left as it was. */
+MESH_TEST_CASE(radio_profile_cfg_create_never_replaces_a_file, unit) {
+    profile_capture();
+    const struct mesh_radio_backup_parts lora = profile_of(MESH_RADIO_BACKUP_TOPIC_LORA);
+    (void)mesh_radio_profile_make(&g_backup, &lora, "LoRa", &g_profile);
+    char dir[64];
+    MESH_TEST_FAIL_IF(!profile_tempdir(dir, sizeof dir), "mkdtemp failed");
+    char path[128];
+    snprintf(path, sizeof path, "%s/LoRa.cfg", dir);
+    const int created = mesh_radio_profile_cfg_create(&g_profile, path);
+    const int read = mesh_radio_profile_cfg_read(path, "LoRa", &g_read);
+    char other[128];
+    snprintf(other, sizeof other, "%s/phone.cfg", dir);
+    FILE *file = fopen(other, "wb");
+    if (file != NULL) {
+        fputs("keys", file);
+        fclose(file);
+    }
+    const int again = mesh_radio_profile_cfg_create(&g_profile, other);
+    size_t len = 0U;
+    uint8_t *kept = inkwell_file_read(other, 64U, &len);
+    const bool untouched = kept != NULL && len == 4U && memcmp(kept, "keys", 4U) == 0;
+    free(kept);
+    mesh_test_remove_tree(dir);
+    MESH_TEST_FAIL_IF(created != 0 || read != 0, "a new file was not created and read back");
+    MESH_TEST_FAIL_IF(again != -EEXIST, "a file already there was not refused");
+    MESH_TEST_FAIL_IF(!untouched, "a file already there was written over");
     record_success(test_name);
 }
