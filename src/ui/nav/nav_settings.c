@@ -438,6 +438,11 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
         snprintf(action->identifier, sizeof action->identifier, "%s", nav->maps_pending);
         return;
     }
+    if (which == MESH_UI_SETTINGS_ACTION_RESET_STATS) {
+        action->type = MESH_UI_ACTION_RESET_STATS;
+        action->section = mesh_ui_nav_open_section(nav);
+        return;
+    }
     if (mesh_ui_settings_action_is_forget(which)) {
         action->type = MESH_UI_ACTION_FORGET_NODES;
         action->section = mesh_ui_nav_open_section(nav);

@@ -155,6 +155,13 @@ enum mesh_ui_settings_section {
      * mesh/ui/profiles.h). A profile is made from a backup, on that backup's own screen.
      */
     MESH_UI_SETTINGS_PROFILES,
+    /*
+     * The Mesh card's third page: what this client has seen over its whole life
+     * (mesh/core/lifetime.h), and the one press that starts it again. A section for the node
+     * lists' reason - facts, a heading, a verb behind a confirm sheet - and this client's like
+     * Maps, so it opens with nothing connected. Last, so no persisted section moves.
+     */
+    MESH_UI_SETTINGS_STATS,
     MESH_UI_SETTINGS_SECTION_COUNT,
 };
 
@@ -830,6 +837,10 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_SAVE_BACKUP_IDENTITY,
     MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY,
     MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE_IDENTITY_OTHER,
+    /* The Stats page's one verb: every lifetime count back to zero, behind a sheet, since
+       nothing brings a count back. This client's, so it works with no link and reaches the app
+       as MESH_UI_ACTION_RESET_STATS. */
+    MESH_UI_SETTINGS_ACTION_RESET_STATS,
     /* Not an action: what the two verb tables below are sized by, so a row added above without
        a symbol or a weight is a hole in an array rather than a row that quietly draws nothing.
        Last, so no existing value moves - nav->confirm.subject carries one in a uint8_t. */

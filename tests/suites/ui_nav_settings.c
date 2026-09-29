@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 MESH_TEST_CASE(ui_nav_settings, unit) {
@@ -1304,6 +1305,170 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
                                &item) ||
         item.kind != INKSTAND_FORM_ACTION) {
         failure = "forgetting cached nodes needs no radio";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* The value of the Stats page's row labelled `label`, or NULL when there is no such row. */
+static const char *stats_value_of(const struct mesh_ui_store *store, const char *label,
+                                  struct mesh_ui_settings_item *item) {
+    for (uint32_t row = 0U; row < MESH_UI_SETTINGS_ITEMS_MAX; ++row) {
+        if (!mesh_ui_settings_item(&store->settings, &store->handshake, NULL, 0U,
+                                   MESH_UI_SETTINGS_STATS, MESH_UI_SETTINGS_NO_CHANNEL, row,
+                                   item)) {
+            break;
+        }
+        if (strcmp(item->label, label) == 0) {
+            return item->value;
+        }
+    }
+    return NULL;
+}
+
+/*
+ * The Stats page: every lifetime count as a fact, readable with no radio ever attached, and the
+ * one verb on it behind a sheet.
+ *
+ * Three things a page of numbers can get wrong without looking wrong. A record nothing has set
+ * must not draw as a record of zero - "most hops: 0" claims everything came straight to us. A
+ * node count the set has had to cap must say it is a floor, on the number itself. And the reset
+ * is the one press on the client that nothing undoes, so it is red and it asks first.
+ */
+MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    const char *failure = NULL;
+    struct mesh_ui_settings_item item;
+    const char *value = NULL;
+
+    /* No radio, no handshake, nothing counted: still a page, of zeros and "none yet". */
+    if (!mesh_ui_settings_section_loaded(&store.settings, NULL, MESH_UI_SETTINGS_STATS)) {
+        failure = "the Stats page is this client's and needs no radio to open";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Sent", &item)) == NULL || strcmp(value, "0") != 0 ||
+        item.kind != INKSTAND_FORM_INFO) {
+        failure = "a count nothing has moved is a plain zero, drawn as a fact";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Most hops", &item)) == NULL ||
+        strcmp(value, "none yet") != 0 ||
+        (value = stats_value_of(&store, "Farthest direct", &item)) == NULL ||
+        strcmp(value, "none yet") != 0) {
+        failure = "a record nothing has set should say so rather than draw a zero";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Counting since", &item)) == NULL ||
+        strcmp(value, "unknown") != 0) {
+        failure = "a device that has never had a clock has no day to name";
+        goto cleanup;
+    }
+
+    /* Counted, capped, and measured. */
+    struct mesh_ui_settings settings = store.settings;
+    struct mesh_ui_lifetime_stats *stats = &settings.client.lifetime;
+    stats->messages_sent = 5000000000ULL; /* past 32 bits: the column is not a uint32_t */
+    stats->reactions_received = 7U;
+    stats->nodes_heard = 8192U;
+    stats->nodes_heard_rf = 40U;
+    stats->radios = 2U;
+    stats->nodes_floor = true;
+    stats->most_hops = 0U;
+    stats->most_hops_measured = true;
+    stats->farthest_direct_m = 12345U;
+    stats->farthest_direct_measured = true;
+    stats->since = 1767225600U; /* a day in 2026 */
+    mesh_ui_store_set_settings(&store, &settings);
+
+    if ((value = stats_value_of(&store, "Sent", &item)) == NULL ||
+        strcmp(value, "5000000000") != 0) {
+        failure = "a count past 32 bits should be drawn whole";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Reactions received", &item)) == NULL ||
+        strcmp(value, "7") != 0) {
+        failure = "every count has its own row";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Heard", &item)) == NULL ||
+        strcmp(value, "at least 8192") != 0) {
+        failure = "a capped node set should say its count is a floor";
+        goto cleanup;
+    }
+    /* Measured and never more than zero hops is a real record of zero - whatever the node counts
+       say, since an RF node that later becomes one of our radios leaves them. */
+    stats->nodes_heard_rf = 0U;
+    mesh_ui_store_set_settings(&store, &settings);
+    if ((value = stats_value_of(&store, "Most hops", &item)) == NULL || strcmp(value, "0") != 0) {
+        failure = "a most-hops of zero that was measured should be drawn as one";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Farthest direct", &item)) == NULL ||
+        strcmp(value, "12.3 km") != 0) {
+        failure = "the farthest direct hearing should be a distance, in the radio's units";
+        goto cleanup;
+    }
+    char day[16];
+    const time_t stamp = (time_t)stats->since;
+    struct tm when;
+    MESH_TEST_FAIL_IF(localtime_r(&stamp, &when) == NULL, "localtime_r failed");
+    snprintf(day, sizeof day, "%d-%02d-%02d", when.tm_year + 1900, when.tm_mon + 1, when.tm_mday);
+    if ((value = stats_value_of(&store, "Counting since", &item)) == NULL ||
+        strcmp(value, day) != 0) {
+        failure = "the page should name the day the counting started";
+        goto cleanup;
+    }
+    /* And a distance measured at 0 - two radios at one spot - is a record, not "none yet". */
+    stats->farthest_direct_m = 0U;
+    mesh_ui_store_set_settings(&store, &settings);
+    if ((value = stats_value_of(&store, "Farthest direct", &item)) == NULL ||
+        strcmp(value, "none yet") == 0) {
+        failure = "a measured distance of zero should be drawn as a distance";
+        goto cleanup;
+    }
+
+    /* The reset: red, confirmed, and the client's own - it sends nothing. */
+    if (mesh_ui_settings_action_tone(MESH_UI_SETTINGS_ACTION_RESET_STATS) != INKCELL_TONE_ERROR ||
+        !mesh_ui_settings_action_needs_confirm(MESH_UI_SETTINGS_ACTION_RESET_STATS) ||
+        mesh_ui_settings_action_is_radio(MESH_UI_SETTINGS_ACTION_RESET_STATS)) {
+        failure = "a reset nothing brings back is red, asks first, and never reaches the radio";
+        goto cleanup;
+    }
+    const uint32_t reset_row =
+        settings_row_of(&store, MESH_UI_SETTINGS_STATS, MESH_UI_SETTINGS_ACTION_RESET_STATS);
+    if (reset_row >= MESH_UI_SETTINGS_ITEMS_MAX) {
+        failure = "the page should offer the reset";
+        goto cleanup;
+    }
+    if (!mesh_test_open_radio_page(&store, MESH_UI_SETTINGS_STATS) ||
+        !mesh_test_settings_cursor_to(&store, reset_row)) {
+        failure = "the Stats page should open from the Mesh card and reach its reset";
+        goto cleanup;
+    }
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (!store.nav.confirm.open || action.type != MESH_UI_ACTION_NONE ||
+        store.nav.confirm.subject != (uint8_t)MESH_UI_SETTINGS_ACTION_RESET_STATS) {
+        failure = "A on the reset should ask rather than reset";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (store.nav.confirm.open || action.type != MESH_UI_ACTION_RESET_STATS) {
+        failure = "confirming should ask the client to reset its stats";
+        goto cleanup;
+    }
+    char text[160];
+    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_STATS, MESH_UI_SETTINGS_NO_CHANNEL,
+                                   MESH_UI_SETTINGS_ACTION_RESET_STATS, text, sizeof text);
+    if (strcmp(text, "Reset every stat?") != 0) {
+        failure = "the sheet should name what it is about to reset";
         goto cleanup;
     }
 

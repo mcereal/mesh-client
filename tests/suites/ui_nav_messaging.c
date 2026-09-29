@@ -337,13 +337,13 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     /*
      * The Radio tab opens on the Status cards, which have no list: their rows are the verbs the
      * cards offer, walked flat. The fixture has a radio attached and a completed handshake, so
-     * all five are on offer - Devices and Disconnect on the Link card, the node lists on the
-     * Mesh card, and the details and Refresh on the Radio card - and a fresh cursor stands on
-     * the first.
+     * all six are on offer - Devices and Disconnect on the Link card, the node lists and the
+     * stats on the Mesh card, and the details and Refresh on the Radio card - and a fresh cursor
+     * stands on the first.
      */
     mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
     if (store.nav.screen != MESH_UI_SCREEN_RADIO ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 5U ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_RADIO) != 6U ||
         store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DEVICES) {
         failure = "R1 from the Map tab should reach the Radio tab's cards, on Devices";
         goto cleanup;
@@ -395,11 +395,14 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         failure = "A on the Link card's Disconnect should drop the link it names";
         goto cleanup;
     }
-    /* The Mesh card's node lists and the Radio card's details: each a page one level in, opened
-       without asking the radio for anything, and B lands back on the verb that opened it. */
+    /* The Mesh card's node lists and stats, and the Radio card's details: each a page one level
+       in, opened without asking the radio for anything, and B lands back on the verb that
+       opened it. */
     const uint8_t pages[] = {(uint8_t)MESH_UI_STATUS_VERB_NODE_LISTS,
+                             (uint8_t)MESH_UI_STATUS_VERB_STATS,
                              (uint8_t)MESH_UI_STATUS_VERB_DETAILS};
     const uint8_t sections[] = {(uint8_t)MESH_UI_SETTINGS_NODE_LISTS,
+                                (uint8_t)MESH_UI_SETTINGS_STATS,
                                 (uint8_t)MESH_UI_SETTINGS_RADIO_DETAILS};
     for (size_t i = 0; i < sizeof pages; ++i) {
         mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);

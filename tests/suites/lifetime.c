@@ -261,6 +261,78 @@ MESH_TEST_CASE(lifetime_records_take_only_what_arrived_over_the_air, unit) {
 }
 
 /*
+ * A record set to 0 is still a record, and says so across a restart.
+ *
+ * Both records have a real 0: a node only ever heard straight to us is a most-hops of 0, and two
+ * radios at one spot are a distance of 0. The value cannot tell those from "nothing measured
+ * yet", so the stats carry which records have been set and write it down beside them.
+ */
+MESH_TEST_CASE(lifetime_a_record_of_zero_is_a_measurement, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(515000000, 0);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_MOST_HOPS) ||
+                          mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M),
+                      "nothing heard is nothing measured");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_MESSAGES_SENT),
+                      "a count's zero is a count of none, so it is always measured");
+
+    /* Heard direct, standing exactly where we are. */
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    peer.position.valid = true;
+    peer.position.latitude_i = 515000000;
+    peer.position.longitude_i = 0;
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, true, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MOST_HOPS) != 0U ||
+                          !mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_MOST_HOPS),
+                      "zero hops heard is a most-hops of zero, measured");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M) != 0U ||
+                          !mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M),
+                      "zero metres heard direct is a distance of zero, measured");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_dirty(&g_lifetime), "a first measurement wants writing");
+
+    /* The peer then turns out to be one of our radios, which takes it out of the node counts -
+       and must not take the record with it. */
+    mesh_lifetime_note_radio(&g_lifetime, LT_PEER);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_RF) != 0U,
+                      "our own radio is not a node we heard");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_MOST_HOPS),
+                      "a record outlives the count of the node that set it");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_MOST_HOPS) ||
+                          !mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M),
+                      "a record of zero is still measured after a restart");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_reset(&g_lifetime) != 0, "the reset failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_MOST_HOPS),
+                      "a reset leaves nothing measured");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* A card from before the marker: a record above 0 was measured, and a 0 is read as not yet. */
+MESH_TEST_CASE(lifetime_a_record_from_an_older_card_reads_as_measured, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    char path[128];
+    snprintf(path, sizeof path, "%s/totals.stats", dir);
+    FILE *file = fopen(path, "w");
+    MESH_TEST_FAIL_IF(file == NULL, "could not write the totals");
+    fputs("most_hops=4\nfarthest_direct_m=0\n", file);
+    fclose(file);
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_MOST_HOPS),
+                      "a record above zero on an older card was measured");
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M),
+                      "a zero on an older card is the none-yet it most likely was");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/*
  * A fact whose append failed is still counted, and is written by the next flush that can: the
  * set values are not in the totals, so a fact that never reached the seen file would be gone at
  * the next launch, and a node already in the set is never fresh enough to be written again.

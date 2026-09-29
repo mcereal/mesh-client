@@ -888,6 +888,35 @@ static void on_forget_nodes(struct mesh_app *app, const struct mesh_ui_action *a
     mesh_app_publish_ui_state(app);
 }
 
+/*
+ * The Stats page's reset, confirmed. Both files go and every count is 0; the stats keep
+ * counting from here, on the same directory, so a reset is a new start rather than a stop.
+ * Written through at once rather than on the cache window, because the page this press draws
+ * is the answer and a restart inside that window would otherwise bring the old numbers back.
+ */
+static void on_reset_stats(struct mesh_app *app, const struct mesh_ui_action *action) {
+    (void)action;
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = inkwell_time_monotonic_ms();
+    const int result = mesh_lifetime_reset(&app->lifetime);
+    /* The radio on the link is one in use today, and the handshake that said so will not come
+       again until the next connect: the session announces a radio once per handshake. So it is
+       written back here, or "Radios used" reads 0 beside counts that are already moving. */
+    const struct mesh_handshake_status *status = &app->session.handshake;
+    if (mesh_session_attached(&app->session) && status->has_my_info) {
+        mesh_lifetime_note_radio(&app->lifetime, status->my_info.my_node_num);
+    }
+    if (result == 0) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_STATS_RESET));
+        inkwell_log_info("ui", "Lifetime stats reset from the Stats page");
+    } else {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_STATS_RESET_FAILED, result);
+        inkwell_log_warn("ui", "Lifetime stats reset failed: %d", result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+    mesh_app_publish_ui_state(app);
+}
+
 static void on_toggle_favorite(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
@@ -2785,6 +2814,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_SAVE_SETTINGS, on_save_settings, true},
     {MESH_UI_ACTION_RADIO_ACTION, on_radio_action, false},
     {MESH_UI_ACTION_FORGET_NODES, on_forget_nodes, false},
+    {MESH_UI_ACTION_RESET_STATS, on_reset_stats, false},
     {MESH_UI_ACTION_TOGGLE_FAVORITE, on_toggle_favorite, false},
     {MESH_UI_ACTION_REQUEST_NODE_INFO, on_request_node_info, false},
     {MESH_UI_ACTION_REQUEST_POSITION, on_request_reading, false},

@@ -36,6 +36,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 /* "oKGio6Sl... (AES-128)", "default key", "no encryption"; `aes` names the size the way the
    channel list does, else it is plain bits. */
@@ -3417,6 +3418,86 @@ static void build_node_lists(const struct mesh_ui_settings *s,
     build_forget_verbs(handshake, list);
 }
 
+/* One count on the Stats page. The value column holds only the number: the label is what says
+   which way it went, so a translator has one noun per row rather than a sentence to fit. */
+static void stats_count_row(struct item_list *list, inkcell_str_id label, uint64_t count) {
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    inkcell_str_format(value, sizeof value, MESH_STR_STATS_COUNT, (unsigned long long)count);
+    item_text(list, label, INKSTAND_FORM_INFO, value);
+}
+
+/* A node count, which is a floor once the set has had to turn a node away - and says so on
+   the number itself, since "at least" is part of the value rather than a note about it. */
+static void stats_nodes_row(struct item_list *list, inkcell_str_id label, uint32_t count,
+                            bool floor) {
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    inkcell_str_format(value, sizeof value,
+                       floor ? MESH_STR_STATS_NODES_FLOOR : MESH_STR_VALUE_PLAIN, (unsigned)count);
+    item_text(list, label, INKSTAND_FORM_INFO, value);
+}
+
+/* The day the stats started counting, or that they cannot say: a device that has never had a
+   clock counts exactly the same and has no day to name. A calendar day and no time - to the
+   minute it is only the moment a clock first became credible, which nobody asked. */
+static void stats_since_row(struct item_list *list, uint32_t since) {
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    const time_t stamp = (time_t)since;
+    struct tm when;
+    if (since == 0U || localtime_r(&stamp, &when) == NULL) {
+        item_str(list, MESH_STR_STATS_SINCE, INKSTAND_FORM_INFO, MESH_STR_STATS_SINCE_UNKNOWN);
+        return;
+    }
+    inkcell_str_format(value, sizeof value, MESH_STR_STATS_SINCE_DATE, when.tm_year + 1900,
+                       when.tm_mon + 1, when.tm_mday);
+    item_text(list, MESH_STR_STATS_SINCE, INKSTAND_FORM_INFO, value);
+}
+
+/*
+ * The Mesh card's Stats page: the lifetime counts (mesh/core/lifetime.h), grouped by what they
+ * count, and the press that starts them again.
+ *
+ * Every row is a fact rather than a field, so the section's own paragraph is the whole of its
+ * help. The records say "none yet" rather than 0 until something has set them: a most-hops of 0
+ * is a real answer - everything heard came straight to us - and so is a distance of 0, so each
+ * carries whether it was measured rather than being read off its own value or another count.
+ */
+static void build_stats(const struct mesh_ui_settings *s, struct item_list *list) {
+    const struct mesh_ui_lifetime_stats *stats = &s->client.lifetime;
+    stats_since_row(list, stats->since);
+
+    item_heading(list, MESH_STR_STATS_HEAD_MESSAGES);
+    stats_count_row(list, MESH_STR_STATS_MESSAGES_SENT, stats->messages_sent);
+    stats_count_row(list, MESH_STR_STATS_MESSAGES_RECEIVED, stats->messages_received);
+    stats_count_row(list, MESH_STR_STATS_DIRECT_SENT, stats->direct_sent);
+    stats_count_row(list, MESH_STR_STATS_DIRECT_RECEIVED, stats->direct_received);
+    stats_count_row(list, MESH_STR_STATS_REACTIONS_SENT, stats->reactions_sent);
+    stats_count_row(list, MESH_STR_STATS_REACTIONS_RECEIVED, stats->reactions_received);
+
+    item_heading(list, MESH_STR_STATS_HEAD_NODES);
+    stats_nodes_row(list, MESH_STR_STATS_NODES_HEARD, stats->nodes_heard, stats->nodes_floor);
+    stats_nodes_row(list, MESH_STR_STATS_NODES_HEARD_RF, stats->nodes_heard_rf, stats->nodes_floor);
+    stats_nodes_row(list, MESH_STR_STATS_RADIOS, stats->radios, stats->nodes_floor);
+
+    item_heading(list, MESH_STR_STATS_HEAD_RECORDS);
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    if (stats->most_hops_measured) {
+        inkcell_str_format(value, sizeof value, MESH_STR_VALUE_PLAIN, (unsigned)stats->most_hops);
+        item_text(list, MESH_STR_STATS_MOST_HOPS, INKSTAND_FORM_INFO, value);
+    } else {
+        item_str(list, MESH_STR_STATS_MOST_HOPS, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
+    }
+    if (stats->farthest_direct_measured) {
+        mesh_ui_format_distance((double)stats->farthest_direct_m, list->imperial, value,
+                                sizeof value);
+        item_text(list, MESH_STR_STATS_FARTHEST_DIRECT, INKSTAND_FORM_INFO, value);
+    } else {
+        item_str(list, MESH_STR_STATS_FARTHEST_DIRECT, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
+    }
+
+    item_heading(list, MESH_STR_STATS_HEAD_RESET);
+    item_verb(list, MESH_STR_ACTION_RESET_STATS, MESH_UI_SETTINGS_ACTION_RESET_STATS);
+}
+
 static void build_section(const struct mesh_ui_settings *settings,
                           const struct mesh_ui_handshake_state *handshake,
                           const struct mesh_ui_setting_edit *edits, size_t edit_count,
@@ -3502,6 +3583,9 @@ static void build_section(const struct mesh_ui_settings *settings,
         break;
     case MESH_UI_SETTINGS_NODE_LISTS:
         build_node_lists(settings, handshake, list);
+        break;
+    case MESH_UI_SETTINGS_STATS:
+        build_stats(settings, list);
         break;
     case MESH_UI_SETTINGS_ACTIONS:
         build_actions(settings, handshake, list);

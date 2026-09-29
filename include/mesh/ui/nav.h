@@ -114,6 +114,7 @@ enum mesh_ui_radio_page {
     MESH_UI_RADIO_PAGE_NONE = 0,
     MESH_UI_RADIO_PAGE_DETAILS,    /* the Radio card's: MESH_UI_SETTINGS_RADIO_DETAILS */
     MESH_UI_RADIO_PAGE_NODE_LISTS, /* the Mesh card's: MESH_UI_SETTINGS_NODE_LISTS */
+    MESH_UI_RADIO_PAGE_STATS,      /* the Mesh card's too: MESH_UI_SETTINGS_STATS */
 };
 /* nav.settings_channel when the Channels section shows its list rather than one channel. */
 #define MESH_UI_SETTINGS_NO_CHANNEL 0xFFU
@@ -1207,6 +1208,9 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_PROFILE_DELETE,
     MESH_UI_ACTION_PROFILE_IMPORT,
     MESH_UI_ACTION_PROFILE_RESCAN,
+    /* The Stats page's reset, confirmed: every lifetime count back to zero. Carries nothing -
+       there is one set of stats - and, like FORGET_NODES, sends nothing over the air. */
+    MESH_UI_ACTION_RESET_STATS,
     /* Not a verb: how many there are. It is what pins the dispatch table in
        src/app/app_actions.c to this list - a verb added above and not given a row there is a
        press that reaches the app and does nothing, with nothing to see at the seam. */

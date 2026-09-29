@@ -65,7 +65,8 @@ static bool help_store_open(struct mesh_ui_store *store, enum mesh_ui_settings_s
     mesh_ui_store_set_settings(store, &settings);
     /* The Radio tab's two pages are sections too, reached from their cards rather than from the
        Settings list. */
-    if (section == MESH_UI_SETTINGS_RADIO_DETAILS || section == MESH_UI_SETTINGS_NODE_LISTS) {
+    if (section == MESH_UI_SETTINGS_RADIO_DETAILS || section == MESH_UI_SETTINGS_NODE_LISTS ||
+        section == MESH_UI_SETTINGS_STATS) {
         return mesh_test_open_radio_page(store, section);
     }
     return mesh_test_open_tab(store, MESH_UI_SCREEN_SETTINGS) &&
@@ -574,7 +575,7 @@ MESH_TEST_CASE(help_keycap_and_press_agree, unit) {
     static const enum mesh_ui_settings_section k_sections[] = {
         MESH_UI_SETTINGS_LORA,          MESH_UI_SETTINGS_ABOUT,  MESH_UI_SETTINGS_MODULES,
         MESH_UI_SETTINGS_DEVICE,        MESH_UI_SETTINGS_CANNED, MESH_UI_SETTINGS_NODE_LISTS,
-        MESH_UI_SETTINGS_RADIO_DETAILS,
+        MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_STATS,
     };
     /* Pristine, one edit in hand, and the discard question armed over that edit. */
     static const char *const k_states[] = {"pristine", "edited", "discard armed"};

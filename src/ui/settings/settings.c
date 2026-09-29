@@ -75,6 +75,7 @@ static const inkcell_str_id k_section_labels[MESH_UI_SETTINGS_SECTION_COUNT] = {
     [MESH_UI_SETTINGS_BEACON] = MESH_STR_SETTINGS_SECTION_BEACON,
     [MESH_UI_SETTINGS_RADIO_DETAILS] = MESH_STR_SETTINGS_SECTION_RADIO_DETAILS,
     [MESH_UI_SETTINGS_NODE_LISTS] = MESH_STR_SETTINGS_SECTION_NODE_LISTS,
+    [MESH_UI_SETTINGS_STATS] = MESH_STR_SETTINGS_SECTION_STATS,
 };
 
 inkcell_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section) {
@@ -121,6 +122,7 @@ static const enum inkcell_icon k_section_icons[MESH_UI_SETTINGS_SECTION_COUNT] =
     /* The Radio tab's two pages wear the icons of the cards that open them. */
     [MESH_UI_SETTINGS_RADIO_DETAILS] = INKCELL_ICON_RADIO,
     [MESH_UI_SETTINGS_NODE_LISTS] = INKCELL_ICON_NODES,
+    [MESH_UI_SETTINGS_STATS] = INKCELL_ICON_NODES,
     [MESH_UI_SETTINGS_MODULES] = INKCELL_ICON_MODULES,
     [MESH_UI_SETTINGS_NEIGHBOR_INFO] = INKCELL_ICON_NEIGHBORS,
     [MESH_UI_SETTINGS_RANGE_TEST] = INKCELL_ICON_RANGE_TEST,
@@ -182,6 +184,7 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_RESET_NODEDB] = INKCELL_ICON_DELETE,
     [MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES] = INKCELL_ICON_DELETE,
     [MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES] = INKCELL_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_RESET_STATS] = INKCELL_ICON_DELETE,
     [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG] = INKCELL_ICON_FACTORY,
     [MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE] = INKCELL_ICON_FACTORY,
     [MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG] = INKCELL_ICON_BACKUP,
@@ -295,6 +298,9 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_RESET_NODEDB] = INKCELL_TONE_WARNING,
     [MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES] = INKCELL_TONE_WARNING,
+    /* Unlike the node stores above, nothing rebuilds a count: the air says what is heard now,
+       never what was heard before. So this one is red. */
+    [MESH_UI_SETTINGS_ACTION_RESET_STATS] = INKCELL_TONE_ERROR,
     /*
      * The two rows nothing brings back. A factory reset is where the section has been heading
      * since its first row, and it is the only place the red belongs - which is the point of
@@ -524,6 +530,7 @@ static const inkcell_str_id k_section_notes[MESH_UI_SETTINGS_SECTION_COUNT] = {
     [MESH_UI_SETTINGS_BEACON] = MESH_STR_SETTINGS_NOTE_BEACON,
     [MESH_UI_SETTINGS_RADIO_DETAILS] = MESH_STR_SETTINGS_NOTE_RADIO_DETAILS,
     [MESH_UI_SETTINGS_NODE_LISTS] = MESH_STR_SETTINGS_NOTE_NODE_LISTS,
+    [MESH_UI_SETTINGS_STATS] = MESH_STR_SETTINGS_NOTE_STATS,
 };
 
 inkcell_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section) {
@@ -810,6 +817,9 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
                (handshake != NULL && (handshake->has_my_info || handshake->node_count > 0U));
     case MESH_UI_SETTINGS_NODE_LISTS:
         return handshake != NULL && (handshake->has_my_info || handshake->node_count > 0U);
+    /* This client's, like About: the counts are read off the card, not the radio. */
+    case MESH_UI_SETTINGS_STATS:
+        return true;
     case MESH_UI_SETTINGS_MODULES:
         /* A folder, not a fragment. It lists every module whether or not the radio has sent
            one, because "which of these has not arrived" is exactly what the list is for. */
@@ -3011,7 +3021,8 @@ bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) 
            action == MESH_UI_SETTINGS_ACTION_PROFILES_DELETE ||
            mesh_ui_settings_action_is_identity(action) ||
            mesh_ui_settings_action_is_install_firmware(action) ||
-           mesh_ui_settings_action_is_forget(action);
+           mesh_ui_settings_action_is_forget(action) ||
+           action == MESH_UI_SETTINGS_ACTION_RESET_STATS;
 }
 
 /* The three presses that move a radio's private key, each behind a sheet of its own. */
@@ -3142,6 +3153,9 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
     case MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FORGET_ALL));
         return;
+    case MESH_UI_SETTINGS_ACTION_RESET_STATS:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_RESET_STATS));
+        return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TITLE_FACTORY_CFG));
         return;
@@ -3225,6 +3239,8 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FORGET_OFF);
     case MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES:
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FORGET_ALL);
+    case MESH_UI_SETTINGS_ACTION_RESET_STATS:
+        return inkcell_str(MESH_STR_CONFIRM_ACCEPT_RESET_STATS);
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
         return inkcell_str(MESH_STR_CONFIRM_ACCEPT_FACTORY_CFG);
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
@@ -3381,6 +3397,9 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
         return;
     case MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_FORGET_ALL));
+        return;
+    case MESH_UI_SETTINGS_ACTION_RESET_STATS:
+        snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_RESET_STATS));
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_FACTORY_CFG));
