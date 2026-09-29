@@ -1446,7 +1446,8 @@ static void mesh_meshcore_restart_as_new(struct mesh_meshcore *meshcore) {
     }
     inkwell_wipe(meshcore->queue, sizeof meshcore->queue);
     meshcore->queue_head = 0U;
-    if (mesh_meshcore_reboot(meshcore) < 0) {
+    meshcore->identity_restart_unsent = mesh_meshcore_reboot(meshcore) < 0;
+    if (meshcore->identity_restart_unsent) {
         inkwell_log_warn("meshcore", "New key taken; the restart was not sent");
     }
 }
@@ -2724,6 +2725,7 @@ static int mesh_meshcore_identity_send(struct mesh_meshcore *meshcore, const uin
     }
     meshcore->identity_state = MESH_MESHCORE_IDENTITY_ASKED;
     meshcore->identity_error = 0U;
+    meshcore->identity_restart_unsent = false;
     const int result = mesh_meshcore_enqueue(meshcore, frame, len, 0U);
     if (result < 0) {
         /* A frame the link refused outright was settled LOST by the pump; one never queued
@@ -2772,6 +2774,7 @@ void mesh_meshcore_identity_clear(struct mesh_meshcore *meshcore) {
         meshcore->identity_state != MESH_MESHCORE_IDENTITY_EXPORTED) {
         meshcore->identity_state = MESH_MESHCORE_IDENTITY_IDLE;
         meshcore->identity_error = 0U;
+        meshcore->identity_restart_unsent = false;
     }
 }
 

@@ -1315,14 +1315,13 @@ static void app_identity_tick(struct mesh_app *app) {
             return;
         }
         if (meshcore->identity_state == MESH_MESHCORE_IDENTITY_IMPORTED) {
-            /* The radio holds the key now, and everything this client knows of it is the old
-               one's: a restart, and the sync after it reads the radio it has become. */
+            /* The radio holds the key now, and the conversation has restarted it - the sync after
+               the restart reads the radio it has become - unless the link would not send that. */
+            const bool unsent = meshcore->identity_restart_unsent;
             mesh_meshcore_identity_clear(meshcore);
-            const int restart = mesh_meshcore_reboot(meshcore);
-            if (restart < 0) {
+            if (unsent) {
                 /* Taken, and nothing to wait for: the radio will not restart on its own. */
-                inkwell_log_warn("app", "Identity key taken; the restart was not sent (%d)",
-                                 restart);
+                inkwell_log_warn("app", "Identity key taken; the restart was not sent");
                 app_identity_end(app);
                 app_identity_toast(app, inkcell_str(MESH_STR_TOAST_IDENTITY_RESTART));
                 return;

@@ -6962,6 +6962,11 @@ MESH_TEST_CASE(app_backup_identity_onto_another_radio_needs_the_confirmation, un
     record_success(test_name);
 }
 
+/* The identity job cleared, as a judged one would leave it, between two steps of one case. */
+static void app_identity_end_for_test(struct mesh_app *app) {
+    memset(&app->backup_identity, 0, sizeof app->backup_identity);
+}
+
 /* A MeshCore radio's key in RESP_PRIVATE_KEY, every byte `fill`. */
 static void app_identity_feed_key(const struct mesh_protocol *protocol, uint8_t fill) {
     uint8_t frame[1U + MESH_MESHCORE_PRVKEY_LEN];
@@ -7114,11 +7119,26 @@ MESH_TEST_CASE(app_backup_identity_meshcore_never_waits_for_ever, unit) {
     mesh_app_backup_tick(&app);
     const bool unanswered = app.backup_identity.stage != 0U && mesh_protocol_silent(&protocol);
 
+    /* Taken, the restart sent, and the link gone before the app looks: the radio is coming
+       back, and is waited for rather than said to need a restart. */
+    mesh_protocol_detach(&protocol);
+    app_identity_end_for_test(&app);
+    const bool again = mesh_test_meshcore_sync(&app.meshcore, &protocol, &g_restore_wire);
+    app.meshcore.self_node = 0x01020304U;
+    mesh_app_backup_restore_identity(&app, node, 2U, true, mesh_app_backup_live_node(&app));
+    mesh_protocol_receive(&protocol, &ok, 1U);
+    mesh_protocol_detach(&protocol);
+    mesh_app_backup_tick(&app);
+    const bool dropped = again && app.backup_identity.stage != 0U &&
+                         strcmp(app.ui_store.nav.toast.text,
+                                "The radio took the identity key; restart it to finish") != 0;
+
     mesh_app_shutdown(&app);
     unsetenv("MESHCLIENT_UI_BACKEND");
     mesh_test_remove_tree(home);
     MESH_TEST_FAIL_IF(!resynced, "the radio did not sync again");
     MESH_TEST_FAIL_IF(!unanswered, "an unanswered import was given up on, not waited out");
+    MESH_TEST_FAIL_IF(!dropped, "a restart sent before the link dropped was reported unsent");
     MESH_TEST_FAIL_IF(!ended, "a refused restart left the restore waiting");
     MESH_TEST_FAIL_IF(!waiting, "the restart was not waited for");
     MESH_TEST_FAIL_IF(!gave_up, "a radio that never came back held the restore for good");

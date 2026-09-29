@@ -641,6 +641,9 @@ struct mesh_meshcore {
      */
     uint8_t identity_state;
     uint8_t identity_error;
+    /* An import taken whose restart the link would not send (IMPORTED only): the radio holds
+       the new key and will not restart on its own. */
+    bool identity_restart_unsent;
     uint8_t identity_key[MESH_MESHCORE_PRVKEY_LEN];
 };
 
@@ -648,7 +651,9 @@ enum mesh_meshcore_identity_state {
     MESH_MESHCORE_IDENTITY_IDLE = 0,
     MESH_MESHCORE_IDENTITY_ASKED,    /* sent, and not yet answered */
     MESH_MESHCORE_IDENTITY_EXPORTED, /* the key has arrived, in `identity_key` */
-    MESH_MESHCORE_IDENTITY_IMPORTED, /* the radio took the key sent */
+    /* The radio took the key sent, and the conversation has sent the restart that resyncs it -
+       or says in `identity_restart_unsent` that it could not. */
+    MESH_MESHCORE_IDENTITY_IMPORTED,
     MESH_MESHCORE_IDENTITY_DISABLED, /* the firmware was built without the command */
     MESH_MESHCORE_IDENTITY_REFUSED,  /* the radio refused it: `identity_error` says why */
     MESH_MESHCORE_IDENTITY_LOST,     /* never sent, unanswered, or the link went first */
