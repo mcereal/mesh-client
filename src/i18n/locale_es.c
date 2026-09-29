@@ -1892,12 +1892,17 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TEXT_BACKUPS_RESTORE] =
         "Lo que difiere vuelve a la radio, que luego se reinicia. Conserva sus claves, y antes se "
         "guarda una copia de cómo está ahora.",
+    [MESH_STR_CONFIRM_TEXT_BACKUPS_RESTORE_PLAIN] =
+        "Lo que difiere en sus ajustes y canales vuelve a la radio, sin reiniciarla. Sus contactos "
+        "quedan como están, y antes se guarda una copia de cómo está ahora.",
     [MESH_STR_CONFIRM_TEXT_RESTORE_FIRMWARE] =
         " Hecha con el firmware %.20s; la radio usa ahora %.20s.",
     [MESH_STR_BACKUPS_RESTORE] = "Restaurar en la radio",
     [MESH_STR_BACKUPS_RESTORING] = "Restaurando la radio",
     [MESH_STR_BACKUPS_RESTORING_VALUE] = "Se reinicia para aplicarlos",
+    [MESH_STR_BACKUPS_RESTORING_VALUE_PLAIN] = "Se relee sobre la marcha",
     [MESH_STR_TOAST_RESTORE_STARTED] = "Restaurando la radio; se reinicia al terminar",
+    [MESH_STR_TOAST_RESTORE_STARTED_PLAIN] = "Restaurando los ajustes de la radio",
     [MESH_STR_TOAST_RESTORE_SAME] = "La radio ya coincide con esta copia",
     [MESH_STR_TOAST_RESTORE_UNWRITABLE] = "Lo que difiere no se puede escribir en esta radio",
     [MESH_STR_TOAST_RESTORE_NO_COPY] = "No restaurada: no se pudo guardar antes la radio (%d)",
@@ -1905,6 +1910,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_RESTORE_FAILED] = "No se pudo restaurar la copia (%d)",
     [MESH_STR_TOAST_RESTORE_REFUSED] = "La radio rechazó la restauración (%d); no se cambió nada",
     [MESH_STR_TOAST_RESTORE_DONE] = "Radio restaurada desde la copia",
+    [MESH_STR_TOAST_RESTORE_DONE_CONTACTS] =
+        "Ajustes restaurados; sus contactos quedan como estaban",
     [MESH_STR_TOAST_RESTORE_PARTIAL_ONE] = "Restaurada; %u ajuste sigue siendo distinto",
     [MESH_STR_TOAST_RESTORE_PARTIAL_OTHER] = "Restaurada; %u ajustes siguen siendo distintos",
     [MESH_STR_SETTINGS_NOTE_BACKUPS] =

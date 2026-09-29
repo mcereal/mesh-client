@@ -362,11 +362,19 @@ void mesh_app_backup_delete(struct mesh_app *app, uint32_t node, uint32_t sequen
 /* ---- restoring ----------------------------------------------------------------------------- */
 
 /*
- * A restore is one edit transaction (mesh_radio_settings_queue_transaction()): the writes for the
- * sections that differ, between begin_edit_settings and commit_edit_settings, so the radio saves
- * and restarts once at the end rather than after its first LoRa write. There is no read-back
- * per write - a whole radio would not fit the queue with one - so the result is judged the way a
- * person would judge it: once the radio has been read again, compare it with the backup.
+ * A Meshtastic restore is one edit transaction (mesh_radio_settings_queue_transaction()): the
+ * writes for the sections that differ, between begin_edit_settings and commit_edit_settings, so
+ * the radio saves and restarts once at the end rather than after its first LoRa write. There is
+ * no read-back per write - a whole radio would not fit the queue with one - so the result is
+ * judged the way a person would judge it: once the radio has been read again, compare it with
+ * the backup.
+ *
+ * A MeshCore restore is ordinary saves (mesh_meshcore_backup_plan()): the settings groups that
+ * differ, then each channel slot on its own, since a save carries one slot. The conversation
+ * holds one save outstanding at a time and sixteen commands in its queue, so they go out one
+ * after another as each is answered, rather than all at once into a queue they may not fit.
+ * Nothing restarts, and each save reads its part back; a group the radio refuses stays as it
+ * was, and the same comparison at the end is what says so.
  *
  * SENT lasts until the queue has drained (the commit sent, acked or not) or the radio has
  * restarted. If it restarted, the reconnect reads everything anyway; if it did not, a refresh
@@ -390,8 +398,11 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
     struct mesh_admin_request *writes =
         malloc(MESH_RADIO_SETTINGS_TRANSACTION_MAX * sizeof *writes);
     int result = backup == NULL || writes == NULL ? -ENOMEM : 0;
-    if (result == 0 && (app->meshcore_bound || app_backup_ready_node(app) != node)) {
-        result = -ENODEV; /* not this radio, or not one this restore can write */
+    if (result == 0 && app->backup_restore.stage != APP_RESTORE_NONE) {
+        result = -ENOSPC; /* one restore at a time */
+    }
+    if (result == 0 && app_backup_ready_node(app) != node) {
+        result = -ENODEV; /* not the radio on the link */
     }
     if (result == 0) {
         result = app_backup_load(app, node, sequence, backup);
@@ -399,7 +410,11 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
     int planned = 0;
     size_t unwritable = 0U;
     bool said = false; /* the toast already says why */
-    if (result == 0) {
+    if (result == 0 && app->meshcore_bound) {
+        planned = mesh_meshcore_backup_plan(backup, &app->meshcore, app->backup_restore.steps,
+                                            MESH_MESHCORE_BACKUP_PLAN_MAX, &unwritable);
+        result = planned < 0 ? planned : 0;
+    } else if (result == 0) {
         planned = mesh_radio_backup_meshtastic_plan(
             backup, mesh_session_settings(&app->session), mesh_session_handshake(&app->session),
             writes, MESH_RADIO_SETTINGS_TRANSACTION_MAX, &unwritable);
@@ -429,6 +444,11 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
             inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESTORE_NO_COPY, saved);
             inkwell_log_warn("app", "Restore refused: the radio's current state was not saved (%d)",
                              saved);
+        } else if (app->meshcore_bound) {
+            /* The first save now, so a link that will not take it is this press's answer. */
+            app->backup_restore.step_count = (uint8_t)planned;
+            app->backup_restore.step = 1U;
+            result = mesh_meshcore_write_settings(&app->meshcore, &app->backup_restore.steps[0]);
         } else {
             result = mesh_session_restore_settings(&app->session, writes, (size_t)planned);
         }
@@ -442,7 +462,9 @@ void mesh_app_backup_restore(struct mesh_app *app, uint32_t node, uint32_t seque
             app->backup_listing.compare_node = node;
             app->backup_listing.compare_sequence = sequence;
             app->backup_listing.compare_state = MESH_UI_BACKUP_COMPARE_RESTORING;
-            inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_RESTORE_STARTED));
+            inkwell_str_copy(toast, sizeof toast,
+                             inkcell_str(app->meshcore_bound ? MESH_STR_TOAST_RESTORE_STARTED_PLAIN
+                                                             : MESH_STR_TOAST_RESTORE_STARTED));
             inkwell_log_info("app", "Restoring backup %u of 0x%08x: %d sections",
                              (unsigned)sequence, (unsigned)node, planned);
             result = 0;
@@ -480,23 +502,72 @@ static void app_backup_restore_judge(struct mesh_app *app) {
     app_backup_restore_end(app);
     mesh_app_backup_compare(app, node, sequence);
     const struct mesh_ui_backups *listing = &app->backup_listing;
+    /* A restore does not write contacts, so they are not what "still differs" counts. They
+       come last in a comparison, so every setting ahead of them is in the list that was kept. */
+    size_t settings_left = listing->diff.total;
+    size_t contacts_left = 0U;
+    for (size_t i = 0; i < listing->diff.count; ++i) {
+        if (listing->diff.changes[i].topic == MESH_RADIO_BACKUP_TOPIC_CONTACT) {
+            settings_left = i;
+            contacts_left = listing->diff.total - i;
+            break;
+        }
+    }
     if (listing->compare_state != MESH_UI_BACKUP_COMPARE_DONE) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_RESTORE_FAILED,
                            (int)listing->compare_error);
-    } else if (listing->diff.total == 0U) {
-        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_RESTORE_DONE));
-    } else {
+    } else if (settings_left > 0U) {
         inkcell_str_format_plural(toast, sizeof toast, MESH_STR_TOAST_RESTORE_PARTIAL_ONE,
-                                  (uint32_t)listing->diff.total, (unsigned)listing->diff.total);
+                                  (uint32_t)settings_left, (unsigned)settings_left);
+    } else {
+        inkwell_str_copy(toast, sizeof toast,
+                         inkcell_str(contacts_left > 0U ? MESH_STR_TOAST_RESTORE_DONE_CONTACTS
+                                                        : MESH_STR_TOAST_RESTORE_DONE));
     }
     inkwell_log_info("app", "Restore of backup %u of 0x%08x: %zu differences left",
                      (unsigned)sequence, (unsigned)node, listing->diff.total);
     mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
 }
 
+/*
+ * A MeshCore restore's next save, once the last has been answered and its read-back sent. A save
+ * refused before it went out - a value the codec will not take - is skipped: the comparison at
+ * the end lists what it would have changed. A link that dropped settled the save in flight as
+ * failed, and the reconnect reads the radio whole.
+ */
+static void app_backup_restore_feed(struct mesh_app *app) {
+    struct mesh_meshcore *meshcore = &app->meshcore;
+    if (meshcore->send == NULL) {
+        app->backup_restore.stage = APP_RESTORE_READING;
+        return;
+    }
+    if (meshcore->writes_outstanding > 0U) {
+        return;
+    }
+    while (app->backup_restore.step < app->backup_restore.step_count) {
+        const uint8_t step = app->backup_restore.step;
+        const int result = mesh_meshcore_write_settings(meshcore, &app->backup_restore.steps[step]);
+        if (result == -EBUSY || result == -ENOBUFS) {
+            return; /* the last save's read-back, or other traffic, is still in the queue */
+        }
+        app->backup_restore.step++;
+        if (result > 0) {
+            return;
+        }
+        inkwell_log_warn("app", "Restore of 0x%08x: save %u of %u refused: %d",
+                         (unsigned)app->backup_restore.node, (unsigned)step + 1U,
+                         (unsigned)app->backup_restore.step_count, result);
+    }
+    app->backup_restore.stage = APP_RESTORE_READING;
+}
+
 static void app_backup_restore_tick(struct mesh_app *app) {
     switch (app->backup_restore.stage) {
     case APP_RESTORE_SENT: {
+        if (app->meshcore_bound) {
+            app_backup_restore_feed(app);
+            return;
+        }
         const bool restarted =
             app->session.reboot_generation != app->backup_restore.reboot_generation;
         const struct mesh_radio_settings *settings = mesh_session_settings(&app->session);
@@ -533,6 +604,12 @@ static void app_backup_restore_tick(struct mesh_app *app) {
     case APP_RESTORE_READING: {
         const uint32_t ready = app_backup_ready_node(app);
         if (ready == 0U) {
+            return;
+        }
+        /* The last save's read-backs are still to land: judged now, it would be judged on the
+           radio as it was before them. */
+        if (app->meshcore_bound && (app->meshcore.queue_count > 0U || app->meshcore.awaiting ||
+                                    app->meshcore.writes_outstanding > 0U)) {
             return;
         }
         if (ready != app->backup_restore.node) {

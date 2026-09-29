@@ -8,6 +8,7 @@
 #include "framework/mesh_test.h"
 #include "support/backup_fixture.h"
 #include "support/fs_fixture.h"
+#include "support/meshcore_fixture.h"
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
 #include "support/session_fixture.h"
@@ -6030,5 +6031,143 @@ MESH_TEST_CASE(app_backup_restore_refused_by_the_radio_is_said_and_ended, unit) 
     mesh_test_remove_tree(home);
     MESH_TEST_FAIL_IF(!sent, "the restore was not sent");
     MESH_TEST_FAIL_IF(!ended, "a refused restore was not ended with the radio compared again");
+    record_success(test_name);
+}
+
+/* ---- restoring a MeshCore radio ------------------------------------------------------------ */
+
+static struct mesh_test_meshcore_wire g_restore_wire;
+
+/* The recorded Heltec V3, synced through the app's own MeshCore conversation, with its first
+   backup on the card. */
+static bool app_meshcore_restore_open(struct mesh_app *app, char *home, size_t home_cap,
+                                      struct mesh_protocol *protocol) {
+    if (!app_backup_open(app, home, home_cap, "backup_meshcore")) {
+        return false;
+    }
+    mesh_app_bind_protocol(app, true);
+    *protocol = mesh_meshcore_protocol(&app->meshcore);
+    if (!mesh_test_meshcore_sync(&app->meshcore, protocol, &g_restore_wire)) {
+        return false;
+    }
+    mesh_app_backup_tick(app);
+    return mesh_radio_backup_store_list(&app->backups, app->meshcore.self_node, NULL, 0U) == 1;
+}
+
+/*
+ * Answers the radio's side until nothing is outstanding, ticking the app between answers as the
+ * loop would: a write is OK unless it is `refused`, and APP_START's SELF_INFO is the recorded one
+ * with the power at `tx_power` - what a radio that took the write, or refused it, would report.
+ */
+static void app_meshcore_answer(struct mesh_app *app, const struct mesh_protocol *protocol,
+                                uint8_t refused, uint8_t tx_power) {
+    for (int guard = 0; guard < 32 && app->meshcore.awaiting; ++guard) {
+        const uint8_t cmd = mesh_test_meshcore_wire_last(&g_restore_wire);
+        if (cmd == MESH_MESHCORE_CMD_APP_START) {
+            uint8_t self[MESH_TEST_MESHCORE_SELF_INFO_LEN];
+            memcpy(self, mesh_test_meshcore_self_info, sizeof self);
+            self[2] = tx_power;
+            mesh_protocol_receive(protocol, self, sizeof self);
+        } else if (cmd == MESH_MESHCORE_CMD_GET_CHANNEL) {
+            uint8_t channel[2 + 32 + 16];
+            memset(channel, 0, sizeof channel);
+            channel[0] = MESH_MESHCORE_RESP_CHANNEL_INFO;
+            memcpy(channel + 2, "Public", 6U);
+            channel[34] = 0x8b;
+            mesh_protocol_receive(protocol, channel, sizeof channel);
+        } else {
+            const uint8_t code = cmd == refused ? MESH_MESHCORE_RESP_ERR : MESH_MESHCORE_RESP_OK;
+            mesh_protocol_receive(protocol, &code, 1U);
+        }
+        mesh_app_backup_tick(app);
+    }
+}
+
+/*
+ * A MeshCore restore is the saves that differ, one after another: the settings group first,
+ * then the channel slot as a save of its own once the first has been answered and read back.
+ * An unchanged radio is sent nothing, and a radio that ends up matching is reported restored.
+ */
+MESH_TEST_CASE(app_backup_restore_meshcore_sends_each_save_in_turn, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    const uint8_t power = app.meshcore.self.tx_power_dbm;
+
+    const size_t idle = g_restore_wire.count;
+    mesh_app_backup_restore(&app, node, 1U);
+    const bool nothing =
+        app.backup_restore.stage == 0U && g_restore_wire.count == idle &&
+        strcmp(app.ui_store.nav.toast.text, "The radio already matches this backup") == 0;
+
+    /* The power and the channel moved on the radio since. */
+    app.meshcore.self.tx_power_dbm = 10U;
+    snprintf(app.meshcore.channels[0].name, sizeof app.meshcore.channels[0].name, "%s", "Ops");
+    mesh_app_backup_restore(&app, node, 1U);
+    const bool first =
+        app.backup_restore.stage != 0U && app.backup_restore.step_count == 2U &&
+        mesh_test_meshcore_wire_last(&g_restore_wire) == MESH_MESHCORE_CMD_SET_RADIO_TX_POWER &&
+        strcmp(app.ui_store.nav.toast.text, "Restoring the radio's settings") == 0;
+    const bool kept = mesh_radio_backup_store_list(&app.backups, node, NULL, 0U) == 2;
+    /* Nothing more goes out while the first save is unanswered. */
+    const size_t waiting = g_restore_wire.count;
+    mesh_app_backup_tick(&app);
+    const bool held = g_restore_wire.count == waiting;
+
+    app_meshcore_answer(&app, &protocol, 0U, power);
+    bool channel_sent = false;
+    for (size_t i = waiting; i < g_restore_wire.count; ++i) {
+        channel_sent = channel_sent || g_restore_wire.frames[i][0] == MESH_MESHCORE_CMD_SET_CHANNEL;
+    }
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool judged = app.backup_restore.stage == 0U &&
+                        app.backup_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE &&
+                        app.backup_listing.diff.total == 0U &&
+                        strcmp(app.ui_store.nav.toast.text, "Radio restored from the backup") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!nothing, "an unchanged radio was sent a restore");
+    MESH_TEST_FAIL_IF(!first, "the restore did not start with the settings save");
+    MESH_TEST_FAIL_IF(!kept, "the radio's state before the restore was not saved first");
+    MESH_TEST_FAIL_IF(!held, "a second save went out before the first was answered");
+    MESH_TEST_FAIL_IF(!channel_sent, "the channel slot was never sent");
+    MESH_TEST_FAIL_IF(!judged, "a radio that matches afterwards was not reported restored");
+    record_success(test_name);
+}
+
+/* A group the radio refuses stays as it was, and the restore says a setting still differs. */
+MESH_TEST_CASE(app_backup_restore_meshcore_reports_a_refused_group, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    struct mesh_protocol protocol;
+    const bool opened = app_meshcore_restore_open(&app, home, sizeof home, &protocol);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    const uint32_t node = app.meshcore.self_node;
+    struct mesh_radio_settings *radio = mesh_session_model_settings(&app.session);
+    const uint32_t failed = radio->writes_failed;
+
+    app.meshcore.self.tx_power_dbm = 10U;
+    mesh_app_backup_restore(&app, node, 1U);
+    const bool sent = app.backup_restore.stage != 0U;
+    app_meshcore_answer(&app, &protocol, MESH_MESHCORE_CMD_SET_RADIO_TX_POWER, 10U);
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool reported =
+        app.backup_restore.stage == 0U && radio->writes_failed == failed + 1U &&
+        app.backup_listing.compare_state == MESH_UI_BACKUP_COMPARE_DONE &&
+        app.backup_listing.diff.total == 1U &&
+        strcmp(app.ui_store.nav.toast.text, "Restored; 1 setting still differs") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(!sent, "the restore was not sent");
+    MESH_TEST_FAIL_IF(!reported, "a refused group was not reported as still differing");
     record_success(test_name);
 }

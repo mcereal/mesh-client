@@ -1117,8 +1117,11 @@ static void build_backups_compare(const struct mesh_ui_backups *b, uint8_t e,
         return;
     }
     if (b->compare_state == MESH_UI_BACKUP_COMPARE_RESTORING) {
-        item_meter(list, MESH_STR_BACKUPS_RESTORING, inkcell_str(MESH_STR_BACKUPS_RESTORING_VALUE),
-                   INKSTAND_FORM_METER_UNKNOWN);
+        /* MeshCore takes a restore as ordinary saves, with no restart behind them. */
+        const inkcell_str_id how = entry->header.protocol == MESH_RADIO_BACKUP_MESHCORE
+                                       ? MESH_STR_BACKUPS_RESTORING_VALUE_PLAIN
+                                       : MESH_STR_BACKUPS_RESTORING_VALUE;
+        item_meter(list, MESH_STR_BACKUPS_RESTORING, inkcell_str(how), INKSTAND_FORM_METER_UNKNOWN);
         return;
     }
     if (b->compare_state == MESH_UI_BACKUP_COMPARE_FAILED) {
@@ -1137,9 +1140,12 @@ static void build_backups_compare(const struct mesh_ui_backups *b, uint8_t e,
     inkcell_str_format_plural(value, sizeof value, MESH_STR_BACKUPS_DIFFERENCES_ONE,
                               (uint32_t)diff->total, (unsigned)diff->total);
     item_text(list, MESH_STR_BACKUPS_DIFFERENCES_LABEL, INKSTAND_FORM_INFO, value);
-    /* Putting them back is offered here, over the list of what it would change, and only for
-       a firmware this client can write a whole radio for. */
-    if (diff->protocol == MESH_RADIO_BACKUP_MESHTASTIC && mesh_ui_backups_can_compare(b, e)) {
+    /* Putting them back is offered here, over the list of what it would change, for the radio
+       on the link - and not over a list of contacts alone, which a restore does not write.
+       Contacts come last, so the first change says whether anything else differs. */
+    const bool settings_differ =
+        diff->count > 0U && diff->changes[0].topic != MESH_RADIO_BACKUP_TOPIC_CONTACT;
+    if (settings_differ && mesh_ui_backups_can_compare(b, e)) {
         item_verb(list, MESH_STR_BACKUPS_RESTORE, MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE);
     }
 

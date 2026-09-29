@@ -3229,6 +3229,11 @@ void mesh_ui_settings_confirm_for_protocol(const struct mesh_ui_settings *settin
         snprintf(text, text_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_CLEAR_PLAIN));
         return;
     }
+    /* A restore is saves like any other here: no restart, and no contacts written yet. */
+    if (action == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE) {
+        snprintf(text, text_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_BACKUPS_RESTORE_PLAIN));
+        return;
+    }
     if (action != MESH_UI_SETTINGS_ACTION_NONE) {
         return;
     }

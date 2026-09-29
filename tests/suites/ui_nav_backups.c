@@ -418,6 +418,17 @@ MESH_TEST_CASE(ui_nav_backups_restore_is_offered_over_the_comparison_and_asks_fi
         goto cleanup;
     }
 
+    /* A comparison that lists only a contact has nothing a restore would write. */
+    mesh_radio_backup_diff_reset(&b->diff, MESH_RADIO_BACKUP_MESHCORE);
+    change = mesh_radio_backup_diff_add(&b->diff, MESH_RADIO_BACKUP_ADDED,
+                                        MESH_RADIO_BACKUP_TOPIC_CONTACT, 0U, 1U);
+    mesh_radio_backup_value_text(&change->after, "Bob", 3U);
+    mesh_ui_store_set_settings(store, settings);
+    if (find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE, NULL) != UINT32_MAX) {
+        failure = "a restore was offered over contacts alone";
+        goto cleanup;
+    }
+
 cleanup:
     mesh_ui_store_shutdown(store);
     free(store);
