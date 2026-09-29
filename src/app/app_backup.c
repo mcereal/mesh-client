@@ -878,14 +878,21 @@ static void app_backup_restore_tick(struct mesh_app *app) {
             /* Another radio came back on the link: this restore cannot be judged from here. */
             inkwell_log_warn("app", "Restore of 0x%08x not judged: 0x%08x connected instead",
                              (unsigned)app->backup_restore.node, (unsigned)ready);
-            if (app->backup_restore.profile != 0U) {
-                if (app->profile_listing.compare_sequence == app->backup_restore.profile) {
-                    app->profile_listing.compare_state = MESH_UI_BACKUP_COMPARE_NONE;
-                }
-            } else {
-                app->backup_listing.compare_state = MESH_UI_BACKUP_COMPARE_NONE;
+            /* Said, on the screen still waiting for it and in a toast: nothing else will come to
+               end its meter. */
+            const bool profile = app->backup_restore.profile != 0U;
+            if (profile && app->profile_listing.compare_sequence == app->backup_restore.profile) {
+                app->profile_listing.compare_state = MESH_UI_BACKUP_COMPARE_FAILED;
+                app->profile_listing.compare_error = -ENODEV;
+            } else if (!profile && app->backup_listing.compare_node == app->backup_restore.node &&
+                       app->backup_listing.compare_sequence == app->backup_restore.sequence) {
+                app->backup_listing.compare_state = MESH_UI_BACKUP_COMPARE_FAILED;
+                app->backup_listing.compare_error = -ENODEV;
             }
             app_backup_restore_end(app);
+            mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(),
+                                    inkcell_str(profile ? MESH_STR_TOAST_PROFILE_UNJUDGED
+                                                        : MESH_STR_TOAST_RESTORE_UNJUDGED));
             return;
         }
         app_backup_restore_judge(app);

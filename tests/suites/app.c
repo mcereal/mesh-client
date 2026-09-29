@@ -6697,6 +6697,43 @@ MESH_TEST_CASE(app_profile_cfg_of_nothing_it_carries_is_not_written, unit) {
     record_success(test_name);
 }
 
+/* Another radio back on the link first: the apply cannot be judged, and its screen says so rather
+   than waiting on a comparison nothing will make. */
+MESH_TEST_CASE(app_profile_apply_ends_when_another_radio_connects, unit) {
+    char home[APP_TEST_HOME_CAP];
+    static struct mesh_app app;
+    const bool opened = app_restore_open(&app, home, sizeof home);
+    MESH_TEST_FAIL_IF_CLEANUP(!opened, mesh_test_remove_tree(home), "app init failed");
+    struct mesh_radio_settings *radio = mesh_session_model_settings(&app.session);
+    mesh_app_backup_tick(&app);
+    mesh_app_profile_draft(&app, 0x0badcafeU, 1U);
+    app_profile_keep_only(&app, MESH_RADIO_BACKUP_TOPIC_LORA);
+    mesh_app_profile_make(&app, "LoRa only");
+    const uint32_t profile =
+        app.profile_listing.count == 1U ? app.profile_listing.items[0].sequence : 0U;
+
+    radio->lora.hop_limit = 3U;
+    mesh_app_profile_apply(&app, profile);
+    const bool sent = app.backup_restore.stage != 0U;
+    app_restore_radio_answered(&app);
+    app.session.handshake.my_info.my_node_num = 0x0f00d00dU;
+    app.session.reboot_generation += 1U;
+    mesh_app_backup_tick(&app);
+    mesh_app_backup_tick(&app);
+    const bool ended = app.backup_restore.stage == 0U &&
+                       app.profile_listing.compare_state == MESH_UI_BACKUP_COMPARE_FAILED &&
+                       app.profile_listing.compare_error == -ENODEV &&
+                       strcmp(app.ui_store.nav.toast.text,
+                              "Another radio connected; the apply was not checked") == 0;
+
+    mesh_app_shutdown(&app);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    mesh_test_remove_tree(home);
+    MESH_TEST_FAIL_IF(profile == 0U || !sent, "the profile was not applied");
+    MESH_TEST_FAIL_IF(!ended, "the apply screen was left waiting on another radio");
+    record_success(test_name);
+}
+
 /* A profile for MeshCore is never put on a Meshtastic radio: refused, said, and nothing sent. */
 MESH_TEST_CASE(app_profile_for_the_other_protocol_is_refused, unit) {
     char home[APP_TEST_HOME_CAP];

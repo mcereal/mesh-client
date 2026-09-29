@@ -2002,6 +2002,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Aún se está aplicando este perfil; elimínalo cuando termine",
     [MESH_STR_TOAST_PROFILE_EXPORTED] = "%s guardado en la tarjeta",
     [MESH_STR_TOAST_PROFILE_EXPORT_FAILED] = "No se pudo escribir el archivo (%d)",
+    [MESH_STR_TOAST_PROFILE_UNJUDGED] = "Se conectó otra radio; no se comprobó el perfil",
+    [MESH_STR_TOAST_RESTORE_UNJUDGED] = "Se conectó otra radio; no se comprobó la restauración",
     [MESH_STR_TOAST_PROFILE_EXPORT_EMPTY] = "Nada de este perfil cabe en un archivo .cfg",
     [MESH_STR_TOAST_PROFILE_IMPORTED] = "%s importado como perfil",
     [MESH_STR_TOAST_PROFILE_IMPORT_FAILED] = "No se pudo importar el archivo (%d)",
