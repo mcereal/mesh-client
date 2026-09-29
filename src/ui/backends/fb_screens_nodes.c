@@ -118,6 +118,130 @@ static void fb_node_action_row(struct inkcell_draw_state *state, struct inkcell_
     inkcell_fb_list_item(state, list, index, &row);
 }
 
+/*
+ * How wide one column of a node's facts has to be, in body columns, before the detail stands in
+ * two: the widest label this screen asks, a value beside it and a reading's trend against the
+ * edge. The same unit and the same reasoning as the Status cards' (FB_STATUS_COLUMN_COLS) - a
+ * window with the text turned up keeps one column for exactly as long as two would wrap - and
+ * smaller, because a node's rows are a short label and a short answer where a card's are
+ * sentences.
+ */
+#define FB_NODE_COLUMN_COLS 30U
+
+/*
+ * Whether this frame has room for the detail in two columns, and where they are: the pane split
+ * down the middle.
+ *
+ * Never on a compact frame, so the Brick draws the one column it always has - and the frame is
+ * asked rather than the pane, because the detail pane of a split window is itself a compact
+ * region: judged by its own width it is the Brick's panel again, give or take two columns, and
+ * the column count alone cannot tell the two apart. What can is that one of them is a pane
+ * beside a list on a wide window and the other is the whole of a handheld.
+ */
+static bool fb_node_detail_columns(struct inkcell_draw_state *state,
+                                   struct inkcell_box columns[2]) {
+    const struct inkcell_box region = inkcell_fb_region(state);
+    const int half = region.w / 2;
+    if (!fb_frame_is_split(state) && inkcell_fb_width_class(state) == INKCELL_WIDTH_COMPACT) {
+        return false;
+    }
+    columns[0] = (struct inkcell_box){region.x, region.y, half, region.h};
+    columns[1] = (struct inkcell_box){region.x + half, region.y, region.w - half, region.h};
+    const struct inkcell_box was = inkcell_fb_set_region(state, columns[0]);
+    const bool room = inkcell_fb_cols(state, state->scale) >= FB_NODE_COLUMN_COLS;
+    (void)inkcell_fb_set_region(state, was);
+    return room;
+}
+
+/*
+ * Where the second column starts: the heading that comes nearest to halving the rows' steps, so
+ * the two columns end as close to level as whole cards allow. Always at a heading, because a card
+ * split across two columns would be one subject in two places. 0 when no heading past the first
+ * row exists, which is one column.
+ */
+static uint32_t fb_node_detail_split(const struct mesh_ui_node_item *items, const uint8_t *heights,
+                                     uint32_t count) {
+    uint32_t total = 0U;
+    for (uint32_t r = 0U; r < count; ++r) {
+        total += heights[r];
+    }
+    uint32_t best = 0U;
+    uint32_t best_gap = UINT32_MAX;
+    uint32_t above = 0U;
+    for (uint32_t r = 0U; r < count; ++r) {
+        if (r > 0U && items[r].kind == MESH_UI_NODE_ROW_HEADING) {
+            const uint32_t gap = 2U * above > total ? 2U * above - total : total - 2U * above;
+            if (gap < best_gap) {
+                best = r;
+                best_gap = gap;
+            }
+        }
+        above += heights[r];
+    }
+    return best;
+}
+
+/*
+ * One row of the detail. `i` is its place in the list being drawn and `item_index` its place
+ * among the node's items, which differ in the second column - the meter's id is the item's, so a
+ * reading keeps its animation when the detail moves between one column and two.
+ */
+static void fb_node_detail_row(struct inkcell_draw_state *state, struct inkcell_fb_list *list,
+                               uint32_t i, uint32_t item_index,
+                               const struct mesh_ui_node_item *item, uint32_t node_id,
+                               size_t label_cols);
+
+/*
+ * The rows [from, to) as one list against `layout`, the cursor's list when the cursor is among
+ * them. A list the cursor is not in still opens on a cursor - the model always has one - so it
+ * opens at its top and is drawn under inkcell_fb_set_cursor_elsewhere(), which keeps its first
+ * row from lighting up as though the keys were there. Only the cursor's list glides: there is one
+ * glide slot, and the other column does not move.
+ */
+static void fb_node_detail_list(struct inkcell_draw_state *state,
+                                const struct inkcell_fb_layout *layout,
+                                const struct mesh_ui_node_item *items, uint32_t from, uint32_t to,
+                                const uint8_t *heights, const uint8_t *cards, uint32_t cursor,
+                                const struct mesh_ui_node_span *span, uint32_t node_id,
+                                size_t label_cols, enum fb_list_id glide) {
+    const uint32_t count = to - from;
+    const bool here = cursor >= from && cursor < to;
+    const uint32_t at = here ? cursor - from : 0U;
+    const bool spanned = here && span->first >= from && span->last < to;
+    struct inkcell_fb_list list = inkcell_fb_list_begin_focus(
+        layout, count, at, heights + from, cards + from, spanned ? span->first - from : at,
+        spanned ? span->last - from : at, spanned && span->card);
+    bool was = false;
+    if (here) {
+        inkcell_fb_list_glide(state, &list, glide);
+    } else {
+        was = inkcell_fb_set_cursor_elsewhere(state, true);
+    }
+    uint32_t i;
+    while (inkcell_fb_list_next(&list, &i)) {
+        fb_node_detail_row(state, &list, i, from + i, &items[from + i], node_id, label_cols);
+    }
+    if (!here) {
+        (void)inkcell_fb_set_cursor_elsewhere(state, was);
+    }
+}
+
+/*
+ * A layout for one column: the frame's rows and top, with the column's own width - so the label
+ * column is fitted to what the column holds rather than to the pane. Asked with the region
+ * narrowed to the column, which is also where the rows will be placed.
+ */
+static struct inkcell_fb_layout fb_node_column_layout(struct inkcell_draw_state *state,
+                                                      const struct inkcell_fb_layout *layout,
+                                                      struct inkcell_box column) {
+    const struct inkcell_box was = inkcell_fb_set_region(state, column);
+    struct inkcell_fb_layout out = *layout;
+    out.cols = inkcell_fb_cols(state, state->scale);
+    out.body_w = inkcell_fb_content_column(state).w;
+    (void)inkcell_fb_set_region(state, was);
+    return out;
+}
+
 /* Mutable state, as every screen drawing a inkcell_fb_list_item is: an item may carry a control
    that animates, and where such a control has got to is kept on the backend. */
 void fb_render_node_detail(struct inkcell_draw_state *state,
@@ -135,6 +259,19 @@ void fb_render_node_detail(struct inkcell_draw_state *state,
     }
 
     const bool is_self = hs->has_my_info && node->node_id == hs->my_info.node_num;
+    /*
+     * Two columns or one, decided before the heading is drawn. A node's facts are label and value
+     * rows read a line at a time, not running text, so on a frame with room the reading measure
+     * is the wrong cap - it left a pane two thirds empty beside a column of short answers - and
+     * the room is for a second column instead, as the Status cards have. With two the measure is
+     * off for the heading too, so it stands over both columns, and fb_render_snapshot() puts it
+     * back once the action bar under them is drawn.
+     */
+    struct inkcell_box columns[2];
+    const bool wide = fb_node_detail_columns(state, columns);
+    if (wide) {
+        (void)inkcell_fb_set_measured(state, false);
+    }
     char title[96];
     fb_node_title(node, title, sizeof title);
     /*
@@ -282,115 +419,148 @@ void fb_render_node_detail(struct inkcell_draw_state *state,
     struct mesh_ui_node_span span = {.first = cursor, .last = cursor, .card = false};
     (void)mesh_ui_node_detail_span(items, count, layout->rows, cursor < count ? cursor : count - 1U,
                                    &span);
-    struct inkcell_fb_list list = inkcell_fb_list_begin_focus(layout, count, cursor, heights, cards,
-                                                              span.first, span.last, span.card);
-    inkcell_fb_list_glide(state, &list, FB_LIST_NODE_DETAIL);
-    uint32_t i;
-    while (inkcell_fb_list_next(&list, &i)) {
-        const struct mesh_ui_node_item *item = &items[i];
-        if (item->kind == MESH_UI_NODE_ROW_HEADING) {
-            /*
-             * The card's own symbol, from the group rather than from here, in the disc that
-             * makes this line a card *header* rather than a label floating above a panel.
-             *
-             * Every group gets one, including the groups whose rows carry nothing in a leading
-             * slot - which is not the two-column start the slot's rule is about. A heading is
-             * not one of the rows: it stands in the break between two cards with air above and
-             * below it, so the column it starts in is the card's title column and the column its
-             * rows start in is the card's content. Every phone app sets those two apart the same
-             * way, and it is what gives a hundred and twenty rows of facts a set of landmarks
-             * the eye can find without reading any of them.
-             */
-            inkcell_fb_list_subheader_icon(
-                state, &list, i, item->label,
-                (struct inkcell_fb_leading){.kind = INKCELL_FB_LEADING_TONAL,
-                                            .icon = (enum inkcell_icon)item->icon});
-        } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
-            fb_node_action_row(state, &list, i, item, node->node_id);
-        } else if (item->kind == MESH_UI_NODE_ROW_METER) {
-            /*
-             * The figure and, beside it, where that figure sits between its own two ends - which
-             * is the half of a reading that decibels and percentages do not carry. The row still
-             * says the number; the bar is what says whether the number is a problem.
-             *
-             * Keyed on the row index above everything the settings rows can reach, for the
-             * reason a meter row there is: a reading is a fact rather than a control, so it has
-             * no field of its own to be identified by.
-             */
-            struct inkcell_fb_meter meter = {
-                .id = 0x04000000U | i,
-                .kind = INKCELL_FB_METER_DETERMINATE,
-                .value = item->number,
-                .scale = item->scale,
-                .band = item->banded ? &item->band : NULL,
-                .tone = INKCELL_TONE_SUCCESS,
-            };
-            /*
-             * And, where the client has been watching one, which way the reading has been
-             * going - in the trailing slot, beside the figure rather than under it.
-             *
-             * The two pictures on this row are deliberately different sizes, because they are
-             * different weights of question. Where a battery sits between flat and full is what
-             * the screen is for, so it gets the row's second step and the bands with it;
-             * whether it has been falling is a glance, so it gets six cells against the edge.
-             * A trend given the full-width treatment would have taken a third step and said the
-             * word "battery" three times down one screen.
-             */
-            struct inkcell_polyline points;
-            inkcell_series_project(item->trend, item->scale, &points);
-            struct inkcell_fb_sparkline trend = {.points = &points, .tone = INKCELL_TONE_PRIMARY};
-            const struct inkcell_fb_list_item row = {
-                .label = item->label,
-                .label_cols = label_cols,
-                /* The question recedes and the answer keeps the row - see the INFO row below,
-                   which is the same statement about the same kind of row. */
-                .label_quiet = true,
-                .value = item->value,
-                .tone = INKCELL_TONE_NORMAL,
-                .meter = &meter,
-                .trailing = {.kind = INKCELL_FB_TRAILING_SPARK, .spark = &trend},
-            };
-            inkcell_fb_list_item(state, &list, i, &row);
-        } else {
-            /*
-             * A stated fact, and the two halves of it are not one tier.
-             *
-             * The label is the question - "Long name", "SNR", "Hops away" - and it repeats down
-             * a column the reader is scanning for the *answers*; the value is what they opened
-             * the node to find out. Drawn in one ink they were typographically identical, which
-             * is what made a card of them read as a block of text with no way into it, and it
-             * is the complaint this screen earns before any other: a hundred and twenty rows of
-             * facts, all the same weight.
-             *
-             * So the label takes the quiet tier and the value keeps the row's own. It is stated
-             * per row rather than assumed by the component because the opposite row exists and
-             * is just as common: on a settings field the label is what the reader is choosing
-             * and the value is merely where it stands, so there the label leads. Which of the
-             * two a row is, is the row's to say.
-             */
-            const struct inkcell_fb_list_item row = {
-                .label = item->label,
-                .label_cols = label_cols,
-                .label_quiet = true,
-                .value = item->value,
-                /*
-                 * The row's own ink rather than a flat normal, which every row here still gets:
-                 * INKCELL_TONE_NORMAL is 0, so a builder that says nothing says exactly what
-                 * this used to hard-code. What it buys is the one fact on this screen that is a
-                 * *judgement* rather than a reading - a key somebody proved is theirs, which is
-                 * worth a colour for the reason no temperature is.
-                 */
-                .tone = (enum inkcell_tone)item->tone,
-                /*
-                 * And, on the handful of rows whose answer is one of a set rather than a figure,
-                 * the shape that says so. Which rows those are is node_detail.c's to decide -
-                 * a renderer testing the value text would be a second table - and which colour
-                 * follows from the tone above, so the two cannot be paired wrongly from here.
-                 */
-                .value_chip = item->chip,
-            };
-            inkcell_fb_list_item(state, &list, i, &row);
+    /*
+     * The rows, in one list or two. Two lists rather than one laid out twice, because each column
+     * windows on its own: the cursor's column keeps the cursor in view as it always did, and the
+     * other shows from its top. The d-pad walks the same stops in the same order either way -
+     * down the first column and on into the second, which is the order the facts are read in -
+     * so the nav and its tests are the one-column nav unchanged.
+     */
+    const uint32_t split = wide ? fb_node_detail_split(items, heights, count) : 0U;
+    if (split == 0U) {
+        fb_node_detail_list(state, layout, items, 0U, count, heights, cards,
+                            cursor < count ? cursor : count - 1U, &span, node->node_id, label_cols,
+                            FB_LIST_NODE_DETAIL);
+        return;
+    }
+    const struct inkcell_box whole = inkcell_fb_region(state);
+    for (size_t c = 0U; c < 2U; ++c) {
+        const struct inkcell_fb_layout column = fb_node_column_layout(state, layout, columns[c]);
+        const uint32_t from = c == 0U ? 0U : split;
+        const uint32_t to = c == 0U ? split : count;
+        /* Fitted per column: the label column is what the rows beside it need. */
+        size_t fitted = 0U;
+        for (uint32_t r = from; r < to; ++r) {
+            if (items[r].kind != MESH_UI_NODE_ROW_HEADING &&
+                items[r].kind != MESH_UI_NODE_ROW_ACTION) {
+                labels[fitted++] = items[r].label;
+            }
         }
+        (void)inkcell_fb_set_region(state, columns[c]);
+        fb_node_detail_list(state, &column, items, from, to, heights, cards,
+                            cursor < count ? cursor : count - 1U, &span, node->node_id,
+                            inkcell_fb_field_label_cols_fit(state, &column, labels, fitted),
+                            c == 0U ? FB_LIST_NODE_DETAIL : FB_LIST_NODE_DETAIL_SIDE);
+    }
+    (void)inkcell_fb_set_region(state, whole);
+}
+
+static void fb_node_detail_row(struct inkcell_draw_state *state, struct inkcell_fb_list *list,
+                               uint32_t i, uint32_t item_index,
+                               const struct mesh_ui_node_item *item, uint32_t node_id,
+                               size_t label_cols) {
+    if (item->kind == MESH_UI_NODE_ROW_HEADING) {
+        /*
+         * The card's own symbol, from the group rather than from here, in the disc that
+         * makes this line a card *header* rather than a label floating above a panel.
+         *
+         * Every group gets one, including the groups whose rows carry nothing in a leading
+         * slot - which is not the two-column start the slot's rule is about. A heading is
+         * not one of the rows: it stands in the break between two cards with air above and
+         * below it, so the column it starts in is the card's title column and the column its
+         * rows start in is the card's content. Every phone app sets those two apart the same
+         * way, and it is what gives a hundred and twenty rows of facts a set of landmarks
+         * the eye can find without reading any of them.
+         */
+        inkcell_fb_list_subheader_icon(
+            state, list, i, item->label,
+            (struct inkcell_fb_leading){.kind = INKCELL_FB_LEADING_TONAL,
+                                        .icon = (enum inkcell_icon)item->icon});
+    } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
+        fb_node_action_row(state, list, i, item, node_id);
+    } else if (item->kind == MESH_UI_NODE_ROW_METER) {
+        /*
+         * The figure and, beside it, where that figure sits between its own two ends - which
+         * is the half of a reading that decibels and percentages do not carry. The row still
+         * says the number; the bar is what says whether the number is a problem.
+         *
+         * Keyed on the row index above everything the settings rows can reach, for the
+         * reason a meter row there is: a reading is a fact rather than a control, so it has
+         * no field of its own to be identified by.
+         */
+        struct inkcell_fb_meter meter = {
+            .id = 0x04000000U | item_index,
+            .kind = INKCELL_FB_METER_DETERMINATE,
+            .value = item->number,
+            .scale = item->scale,
+            .band = item->banded ? &item->band : NULL,
+            .tone = INKCELL_TONE_SUCCESS,
+        };
+        /*
+         * And, where the client has been watching one, which way the reading has been
+         * going - in the trailing slot, beside the figure rather than under it.
+         *
+         * The two pictures on this row are deliberately different sizes, because they are
+         * different weights of question. Where a battery sits between flat and full is what
+         * the screen is for, so it gets the row's second step and the bands with it;
+         * whether it has been falling is a glance, so it gets six cells against the edge.
+         * A trend given the full-width treatment would have taken a third step and said the
+         * word "battery" three times down one screen.
+         */
+        struct inkcell_polyline points;
+        inkcell_series_project(item->trend, item->scale, &points);
+        struct inkcell_fb_sparkline trend = {.points = &points, .tone = INKCELL_TONE_PRIMARY};
+        const struct inkcell_fb_list_item row = {
+            .label = item->label,
+            .label_cols = label_cols,
+            /* The question recedes and the answer keeps the row - see the INFO row below,
+               which is the same statement about the same kind of row. */
+            .label_quiet = true,
+            .value = item->value,
+            .tone = INKCELL_TONE_NORMAL,
+            .meter = &meter,
+            .trailing = {.kind = INKCELL_FB_TRAILING_SPARK, .spark = &trend},
+        };
+        inkcell_fb_list_item(state, list, i, &row);
+    } else {
+        /*
+         * A stated fact, and the two halves of it are not one tier.
+         *
+         * The label is the question - "Long name", "SNR", "Hops away" - and it repeats down
+         * a column the reader is scanning for the *answers*; the value is what they opened
+         * the node to find out. Drawn in one ink they were typographically identical, which
+         * is what made a card of them read as a block of text with no way into it, and it
+         * is the complaint this screen earns before any other: a hundred and twenty rows of
+         * facts, all the same weight.
+         *
+         * So the label takes the quiet tier and the value keeps the row's own. It is stated
+         * per row rather than assumed by the component because the opposite row exists and
+         * is just as common: on a settings field the label is what the reader is choosing
+         * and the value is merely where it stands, so there the label leads. Which of the
+         * two a row is, is the row's to say.
+         */
+        const struct inkcell_fb_list_item row = {
+            .label = item->label,
+            .label_cols = label_cols,
+            .label_quiet = true,
+            .value = item->value,
+            /*
+             * The row's own ink rather than a flat normal, which every row here still gets:
+             * INKCELL_TONE_NORMAL is 0, so a builder that says nothing says exactly what
+             * this used to hard-code. What it buys is the one fact on this screen that is a
+             * *judgement* rather than a reading - a key somebody proved is theirs, which is
+             * worth a colour for the reason no temperature is.
+             */
+            .tone = (enum inkcell_tone)item->tone,
+            /*
+             * And, on the handful of rows whose answer is one of a set rather than a figure,
+             * the shape that says so. Which rows those are is node_detail.c's to decide -
+             * a renderer testing the value text would be a second table - and which colour
+             * follows from the tone above, so the two cannot be paired wrongly from here.
+             */
+            .value_chip = item->chip,
+        };
+        inkcell_fb_list_item(state, list, i, &row);
     }
 }
 
