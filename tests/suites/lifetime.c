@@ -395,8 +395,9 @@ MESH_TEST_CASE(lifetime_a_holder_of_an_older_record_is_dropped, unit) {
     FILE *file = fopen(path, "w");
     MESH_TEST_FAIL_IF(file == NULL, "could not write the totals");
     /* The holder line first, so it is read before the value it is checked against. */
-    fputs("farthest_direct_m.holder=00002222,900,1750000000\n"
-          "most_hops.holder=00003333,4,1750000000\n"
+    fputs("farthest_direct_m.holder=00002222\nfarthest_direct_m.held_value=900\n"
+          "farthest_direct_m.held_at=1750000000\n"
+          "most_hops.holder=00003333\nmost_hops.held_value=4\nmost_hops.held_at=1750000000\n"
           "most_hops=6\nmost_hops.measured=1\n"
           "farthest_direct_m=900\nfarthest_direct_m.measured=1\n",
           file);
@@ -414,6 +415,57 @@ MESH_TEST_CASE(lifetime_a_holder_of_an_older_record_is_dropped, unit) {
         !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M, &node, &at) ||
             node != LT_PEER || at != 1750000000U,
         "a holder of the record it names is believed");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/*
+ * Every holder line fits what an older build keeps of a key it does not know.
+ *
+ * Such a build carries a foreign key through a rewrite only while it and its value are shorter
+ * than MESH_LIFETIME_FOREIGN_KEY and _VALUE, and drops it silently otherwise - so a card moved
+ * back to it and forward again would lose the holder of a record that never changed. Measured
+ * on the widest a line gets: a distance record past the longest a packet could travel, set with a
+ * clock.
+ */
+MESH_TEST_CASE(lifetime_holder_lines_survive_an_older_build, unit) {
+    char dir[64];
+    inkwell_time_wall_set_fixed(4000000000U);
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    /* Us at the south pole, the peer at the north: about 20,000 km, eight digits of metres. */
+    lt_session(-900000000, 0);
+    struct mesh_node_summary peer = lt_summary(0xFFFFFFFEU);
+    peer.position.valid = true;
+    peer.position.latitude_i = 900000000;
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, true, 0U);
+    inkwell_time_wall_set_fixed(0U);
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M, NULL, NULL),
+        "the record has a holder to write");
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+
+    char path[128];
+    snprintf(path, sizeof path, "%s/totals.stats", dir);
+    FILE *file = fopen(path, "r");
+    MESH_TEST_FAIL_IF(file == NULL, "the totals are gone");
+    char line[128];
+    unsigned holder_lines = 0U;
+    bool fits = true;
+    while (fgets(line, sizeof line, file) != NULL) {
+        char *equals = strchr(line, '=');
+        if (equals == NULL || (strstr(line, ".held") == NULL && strstr(line, ".holder") == NULL)) {
+            continue;
+        }
+        holder_lines++;
+        const size_t key_len = (size_t)(equals - line);
+        const size_t value_len = strcspn(equals + 1, "\n");
+        fits =
+            fits && key_len < MESH_LIFETIME_FOREIGN_KEY && value_len < MESH_LIFETIME_FOREIGN_VALUE;
+    }
+    fclose(file);
+    /* Heard straight to us, so the one hearing set both records: three lines each. */
+    MESH_TEST_FAIL_IF(holder_lines != 6U, "a record's holder is three lines");
+    MESH_TEST_FAIL_IF(!fits, "every holder line should fit an older build's foreign key");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }

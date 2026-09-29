@@ -33,15 +33,25 @@
  */
 #define LIFETIME_MEASURED_SUFFIX ".measured"
 /*
- * And "<key>.holder=<node hex>,<value>,<second>": who set the record, and when.
+ * And who set the record, and when, as three lines:
  *
- * The line carries the value it was the holder *of*, and is believed only while that is still
- * the record. The totals are rewritten whole by whichever build has the card, and one that
- * does not know this key carries it through untouched - so a record such a build raised
- * would otherwise be credited to the node that held the old one. A holder that no longer
- * matches is dropped rather than guessed at.
+ *   <key>.holder=<node hex>       the node
+ *   <key>.held_value=<value>      the record it was the holder *of*
+ *   <key>.held_at=<second>        the credible second it was set, or 0
+ *
+ * Three short lines rather than one, because a build that does not know them keeps each only as
+ * a foreign value under MESH_LIFETIME_FOREIGN_VALUE characters - a card moved back to such a
+ * build and forward again must still name the holder, and one line joining all three is
+ * already past that on an ordinary distance record.
+ *
+ * The holder is believed only while `held_value` is still the record. Such a build carries the
+ * three lines through untouched while raising the record itself, so without it the new record
+ * would be credited to the node that held the old one. A holder that no longer matches is
+ * dropped rather than guessed at.
  */
 #define LIFETIME_HOLDER_SUFFIX ".holder"
+#define LIFETIME_HELD_VALUE_SUFFIX ".held_value"
+#define LIFETIME_HELD_AT_SUFFIX ".held_at"
 #define LIFETIME_LINE_MAX 128U
 
 /* What the set knows about a node. Each is one line in the seen file, keyed by its name. */
@@ -294,43 +304,67 @@ static void lifetime_read_legacy(struct mesh_lifetime *lifetime) {
     }
 }
 
-/* A holder line read off the card, held until every line is in: the value it names may come
-   after it, and is what decides whether it is believed. */
+/* The holder lines read off the card, held until every line is in: the value they name may come
+   after them, and is what decides whether they are believed. */
+enum {
+    HOLDER_READ_NODE = 1U << 0,
+    HOLDER_READ_VALUE = 1U << 1,
+    HOLDER_READ_AT = 1U << 2,
+    HOLDER_READ_ALL = HOLDER_READ_NODE | HOLDER_READ_VALUE | HOLDER_READ_AT,
+};
+
 struct lifetime_totals_read {
     struct mesh_lifetime *lifetime;
     uint64_t holder_values[MESH_LIFETIME_STAT_COUNT];
-    bool holder_read[MESH_LIFETIME_STAT_COUNT];
+    uint8_t holder_read[MESH_LIFETIME_STAT_COUNT];
 };
 
-/* "<node hex>,<value>,<second>" into its three parts. False on anything else. */
-static bool lifetime_parse_holder(const char *text, uint32_t *out_node, uint64_t *out_value,
-                                  uint32_t *out_at) {
+/* A whole unsigned decimal or hex number, and no more than `max`. False on anything else. */
+static bool lifetime_parse_number(const char *text, int base, uint64_t max, uint64_t *out) {
     char *end = NULL;
-    const unsigned long node = strtoul(text, &end, 16);
-    if (end == text || *end != ',' || node == 0UL || node > UINT32_MAX) {
+    const unsigned long long parsed = strtoull(text, &end, base);
+    if (end == text || *end != '\0' || text[0] == '-' || parsed > max) {
         return false;
     }
-    const char *next = end + 1;
-    const unsigned long long value = strtoull(next, &end, 10);
-    if (end == next || *end != ',') {
-        return false;
-    }
-    next = end + 1;
-    const unsigned long long at = strtoull(next, &end, 10);
-    if (end == next || *end != '\0' || at > UINT32_MAX) {
-        return false;
-    }
-    *out_node = (uint32_t)node;
-    *out_value = value;
-    *out_at = (uint32_t)at;
+    *out = parsed;
     return true;
+}
+
+/* One of a record's three holder lines, or false when `key` is none of them. */
+static bool lifetime_read_holder(struct lifetime_totals_read *read, const char *key,
+                                 const char *value) {
+    struct mesh_lifetime *lifetime = read->lifetime;
+    size_t record = 0U;
+    uint64_t parsed = 0U;
+    if (lifetime_record_key(key, LIFETIME_HOLDER_SUFFIX, &record)) {
+        if (lifetime_parse_number(value, 16, UINT32_MAX, &parsed) && parsed != 0U) {
+            lifetime->holders[record] = (uint32_t)parsed;
+            read->holder_read[record] |= HOLDER_READ_NODE;
+        }
+        return true;
+    }
+    if (lifetime_record_key(key, LIFETIME_HELD_VALUE_SUFFIX, &record)) {
+        if (lifetime_parse_number(value, 10, UINT64_MAX, &parsed)) {
+            read->holder_values[record] = parsed;
+            read->holder_read[record] |= HOLDER_READ_VALUE;
+        }
+        return true;
+    }
+    if (lifetime_record_key(key, LIFETIME_HELD_AT_SUFFIX, &record)) {
+        if (lifetime_parse_number(value, 10, UINT32_MAX, &parsed)) {
+            lifetime->held_at[record] = (uint32_t)parsed;
+            read->holder_read[record] |= HOLDER_READ_AT;
+        }
+        return true;
+    }
+    return false;
 }
 
 /* Keeps a holder only where it names the record the card now holds. */
 static void lifetime_settle_holders(struct lifetime_totals_read *read) {
     struct mesh_lifetime *lifetime = read->lifetime;
     for (size_t i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
-        if (!read->holder_read[i] || !lifetime->measured[i] ||
+        if (read->holder_read[i] != HOLDER_READ_ALL || !lifetime->measured[i] ||
             read->holder_values[i] != lifetime->values[i]) {
             lifetime->holders[i] = 0U;
             lifetime->held_at[i] = 0U;
@@ -358,10 +392,7 @@ static void lifetime_read_totals(void *context, const char *key, char *value) {
         lifetime->measured[record] = strcmp(value, "1") == 0;
         return;
     }
-    if (lifetime_record_key(key, LIFETIME_HOLDER_SUFFIX, &record)) {
-        read->holder_read[record] =
-            lifetime_parse_holder(value, &lifetime->holders[record], &read->holder_values[record],
-                                  &lifetime->held_at[record]);
+    if (lifetime_read_holder(read, key, value)) {
         return;
     }
     for (size_t i = 0; i < MESH_LIFETIME_STAT_COUNT; ++i) {
@@ -398,8 +429,11 @@ static void lifetime_write_totals(FILE *file, void *context) {
         }
         if (k_stat_kinds[i] == MESH_LIFETIME_MAX && lifetime->measured[i] &&
             lifetime->holders[i] != 0U) {
-            fprintf(file, "%s%s=%08" PRIx32 ",%" PRIu64 ",%" PRIu32 "\n", k_stat_keys[i],
-                    LIFETIME_HOLDER_SUFFIX, lifetime->holders[i], lifetime->values[i],
+            fprintf(file, "%s%s=%08" PRIx32 "\n", k_stat_keys[i], LIFETIME_HOLDER_SUFFIX,
+                    lifetime->holders[i]);
+            fprintf(file, "%s%s=%" PRIu64 "\n", k_stat_keys[i], LIFETIME_HELD_VALUE_SUFFIX,
+                    lifetime->values[i]);
+            fprintf(file, "%s%s=%" PRIu32 "\n", k_stat_keys[i], LIFETIME_HELD_AT_SUFFIX,
                     lifetime->held_at[i]);
         }
     }
