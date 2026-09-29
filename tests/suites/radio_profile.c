@@ -22,6 +22,7 @@
 #include "mesh/proto/channel_url.h"
 #include "meshtastic/clientonly.pb.h"
 
+#include <pb_decode.h>
 #include <pb_encode.h>
 
 #include <errno.h>
@@ -351,16 +352,29 @@ MESH_TEST_CASE(radio_profile_cfg_round_trips_through_device_profile, unit) {
                       "the import is not a profile named for its file");
 
     /* The same radio, part for part: compared with the profile it came from, the import is
-       the same in every part a DeviceProfile has room for. Radio UI has none. */
+       the same in every part a DeviceProfile has room for. Radio UI has none, and Position is
+       left out: its cleared fixed_position would read as false to the apps, and unpin a radio. */
     struct mesh_radio_backup_parts cfg_parts = g_profile.header.parts;
     mesh_radio_profile_parts_set(&cfg_parts, MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 0U, false);
+    mesh_radio_profile_parts_set(&cfg_parts, MESH_RADIO_BACKUP_TOPIC_POSITION, 0U, false);
+    MESH_TEST_FAIL_IF(!mesh_radio_profile_parts_has(&g_profile.header.parts,
+                                                    MESH_RADIO_BACKUP_TOPIC_POSITION, 0U),
+                      "fixture: the profile has no Position part to leave out");
+    meshtastic_DeviceProfile *raw = calloc(1U, sizeof *raw);
+    pb_istream_t stream = pb_istream_from_buffer(g_cfg, (size_t)len);
+    const bool raw_read = raw != NULL && pb_decode(&stream, meshtastic_DeviceProfile_fields, raw);
+    const bool raw_position = raw_read && raw->config.has_position;
+    free(raw);
+    MESH_TEST_FAIL_IF(!raw_read, "the file is not a DeviceProfile");
+    MESH_TEST_FAIL_IF(raw_position, "the .cfg carries a Position section");
     MESH_TEST_FAIL_IF(g_read.header.parts.topics != cfg_parts.topics ||
                           g_read.header.parts.modules != cfg_parts.modules,
                       "the import does not carry the parts the profile did");
     MESH_TEST_FAIL_IF(mesh_radio_backup_meshtastic_diff(&g_profile, &g_read, &g_diff) != 0,
                       "the two did not compare");
     for (size_t i = 0; i < g_diff.count; ++i) {
-        MESH_TEST_FAIL_IF(g_diff.changes[i].topic != MESH_RADIO_BACKUP_TOPIC_RADIO_UI,
+        MESH_TEST_FAIL_IF(g_diff.changes[i].topic != MESH_RADIO_BACKUP_TOPIC_RADIO_UI &&
+                              g_diff.changes[i].topic != MESH_RADIO_BACKUP_TOPIC_POSITION,
                           "a part changed on its way through a .cfg");
     }
     MESH_TEST_FAIL_IF(g_read.header.channel_count != 2U ||

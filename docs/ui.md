@@ -336,7 +336,9 @@ A `.cfg` is Meshtastic's `DeviceProfile` (`src/core/backup/radio_profile_cfg.c`)
 official apps export. A press on one reads it in as a profile and writes no radio; **Save as a
 .cfg file** writes one out. The channels travel as a link, which is compact: a secondary after an
 empty slot comes back one slot up, as it does through the apps. An empty slot is carried with
-empty settings, which is how the firmware reports one.
+empty settings, which is how the firmware reports one. The Position section is not exported:
+its cleared `fixed_position` cannot say "the radio's own" in a `DeviceProfile`, and the apps
+would write it as false and unpin the radio. An imported file's Position section is read in.
 
 ## Input
 

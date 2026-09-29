@@ -146,6 +146,10 @@ int mesh_radio_profile_cfg_encode(const struct mesh_radio_backup *profile, uint8
             meshtastic_Config config = meshtastic_Config_init_zero;
             if (!cfg_decode_section(data, section->len, meshtastic_Config_fields, &config)) {
                 result = -EBADMSG;
+            } else if (config.which_payload_variant == meshtastic_Config_position_tag) {
+                /* Not carried: a profile's `fixed_position` is cleared, meaning "the radio's own",
+                   and a DeviceProfile cannot say that. The official apps write the section
+                   whole, and a false flag would unpin the radio they put it on. */
             } else if (cfg_to_local(meshtastic_Config_fields, &config,
                                     meshtastic_LocalConfig_fields, &device->config)) {
                 device->has_config = true;

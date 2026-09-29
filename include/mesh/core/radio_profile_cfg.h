@@ -9,6 +9,11 @@
  * names and a fixed position, which a profile never carries and so an export never writes and an
  * import leaves behind. So does the Security section, which is the radio's keys.
  *
+ * **An export leaves the Position section out too.** A profile carries it with `fixed_position`
+ * cleared, which this client's apply reads as "keep the radio's own"; in a DeviceProfile it is
+ * simply false, and the official apps write the section whole, so it would unpin a radio. An
+ * import still reads one in, with the flag cleared as in any profile.
+ *
  * **Import makes a profile; it never writes to a radio.** A file off somebody else's phone is
  * read into a profile on the card, where it can be looked at and compared before it is applied
  * like any other.
