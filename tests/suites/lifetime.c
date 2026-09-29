@@ -158,12 +158,13 @@ static bool lt_deliveries(uint64_t delivered, uint64_t failed) {
 }
 
 /*
- * Each direct message is in the count its bubble says: delivered, not delivered, or neither.
+ * Each direct message that asked to be confirmed is in the count its bubble says.
  *
- * The session announces a change, not a state, so a message is moved between the counts rather
- * than added to one - and a message whose answer changes, however often, is still one message.
- * A broadcast is in neither: nothing confirms it, and MeshCore's pending on one is its place in
- * the radio's queue, so counting it would count it only when it failed.
+ * Counted when it leaves pending, then moved between the counts rather than added again - a
+ * message whose answer changes, however often, is still one message. Nothing that never asked
+ * is counted: a reaction, or a broadcast (MeshCore's pending on one is its place in the radio's
+ * queue). And only a message this run counted is moved, since only for those is it known which
+ * count holds it.
  */
 MESH_TEST_CASE(lifetime_counts_each_delivery_once, unit) {
     char dir[64];
@@ -179,6 +180,9 @@ MESH_TEST_CASE(lifetime_counts_each_delivery_once, unit) {
     lt_settle_to(5U, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_ACK_PENDING,
                  MESH_MESSAGE_ACK_FAILED);
     lt_settle_to(6U, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_NONE);
+    /* A reaction asks for nothing, so failing to send one is not a message undelivered. */
+    lt_settle(7U, MESH_MESSAGE_ACK_NONE, MESH_MESSAGE_ACK_FAILED);
+    lt_settle(7U, MESH_MESSAGE_ACK_FAILED, MESH_MESSAGE_ACK_DELIVERED);
     MESH_TEST_FAIL_IF(!lt_deliveries(1U, 2U), "a message nothing answers is in neither count");
 
     /* Delivered, refused after, then answered again: one message, delivered. */
@@ -193,10 +197,15 @@ MESH_TEST_CASE(lifetime_counts_each_delivery_once, unit) {
     MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
     MESH_TEST_FAIL_IF(!lt_deliveries(2U, 1U), "and both survive a restart");
 
-    /* A message counted before a reset that changes after it has no count to leave. */
+    /* A message counted before a reset or a restart stays where it was left: which count holds
+       it is not known, and moving it would take one that is some other message's. */
+    lt_settle(3U, MESH_MESSAGE_ACK_FAILED, MESH_MESSAGE_ACK_DELIVERED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(2U, 1U), "a message the last run counted is not moved");
     MESH_TEST_FAIL_IF(mesh_lifetime_reset(&g_lifetime) != 0, "the reset failed");
-    lt_settle(1U, MESH_MESSAGE_ACK_DELIVERED, MESH_MESSAGE_ACK_FAILED);
-    MESH_TEST_FAIL_IF(!lt_deliveries(0U, 1U), "a count never wraps below zero");
+    lt_settle(8U, MESH_MESSAGE_ACK_PENDING, MESH_MESSAGE_ACK_DELIVERED);
+    lt_settle(2U, MESH_MESSAGE_ACK_DELIVERED, MESH_MESSAGE_ACK_FAILED);
+    lt_settle(3U, MESH_MESSAGE_ACK_FAILED, MESH_MESSAGE_ACK_DELIVERED);
+    MESH_TEST_FAIL_IF(!lt_deliveries(1U, 0U), "nor is one counted before a reset");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }

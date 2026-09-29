@@ -518,47 +518,69 @@ static void lifetime_observe_message(struct mesh_lifetime *lifetime,
     }
 }
 
+#define LIFETIME_SETTLED_NEITHER 0xFFU
+
 /* The count a delivery state is in: delivered, failed, or neither (waiting, or never asked). */
-static int lifetime_delivery_count(uint8_t ack) {
+static uint8_t lifetime_delivery_count(uint8_t ack) {
     if (ack == MESH_MESSAGE_ACK_DELIVERED) {
-        return MESH_LIFETIME_MESSAGES_DELIVERED;
+        return (uint8_t)MESH_LIFETIME_MESSAGES_DELIVERED;
     }
     if (ack == MESH_MESSAGE_ACK_FAILED) {
-        return MESH_LIFETIME_MESSAGES_FAILED;
+        return (uint8_t)MESH_LIFETIME_MESSAGES_FAILED;
     }
-    return -1;
+    return LIFETIME_SETTLED_NEITHER;
+}
+
+/* Where this run counted `packet_id`, or NULL for a message it never counted. */
+static uint8_t *lifetime_settled(struct mesh_lifetime *lifetime, uint32_t packet_id) {
+    for (size_t i = 0; i < MESH_MESSAGE_LOG_CAPACITY; ++i) {
+        if (lifetime->settled_ids[i] == packet_id) {
+            return &lifetime->settled_in[i];
+        }
+    }
+    return NULL;
 }
 
 /*
- * One of our direct messages changed delivery state: it leaves the count its old state was in
- * and joins the one its new state is in.
+ * One of our direct messages changed delivery state.
  *
- * Moved rather than added, because a message can change its answer. MeshCore gives a command up
- * at its deadline and still takes a late reply as a delivery, and a Meshtastic message a relay
- * acknowledged can be refused by the recipient after - each is one message, in whichever count
- * its bubble now says. The session announces every change once with the state it left, so the
- * two counts are how many direct messages sit in each state, for every message seen since the
- * stats began. One that changes after a reset left a count that no longer holds it, and the
- * floor at zero is what keeps that from wrapping.
+ * Counted when it leaves pending: it asked to be confirmed and now has an answer. A reaction is
+ * sent asking for nothing, and a broadcast is confirmed by nobody - this client sends one without
+ * want_ack, and MeshCore's pending on a channel message is its place in the radio's queue - so
+ * either would reach a count only by failing, and neither is counted.
  *
- * Only a direct message: nothing ever confirms a broadcast. This client sends one without
- * want_ack, and MeshCore's pending on a channel message is its place in the radio's queue - a
- * broadcast counted here would be one only when it failed.
+ * After that the message moves between the counts as its answer changes: MeshCore takes a late
+ * reply to a command it gave up on as a delivery, and a relay's acknowledgement can be followed
+ * by the recipient's refusal. Each is one message, in whichever count its bubble now shows. Only
+ * a message this run counted is moved, because only for those is it known which count holds it:
+ * one counted before a restart or a reset would otherwise take a count that is another's.
  */
 static void lifetime_observe_delivery(struct mesh_lifetime *lifetime,
                                       const struct mesh_message *message, uint8_t previous) {
-    if (message->to == MESH_MESSAGE_BROADCAST_ADDR) {
+    if (message->to == MESH_MESSAGE_BROADCAST_ADDR || message->packet_id == 0U) {
         return;
     }
-    const int left = lifetime_delivery_count(previous);
-    const int joined = lifetime_delivery_count(message->ack);
-    if (left == joined) {
+    const uint8_t joined = lifetime_delivery_count(message->ack);
+    uint8_t *held = lifetime_settled(lifetime, message->packet_id);
+    if (held == NULL) {
+        if (previous != MESH_MESSAGE_ACK_PENDING || joined == LIFETIME_SETTLED_NEITHER) {
+            return;
+        }
+        const uint32_t at = lifetime->settled_next;
+        lifetime->settled_next = (at + 1U) % MESH_MESSAGE_LOG_CAPACITY;
+        lifetime->settled_ids[at] = message->packet_id;
+        lifetime->settled_in[at] = joined;
+        lifetime_bump(lifetime, (enum mesh_lifetime_stat)joined);
         return;
     }
-    if (left >= 0 && lifetime->values[left] > 0U) {
-        lifetime->values[left]--;
+    if (*held == joined) {
+        return;
     }
-    if (joined >= 0) {
+    if (*held != LIFETIME_SETTLED_NEITHER && lifetime->values[*held] > 0U) {
+        lifetime->values[*held]--;
+    }
+    *held = joined;
+    if (joined != LIFETIME_SETTLED_NEITHER) {
         lifetime_bump(lifetime, (enum mesh_lifetime_stat)joined);
     } else {
         lifetime->dirty = true;

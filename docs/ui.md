@@ -235,10 +235,11 @@ They are read on the **Stats** page, the `stats` verb on the Status tab's Mesh c
 since every value on it is this client's. The app copies the values out by name into
 `struct mesh_ui_lifetime_stats` on the About facts, so a stat added to `lifetime.def` reaches the
 page only once it has a field there and a row in `build_stats()`. A record nothing has set yet reads
-"none yet" rather than 0. The Delivery group counts direct messages by where their bubble is
-now - delivered or not delivered, a message moving between the two when its answer changes - and
-the first as a share of both, rounded down so one failure never reads as 100%. A broadcast is in
-neither, since nothing confirms one. It is fed by the session's `MESH_SESSION_EVENT_DELIVERY`, which every path that settles a
+"none yet" rather than 0. The Delivery group counts the direct messages that asked to be
+confirmed by where their bubble is now - delivered or not delivered, a message this run counted
+moving between the two when its answer changes - and the first as a share of both, rounded down so
+one failure never reads as 100%. A broadcast or a reaction is in neither, since nothing confirms
+one. It is fed by the session's `MESH_SESSION_EVENT_DELIVERY`, which every path that settles a
 message goes through - a Routing reply, a queue refusal, a failed send and MeshCore's
 confirmations, via `mesh_session_model_mark_ack()`. A record that has been set has a "Set by" row under it naming the node
 and the day: the core keeps the node number (`mesh_lifetime_holder()`, `<key>.holder`, `.held_value` and `.held_at` lines in
