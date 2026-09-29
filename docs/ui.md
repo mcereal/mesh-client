@@ -272,8 +272,8 @@ names them with the Settings tab's own labels, or by the field's number when the
 it. A MeshCore comparison matches contacts by key and leaves out routes and timestamps, which move
 every time the radio hears a contact again.
 
-**Restoring** is offered over a comparison that found something other than contacts, for the
-radio on the link. A Meshtastic radio's is one transaction and a MeshCore radio's is ordinary
+**Restoring** is offered over a comparison that found something a restore would write - anything
+but a contact only the radio has - for the radio on the link. A Meshtastic radio's is one transaction and a MeshCore radio's is ordinary
 saves; either way the radio as it stands is saved to the card first, and the backup is compared
 with the radio once more at the end - no difference is a restore that took, and anything left is
 listed on the same screen.
@@ -294,9 +294,20 @@ written whole with the backup's values, and one save per channel slot that diffe
 carries one slot. The conversation holds one save outstanding and sixteen commands queued, so the
 saves go out one at a time as each is answered, and each reads its part back; nothing restarts. A
 value outside the firmware's bounds (`mesh_meshcore_radio_params_valid()`, the power ceiling the
-radio reports), the advert type, and a slot the radio does not have are counted rather than sent,
-and so are contacts, which a restore does not write: the comparison at the end still lists them,
-and the toast says the settings were restored and the contacts left as they are.
+radio reports), the advert type, and a slot the radio does not have are counted rather than sent.
+
+A MeshCore restore's contacts follow its saves. `mesh_meshcore_backup_plan_contacts()` picks the
+ones the backup has and the radio lacks, and the ones whose name, type or flags differ, favourites
+first and then the most recently changed; a contact only on the radio is left there. Two choices,
+stepped in place under Restore and repeated on its sheet, say how they go back: routes cleared so
+the radio learns them again (the default - a stale route costs a message, no route costs one
+flood), or the backup's; and a contact the radio changed after the backup (its `lastmod` is newer)
+kept, the default, or replaced. Adds are cut to the room DEVICE_INFO's `max_contacts` leaves.
+`mesh_meshcore_restore_contact()` sends one ADD_UPDATE_CONTACT and refuses a second until the
+radio answers, so hundreds of contacts never fill the command queue that messages share. The
+screen counts them through ("12 of 40 contacts") and offers Stop, which ends the restore after the
+contact in flight. The toast is judged on what the restore saw: contacts refused or left out for
+want of room are counted, and a contact only on the radio, still listed afterwards, is not.
 
 ## Input
 
@@ -1308,6 +1319,7 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `update check\|download [PCT]\|available\|ready` | the self-updater's state |
 | `firmware ... `, `firmware-channel stable\|alpha` | what the client knows about the *radio's* firmware |
 | `backups list\|compare\|restoring\|same\|left` | the backups on the card as the app publishes them; a finished comparison of the newest, or a restore of it in flight; after `protocol meshcore`, a MeshCore radio's, and `left` what a restore leaves (a contact) |
+| `backups contacts\|stopping N M`, `backups option routes\|replace` | after `protocol meshcore`: a restore's contacts going back, N of M answered (with Stop pressed, for `stopping`), and one of its two contact choices stepped |
 | `syncing on\|off` | put the config handshake back in flight |
 | `link up\|down` | attach or drop the radio, leaving the roster and config alone |
 | `offradio NAME\|all` | mark nodes the radio's NodeDB no longer carries |

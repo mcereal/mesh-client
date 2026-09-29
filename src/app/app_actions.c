@@ -1990,6 +1990,15 @@ static void on_backup_restore(struct mesh_app *app, const struct mesh_ui_action 
     mesh_app_backup_restore(app, action->dest, action->number);
 }
 
+static void on_backup_restore_option(struct mesh_app *app, const struct mesh_ui_action *action) {
+    mesh_app_backup_restore_option(app, action->number);
+}
+
+static void on_backup_restore_stop(struct mesh_app *app, const struct mesh_ui_action *action) {
+    (void)action;
+    mesh_app_backup_restore_stop(app);
+}
+
 static void on_cycle_firmware_channel(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
@@ -2715,6 +2724,8 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_BACKUP_COMPARE, on_backup_compare, false},
     {MESH_UI_ACTION_BACKUP_DELETE, on_backup_delete, false},
     {MESH_UI_ACTION_BACKUP_RESTORE, on_backup_restore, false},
+    {MESH_UI_ACTION_BACKUP_RESTORE_OPTION, on_backup_restore_option, false},
+    {MESH_UI_ACTION_BACKUP_RESTORE_STOP, on_backup_restore_stop, false},
 };
 
 /*

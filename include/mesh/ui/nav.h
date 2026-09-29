@@ -1154,6 +1154,11 @@ enum mesh_ui_action_type {
     /* Write backup `number` of radio `dest` back to that radio, which must be the one on the
        link. The sheet in front of it has been answered. */
     MESH_UI_ACTION_BACKUP_RESTORE,
+    /* A MeshCore restore's contact choices: `number` is the settings row pressed
+       (MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES or _REPLACE), whose choice steps to the other. */
+    MESH_UI_ACTION_BACKUP_RESTORE_OPTION,
+    /* Stop the restore in flight after the contact being written; what was written stays. */
+    MESH_UI_ACTION_BACKUP_RESTORE_STOP,
     /* Not a verb: how many there are. It is what pins the dispatch table in
        src/app/app_actions.c to this list - a verb added above and not given a row there is a
        press that reaches the app and does nothing, with nothing to see at the seam. */

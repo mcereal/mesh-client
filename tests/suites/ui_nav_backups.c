@@ -418,14 +418,63 @@ MESH_TEST_CASE(ui_nav_backups_restore_is_offered_over_the_comparison_and_asks_fi
         goto cleanup;
     }
 
-    /* A comparison that lists only a contact has nothing a restore would write. */
+    /* No choice about contacts over a comparison with none to write. */
+    if (find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES, NULL) != UINT32_MAX) {
+        failure = "contact choices were offered over settings alone";
+        goto cleanup;
+    }
+
+    /* A comparison that lists only a contact the radio has has nothing a restore would write:
+       a restore puts back, it does not take away. */
     mesh_radio_backup_diff_reset(&b->diff, MESH_RADIO_BACKUP_MESHCORE);
     change = mesh_radio_backup_diff_add(&b->diff, MESH_RADIO_BACKUP_ADDED,
                                         MESH_RADIO_BACKUP_TOPIC_CONTACT, 0U, 1U);
     mesh_radio_backup_value_text(&change->after, "Bob", 3U);
     mesh_ui_store_set_settings(store, settings);
     if (find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE, NULL) != UINT32_MAX) {
-        failure = "a restore was offered over contacts alone";
+        failure = "a restore was offered over contacts only the radio has";
+        goto cleanup;
+    }
+
+    /* One only in the backup is put back, and how is a choice stepped in place under Restore. */
+    change = mesh_radio_backup_diff_add(&b->diff, MESH_RADIO_BACKUP_REMOVED,
+                                        MESH_RADIO_BACKUP_TOPIC_CONTACT, 0U, 1U);
+    mesh_radio_backup_value_text(&change->before, "Carol", 5U);
+    mesh_ui_store_set_settings(store, settings);
+    const uint32_t routes = find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES, NULL);
+    if (find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE, NULL) == UINT32_MAX ||
+        routes == UINT32_MAX ||
+        find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE, NULL) == UINT32_MAX) {
+        failure = "a contact only in the backup did not offer the restore and its choices";
+        goto cleanup;
+    }
+    mesh_test_settings_cursor_to(store, routes);
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    if (store->nav.confirm.open || action.type != MESH_UI_ACTION_BACKUP_RESTORE_OPTION ||
+        action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES) {
+        failure = "the routes choice did not step at once";
+        goto cleanup;
+    }
+
+    /* While its contacts go out, the screen counts them and offers to stop. */
+    b->compare_state = MESH_UI_BACKUP_COMPARE_RESTORING;
+    b->restore_contacts_total = 40U;
+    b->restore_contacts_done = 12U;
+    mesh_ui_store_set_settings(store, settings);
+    const uint32_t stop = find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_STOP, NULL);
+    if (stop == UINT32_MAX || !mesh_test_settings_cursor_to(store, stop)) {
+        failure = "a restore writing contacts could not be stopped";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_BACKUP_RESTORE_STOP) {
+        failure = "stop did not reach the app";
+        goto cleanup;
+    }
+    b->restore_stopping = true;
+    mesh_ui_store_set_settings(store, settings);
+    if (find_row(store, MESH_UI_SETTINGS_ACTION_BACKUPS_STOP, NULL) != UINT32_MAX) {
+        failure = "stop was offered again once pressed";
         goto cleanup;
     }
 

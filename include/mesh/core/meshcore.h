@@ -455,6 +455,9 @@ struct mesh_meshcore_request {
     /* An ADD_UPDATE_CONTACT for a node the roster had never heard - one from a link, not on
        the roster when it was asked - so its OK does not make it heard. */
     bool never_heard;
+    /* An ADD_UPDATE_CONTACT written back from a backup: its answer, whatever it is, settles
+       `contact_restore_outstanding`. */
+    bool restore;
 };
 
 enum mesh_meshcore_favorite_intent {
@@ -603,6 +606,12 @@ struct mesh_meshcore {
        one is answered. */
     uint8_t writes_outstanding;
     int32_t write_error;
+    /* A contact written back from a backup (mesh_meshcore_restore_contact()) and not yet
+       answered, and how many such writes the radio has refused, left unanswered or lost with
+       the link since this conversation was set up. A count rather than a flag, so a restore
+       reads what its own writes did as the difference from where it started. */
+    bool contact_restore_outstanding;
+    uint32_t contact_restores_refused;
     /* The link's answer to the last frame it refused outright, for a caller that must say so. */
     int send_error;
 };
@@ -772,6 +781,25 @@ int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
  */
 int mesh_meshcore_import_card(struct mesh_meshcore *meshcore, const uint8_t *packet, size_t len,
                               const uint8_t key[MESH_MESHCORE_PUBKEY_LEN]);
+/*
+ * Writes a contact back from a backup: ADD_UPDATE_CONTACT with the record as given - its key,
+ * type, flags, route, name, advert stamp and position - over whatever the radio holds under that
+ * key, or as a new contact. It joins the book and the roster when the radio says OK, as any add
+ * does, and not as heard: it came off a card, not the air.
+ *
+ * **One at a time.** A restore can be hundreds of contacts and the command queue is sixteen,
+ * shared with messages and every verb a screen has; filling it would refuse the user's own
+ * presses for as long as the restore took. So a second is refused until the radio has answered
+ * the first, and the caller sends the next once `contact_restore_outstanding` is false again. A
+ * refusal, a command that went unanswered, or one the link took with it adds one to
+ * `contact_restores_refused`.
+ *
+ * 1 when asked; -EINVAL for a missing contact or this radio's own key, -ENOTCONN until the
+ * handshake has named the radio, -EBUSY while the last one is unanswered, -ENOBUFS when the
+ * queue is full.
+ */
+int mesh_meshcore_restore_contact(struct mesh_meshcore *meshcore,
+                                  const struct mesh_meshcore_contact *contact);
 /*
  * Queues the save's commands and then APP_START, whose SELF_INFO is the read-back. Returns how
  * many commands were queued (> 0), -EINVAL for a save that writes nothing or carries a value

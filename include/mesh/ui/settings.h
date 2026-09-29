@@ -782,6 +782,13 @@ enum mesh_ui_settings_action {
     /* The comparison's settings, written back to the radio behind a sheet: the answer is
        MESH_UI_ACTION_BACKUP_RESTORE for the backup the comparison is of. */
     MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE,
+    /* How a MeshCore restore writes contacts back, stepped in place over the comparison - the
+       routes kept or learned again, a contact the radio changed since kept or replaced - and
+       the restore's contacts stopped after the one being written. Each is the app's answer to
+       MESH_UI_ACTION_BACKUP_RESTORE_OPTION or _STOP; the rows read what it published. */
+    MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES,
+    MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE,
+    MESH_UI_SETTINGS_ACTION_BACKUPS_STOP,
     /* Not an action: what the two verb tables below are sized by, so a row added above without
        a symbol or a weight is a hole in an array rather than a row that quietly draws nothing.
        Last, so no existing value moves - nav->confirm.subject carries one in a uint8_t. */

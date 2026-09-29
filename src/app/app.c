@@ -1693,6 +1693,7 @@ void mesh_app_shutdown(struct mesh_app *app) {
     mesh_transport_registry_set_protocol(&app->transport_registry, NULL);
     free(app->publish_cache);
     app->publish_cache = NULL;
+    mesh_app_backup_restore_release(app);
     inkcell_input_shutdown(&app->ui_input);
     inkwell_signals_shutdown(&app->signals);
     /* Before the loop goes: the updater has an fd registered with it, and a half-finished

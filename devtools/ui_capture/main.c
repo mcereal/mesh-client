@@ -2979,6 +2979,9 @@ static const struct inkstand_scene_seed uicap_seeds[] = {
  *   backups list              the card, with the demo radio on the link
  *   backups compare|same      a finished comparison of the newest backup with the radio
  *   backups restoring         that backup being written back, before the radio is read again
+ *   backups contacts N M      (MeshCore) its contacts going back: N of M answered
+ *   backups stopping N M      (MeshCore) the same, with Stop pressed
+ *   backups option routes|replace   (MeshCore) steps one of the two contact choices
  *   backups left              (MeshCore) what a restore leaves: a contact added since
  *
  * After `protocol meshcore` the radio on the link is a MeshCore one: its backups are MeshCore's,
@@ -3093,6 +3096,30 @@ static int verb_backups(struct inkstand_scene *scene, char *rest, void *userdata
         b->compare_node = node;
         b->compare_sequence = 3U;
         b->compare_state = MESH_UI_BACKUP_COMPARE_RESTORING;
+        b->restore_contacts_total = 0U;
+        b->restore_contacts_done = 0U;
+        b->restore_stopping = false;
+    } else if (meshcore && (strcmp(what, "contacts") == 0 || strcmp(what, "stopping") == 0)) {
+        const char *done = inkstand_scene_word(&rest);
+        const char *total = inkstand_scene_word(&rest);
+        if (done == NULL || total == NULL) {
+            return inkstand_scene_fail(scene, "'backups contacts' needs how many of how many");
+        }
+        b->compare_node = node;
+        b->compare_sequence = 3U;
+        b->compare_state = MESH_UI_BACKUP_COMPARE_RESTORING;
+        b->restore_contacts_done = (uint16_t)strtoul(done, NULL, 10);
+        b->restore_contacts_total = (uint16_t)strtoul(total, NULL, 10);
+        b->restore_stopping = strcmp(what, "stopping") == 0;
+    } else if (meshcore && strcmp(what, "option") == 0) {
+        const char *which = inkstand_scene_word(&rest);
+        if (which != NULL && strcmp(which, "routes") == 0) {
+            b->restore_keep_routes = !b->restore_keep_routes;
+        } else if (which != NULL && strcmp(which, "replace") == 0) {
+            b->restore_replace_newer = !b->restore_replace_newer;
+        } else {
+            return inkstand_scene_fail(scene, "'backups option' is routes or replace");
+        }
     } else if (strcmp(what, "compare") == 0 || strcmp(what, "same") == 0 ||
                (meshcore && strcmp(what, "left") == 0)) {
         b->compare_node = node;
@@ -3100,8 +3127,8 @@ static int verb_backups(struct inkstand_scene *scene, char *rest, void *userdata
         b->compare_state = MESH_UI_BACKUP_COMPARE_DONE;
         mesh_radio_backup_diff_reset(&b->diff, live);
         /* The power went up, the advert stopped carrying a position, the second slot was
-           renamed, and a contact was heard and added since - which a restore leaves be, so
-           `left` is what is still there after one. */
+           renamed, two contacts were lost and one renamed, and a contact was heard and added
+           since - which a restore leaves be, so `left` is what is still there after one. */
         if (meshcore && strcmp(what, "compare") == 0) {
             uicap_backup_change(&b->diff, MESH_RADIO_BACKUP_TOPIC_LORA, 0U,
                                 MESH_MESHCORE_BACKUP_FIELD_TX_POWER, 17, 20);
@@ -3114,6 +3141,25 @@ static int verb_backups(struct inkstand_scene *scene, char *rest, void *userdata
                 inkwell_str_copy(name->subject, sizeof name->subject, "Hike crew");
                 mesh_radio_backup_value_text(&name->before, "Hike", 4U);
                 mesh_radio_backup_value_text(&name->after, "Hike crew", 9U);
+            }
+        }
+        if (meshcore && strcmp(what, "compare") == 0) {
+            static const char *const lost[] = {"Carol", "Dave"};
+            for (size_t i = 0; i < sizeof lost / sizeof lost[0]; ++i) {
+                struct mesh_radio_backup_change *gone = mesh_radio_backup_diff_add(
+                    &b->diff, MESH_RADIO_BACKUP_REMOVED, MESH_RADIO_BACKUP_TOPIC_CONTACT, 0U, 0U);
+                if (gone != NULL) {
+                    inkwell_str_copy(gone->subject, sizeof gone->subject, lost[i]);
+                    mesh_radio_backup_value_text(&gone->before, lost[i], strlen(lost[i]));
+                }
+            }
+            struct mesh_radio_backup_change *renamed = mesh_radio_backup_diff_add(
+                &b->diff, MESH_RADIO_BACKUP_CHANGED, MESH_RADIO_BACKUP_TOPIC_CONTACT, 0U,
+                MESH_MESHCORE_BACKUP_FIELD_NAME);
+            if (renamed != NULL) {
+                inkwell_str_copy(renamed->subject, sizeof renamed->subject, "Ridge rpt");
+                mesh_radio_backup_value_text(&renamed->before, "Ridge repeater", 14U);
+                mesh_radio_backup_value_text(&renamed->after, "Ridge rpt", 9U);
             }
         }
         if (meshcore && strcmp(what, "same") != 0) {
@@ -3143,7 +3189,9 @@ static int verb_backups(struct inkstand_scene *scene, char *rest, void *userdata
             }
         }
     } else {
-        return inkstand_scene_fail(scene, "'backups' is list, compare, restoring, same or left");
+        return inkstand_scene_fail(
+            scene,
+            "'backups' is list, compare, restoring, contacts, stopping, option, same or left");
     }
     mesh_ui_store_set_settings(&cap->store, &settings);
     return 0;

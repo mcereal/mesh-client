@@ -1117,6 +1117,25 @@ static void build_backups_compare(const struct mesh_ui_backups *b, uint8_t e,
         return;
     }
     if (b->compare_state == MESH_UI_BACKUP_COMPARE_RESTORING) {
+        /* A MeshCore restore's contacts are counted through, and can be stopped between two;
+           its saves before them, like a Meshtastic restore, are one bar that is still going. */
+        if (b->restore_contacts_total > 0U) {
+            char value[MESH_UI_SETTINGS_VALUE_MAX];
+            if (b->restore_stopping) {
+                inkwell_str_copy(value, sizeof value,
+                                 inkcell_str(MESH_STR_BACKUPS_RESTORING_STOPPING));
+            } else {
+                inkcell_str_format(value, sizeof value, MESH_STR_BACKUPS_RESTORING_CONTACTS,
+                                   (unsigned)b->restore_contacts_done,
+                                   (unsigned)b->restore_contacts_total);
+            }
+            item_meter(list, MESH_STR_BACKUPS_RESTORING, value,
+                       (uint32_t)b->restore_contacts_done * 1000U / b->restore_contacts_total);
+            if (!b->restore_stopping) {
+                item_verb(list, MESH_STR_BACKUPS_STOP, MESH_UI_SETTINGS_ACTION_BACKUPS_STOP);
+            }
+            return;
+        }
         /* MeshCore takes a restore as ordinary saves, with no restart behind them. */
         const inkcell_str_id how = entry->header.protocol == MESH_RADIO_BACKUP_MESHCORE
                                        ? MESH_STR_BACKUPS_RESTORING_VALUE_PLAIN
@@ -1141,12 +1160,35 @@ static void build_backups_compare(const struct mesh_ui_backups *b, uint8_t e,
                               (uint32_t)diff->total, (unsigned)diff->total);
     item_text(list, MESH_STR_BACKUPS_DIFFERENCES_LABEL, INKSTAND_FORM_INFO, value);
     /* Putting them back is offered here, over the list of what it would change, for the radio
-       on the link - and not over a list of contacts alone, which a restore does not write.
-       Contacts come last, so the first change says whether anything else differs. */
-    const bool settings_differ =
-        diff->count > 0U && diff->changes[0].topic != MESH_RADIO_BACKUP_TOPIC_CONTACT;
-    if (settings_differ && mesh_ui_backups_can_compare(b, e)) {
+       on the link - and not over a list of contacts only the radio has, which a restore leaves
+       where they are. */
+    bool restorable = false;
+    bool contacts_restorable = false;
+    for (size_t i = 0; i < diff->count; ++i) {
+        const struct mesh_radio_backup_change *change = &diff->changes[i];
+        if (change->topic != MESH_RADIO_BACKUP_TOPIC_CONTACT) {
+            restorable = true;
+        } else if (change->kind != MESH_RADIO_BACKUP_ADDED) {
+            restorable = true;
+            contacts_restorable = true;
+        }
+    }
+    /* Contacts come last, so a list cut short may have more of them than it kept. */
+    contacts_restorable = contacts_restorable || (diff->protocol == MESH_RADIO_BACKUP_MESHCORE &&
+                                                  diff->total > diff->count);
+    if (restorable && mesh_ui_backups_can_compare(b, e)) {
         item_verb(list, MESH_STR_BACKUPS_RESTORE, MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE);
+        /* And how its contacts go back, stepped in place under it. */
+        if (contacts_restorable) {
+            item_action(list, MESH_STR_BACKUPS_ROUTES,
+                        inkcell_str(b->restore_keep_routes ? MESH_STR_BACKUPS_ROUTES_KEEP
+                                                           : MESH_STR_BACKUPS_ROUTES_CLEAR),
+                        MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES);
+            item_action(list, MESH_STR_BACKUPS_REPLACE,
+                        inkcell_str(b->restore_replace_newer ? MESH_STR_BACKUPS_REPLACE_ALL
+                                                             : MESH_STR_BACKUPS_REPLACE_KEEP),
+                        MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE);
+        }
     }
 
     /* A heading wherever the topic changes, and one row per change under it. Two rows are kept

@@ -276,7 +276,22 @@ struct mesh_app {
         struct mesh_meshcore_settings_write steps[MESH_MESHCORE_BACKUP_PLAN_MAX];
         uint8_t step_count;
         uint8_t step;
+        /* And its contacts, after the saves, one at a time as each is answered: allocated for
+           the restore and freed when it ends. `contact` is the next to send; `contacts_skipped`
+           the ones refused before they went out, and `refused_before` the conversation's count
+           of refused restore writes when this restore began, so the difference is this one's. */
+        struct mesh_meshcore_contact *contacts;
+        uint16_t contact_count;
+        uint16_t contact;
+        uint16_t contacts_skipped;
+        uint32_t refused_before;
+        struct mesh_meshcore_contact_plan_notes notes;
+        /* Stop was pressed: nothing more is sent once the write in flight is answered. */
+        bool stopping;
     } backup_restore;
+    /* How the next MeshCore restore writes contacts back: the two choices over the comparison,
+       zeroed - learn routes again, keep what the radio changed since - until somebody steps one. */
+    struct mesh_meshcore_contact_options backup_contact_options;
     /* The node whose trend was last read off the card, so the read happens when the reader moves
        rather than on every publish. 0 when no detail screen is open. */
     uint32_t ui_trend_node;

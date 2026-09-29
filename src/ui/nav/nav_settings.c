@@ -632,6 +632,18 @@ bool mesh_ui_nav_backups_press(struct mesh_ui_nav *nav, const struct mesh_ui_sto
             mesh_ui_nav_cursor_to_first_row(nav, store, MESH_UI_SCREEN_SETTINGS);
         }
         return true;
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES:
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE:
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_BACKUP_RESTORE_OPTION;
+            action->number = (uint32_t)which;
+        }
+        return true;
+    case MESH_UI_SETTINGS_ACTION_BACKUPS_STOP:
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_BACKUP_RESTORE_STOP;
+        }
+        return true;
     case MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE:
         /* The screen opens now and says it is reading the radio; the app's answer fills it. */
         nav->backups_entry_cursor = *cursor;

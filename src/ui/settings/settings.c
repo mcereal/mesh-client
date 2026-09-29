@@ -235,6 +235,9 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE] = INKCELL_ICON_SWAP,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE] = INKCELL_ICON_DELETE,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE] = INKCELL_ICON_RESTORE,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES] = INKCELL_ICON_SWAP,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE] = INKCELL_ICON_SWAP,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_STOP] = INKCELL_ICON_CLOSE,
 };
 
 /*
@@ -343,6 +346,9 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_BACKUPS_COMPARE] = INKCELL_TONE_NORMAL,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_DELETE] = INKCELL_TONE_WARNING,
     [MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE] = INKCELL_TONE_WARNING,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE] = INKCELL_TONE_NORMAL,
+    [MESH_UI_SETTINGS_ACTION_BACKUPS_STOP] = INKCELL_TONE_NORMAL,
 };
 
 enum inkcell_icon mesh_ui_settings_action_icon(enum mesh_ui_settings_action action) {
@@ -3022,7 +3028,9 @@ bool mesh_ui_settings_action_is_cycle(enum mesh_ui_settings_action action) {
            action == MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE ||
            action == MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL ||
            action == MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES ||
-           action == MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL;
+           action == MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL ||
+           action == MESH_UI_SETTINGS_ACTION_BACKUPS_ROUTES ||
+           action == MESH_UI_SETTINGS_ACTION_BACKUPS_REPLACE;
 }
 
 /* The two firmware installs, which are one press with two sheets in front of it. Asked as a
@@ -3229,9 +3237,16 @@ void mesh_ui_settings_confirm_for_protocol(const struct mesh_ui_settings *settin
         snprintf(text, text_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_CLEAR_PLAIN));
         return;
     }
-    /* A restore is saves like any other here: no restart, and no contacts written yet. */
+    /* A restore is saves like any other here, with no restart, and then the contacts - under
+       the two choices over the comparison, which the sheet repeats so that A is pressed on
+       what they say rather than on what they were last left at. */
     if (action == MESH_UI_SETTINGS_ACTION_BACKUPS_RESTORE) {
-        snprintf(text, text_len, "%s", inkcell_str(MESH_STR_CONFIRM_TEXT_BACKUPS_RESTORE_PLAIN));
+        const struct mesh_ui_backups *b = &settings->backups;
+        snprintf(text, text_len, "%s%s%s", inkcell_str(MESH_STR_CONFIRM_TEXT_BACKUPS_RESTORE_PLAIN),
+                 inkcell_str(b->restore_keep_routes ? MESH_STR_CONFIRM_TEXT_RESTORE_ROUTES_KEEP
+                                                    : MESH_STR_CONFIRM_TEXT_RESTORE_ROUTES_CLEAR),
+                 inkcell_str(b->restore_replace_newer ? MESH_STR_CONFIRM_TEXT_RESTORE_NEWER_REPLACE
+                                                      : MESH_STR_CONFIRM_TEXT_RESTORE_NEWER_KEEP));
         return;
     }
     if (action != MESH_UI_SETTINGS_ACTION_NONE) {
