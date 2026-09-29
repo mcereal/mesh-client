@@ -899,6 +899,13 @@ static void on_reset_stats(struct mesh_app *app, const struct mesh_ui_action *ac
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
     const int result = mesh_lifetime_reset(&app->lifetime);
+    /* The radio on the link is one in use today, and the handshake that said so will not come
+       again until the next connect: the session announces a radio once per handshake. So it is
+       written back here, or "Radios used" reads 0 beside counts that are already moving. */
+    const struct mesh_handshake_status *status = &app->session.handshake;
+    if (mesh_session_attached(&app->session) && status->has_my_info) {
+        mesh_lifetime_note_radio(&app->lifetime, status->my_info.my_node_num);
+    }
     if (result == 0) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_STATS_RESET));
         inkwell_log_info("ui", "Lifetime stats reset from the Stats page");

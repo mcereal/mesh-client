@@ -3847,6 +3847,15 @@ cleanup:
     record_success(test_name);
 }
 
+/* A send path for a session the test attaches by hand; nothing reads what it sends. */
+static int app_stats_send(void *ctx, const uint8_t *frame, size_t len, uint32_t frame_id) {
+    (void)ctx;
+    (void)frame;
+    (void)len;
+    (void)frame_id;
+    return 0;
+}
+
 /*
  * The Stats page reads what the lifetime stats counted, and its reset starts them again - on
  * the card as well as on the screen.
@@ -3909,14 +3918,23 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
         goto cleanup;
     }
 
+    /* Reset with a radio on the link. Its handshake will not be announced again until the next
+       connect, so the reset has to count it back in itself. */
+    mesh_session_attach(&app.session, app_stats_send, NULL);
+    app.session.handshake.has_my_info = true;
+    app.session.handshake.my_info.my_node_num = 0x61000004U;
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     action.type = MESH_UI_ACTION_RESET_STATS;
     mesh_app_on_ui_action(&app, &action);
     page = &app.ui_store.settings.client.lifetime;
     if (page->messages_sent != 0U || page->direct_sent != 0U || page->nodes_heard != 0U ||
-        page->radios != 0U || page->most_hops != 0U) {
+        page->most_hops_measured) {
         failure = "the reset should publish a page of zeros on the press that asked for it";
+        goto cleanup;
+    }
+    if (page->radios != 1U) {
+        failure = "the radio attached at the reset is in use today and should be counted";
         goto cleanup;
     }
 
@@ -3930,9 +3948,13 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     }
     app_ready = true;
     if (mesh_lifetime_value(&app.lifetime, MESH_LIFETIME_MESSAGES_SENT) != 0U ||
-        mesh_lifetime_value(&app.lifetime, MESH_LIFETIME_NODES_HEARD) != 0U ||
-        mesh_lifetime_value(&app.lifetime, MESH_LIFETIME_RADIOS) != 0U) {
+        mesh_lifetime_value(&app.lifetime, MESH_LIFETIME_NODES_HEARD) != 0U) {
         failure = "a reset stat came back on the next launch; the card was not cleared";
+        goto cleanup;
+    }
+    /* Only the radio counted back in after the reset, not the one from before it. */
+    if (mesh_lifetime_value(&app.lifetime, MESH_LIFETIME_RADIOS) != 1U) {
+        failure = "the radio counted at the reset should be the only one on the card";
         goto cleanup;
     }
 
