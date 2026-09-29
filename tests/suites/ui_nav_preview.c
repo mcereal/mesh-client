@@ -82,6 +82,40 @@ MESH_TEST_CASE(ui_nav_preview_is_where_a_goes_and_moves_nothing, unit) {
     record_success(test_name);
 }
 
+/*
+ * A thread previews where it will open: on its newest message. Opening a thread parks its cursor
+ * on the first row and the clamp after the press moves it, so a preview that skipped the clamp
+ * would be laid out round a message the opened thread never shows first.
+ */
+MESH_TEST_CASE(ui_nav_preview_stands_where_the_opened_thread_does, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_open_tab(&store, MESH_UI_SCREEN_MESSAGES),
+                              mesh_ui_store_shutdown(&store), "the Messages tab should open");
+    const uint32_t row = preview_conversation_row(&store, MESH_UI_CONVERSATION_ALL);
+    MESH_TEST_FAIL_IF_CLEANUP(row == UINT32_MAX, mesh_ui_store_shutdown(&store),
+                              "the list should begin with All traffic");
+    store.nav.cursor[MESH_UI_SCREEN_MESSAGES] = row;
+    struct mesh_ui_nav preview;
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_nav_preview(&store.nav, &store, &preview),
+                              mesh_ui_store_shutdown(&store), "All traffic should preview");
+
+    struct mesh_ui_action action;
+    (void)mesh_ui_nav_handle_key(&store.nav, &store, INKCELL_KEY_A, &action);
+    (void)mesh_ui_nav_clamp(&store.nav, &store);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.thread_open ||
+                                  store.nav.cursor[MESH_UI_SCREEN_MESSAGES] == 0U,
+                              mesh_ui_store_shutdown(&store),
+                              "the fixture's All traffic should open past its first message");
+    MESH_TEST_FAIL_IF_CLEANUP(preview.cursor[MESH_UI_SCREEN_MESSAGES] !=
+                                  store.nav.cursor[MESH_UI_SCREEN_MESSAGES],
+                              mesh_ui_store_shutdown(&store),
+                              "the preview should stand on the message the opened thread does");
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 /* A row whose A goes somewhere other than the detail beside the list has no preview: New
    message raises the picker. */
 MESH_TEST_CASE(ui_nav_preview_is_nothing_for_new_message, unit) {

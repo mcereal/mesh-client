@@ -772,6 +772,10 @@ static bool fb_render_preview(struct inkcell_draw_state *state,
     }
     const struct mesh_ui_nav *nav = &snapshot->nav;
     mesh_ui_store_view(snapshot, &fb_preview_view);
+    /* The deep thread too, which a store view leaves out: the preview's clamp has to measure the
+       same messages the preview is drawn from (mesh_ui_snapshot_message_view()), and a view
+       without it would place the cursor in the transport ring instead. */
+    fb_preview_view.thread = snapshot->thread;
     struct mesh_ui_nav next;
     if (!mesh_ui_nav_preview(nav, &fb_preview_view, &next)) {
         return false;
