@@ -737,6 +737,62 @@ static const struct backups_label *backups_label(uint8_t protocol,
     return NULL;
 }
 
+/*
+ * The Meshtastic fields a Settings row shows as a choice, onto that row's field, so a compare
+ * names "US" rather than "1". The number in a backup is the protobuf's; `offset` is what the
+ * settings model adds to it (the beacon's offered preset is stored one past itself, so 0 can
+ * mean "not offered"). A field whose row stores something other than the protobuf's number -
+ * a channel's role is a primary/secondary switch - is left out and shown as a number.
+ */
+struct backups_choice {
+    uint8_t topic;
+    uint16_t field;
+    uint8_t section; /* as on struct backups_label */
+    uint8_t offset;
+    enum mesh_ui_setting_field setting;
+};
+
+static const struct backups_choice k_meshtastic_choices[] = {
+    {MESH_RADIO_BACKUP_TOPIC_DEVICE, 1, 0, 0, MESH_UI_FIELD_DEVICE_ROLE},
+    {MESH_RADIO_BACKUP_TOPIC_DEVICE, 6, 0, 0, MESH_UI_FIELD_DEVICE_REBROADCAST},
+    {MESH_RADIO_BACKUP_TOPIC_POSITION, 13, 0, 0, MESH_UI_FIELD_POSITION_GPS_MODE},
+    {MESH_RADIO_BACKUP_TOPIC_DISPLAY, 6, 0, 0, MESH_UI_FIELD_DISPLAY_UNITS},
+    {MESH_RADIO_BACKUP_TOPIC_DISPLAY, 7, 0, 0, MESH_UI_FIELD_DISPLAY_OLED},
+    {MESH_RADIO_BACKUP_TOPIC_DISPLAY, 8, 0, 0, MESH_UI_FIELD_DISPLAY_MODE},
+    {MESH_RADIO_BACKUP_TOPIC_DISPLAY, 11, 0, 0, MESH_UI_FIELD_DISPLAY_COMPASS},
+    {MESH_RADIO_BACKUP_TOPIC_LORA, 2, 0, 0, MESH_UI_FIELD_LORA_PRESET},
+    {MESH_RADIO_BACKUP_TOPIC_LORA, 7, 0, 0, MESH_UI_FIELD_LORA_REGION},
+    {MESH_RADIO_BACKUP_TOPIC_BLUETOOTH, 2, 0, 0, MESH_UI_FIELD_BT_MODE},
+    {MESH_RADIO_BACKUP_TOPIC_SECURITY, 9, 0, 0, MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY},
+    {MESH_RADIO_BACKUP_TOPIC_MODULE, 1, MESH_UI_SETTINGS_TAK, 0, MESH_UI_FIELD_TAK_TEAM},
+    {MESH_RADIO_BACKUP_TOPIC_MODULE, 2, MESH_UI_SETTINGS_TAK, 0, MESH_UI_FIELD_TAK_ROLE},
+    {MESH_RADIO_BACKUP_TOPIC_MODULE, 7, MESH_UI_SETTINGS_DETECTION, 0,
+     MESH_UI_FIELD_DETECT_TRIGGER},
+    {MESH_RADIO_BACKUP_TOPIC_MODULE, 6, MESH_UI_SETTINGS_BEACON, 0,
+     MESH_UI_FIELD_BEACON_OFFER_REGION},
+    {MESH_RADIO_BACKUP_TOPIC_MODULE, 7, MESH_UI_SETTINGS_BEACON, 1,
+     MESH_UI_FIELD_BEACON_OFFER_PRESET},
+    {MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 7, 0, 0, MESH_UI_FIELD_UI_THEME},
+    {MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 16, 0, 0, MESH_UI_FIELD_UI_COMPASS_MODE},
+    {MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 18, 0, 0, MESH_UI_FIELD_UI_CLOCKFACE},
+    {MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 19, 0, 0, MESH_UI_FIELD_UI_GPS_FORMAT},
+};
+
+static const struct backups_choice *backups_choice(uint8_t protocol,
+                                                   const struct mesh_radio_backup_change *change) {
+    if (protocol != MESH_RADIO_BACKUP_MESHTASTIC) {
+        return NULL;
+    }
+    for (size_t i = 0; i < sizeof k_meshtastic_choices / sizeof k_meshtastic_choices[0]; ++i) {
+        const struct backups_choice *choice = &k_meshtastic_choices[i];
+        if (choice->topic == change->topic && choice->field == change->field &&
+            (change->topic != MESH_RADIO_BACKUP_TOPIC_MODULE || choice->section == change->index)) {
+            return choice;
+        }
+    }
+    return NULL;
+}
+
 void mesh_ui_backups_field(uint8_t protocol, const struct mesh_radio_backup_change *change,
                            char *out, size_t out_len) {
     if (change == NULL || out == NULL || out_len == 0U) {
@@ -759,8 +815,21 @@ void mesh_ui_backups_field(uint8_t protocol, const struct mesh_radio_backup_chan
     }
 }
 
-static void backups_value(const struct mesh_radio_backup_value *value, uint8_t format, char *out,
-                          size_t out_len) {
+static void backups_value(const struct mesh_radio_backup_value *value, uint8_t format,
+                          const struct backups_choice *choice, char *out, size_t out_len) {
+    /* A bool too: the clock face is one on the wire and a choice of two on its row. */
+    if (choice != NULL && (value->kind == MESH_RADIO_BACKUP_VALUE_INT ||
+                           value->kind == MESH_RADIO_BACKUP_VALUE_UINT ||
+                           value->kind == MESH_RADIO_BACKUP_VALUE_BOOL)) {
+        /* One past the settings model's list - a value from newer firmware - stays a number,
+           which says more than the model's "unknown" would. */
+        const int64_t at = value->number + choice->offset;
+        if (value->number >= 0 && at < (int64_t)mesh_ui_settings_enum_count(choice->setting)) {
+            inkwell_str_copy(out, out_len,
+                             mesh_ui_settings_enum_name(choice->setting, (uint32_t)at));
+            return;
+        }
+    }
     switch ((enum mesh_radio_backup_value_kind)value->kind) {
     case MESH_RADIO_BACKUP_VALUE_BOOL:
         inkwell_str_copy(
@@ -827,7 +896,8 @@ void mesh_ui_backups_change(uint8_t protocol, const struct mesh_radio_backup_cha
     const uint8_t format = label != NULL ? label->format : BACKUPS_PLAIN;
     char before[MESH_RADIO_BACKUP_VALUE_TEXT_MAX];
     char after[MESH_RADIO_BACKUP_VALUE_TEXT_MAX];
-    backups_value(&change->before, format, before, sizeof before);
-    backups_value(&change->after, format, after, sizeof after);
+    const struct backups_choice *choice = backups_choice(protocol, change);
+    backups_value(&change->before, format, choice, before, sizeof before);
+    backups_value(&change->after, format, choice, after, sizeof after);
     inkcell_str_format(out, out_len, MESH_STR_BACKUPS_CHANGE_VALUE, before, after);
 }

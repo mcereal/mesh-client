@@ -2068,6 +2068,9 @@ MESH_STR_ENTRY(ZERO_OFF,                  "off")
 MESH_STR_ENTRY(ZERO_DEFAULT,              "default")
 MESH_STR_ENTRY(ZERO_NONE,                 "none")
 MESH_STR_ENTRY(ZERO_NEVER,                "never")
+/* LoRa's bandwidth, spreading factor and coding rate while "Use preset" is on: the radio
+   reports 0 for each, and the preset's own value is what it transmits with. */
+MESH_STR_ENTRY(ZERO_FROM_PRESET,          "from preset")
 MESH_STR_ENTRY(ZERO_ONCE,                 "once")
 MESH_STR_ENTRY(VALUE_PLAIN,               "%u")
 /* Position precision, which is a bit count on the wire and a distance to a reader. */
@@ -3253,6 +3256,8 @@ MESH_STR_ENTRY(BACKUPS_CONNECTED,         "Connected")
 MESH_STR_ENTRY(BACKUPS_NUMBERED,          "Backup %u")
 /* When a backup was taken: the day, then the time. "Mon 3 Sep, 14:05". */
 MESH_STR_ENTRY(BACKUPS_WHEN,              "%s, %s")
+/* The same, for two backups taken in the same minute, told apart by number: "Mon 3 Sep, 14:05 · 7". */
+MESH_STR_ENTRY(BACKUPS_WHEN_NUMBERED,     "%s · %u")
 /* Why a backup was taken. */
 MESH_STR_ENTRY(BACKUPS_REASON_MANUAL,     "Saved by you")
 MESH_STR_ENTRY(BACKUPS_REASON_FIRST,      "First connection")

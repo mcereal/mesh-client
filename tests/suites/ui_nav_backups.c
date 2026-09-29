@@ -11,6 +11,7 @@
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
+#include "mesh/core/radio_settings.h"
 #include "mesh/ui/backups.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/route.h"
@@ -284,6 +285,43 @@ MESH_TEST_CASE(ui_nav_backups_a_radios_list_is_in_time_order_across_firmwares, u
     free(settings);
     MESH_TEST_FAIL_IF(listed != 3U || order[0] != 0U || order[1] != 2U || order[2] != 1U,
                       "the other firmware's backup was not listed between the two it came between");
+    record_success(test_name);
+}
+
+/* A manual backup taken straight after a write's lands in the same minute, and two rows reading
+   "Tue 29 Sep, 14:20" are two rows nobody can tell apart; the number the card files them under
+   does. A backup alone in its minute keeps the plain time. */
+MESH_TEST_CASE(ui_nav_backups_two_in_one_minute_are_told_apart_by_number, unit) {
+    struct mesh_ui_settings *settings = calloc(1U, sizeof *settings);
+    MESH_TEST_FAIL_IF(settings == NULL, "memory");
+    backups_settings(settings);
+    struct mesh_ui_backups *b = &settings->backups;
+    b->entries[0].header.saved_at = 1790000130U; /* Ridge 2 */
+    b->entries[1].header.saved_at = 1790000100U; /* Ridge 1, the same minute */
+    b->entries[2].header.saved_at = 1790090000U; /* the MeshCore one, a day on */
+    char labels[4][MESH_UI_SETTINGS_LABEL_MAX];
+    size_t listed = 0U;
+    struct mesh_ui_settings_item item;
+    for (uint32_t row = 0U; row < 16U && listed < 4U; ++row) {
+        if (mesh_ui_settings_item(settings, NULL, NULL, 0U, MESH_UI_SETTINGS_BACKUPS,
+                                  mesh_ui_backups_view(MESH_UI_BACKUPS_RADIO, 0U), row, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_BACKUPS_OPEN_ENTRY) {
+            snprintf(labels[listed++], sizeof labels[0], "%s", item.label);
+        }
+    }
+    char plain[MESH_UI_SETTINGS_LABEL_MAX];
+    char second[MESH_UI_SETTINGS_LABEL_MAX];
+    char first[MESH_UI_SETTINGS_LABEL_MAX];
+    mesh_ui_backups_when(&b->entries[2].header, 4U, plain, sizeof plain);
+    mesh_ui_backups_when(&b->entries[0].header, 2U, second, sizeof second);
+    inkcell_str_format(first, sizeof first, MESH_STR_BACKUPS_WHEN_NUMBERED, second, 1U);
+    char numbered[MESH_UI_SETTINGS_LABEL_MAX];
+    inkcell_str_format(numbered, sizeof numbered, MESH_STR_BACKUPS_WHEN_NUMBERED, second, 2U);
+    free(settings);
+    MESH_TEST_FAIL_IF(listed != 3U, "a backup was not listed");
+    MESH_TEST_FAIL_IF(strcmp(labels[0], plain) != 0, "a backup alone in its minute was numbered");
+    MESH_TEST_FAIL_IF(strcmp(labels[1], numbered) != 0 || strcmp(labels[2], first) != 0,
+                      "two backups in one minute read the same");
     record_success(test_name);
 }
 
@@ -638,5 +676,119 @@ MESH_TEST_CASE(ui_backups_field_names_a_difference_by_its_settings_row, unit) {
                        (unsigned)change.field);
     MESH_TEST_FAIL_IF(strcmp(label, number) != 0,
                       "an unplaced module field took another module's label");
+    record_success(test_name);
+}
+
+/* A choice reads as the word its Settings row shows, not as the protobuf's number. */
+static bool backups_change_reads(const struct mesh_radio_backup_change *change, const char *before,
+                                 const char *after, const char *what) {
+    char expected[128];
+    char text[128];
+    inkcell_str_format(expected, sizeof expected, MESH_STR_BACKUPS_CHANGE_VALUE, before, after);
+    mesh_ui_backups_change(MESH_RADIO_BACKUP_MESHTASTIC, change, text, sizeof text);
+    if (strcmp(text, expected) != 0) {
+        fprintf(stderr, "%s: \"%s\", expected \"%s\"\n", what, text, expected);
+        return false;
+    }
+    return true;
+}
+
+static struct mesh_radio_backup_change backups_number_change(uint8_t topic, uint16_t index,
+                                                             uint16_t field, int64_t before,
+                                                             int64_t after) {
+    struct mesh_radio_backup_change change;
+    memset(&change, 0, sizeof change);
+    change.kind = MESH_RADIO_BACKUP_CHANGED;
+    change.topic = topic;
+    change.index = index;
+    change.field = field;
+    change.before.kind = MESH_RADIO_BACKUP_VALUE_UINT;
+    change.before.number = before;
+    change.after.kind = MESH_RADIO_BACKUP_VALUE_UINT;
+    change.after.number = after;
+    return change;
+}
+
+MESH_TEST_CASE(ui_backups_a_choice_is_named_as_its_settings_row_names_it, unit) {
+    struct mesh_radio_backup_change change = backups_number_change(
+        MESH_RADIO_BACKUP_TOPIC_LORA, meshtastic_Config_lora_tag,
+        meshtastic_Config_LoRaConfig_region_tag, meshtastic_Config_LoRaConfig_RegionCode_US,
+        meshtastic_Config_LoRaConfig_RegionCode_UNSET);
+    MESH_TEST_FAIL_IF(
+        !backups_change_reads(&change,
+                              mesh_radio_region_name(meshtastic_Config_LoRaConfig_RegionCode_US),
+                              mesh_radio_region_name(meshtastic_Config_LoRaConfig_RegionCode_UNSET),
+                              "a region is shown as a number"),
+        "a region is shown as a number");
+
+    change = backups_number_change(MESH_RADIO_BACKUP_TOPIC_DEVICE, meshtastic_Config_device_tag,
+                                   meshtastic_Config_DeviceConfig_role_tag,
+                                   meshtastic_Config_DeviceConfig_Role_CLIENT,
+                                   meshtastic_Config_DeviceConfig_Role_ROUTER);
+    MESH_TEST_FAIL_IF(!backups_change_reads(
+                          &change,
+                          mesh_ui_settings_enum_name(MESH_UI_FIELD_DEVICE_ROLE,
+                                                     meshtastic_Config_DeviceConfig_Role_CLIENT),
+                          mesh_ui_settings_enum_name(MESH_UI_FIELD_DEVICE_ROLE,
+                                                     meshtastic_Config_DeviceConfig_Role_ROUTER),
+                          "a role is shown as a number"),
+                      "a role is shown as a number");
+
+    /* The beacon's offered preset is one past itself on the Settings row; the backup holds the
+       protobuf's own number. */
+    change =
+        backups_number_change(MESH_RADIO_BACKUP_TOPIC_MODULE, MESH_UI_SETTINGS_BEACON,
+                              meshtastic_ModuleConfig_MeshBeaconConfig_broadcast_offer_preset_tag,
+                              meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST,
+                              meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_FAST);
+    MESH_TEST_FAIL_IF(
+        !backups_change_reads(
+            &change,
+            mesh_radio_modem_preset_name(meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST),
+            mesh_radio_modem_preset_name(meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_FAST),
+            "the beacon's offered preset is off by one"),
+        "the beacon's offered preset is off by one");
+
+    /* A value past the settings model's list - newer firmware's - stays a number. */
+    change = backups_number_change(MESH_RADIO_BACKUP_TOPIC_LORA, meshtastic_Config_lora_tag,
+                                   meshtastic_Config_LoRaConfig_region_tag, 1U, 250U);
+    MESH_TEST_FAIL_IF(
+        !backups_change_reads(&change,
+                              mesh_radio_region_name(meshtastic_Config_LoRaConfig_RegionCode_US),
+                              "250", "an unknown region is not shown as its number"),
+        "an unknown region is not shown as its number");
+
+    /* Radio UI's choices, the clock face among them though it is a bool on the wire. */
+    change = backups_number_change(MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 0U,
+                                   meshtastic_DeviceUIConfig_theme_tag, 0U, 1U);
+    MESH_TEST_FAIL_IF(!backups_change_reads(&change,
+                                            mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_THEME, 0U),
+                                            mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_THEME, 1U),
+                                            "a theme is shown as a number"),
+                      "a theme is shown as a number");
+    change = backups_number_change(MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 0U,
+                                   meshtastic_DeviceUIConfig_gps_format_tag, 0U, 1U);
+    MESH_TEST_FAIL_IF(
+        !backups_change_reads(&change, mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_GPS_FORMAT, 0U),
+                              mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_GPS_FORMAT, 1U),
+                              "a GPS format is shown as a number"),
+        "a GPS format is shown as a number");
+    change = backups_number_change(MESH_RADIO_BACKUP_TOPIC_RADIO_UI, 0U,
+                                   meshtastic_DeviceUIConfig_is_clockface_analog_tag, 0U, 1U);
+    change.before.kind = MESH_RADIO_BACKUP_VALUE_BOOL;
+    change.after.kind = MESH_RADIO_BACKUP_VALUE_BOOL;
+    MESH_TEST_FAIL_IF(
+        !backups_change_reads(&change, mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_CLOCKFACE, 0U),
+                              mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_CLOCKFACE, 1U),
+                              "a clock face is shown as on and off"),
+        "a clock face is shown as on and off");
+
+    /* The same tag on another module is not a choice. */
+    change = backups_number_change(
+        MESH_RADIO_BACKUP_TOPIC_MODULE, MESH_UI_SETTINGS_RANGE_TEST,
+        meshtastic_ModuleConfig_MeshBeaconConfig_broadcast_offer_preset_tag, 1U, 2U);
+    MESH_TEST_FAIL_IF(
+        !backups_change_reads(&change, "1", "2", "another module's field was named as a choice"),
+        "another module's field was named as a choice");
     record_success(test_name);
 }

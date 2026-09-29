@@ -773,6 +773,60 @@ MESH_TEST_CASE(ui_settings_lora_rows_the_preset_overrides_recede, unit) {
 }
 
 /*
+ * Under a preset the radio reports 0 for the manual trio, and the coding rate row read "4/0" -
+ * a rate that does not exist. A 0 there is the preset's value, and says so; a real one is still
+ * shown as itself.
+ */
+MESH_TEST_CASE(ui_settings_lora_trio_under_a_preset_reads_as_the_presets, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.use_preset = true;
+
+    static const enum mesh_ui_setting_field k_trio[] = {
+        MESH_UI_FIELD_LORA_BANDWIDTH, MESH_UI_FIELD_LORA_SPREAD, MESH_UI_FIELD_LORA_CODING};
+    struct mesh_ui_settings_item row;
+    for (size_t i = 0; i < sizeof k_trio / sizeof k_trio[0]; ++i) {
+        MESH_TEST_FAIL_IF(!settings_find_field(&settings, MESH_UI_SETTINGS_LORA, k_trio[i], &row),
+                          "the LoRa rows are missing");
+        MESH_TEST_FAIL_IF(strcmp(row.value, inkcell_str(MESH_STR_ZERO_FROM_PRESET)) != 0,
+                          "a 0 under a preset is shown as a number");
+    }
+
+    /* With the preset turned off - pending, not yet saved - a 0 is what the radio will be
+       told, and is not the preset's. */
+    struct mesh_ui_setting_edit edits[1];
+    memset(edits, 0, sizeof edits);
+    edits[0].field = MESH_UI_FIELD_LORA_USE_PRESET;
+    edits[0].number = 0U;
+    MESH_TEST_FAIL_IF(!settings_find_field_edited(&settings, edits, 1U, MESH_UI_SETTINGS_LORA,
+                                                  MESH_UI_FIELD_LORA_CODING, &row),
+                      "the coding rate row is missing after an edit");
+    MESH_TEST_FAIL_IF(strcmp(row.value, inkcell_str(MESH_STR_ZERO_FROM_PRESET)) == 0,
+                      "a manual row with the preset off still says it is the preset's");
+
+    /* MeshCore shares the coding rate row and has no presets at all. */
+    settings.protocol_lacks = MESH_UI_FEATURE_FULL_CONFIG;
+    MESH_TEST_FAIL_IF(
+        !settings_find_field(&settings, MESH_UI_SETTINGS_LORA, MESH_UI_FIELD_LORA_CODING, &row),
+        "MeshCore's coding rate row is missing");
+    MESH_TEST_FAIL_IF(strcmp(row.value, inkcell_str(MESH_STR_ZERO_FROM_PRESET)) == 0,
+                      "a radio with no presets was told its value is the preset's");
+    settings.protocol_lacks = 0U;
+
+    settings.use_preset = false;
+    settings.coding_rate = 8U;
+    MESH_TEST_FAIL_IF(
+        !settings_find_field(&settings, MESH_UI_SETTINGS_LORA, MESH_UI_FIELD_LORA_CODING, &row),
+        "the coding rate row is missing");
+    char expected[16];
+    inkcell_str_format(expected, sizeof expected, MESH_STR_VALUE_CODING_RATE, 8U);
+    MESH_TEST_FAIL_IF(strcmp(row.value, expected) != 0, "a set coding rate lost its number");
+    record_success(test_name);
+}
+
+/*
  * Every section's editable rows against MESH_UI_SETTINGS_EDITS_MAX, not just the widest one.
  *
  * Over the cap mesh_ui_nav_edit_set() returns false and the press silently does nothing, which

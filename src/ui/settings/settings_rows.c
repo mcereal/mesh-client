@@ -1003,11 +1003,28 @@ static void build_backups_radio(const struct mesh_ui_backups *b, uint8_t r,
         }
         order[at] = e;
     }
+    char whens[MESH_UI_BACKUP_ENTRIES_MAX][MESH_UI_SETTINGS_LABEL_MAX];
+    for (size_t i = 0; i < listed; ++i) {
+        const struct mesh_ui_backup_entry *entry = &b->entries[order[i]];
+        mesh_ui_backups_when(&entry->header, entry->sequence, whens[i], sizeof whens[i]);
+    }
     for (size_t i = 0; i < listed; ++i) {
         const uint8_t e = order[i];
         const struct mesh_ui_backup_entry *entry = &b->entries[e];
+        /* Two taken in the same minute - a manual one straight after a write's, say - would be
+           two rows reading the same; both then carry their number, which is what the card
+           tells them apart by. */
+        bool shared = false;
+        for (size_t j = 0; j < listed && !shared; ++j) {
+            shared = j != i && strcmp(whens[j], whens[i]) == 0;
+        }
         char when[MESH_UI_SETTINGS_LABEL_MAX];
-        mesh_ui_backups_when(&entry->header, entry->sequence, when, sizeof when);
+        if (shared) {
+            inkcell_str_format(when, sizeof when, MESH_STR_BACKUPS_WHEN_NUMBERED, whens[i],
+                               (unsigned)entry->sequence);
+        } else {
+            inkwell_str_copy(when, sizeof when, whens[i]);
+        }
         /* Why it was taken, and what the radio ran - or, for one taken under the other
            firmware, which firmware that was: the one fact that changes what it can be used for. */
         const char *why = inkcell_str(mesh_ui_backups_reason(entry->header.reason));
@@ -1948,6 +1965,13 @@ static void build_lora(const struct mesh_ui_settings *s, struct item_list *list)
     for (size_t m = 0; m < sizeof manual / sizeof manual[0]; ++m) {
         struct mesh_ui_settings_item *row = item_field(list, manual[m], manual_value[m], NULL);
         if (row != NULL) {
+            /* Under a preset a radio may report 0 for all three, and "4/0" is no rate at all:
+               the value in use is the preset's. Only while the preset is on - with it off a 0
+               is what the radio will be told. */
+            if (preset_on && row->number == 0U) {
+                inkwell_str_copy(row->value, sizeof row->value,
+                                 inkcell_str(MESH_STR_ZERO_FROM_PRESET));
+            }
             row->inactive = preset_on;
             row->inactive_note = preset_on ? MESH_STR_TOAST_USED_WITHOUT_PRESET : INKCELL_STR_NONE;
         }

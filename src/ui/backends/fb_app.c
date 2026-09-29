@@ -22,6 +22,8 @@
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/store.h"
 
+#include "inkcell/ui/widgets/focus.h"
+
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -49,6 +51,13 @@ static void fb_app_render(struct inkcell_draw_state *state, const void *snapshot
     if (packs != 0U && packs != app->map_packs_revision) {
         app->map_packs_revision = packs;
         fb_basemap_open_default(state);
+    }
+
+    /* A key the control socket pressed shows the cursor, as a key of the window's own does. */
+    const uint32_t driven = snapshot->settings.client.driven_presses;
+    if (driven != app->driven_presses) {
+        app->driven_presses = driven;
+        (void)inkcell_fb_set_cursor_hidden(state, false);
     }
 
     /* The theme the snapshot names, if this build knows it and is not already drawing with it. */

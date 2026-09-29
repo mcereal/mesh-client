@@ -229,6 +229,10 @@ struct mesh_app {
      * no opinion, which is every capture's, and a capture names its own packs.
      */
     uint32_t map_packs_revision;
+    /* Keys pressed through the control socket, published so a window shows the cursor after
+       one as it does after a key of its own - see `driven_presses` on struct
+       mesh_ui_client_info. */
+    uint32_t driven_presses;
     /*
      * The per-conversation transcript on the card, beside the handshake cache rather than
      * inside it. What it is for is in mesh/ui/store_archive.h; what it is *here* for is that

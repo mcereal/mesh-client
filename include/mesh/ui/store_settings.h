@@ -145,6 +145,13 @@ struct mesh_ui_client_info {
        `map_packs_revision` on struct mesh_app. */
     uint32_t map_packs_revision;
     /*
+     * Moves on every key the control socket presses. A window hides the cursor until a key of
+     * its own goes down, and a driven key never reaches the window, so without this `make
+     * ui-drive` photographs every list with nothing selected. The backend shows the cursor when
+     * it sees a new one; the mouse hides it again as usual.
+     */
+    uint32_t driven_presses;
+    /*
      * The crash report a *previous* run left behind, if there is one: where it is, and whether
      * to say so.
      *
