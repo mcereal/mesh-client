@@ -168,6 +168,11 @@ struct mesh_ui_client_info {
      */
     char crash_report_path[MESH_UI_CLIENT_PATH_MAX];
     bool crash_report_waiting;
+    /* Whether this build has somewhere to send a report (a DSN and TLS), and whether a send
+       is in flight. The first decides whether the Send row exists at all; the second turns
+       the verb into a fact until the answer comes back, so a second press has nothing to hit. */
+    bool crash_report_sendable;
+    bool crash_report_sending;
 };
 
 /* A router's name is drawn in a settings row's value column, which is short. */

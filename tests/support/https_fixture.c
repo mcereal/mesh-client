@@ -173,8 +173,10 @@ static const char *fixture_header(const char *line, const char *name) {
     return value;
 }
 
-static bool fixture_parse(char *head, struct https_fixture_request *request) {
+static bool fixture_parse(char *head, struct https_fixture_request *request,
+                          size_t *content_length) {
     memset(request, 0, sizeof *request);
+    *content_length = 0U;
     char *line = strtok(head, "\r\n");
     if (line == NULL || sscanf(line, "%7s %4095s", request->method, request->target) != 2) {
         return false;
@@ -187,6 +189,11 @@ static bool fixture_parse(char *head, struct https_fixture_request *request) {
             if (colon != NULL && request->host[0] != '[') {
                 *colon = '\0';
             }
+            continue;
+        }
+        value = fixture_header(line, "content-length");
+        if (value != NULL) {
+            *content_length = (size_t)strtoull(value, NULL, 10);
             continue;
         }
         value = fixture_header(line, "range");
@@ -222,7 +229,9 @@ static void fixture_serve(mbedtls_ssl_context *ssl, int fd, const char *log_path
         return; /* the client refused us, which a case may have wanted */
     }
     static char head[16384];
+    static char body[65536];
     size_t len = 0U;
+    const char *end = NULL;
     while (len + 1U < sizeof head) {
         const int got = mbedtls_ssl_read(ssl, (unsigned char *)head + len, sizeof head - 1U - len);
         if (got <= 0) {
@@ -230,14 +239,36 @@ static void fixture_serve(mbedtls_ssl_context *ssl, int fd, const char *log_path
         }
         len += (size_t)got;
         head[len] = '\0';
-        if (strstr(head, "\r\n\r\n") != NULL) {
+        end = strstr(head, "\r\n\r\n");
+        if (end != NULL) {
             break;
         }
     }
-    static struct https_fixture_request request;
-    if (!fixture_parse(head, &request)) {
+    if (end == NULL) {
         return;
     }
+    /* Whatever of the body came in with the head, set aside before the parse cuts it up. */
+    const size_t head_len = (size_t)(end - head) + 4U;
+    size_t body_len = len - head_len;
+    if (body_len > sizeof body) {
+        return;
+    }
+    memcpy(body, head + head_len, body_len);
+    static struct https_fixture_request request;
+    size_t content_length = 0U;
+    if (!fixture_parse(head, &request, &content_length) || content_length > sizeof body) {
+        return;
+    }
+    while (body_len < content_length) {
+        const int got =
+            mbedtls_ssl_read(ssl, (unsigned char *)body + body_len, content_length - body_len);
+        if (got <= 0) {
+            return;
+        }
+        body_len += (size_t)got;
+    }
+    request.body = body;
+    request.body_len = body_len;
     fixture_log(log_path, &request);
     struct https_fixture_conn conn = {.ssl = ssl, .request = &request, .cut = false};
     handler(userdata, &request, &conn);

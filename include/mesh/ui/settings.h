@@ -576,6 +576,8 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE,
     /* About's crash-report row. Local, and offered only when there is a report to discard. */
     MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT,
+    /* About's send row, beside the discard. Offered only on a build with somewhere to send. */
+    MESH_UI_SETTINGS_ACTION_SEND_CRASH_REPORT,
     /* Radio actions. Every one of these goes through the confirm overlay, so A on the row
        opens the question rather than doing the thing. */
     MESH_UI_SETTINGS_ACTION_REBOOT,

@@ -624,6 +624,14 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
             name = slash + 1;
         }
         item_text(list, MESH_STR_ABOUT_CRASH_REPORT, INKSTAND_FORM_INFO, name);
+        /* Send before discard: it is the press that makes the report worth having kept, and a
+           sent report is discarded by the send itself. A fact while the send is in flight. */
+        if (client->crash_report_sending) {
+            item_str(list, MESH_STR_ABOUT_CRASH_SEND, INKSTAND_FORM_INFO,
+                     MESH_STR_ABOUT_CRASH_SENDING);
+        } else if (client->crash_report_sendable) {
+            item_verb(list, MESH_STR_ABOUT_CRASH_SEND, MESH_UI_SETTINGS_ACTION_SEND_CRASH_REPORT);
+        }
         item_verb(list, MESH_STR_ABOUT_CRASH_DISCARD, MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT);
     }
     /* Keep each language's own name visible so users can always find their way back. */

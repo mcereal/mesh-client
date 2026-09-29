@@ -12,6 +12,7 @@
 #include "inkwell/runtime/loop.h"
 #include "inkwell/runtime/signals.h"
 #include "mesh/core/config.h"
+#include "mesh/core/crash_upload.h"
 #include "mesh/core/firmware.h"
 #include "mesh/core/firmware_update.h"
 #include "mesh/core/lifetime.h"
@@ -137,6 +138,9 @@ struct mesh_app {
        client info on every publish, so the About section renders it without the UI ever seeing
        a connection. */
     struct mesh_updater updater;
+    /* About's "Send report": part of a waiting crash report, to the project's Sentry, on a press
+       and never otherwise. Unconfigured - and its row absent - on a build with no DSN. */
+    struct mesh_crash_upload crash_upload;
     /* The map packs on the card and the ones the map server offers (Settings > Maps). */
     struct mesh_map_packs map_packs;
     /*

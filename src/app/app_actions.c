@@ -25,8 +25,10 @@
 
 #include "inkwell/base/wipe.h"
 #include "inkwell/runtime/crash.h"
+#include "mesh/core/crash_upload.h"
 #include "mesh/core/version.h"
 #include "mesh/geo/coords.h"
+#include "mesh/i18n/net_reason.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/proto/ble_profile.h"
 #include "mesh/proto/channel_url.h"
@@ -47,6 +49,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 
 /* ---- installing the radio's firmware ------------------------------------------------------ */
 
@@ -1907,6 +1910,69 @@ static void on_discard_crash_report(struct mesh_app *app, const struct mesh_ui_a
     mesh_app_publish_ui_state(app);
 }
 
+static void on_send_crash_report(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = inkwell_time_monotonic_ms();
+    (void)action;
+
+    /*
+     * The press is the consent, and it is consent to what About's help says goes: the
+     * addresses, the build, the version and where the reader was - never the log. What is read
+     * out of the file is mesh_crash_report_parse()'s allowlist, so there is no path by which
+     * a line of the log could reach the request.
+     *
+     * The report stays on the card until the server has said it has it: a send lost to a
+     * dropped network leaves the banner and both rows exactly as they were, and pressing again
+     * sends the same event id, which the server keeps once.
+     */
+    char path[INKWELL_CRASH_PATH_MAX];
+    if (!inkwell_crash_report_waiting() || !inkwell_crash_report_path(path, sizeof path)) {
+        return;
+    }
+    struct mesh_crash_context context;
+    mesh_crash_context_init(&context, (uint64_t)time(NULL));
+    const int result = mesh_crash_upload_send(&app->crash_upload, path, &context, now);
+    if (result == -EBUSY) {
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_BUSY_RETRY));
+        return;
+    }
+    if (result < 0) {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CRASH_SEND_FAILED, -result);
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CRASH_SENDING));
+    mesh_app_publish_ui_state(app);
+}
+
+void mesh_app_on_crash_upload_done(void *userdata, const struct mesh_crash_upload *upload) {
+    struct mesh_app *const app = (struct mesh_app *)userdata;
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = inkwell_time_monotonic_ms();
+    if (app == NULL || upload == NULL) {
+        return;
+    }
+    if (upload->state == MESH_CRASH_UPLOAD_SENT) {
+        /* The server has it, so the copy on the card has done its job - and the banner that
+           asked for it resolves the same way a discard does. A discard that fails leaves the
+           notice up, which is the honest answer: the file is still there. */
+        (void)inkwell_crash_discard();
+        mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CRASH_SENT));
+    } else if (upload->status != 0) {
+        /* The server answered and said no: its status is the thing to quote. */
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_CRASH_SEND_FAILED, upload->status);
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+    } else if (mesh_net_reason_format(&upload->failure, upload->host, NULL, toast, sizeof toast)) {
+        /* Nothing answered, and the network can say why - "no such host" is something a reader
+           on a handheld with no WiFi can act on. */
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+    } else {
+        mesh_ui_store_set_toast(&app->ui_store, now,
+                                inkcell_str(MESH_STR_TOAST_CRASH_SEND_UNREACHABLE));
+    }
+    mesh_app_publish_ui_state(app);
+}
+
 static void on_check_update(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
@@ -2751,6 +2817,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_SAVE_QUICK_REPLY, on_save_quick_reply, false},
     {MESH_UI_ACTION_TOGGLE_DEV_UPDATES, on_toggle_dev_updates, false},
     {MESH_UI_ACTION_DISCARD_CRASH_REPORT, on_discard_crash_report, false},
+    {MESH_UI_ACTION_SEND_CRASH_REPORT, on_send_crash_report, false},
     {MESH_UI_ACTION_CHECK_UPDATE, on_check_update, false},
     {MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL, on_cycle_firmware_channel, false},
     {MESH_UI_ACTION_CHECK_RADIO_FIRMWARE, on_check_radio_firmware, false},

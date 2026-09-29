@@ -1551,6 +1551,11 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         return result;
     }
     mesh_ui_controller_set_action_handler(&app->ui_controller, mesh_app_on_ui_action, app);
+    /* Which backend this run ended up with, after every fallback above: a crash report's form
+       factor. The frame renderer adds the panel's size once it has drawn one. */
+    const char *const backend_name =
+        inkstand_frame_scheduler_backend_name(&app->ui_controller.frames);
+    inkwell_crash_note(MESH_CRASH_NOTE_BACKEND, backend_name != NULL ? backend_name : "none");
 
     /*
      * The look, in order of who gets to decide: MESHCLIENT_THEME, then whatever was picked in
@@ -1570,6 +1575,9 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     /* Never fatal: a client that cannot update itself is still a working client, and the
        About section says why rather than offering a row that would do nothing. */
     (void)mesh_updater_init(&app->updater, &app->loop);
+    /* Never fatal either: with nowhere to send, About simply offers no Send row. */
+    (void)mesh_crash_upload_init(&app->crash_upload, &app->loop, mesh_crash_upload_default_dsn(),
+                                 mesh_app_on_crash_upload_done, app);
     /*
      * The same directory the map opens its packs from (fb_basemap_open_default()), so what this
      * downloads is what the map draws: MESHCLIENT_MAP_PACK when it names a directory, the maps
@@ -1714,6 +1722,7 @@ void mesh_app_shutdown(struct mesh_app *app) {
        the DISCONNECT is written while there is still a session to write it about. */
     mesh_app_mqtt_shutdown(app);
     mesh_updater_shutdown(&app->updater);
+    mesh_crash_upload_shutdown(&app->crash_upload);
     mesh_map_packs_shutdown(&app->map_packs);
     mesh_firmware_shutdown(&app->firmware);
     mesh_firmware_update_shutdown(&app->firmware_update);
@@ -1846,6 +1855,7 @@ int mesh_app_run(struct mesh_app *app) {
             /* The updater's connection is watched by the event loop; this enforces its timeout
                and resumes a read that gave the loop back early. */
             mesh_updater_tick(&app->updater, inkwell_time_monotonic_ms());
+            mesh_crash_upload_tick(&app->crash_upload, inkwell_time_monotonic_ms());
             mesh_firmware_tick(&app->firmware, inkwell_time_monotonic_ms());
             mesh_map_packs_tick(&app->map_packs, inkwell_time_monotonic_ms());
             /* One antenna: a download and a link cannot both have it, and the link is the one

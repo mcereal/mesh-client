@@ -98,6 +98,11 @@ struct fb_app {
      */
     int text_base;
     int text_applied;
+    /* The panel the crash report's screen note last named, so it is rewritten only when the
+       window is resized or the scale steps rather than on every frame. */
+    uint32_t noted_width;
+    uint32_t noted_height;
+    int noted_scale;
     /* The map packs revision last opened (struct mesh_ui_client_info). */
     uint32_t map_packs_revision;
     /* The driven-press count last seen (struct mesh_ui_client_info). */

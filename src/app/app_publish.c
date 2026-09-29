@@ -1111,6 +1111,8 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
      */
     (void)inkwell_crash_report_path(dst->crash_report_path, sizeof dst->crash_report_path);
     dst->crash_report_waiting = inkwell_crash_report_waiting();
+    dst->crash_report_sendable = mesh_crash_upload_available(&app->crash_upload);
+    dst->crash_report_sending = mesh_crash_upload_busy(&app->crash_upload);
 
     /* The theme every backend draws this frame with. Published like any other fact about the
        client, so the switch needs no path of its own down to the renderer. */

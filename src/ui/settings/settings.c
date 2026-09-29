@@ -171,6 +171,7 @@ static const enum inkcell_icon k_action_icons[MESH_UI_SETTINGS_ACTION_COUNT] = {
     [MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE] = INKCELL_ICON_LANGUAGE,
     [MESH_UI_SETTINGS_ACTION_CYCLE_TEXT_SIZE] = INKCELL_ICON_DISPLAY,
     [MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT] = INKCELL_ICON_DELETE,
+    [MESH_UI_SETTINGS_ACTION_SEND_CRASH_REPORT] = INKCELL_ICON_SEND,
 
     /* Radio actions, in the order the section runs them: least to most destructive. */
     [MESH_UI_SETTINGS_ACTION_REBOOT] = INKCELL_ICON_RESTART,
@@ -279,6 +280,8 @@ static const enum inkcell_tone k_action_tones[MESH_UI_SETTINGS_ACTION_COUNT] = {
        with no confirm sheet in front of it. Red without a sheet is a trap; see
        `settings_verbs_that_cannot_be_undone_are_red`, which is what holds the pair together. */
     [MESH_UI_SETTINGS_ACTION_DISCARD_CRASH_REPORT] = INKCELL_TONE_WARNING,
+    /* Nothing is lost by it: the file stays until the server has said it has the report. */
+    [MESH_UI_SETTINGS_ACTION_SEND_CRASH_REPORT] = INKCELL_TONE_NORMAL,
 
     /* The link drops and auto-connect brings it back: nothing is lost, and you wait. */
     [MESH_UI_SETTINGS_ACTION_REBOOT] = INKCELL_TONE_WARNING,

@@ -4,9 +4,9 @@
 
 /* In slot order. inkwell pads them to the column the values line up in. */
 static const char *const k_note_labels[MESH_CRASH_NOTE_SLOT_COUNT] = {
-    [MESH_CRASH_NOTE_VERSION] = "version",
-    [MESH_CRASH_NOTE_ROUTE] = "route",
-    [MESH_CRASH_NOTE_TRANSPORT] = "transport",
+    [MESH_CRASH_NOTE_VERSION] = "version",     [MESH_CRASH_NOTE_ROUTE] = "route",
+    [MESH_CRASH_NOTE_TRANSPORT] = "transport", [MESH_CRASH_NOTE_BACKEND] = "backend",
+    [MESH_CRASH_NOTE_SCREEN] = "screen",
 };
 
 int mesh_crash_install(const char *dir) {

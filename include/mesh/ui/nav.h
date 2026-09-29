@@ -1047,6 +1047,10 @@ enum mesh_ui_action_type {
        banner resolves by: a notice with nowhere to go is the one thing the banner table refuses
        to raise. */
     MESH_UI_ACTION_DISCARD_CRASH_REPORT,
+    /* Send part of that report to the project - never its log; see mesh/core/crash_upload.h.
+       The press is the consent, which is why there is no dialog in front of it: the row says
+       what it does, and About's help says what goes. */
+    MESH_UI_ACTION_SEND_CRASH_REPORT,
     /* About radio: ask what firmware exists for the *radio*, which is a different binary on a
        different computer and a different pair of documents. Its own action rather than a flag
        on CHECK_UPDATE because the two can be in flight at once and fail separately, and

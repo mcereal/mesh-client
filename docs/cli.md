@@ -186,6 +186,7 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_KEY_REPEAT_MS` | gap between repeats, 10–2000, default 90, halving after eight rows |
 | `MESHCLIENT_UPDATE_REPO`, `_ASSET` | where the self-updater looks |
 | `MESHCLIENT_UPDATE_ALLOW_DEV` | let a `-dev` build install what it finds |
+| `MESHCLIENT_CRASH_DSN` | the Sentry DSN About's **Send report** sends a crash report to, over the one a release build compiled in. Set at configure time it is compiled in instead, which is how the release workflow does it. Unset on a build with none, the row is not offered. What goes is an allowlist - the signal, the addresses, the build id, the version and where the UI was - never the log; see `include/mesh/core/crash_upload.h` |
 | `MESHCLIENT_DFU_PACKET_GAP_MS` | ms between nRF52 DFU image packets over BLE (default 10) |
 | `MESHCLIENT_FIRMWARE_REINSTALL` | offer the radio the release it already runs, to test an install path again |
 | `MESHCLIENT_FIRMWARE_MESHCORE_CONFIG_URL`, `_TAGS_URL`, `_RELEASE_URL` | where a MeshCore radio's firmware check looks: the flasher's device list, the companion tag list, and the release a tag is appended to |
