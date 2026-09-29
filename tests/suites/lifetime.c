@@ -712,6 +712,11 @@ MESH_TEST_CASE(lifetime_weakest_signal_is_the_faintest_heard_direct, unit) {
     MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB),
                       "MQTT, a relay and an unknown path set no signal record");
 
+    lt_heard_snr(&peer, false, true, 0U, strtof("nan", NULL));
+    lt_heard_snr(&peer, false, true, 0U, strtof("-inf", NULL));
+    lt_heard_snr(&peer, false, true, 0U, -1.0e30f);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB),
+                      "a reading no radio makes is a malformed packet's, not a record");
     lt_heard_snr(&peer, false, true, 0U, 6.5f);
     MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB) ||
                           mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB) != 26,

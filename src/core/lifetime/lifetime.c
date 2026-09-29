@@ -53,6 +53,9 @@
 #define LIFETIME_HELD_VALUE_SUFFIX ".held_value"
 #define LIFETIME_HELD_AT_SUFFIX ".held_at"
 #define LIFETIME_LINE_MAX 128U
+/* An SNR further from zero than this is no reading a LoRa radio makes - they decode to about
+   -20 dB and saturate in the teens - and is dropped as a malformed packet's. */
+#define LIFETIME_SNR_LIMIT_DB 64.0f
 
 /* What the set knows about a node. Each is one line in the seen file, keyed by its name. */
 enum {
@@ -728,7 +731,10 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
     if (has_distance) {
         lifetime_raise(lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M, distance_m, node->node_id);
     }
-    if (event->has_snr) {
+    /* Written as a range rather than as two tests, so a NaN - which compares false either way -
+       is turned away too: a reading off a malformed packet converts to no integer at all. */
+    if (event->has_snr && event->snr >= -LIFETIME_SNR_LIMIT_DB &&
+        event->snr <= LIFETIME_SNR_LIMIT_DB) {
         const int64_t quarters = (int64_t)(event->snr * 4.0f + (event->snr < 0.0f ? -0.5f : 0.5f));
         lifetime_raise(lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB, (uint64_t)quarters, node->node_id);
     }
