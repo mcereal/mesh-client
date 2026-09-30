@@ -84,7 +84,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | Feature | What disappears without it |
 |---|---|
 | `WAYPOINTS` | "Send a waypoint" on a node's sheet; the Map tab's L2/R2 to the places, which the bar stops naming and a press says why |
-| `TRACEROUTE` | the traceroute verb (on MeshCore, a path discovery to a contact) |
+| `TRACEROUTE` | the traceroute verb (on MeshCore, a trace to a repeater it has a route to, else a path discovery) |
 | `NODE_REQUESTS` | asking a node for its name or position |
 | `NODE_TELEMETRY` | asking a node for its readings (on MeshCore, a contact) |
 | `NODE_LOGIN` | logging in to a MeshCore repeater or room server - MeshCore's alone |
@@ -233,16 +233,21 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   share row, drawn from that slot's name and secret, and a typed link joins one channel into the
   first slot the sync read as unused - a `SET_CHANNEL` save - leaving the others as they are. A
   slot already holding that name and secret is "already on it"; no free slot is refused.
-- **A traceroute** is `SEND_PATH_DISCOVERY_REQ` by the whole key, flooded, answered by
+- **A traceroute** to a repeater or room server the radio already has a route to is
+  `SEND_TRACE_PATH`: sent direct along that route, to the node, and back along the same hops
+  reversed, under a tag that `TRACE_DATA` echoes. Every hop appends the SNR it heard the trace
+  at, so both ways get a reading per link. Only a node that forwards can be a stop - a companion
+  cannot - and a trace names each hop by 1, 2, 4 or 8 bytes, so a route kept at three bytes a
+  hop is traced by its first two. Anything else, or a repeater with no route yet, gets a path
+  discovery.
+- **A path discovery** is `SEND_PATH_DISCOVERY_REQ` by the whole key, flooded, answered by
   `PATH_DISCOVERY_RESPONSE`: the path our flood took out and the path the answer took back, each
   a length byte (hop count in the low six bits, bytes per hop less one in the top two) and the
   hops. A hop is the first one to three bytes of a repeater's key, so it is named from the roster
   only where exactly one node answers to it, and drawn as `!..ab` otherwise. It fills the same
-  `mesh_traceroute` Meshtastic's does, with no SNR; silence is a trace that timed out. The
-  firmware's other trace, `SEND_TRACE_PATH`, measures SNR along a path given to it and is not
-  sent yet.
+  `mesh_traceroute` Meshtastic's does, with no SNR; silence is a trace that timed out.
 - **One request to another node at a time.** The firmware keeps one pending and clears it for
-  any new login, status, telemetry or binary request (`clearPendingReqs()`), so a second is refused
+  any new login, status, telemetry or binary request (`clearPendingReqs()`); a trace shares the lock, so a second is refused
   while the first is queued and until its answer or the deadline its `SENT` names. How each one
   ended is `mesh_meshcore.notice`, which the publish turns into a toast.
 - **A contact link** is the MeshCore app's QR text, `meshcore://contact/add?name=…&public_key=<64
@@ -263,7 +268,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `RESP_CODE_SENT` named. It is tried three times with the same timestamp - the last after
   `CMD_RESET_PATH`, so it floods - and then failed. A channel message gets `OK` and nothing more.
 
-Not yet spoken: a trace along a given path, and this radio's own signed card - its share code
+Not yet spoken: this radio's own signed card - its share code
 is the plain `contact/add` link. The `meshcore` row in `src/ui/tables/protocols.c` hides the verbs
 the protocol does not back.
 `tests/suites/meshcore.c` holds the frames a Heltec V3 sent and drives the conversation end to

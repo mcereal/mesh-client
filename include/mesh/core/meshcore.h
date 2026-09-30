@@ -77,6 +77,9 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_GET_CONTACT_BY_KEY = 30,
     MESH_MESHCORE_CMD_GET_CHANNEL = 31,
     MESH_MESHCORE_CMD_SET_CHANNEL = 32,
+    /* A tag, an auth code, flags whose low two bits say each hop is named by 1 << n bytes, then
+       the hops. Sent direct along them; answered by a TRACE_DATA carrying the tag. */
+    MESH_MESHCORE_CMD_SEND_TRACE_PATH = 36,
     /* A u32: 0 for a new random PIN each boot, else six digits; read at boot, not before. */
     MESH_MESHCORE_CMD_SET_DEVICE_PIN = 37,
     MESH_MESHCORE_CMD_SET_OTHER_PARAMS = 38,
@@ -118,6 +121,7 @@ enum mesh_meshcore_push {
     MESH_MESHCORE_PUSH_LOGIN_FAIL = 0x86,
     MESH_MESHCORE_PUSH_STATUS_RESPONSE = 0x87,
     MESH_MESHCORE_PUSH_LOG_RX_DATA = 0x88,
+    MESH_MESHCORE_PUSH_TRACE_DATA = 0x89,
     MESH_MESHCORE_PUSH_NEW_ADVERT = 0x8A,
     MESH_MESHCORE_PUSH_TELEMETRY_RESPONSE = 0x8B,
     MESH_MESHCORE_PUSH_BINARY_RESPONSE = 0x8C,
@@ -320,6 +324,19 @@ struct mesh_meshcore_neighbours {
     struct mesh_meshcore_neighbour entries[MESH_MESHCORE_NEIGHBOURS_MAX];
 };
 
+/*
+ * A TRACE_DATA: the tag the trace was sent with, how many bytes name each hop (1, 2, 4 or 8 -
+ * the width the trace asked for), the hops as it was sent along them, and one SNR per hop - what
+ * that hop heard the trace at - then the SNR this radio heard it back at, so `hops` + 1 readings.
+ */
+struct mesh_meshcore_trace {
+    uint32_t tag;
+    uint8_t hash_size;
+    uint8_t hops;
+    uint8_t hashes[MESH_MESHCORE_MAX_FRAME];
+    int8_t snr_q4[MESH_MESHCORE_MAX_FRAME]; /* quarter decibels */
+};
+
 /* RESP_CODE_CHANNEL_INFO. An unused slot has an empty name and an all-zero secret. */
 struct mesh_meshcore_channel {
     uint8_t index;
@@ -406,6 +423,18 @@ int mesh_meshcore_encode_neighbours_req(const uint8_t key[MESH_MESHCORE_PUBKEY_L
  */
 int mesh_meshcore_decode_neighbours(const uint8_t *data, size_t len,
                                     struct mesh_meshcore_neighbours *out);
+/*
+ * SEND_TRACE_PATH along `hop_count` hops of `hash_size` bytes each (1, 2, 4 or 8, the only widths
+ * the flags can say), under `tag` and no auth code. -EINVAL for another width or no hops, and
+ * -ENOSPC for a path the frame - or the firmware's 64 hops - cannot carry.
+ */
+int mesh_meshcore_encode_trace(uint32_t tag, uint8_t hash_size, const uint8_t *hops,
+                               uint8_t hop_count, uint8_t *out, size_t out_len);
+/*
+ * A whole TRACE_DATA push. 0, or -EBADMSG for a frame shorter than the hops and readings it
+ * counts, or one whose byte count is not whole hops.
+ */
+int mesh_meshcore_decode_trace(const uint8_t *frame, size_t len, struct mesh_meshcore_trace *out);
 /* REBOOT carries the word, so a stray byte cannot reboot a radio. */
 int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len);
 
@@ -595,7 +624,8 @@ struct mesh_meshcore {
     uint8_t request_cmd;                              /* which of them */
     uint32_t request_node;                            /* asked of whom */
     uint8_t request_prefix[MESH_MESHCORE_PREFIX_LEN]; /* whose answer frees it */
-    /* A binary request's answer names no node, only the tag its SENT carried: 0 until then. */
+    /* A binary request's answer names no node, only the tag its SENT carried: 0 until then.
+       A trace's names none either, and carries the tag it was sent with. */
     uint32_t request_tag;
     /* How the last of them ended, and a count that moves each time one does. `notice_log`
        holds the last MESH_MESHCORE_NOTICES_KEPT, notice n at n % that - `notice` is the newest. */
@@ -788,6 +818,17 @@ int mesh_meshcore_request_status(struct mesh_meshcore *meshcore, uint32_t node_i
  * mesh_meshcore_request_telemetry(), and the same returns.
  */
 int mesh_meshcore_discover_path(struct mesh_meshcore *meshcore, uint32_t node_id);
+/*
+ * Traces the route the radio already keeps to a repeater or room server, and back: SEND_TRACE_PATH
+ * along its path out, the node itself, then the same hops reversed. Every node on the way adds
+ * the SNR it heard the trace at, and the TRACE_DATA that comes back puts one on every link each
+ * way into the model's traceroute - which a path discovery cannot. Only a node that forwards
+ * can be a stop, so a companion cannot be traced to. The same one request as
+ * mesh_meshcore_request_telemetry(), and the same returns; -EINVAL too for a node that is not a
+ * repeater or room server, and -EAGAIN for one the radio has no route to yet, which a path
+ * discovery finds first.
+ */
+int mesh_meshcore_trace_path(struct mesh_meshcore *meshcore, uint32_t node_id);
 /*
  * Asks a repeater among the radio's contacts which nodes it hears: SEND_BINARY_REQ with
  * REQ_GET_NEIGHBOURS, answered by a BINARY_RESPONSE whose list lands on the node's `neighbors` -

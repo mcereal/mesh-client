@@ -195,7 +195,7 @@ static bool mesh_meshcore_is_remote(uint8_t cmd) {
     return cmd == MESH_MESHCORE_CMD_SEND_TELEMETRY_REQ || cmd == MESH_MESHCORE_CMD_SEND_LOGIN ||
            cmd == MESH_MESHCORE_CMD_SEND_STATUS_REQ ||
            cmd == MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ ||
-           cmd == MESH_MESHCORE_CMD_SEND_BINARY_REQ;
+           cmd == MESH_MESHCORE_CMD_SEND_TRACE_PATH || cmd == MESH_MESHCORE_CMD_SEND_BINARY_REQ;
 }
 
 /* Says how something asked of another node ended, for the publish to put into words. */
@@ -215,7 +215,8 @@ static void mesh_meshcore_request_ended(struct mesh_meshcore *meshcore, uint8_t 
     }
     /* A route that never came is a trace that timed out, as Meshtastic's lost one is. */
     struct mesh_traceroute *trace = &meshcore->model->traceroute;
-    if (meshcore->request_cmd == MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ &&
+    if ((meshcore->request_cmd == MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ ||
+         meshcore->request_cmd == MESH_MESHCORE_CMD_SEND_TRACE_PATH) &&
         answer != MESH_MESHCORE_ANSWER_ROUTE && trace->state == MESH_TRACEROUTE_PENDING &&
         trace->target == meshcore->request_node) {
         trace->state = MESH_TRACEROUTE_TIMEOUT;
@@ -1148,6 +1149,64 @@ static uint32_t mesh_meshcore_u32_at(const uint8_t *p) {
            ((uint32_t)p[3] << 24U);
 }
 
+/*
+ * One leg of a trace into the model's: `count` hops starting at `first`, each named from the
+ * roster as a path discovery's are, and the `count` + 1 readings that start at `snr` - one per
+ * link, the last where the leg ends.
+ */
+static void mesh_meshcore_trace_leg(const struct mesh_meshcore *meshcore,
+                                    const struct mesh_meshcore_trace *data, uint8_t first,
+                                    uint8_t count, uint8_t snr, uint32_t *route,
+                                    uint8_t *route_count,
+                                    uint8_t hashes[][MESH_TRACEROUTE_HASH_MAX], uint8_t *size,
+                                    int8_t *snrs, uint8_t *snr_count) {
+    /* The model keeps three bytes of a hop; a longer name is still its key's first bytes. */
+    const uint8_t width =
+        data->hash_size < MESH_TRACEROUTE_HASH_MAX ? data->hash_size : MESH_TRACEROUTE_HASH_MAX;
+    *size = width;
+    *route_count = 0U;
+    for (uint8_t i = 0; i < count && *route_count < MESH_TRACEROUTE_MAX_HOPS; ++i) {
+        const uint8_t *hash = data->hashes + (size_t)(first + i) * data->hash_size;
+        route[*route_count] = mesh_meshcore_find_hash(meshcore, hash, width);
+        memcpy(hashes[*route_count], hash, width);
+        *route_count += 1U;
+    }
+    /* A reading per link kept: past the hops the model holds, the link to the leg's end is not
+       one of them, so its reading is left off rather than drawn against the wrong stop. */
+    const uint8_t readings = *route_count == count ? (uint8_t)(count + 1U) : *route_count;
+    for (*snr_count = 0U; *snr_count < readings; *snr_count += 1U) {
+        snrs[*snr_count] = data->snr_q4[snr + *snr_count];
+    }
+}
+
+/*
+ * A trace we sent - out along the route, to the node, and back the same way - into the model's
+ * traceroute: the hops before the node are the way out and the hops after it the way back, and
+ * the reading the node took is the last link out. False for a trace of an even number of hops,
+ * which has no node in the middle and so is not one this client sent.
+ */
+static bool mesh_meshcore_store_trace(struct mesh_meshcore *meshcore, uint32_t target,
+                                      const struct mesh_meshcore_trace *data) {
+    struct mesh_traceroute *trace = &meshcore->model->traceroute;
+    if (data->hops % 2U == 0U) {
+        trace->state = MESH_TRACEROUTE_TIMEOUT;
+        inkwell_log_warn("meshcore", "Unreadable trace from 0x%08x", target);
+        return false;
+    }
+    const uint8_t each = (uint8_t)(data->hops / 2U);
+    memset(trace, 0, sizeof *trace);
+    trace->target = target;
+    mesh_meshcore_trace_leg(meshcore, data, 0U, each, 0U, trace->route, &trace->route_count,
+                            trace->route_hash, &trace->hash_size, trace->snr, &trace->snr_count);
+    mesh_meshcore_trace_leg(meshcore, data, (uint8_t)(each + 1U), each, (uint8_t)(each + 1U),
+                            trace->route_back, &trace->back_count, trace->back_hash,
+                            &trace->back_hash_size, trace->snr_back, &trace->snr_back_count);
+    trace->state = MESH_TRACEROUTE_DONE;
+    trace->completed = mesh_meshcore_clock_now(meshcore);
+    inkwell_log_info("meshcore", "Trace to 0x%08x: %u hops each way", target, (unsigned)each);
+    return true;
+}
+
 static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t *frame,
                                   size_t len) {
     switch (frame[0]) {
@@ -1308,6 +1367,18 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
             mesh_meshcore_request_ended(meshcore, MESH_MESHCORE_ANSWER_NEIGHBOURS);
         }
         break;
+    case MESH_MESHCORE_PUSH_TRACE_DATA: {
+        struct mesh_meshcore_trace data;
+        if (meshcore->request_cmd == MESH_MESHCORE_CMD_SEND_TRACE_PATH &&
+            meshcore->request_tag != 0U && mesh_meshcore_decode_trace(frame, len, &data) == 0 &&
+            data.tag == meshcore->request_tag) {
+            const uint32_t target = meshcore->request_node;
+            const bool read = mesh_meshcore_store_trace(meshcore, target, &data);
+            mesh_meshcore_request_ended(meshcore, read ? MESH_MESHCORE_ANSWER_ROUTE
+                                                       : MESH_MESHCORE_ANSWER_UNSENT);
+        }
+        break;
+    }
     case MESH_MESHCORE_PUSH_CONTACT_DELETED:
         if (len >= 1U + MESH_MESHCORE_PUBKEY_LEN) {
             mesh_meshcore_book_drop(meshcore, frame + 1);
@@ -1628,8 +1699,10 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             mesh_meshcore_decode_sent(frame, len, &sent) == 0) {
             const uint32_t wait = sent.timeout_ms > 0U ? sent.timeout_ms : 10000U;
             meshcore->request_until_ms = inkwell_time_monotonic_ms() + (uint64_t)wait + 2000U;
-            /* The one answer that names no node: it carries this tag instead. */
-            if (cmd == MESH_MESHCORE_CMD_SEND_BINARY_REQ) {
+            /* The answers that name no node: they carry this tag instead - the firmware's for
+               a binary request, and for a trace the one it was sent with, echoed. */
+            if (cmd == MESH_MESHCORE_CMD_SEND_BINARY_REQ ||
+                cmd == MESH_MESHCORE_CMD_SEND_TRACE_PATH) {
                 meshcore->request_tag = sent.expected_ack;
             }
         }
@@ -2293,6 +2366,7 @@ static int mesh_meshcore_ask(struct mesh_meshcore *meshcore, const uint8_t *fram
         mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_LOGIN) ||
         mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_STATUS_REQ) ||
         mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ) ||
+        mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_TRACE_PATH) ||
         mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_SEND_BINARY_REQ)) {
         return -EBUSY;
     }
@@ -2366,6 +2440,59 @@ int mesh_meshcore_discover_path(struct mesh_meshcore *meshcore, uint32_t node_id
     frame[1] = 0U; /* reserved; the firmware refuses anything else */
     memcpy(frame + 2, node->public_key, MESH_MESHCORE_PUBKEY_LEN);
     const int result = mesh_meshcore_ask(meshcore, frame, sizeof frame, node_id, node->public_key);
+    if (result == 0) {
+        struct mesh_traceroute *trace = &meshcore->model->traceroute;
+        memset(trace, 0, sizeof *trace);
+        trace->state = MESH_TRACEROUTE_PENDING;
+        trace->target = node_id;
+        trace->sent_ms = inkwell_time_monotonic_ms();
+    }
+    return result;
+}
+
+int mesh_meshcore_trace_path(struct mesh_meshcore *meshcore, uint32_t node_id) {
+    const struct mesh_node_summary *node = NULL;
+    const int whom = mesh_meshcore_ask_whom(meshcore, node_id, &node);
+    if (whom < 0) {
+        return whom;
+    }
+    /* A trace goes on only through a node that forwards, and ends back here through the same. */
+    const uint8_t type = mesh_meshcore_adv_type(node->role);
+    if (type != MESH_MESHCORE_ADV_REPEATER && type != MESH_MESHCORE_ADV_ROOM) {
+        return -EINVAL;
+    }
+    const size_t at = mesh_meshcore_book_find(meshcore, node->public_key);
+    if (at == SIZE_MAX || meshcore->contacts[at].out_path_len == MESH_MESHCORE_PATH_NONE) {
+        return -EAGAIN;
+    }
+    const struct mesh_meshcore_contact *contact = &meshcore->contacts[at];
+    /* The route names each hop by one, two or three bytes of its key; a trace names them by a
+       power of two, so a three-byte route is traced by the first two - still the key's start,
+       which is all a hop matches on. */
+    const uint8_t stored = (uint8_t)((contact->out_path_len >> 6U) + 1U);
+    const uint8_t width = stored >= 2U ? 2U : 1U;
+    const uint8_t count = MESH_MESHCORE_PATH_HOPS(contact->out_path_len);
+    if ((size_t)count * stored > MESH_MESHCORE_PATH_MAX) {
+        return -EINVAL;
+    }
+    uint8_t hops[(2U * MESH_MESHCORE_PATH_MAX + 1U) * 2U];
+    uint8_t n = 0U;
+    for (uint8_t i = 0; i < count; ++i, ++n) {
+        memcpy(hops + (size_t)n * width, contact->out_path + (size_t)i * stored, width);
+    }
+    memcpy(hops + (size_t)n * width, node->public_key, width);
+    ++n;
+    for (uint8_t i = count; i-- > 0U; ++n) {
+        memcpy(hops + (size_t)n * width, contact->out_path + (size_t)i * stored, width);
+    }
+    /* Never 0, which is what an unanswered tag reads as. */
+    const uint32_t tag = (uint32_t)inkwell_time_monotonic_ms() | 1U;
+    uint8_t frame[MESH_MESHCORE_MAX_FRAME];
+    const int len = mesh_meshcore_encode_trace(tag, width, hops, n, frame, sizeof frame);
+    if (len < 0) {
+        return len;
+    }
+    const int result = mesh_meshcore_ask(meshcore, frame, (size_t)len, node_id, node->public_key);
     if (result == 0) {
         struct mesh_traceroute *trace = &meshcore->model->traceroute;
         memset(trace, 0, sizeof *trace);
