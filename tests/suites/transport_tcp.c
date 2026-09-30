@@ -6,6 +6,7 @@
 
 #include "../../src/app/app_internal.h"
 #include "framework/mesh_test.h"
+#include "support/fs_fixture.h"
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
 
@@ -13,6 +14,7 @@
 #include "inkwell/runtime/loop.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
+#include "mesh/core/lifetime.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/stream_framing.h"
 #include "mesh/transport/ble.h"
@@ -1633,5 +1635,97 @@ cleanup:
     tcp_test_radio_close(&radio);
     if (home_made) {
         rmdir(home_dir);
+    }
+}
+
+/* Pumps the loop until the lifetime stats have counted `want` connections, or a second passes. */
+static bool tcp_test_wait_connections(struct mesh_app *app, uint64_t want) {
+    for (unsigned turn = 0U; turn < 50U; ++turn) {
+        if (mesh_lifetime_value(&app->lifetime, MESH_LIFETIME_CONNECTIONS) >= want) {
+            return true;
+        }
+        (void)inkwell_loop_run(&app->loop, 20);
+    }
+    return mesh_lifetime_value(&app->lifetime, MESH_LIFETIME_CONNECTIONS) >= want;
+}
+
+/*
+ * Moving a link from one host to another is two connections, though no sample ever sees the
+ * link down: mesh_app_link_connect() drops the first and starts the second in one call. And it
+ * is counted with no foreground turn at all, as a CLI command's run never takes one - the
+ * frames crossing the seam are what sample the link.
+ */
+MESH_TEST_CASE(tcp_switching_hosts_is_a_second_connection, unit) {
+    struct tcp_test_radio first;
+    struct tcp_test_radio second;
+    tcp_test_radio_init(&first);
+    tcp_test_radio_init(&second);
+    static struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    const char *failure = NULL;
+    bool app_ready = false;
+    char home_dir[] = "/tmp/mesh_tcp_switchXXXXXX";
+    bool home_made = false;
+
+    if (!tcp_test_radio_listen(&first) || !tcp_test_radio_listen(&second)) {
+        failure = "could not listen on the loopback";
+        goto cleanup;
+    }
+    if (mkdtemp(home_dir) == NULL) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    home_made = true;
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_SINGLE_POLL;
+    config.enable_ble = false;
+    config.enable_serial = false;
+    config.enable_tcp = true;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+
+    if (mesh_app_link_connect(&app, first.target, (uint8_t)MESH_UI_DEVICE_TCP) != 0 ||
+        !tcp_test_radio_accept(&first)) {
+        failure = "the first host did not connect";
+        goto cleanup;
+    }
+    if (!tcp_test_wait_connections(&app, 1U)) {
+        failure = "a link that carried a frame is a connection";
+        goto cleanup;
+    }
+    if (mesh_app_link_connect(&app, second.target, (uint8_t)MESH_UI_DEVICE_TCP) != 0 ||
+        !tcp_test_radio_accept(&second)) {
+        failure = "the second host did not connect";
+        goto cleanup;
+    }
+    if (!tcp_test_wait_connections(&app, 2U)) {
+        failure = "a link moved to another host is a second connection";
+        goto cleanup;
+    }
+
+cleanup:
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    tcp_test_radio_close(&first);
+    tcp_test_radio_close(&second);
+    if (home_made) {
+        (void)mesh_test_remove_tree(home_dir);
     }
 }

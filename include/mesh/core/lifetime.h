@@ -68,11 +68,11 @@
  *
  * **Time on a link is the one thing the session does not feed**, because the session does not
  * know it has a link: it is told about frames, not about a transport coming and going. So the
- * app says, once a turn, whether a link is up (mesh_lifetime_note_link()), and the stats keep
- * the edges themselves. That is a feed from what *is*, which the rule above warns against, and
- * it is safe here for the reason a COUNT is not: an edge is counted when the state changes, not
- * each time it is read, and the time is a difference between two readings of the loop's
- * monotonic clock that is banked once and never read back. A restart starts with the link
+ * app says, each turn and each frame, whether a link is up (mesh_lifetime_note_link()), and the
+ * stats keep the edges themselves. That is a feed from what *is*, which the rule above warns
+ * against, and it is safe here for the reason a COUNT is not: an edge is counted when the state
+ * changes, not each time it is read, and the time is a difference between two readings of the
+ * loop's monotonic clock that is banked once and never read back. A restart starts with the link
  * down, so the first turn that sees one up is a new connection, which it is. Time is banked in
  * whole seconds, a minute at a time while the link stays up and in full when it drops or the
  * app closes it - so the card is rewritten once a minute for time rather than on every turn,
@@ -188,8 +188,8 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
 void mesh_lifetime_note_radio(struct mesh_lifetime *lifetime, uint32_t node_num);
 
 /*
- * Whether a link is up now, told once a turn, and which radio it reaches (0 until that radio
- * has said). A link coming up is a CONNECTION; while it stays up its time is banked into
+ * Whether a link is up now, told as often as the app likes, and which radio it reaches (0 until
+ * that radio has said). A link coming up is a CONNECTION; while it stays up its time is banked into
  * CONNECTED_S a minute at a time, and the stretch as a whole raises LONGEST_CONNECTION_S, a
  * record held by the radio it was with. A link going down banks what is left. `now_ms` is
  * inkwell's monotonic clock; a reading that goes backwards is ignored rather than wrapped.
