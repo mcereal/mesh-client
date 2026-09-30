@@ -1839,6 +1839,8 @@ void mesh_app_shutdown(struct mesh_app *app) {
         app->ui_handshake_cache_dirty = false;
     }
     mesh_ui_store_shutdown(&app->ui_store);
+    /* A clean exit ends the link it had, so the seconds since the last bank are counted. */
+    mesh_lifetime_note_link(&app->lifetime, false, 0U, inkwell_time_monotonic_ms());
     (void)mesh_lifetime_flush(&app->lifetime);
     if (app->ui_preferences_dirty && app->ui_preferences_path[0] != '\0') {
         mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path);
@@ -1891,6 +1893,20 @@ int mesh_app_turn_ms(const struct mesh_app *app) {
         return MESH_APP_TRANSFER_TURN_MS;
     }
     return configured < MESH_APP_TRANSFER_TURN_MS ? configured : MESH_APP_TRANSFER_TURN_MS;
+}
+
+/*
+ * Tells the lifetime stats whether a link is up this turn and which radio it reaches, which is
+ * how they count connections and time connected (mesh_lifetime_note_link()). "Up" is the
+ * question the link-lost toast asks - a transport holding a device - rather than a finished
+ * handshake, because the time a radio spends sending its database is time connected too.
+ */
+static void mesh_app_note_link_time(struct mesh_app *app) {
+    const struct mesh_handshake_status *handshake = mesh_session_handshake(&app->session);
+    const uint32_t radio =
+        handshake != NULL && handshake->has_my_info ? handshake->my_info.my_node_num : 0U;
+    mesh_lifetime_note_link(&app->lifetime, mesh_app_connected_identifier() != NULL, radio,
+                            inkwell_time_monotonic_ms());
 }
 
 int mesh_app_run(struct mesh_app *app) {
@@ -1997,6 +2013,7 @@ int mesh_app_run(struct mesh_app *app) {
                already cleared the config sync that this reads to decide whether to stay
                connected at all. */
             mesh_app_mqtt_tick(app, inkwell_time_monotonic_ms());
+            mesh_app_note_link_time(app);
             mesh_app_backup_tick(app);
             /* Before auto-connect, not after: a retry starts the link over and clears the
                reason the last attempt failed. */

@@ -1024,3 +1024,137 @@ MESH_TEST_CASE(lifetime_counts_what_the_session_announces, unit) {
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }
+
+/* A connection is the edge, not the state: a link reported up every turn is one connection, and
+   only a drop and a return makes a second. */
+MESH_TEST_CASE(lifetime_counts_a_connection_once_per_link, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    for (uint64_t now = 0U; now < 5000U; now += 20U) {
+        mesh_lifetime_note_link(&g_lifetime, true, LT_US, 1000U + now);
+    }
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 1U,
+                      "a link up for many turns is one connection");
+    mesh_lifetime_note_link(&g_lifetime, false, 0U, 7000U);
+    mesh_lifetime_note_link(&g_lifetime, false, 0U, 8000U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 1U,
+                      "a link staying down is not a connection");
+    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 9000U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 2U,
+                      "a link back after a drop is the second");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* Time is banked a minute at a time while the link stays up - so the card is not rewritten on
+   every turn - and in full when it drops, with what is under a second carried rather than cut. */
+MESH_TEST_CASE(lifetime_banks_connected_time_a_minute_at_a_time, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+
+    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 30000U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 0U,
+                      "half a minute is not banked yet");
+    MESH_TEST_FAIL_IF(mesh_lifetime_dirty(&g_lifetime), "an unbanked turn writes nothing");
+
+    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 60500U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 60U,
+                      "a minute is banked in whole seconds");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_dirty(&g_lifetime), "a bank is something to write");
+
+    mesh_lifetime_note_link(&g_lifetime, false, 0U, 90700U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 90U,
+                      "a drop banks the rest, and the half second before it was carried");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S),
+                      "a finished stretch is a record");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S) != 90U,
+                      "the longest is the whole stretch");
+
+    /* A shorter second stretch adds to the total and leaves the record. */
+    mesh_lifetime_note_link(&g_lifetime, true, LT_OTHER, 100000U);
+    mesh_lifetime_note_link(&g_lifetime, false, 0U, 110000U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 100U,
+                      "every stretch adds to the total");
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S, &holder, NULL) ||
+            holder != LT_US,
+        "a shorter stretch does not take the record");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* The radio says which node it is some turns after the link is up; the record names it anyway. */
+MESH_TEST_CASE(lifetime_longest_connection_names_a_radio_that_spoke_late, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    mesh_lifetime_note_link(&g_lifetime, true, 0U, 0U);
+    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 2000U);
+    mesh_lifetime_note_link(&g_lifetime, false, 0U, 120000U);
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S, &holder, NULL) ||
+            holder != LT_US,
+        "the record is held by the radio the link reached");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* A monotonic clock does not go back, but a reading that did must not wrap into centuries. */
+MESH_TEST_CASE(lifetime_link_ignores_a_clock_that_goes_back, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 100000U);
+    mesh_lifetime_note_link(&g_lifetime, false, 0U, 5000U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 0U,
+                      "no time is banked off a reading from before the link");
+    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 6000U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 2U,
+                      "the link still went down");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* The totals come back after a restart; the link does not, since a new run starts with none. */
+MESH_TEST_CASE(lifetime_connected_time_survives_a_restart, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 0U);
+    mesh_lifetime_note_link(&g_lifetime, false, 0U, 45000U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 1U,
+                      "connections are on the card");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 45U,
+                      "time connected is on the card");
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S, &holder, NULL) ||
+            holder != LT_US,
+        "the longest keeps its holder");
+    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 1000U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 2U,
+                      "the first link of a new run is a new connection");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* A reset starts again from today, and the link that is up today is the first connection. */
+MESH_TEST_CASE(lifetime_a_reset_counts_the_link_that_is_up, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 0U);
+    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 600000U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_reset(&g_lifetime) != 0, "the reset failed");
+    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 600020U);
+    mesh_lifetime_note_link(&g_lifetime, false, 0U, 610020U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 1U,
+                      "the link up across the reset is counted once");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 10U,
+                      "only the time since the reset is counted");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}

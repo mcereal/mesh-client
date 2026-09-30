@@ -516,6 +516,56 @@ void mesh_lifetime_note_radio(struct mesh_lifetime *lifetime, uint32_t node_num)
     lifetime_record(lifetime, node_num, SEEN_RADIO);
 }
 
+/* ------------------------------------------------------------------------------ the link */
+
+/* Moves the link's time up to `now_ms` into CONNECTED_S, in whole seconds, and offers the
+   stretch so far to the record. What is under a second stays unbanked and rides into the next
+   bank, so a minute of banks adds up to a minute rather than to sixty truncations. */
+static void lifetime_bank_link(struct mesh_lifetime *lifetime, uint64_t now_ms) {
+    const uint64_t seconds = (now_ms - lifetime->link_banked_ms) / 1000U;
+    if (seconds > 0U) {
+        uint64_t *const total = &lifetime->values[MESH_LIFETIME_CONNECTED_S];
+        *total = *total > UINT64_MAX - seconds ? UINT64_MAX : *total + seconds;
+        lifetime->link_banked_ms += seconds * 1000U;
+        lifetime->dirty = true;
+        lifetime_changed(lifetime);
+    }
+    lifetime_raise(lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S,
+                   (lifetime->link_banked_ms - lifetime->link_since_ms) / 1000U,
+                   lifetime->link_radio);
+}
+
+void mesh_lifetime_note_link(struct mesh_lifetime *lifetime, bool up, uint32_t radio,
+                             uint64_t now_ms) {
+    if (lifetime == NULL) {
+        return;
+    }
+    if (!lifetime->link_up) {
+        if (!up) {
+            return;
+        }
+        lifetime_note_since(lifetime);
+        lifetime->link_up = true;
+        lifetime->link_since_ms = now_ms;
+        lifetime->link_banked_ms = now_ms;
+        lifetime->link_radio = radio;
+        lifetime_bump(lifetime, MESH_LIFETIME_CONNECTIONS);
+        return;
+    }
+    /* The radio says which node it is some turns after the link comes up, and a link going
+       down may already have forgotten it; the stretch keeps the last one it was told. */
+    if (radio != 0U) {
+        lifetime->link_radio = radio;
+    }
+    if (now_ms >= lifetime->link_banked_ms &&
+        (!up || now_ms - lifetime->link_banked_ms >= MESH_LIFETIME_LINK_BANK_MS)) {
+        lifetime_bank_link(lifetime, now_ms);
+    }
+    if (!up) {
+        lifetime->link_up = false;
+    }
+}
+
 /* How far `node` is from our own radio, when both have said where they are. */
 static bool lifetime_distance(const struct mesh_session *session,
                               const struct mesh_node_summary *node, uint64_t *out_m) {
