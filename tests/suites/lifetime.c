@@ -1209,3 +1209,35 @@ MESH_TEST_CASE(lifetime_a_radio_announced_before_the_link_is_its_radio, unit) {
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }
+
+/* A radio that identifies itself after its link's first minute was banked still names the record
+   that link set - though the link's last bank only ties it - and never one it merely tied. */
+MESH_TEST_CASE(lifetime_a_late_radio_names_the_record_its_link_set, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_link(true, 0U, 0U);
+    lt_link(true, 0U, 60500U);
+    mesh_lifetime_note_radio(&g_lifetime, LT_US);
+    lt_link(false, 0U, 60900U);
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S, &holder, NULL) ||
+            holder != LT_US,
+        "the late radio names the record its own link set");
+
+    /* An anonymous record, tied by a later link whose radio then speaks, stays anonymous. */
+    MESH_TEST_FAIL_IF(mesh_lifetime_reset(&g_lifetime) != 0, "the reset failed");
+    lt_link(true, 0U, 100000U);
+    lt_link(false, 0U, 130000U);
+    lt_link(true, 0U, 200000U);
+    lt_link(true, 0U, 230000U);
+    lt_link(false, 0U, 230000U);
+    mesh_lifetime_note_radio(&g_lifetime, LT_PEER);
+    lt_link(true, 0U, 240000U);
+    mesh_lifetime_note_radio(&g_lifetime, LT_PEER);
+    MESH_TEST_FAIL_IF(
+        mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S, NULL, NULL),
+        "a link that only tied the record does not take it");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}

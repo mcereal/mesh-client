@@ -519,6 +519,12 @@ void mesh_lifetime_note_radio(struct mesh_lifetime *lifetime, uint32_t node_num)
     }
     if (lifetime->link_up) {
         lifetime->link_radio = node_num;
+        const enum mesh_lifetime_stat longest = MESH_LIFETIME_LONGEST_CONNECTION_S;
+        if (lifetime->link_holds_record && lifetime->holders[longest] == 0U) {
+            lifetime->holders[longest] = node_num;
+            lifetime->dirty = true;
+            lifetime_changed(lifetime);
+        }
     } else {
         lifetime->link_radio_next = node_num;
     }
@@ -538,9 +544,12 @@ static void lifetime_bank_link(struct mesh_lifetime *lifetime, uint64_t now_ms) 
         lifetime->dirty = true;
         lifetime_changed(lifetime);
     }
-    lifetime_raise(lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S,
-                   (lifetime->link_banked_ms - lifetime->link_since_ms) / 1000U,
-                   lifetime->link_radio);
+    const enum mesh_lifetime_stat longest = MESH_LIFETIME_LONGEST_CONNECTION_S;
+    const uint64_t stretch = (lifetime->link_banked_ms - lifetime->link_since_ms) / 1000U;
+    if (!lifetime->measured[longest] || stretch > lifetime->values[longest]) {
+        lifetime->link_holds_record = true;
+    }
+    lifetime_raise(lifetime, longest, stretch, lifetime->link_radio);
 }
 
 void mesh_lifetime_note_link(struct mesh_lifetime *lifetime, bool up, uint64_t now_ms) {
@@ -557,6 +566,7 @@ void mesh_lifetime_note_link(struct mesh_lifetime *lifetime, bool up, uint64_t n
         lifetime->link_banked_ms = now_ms;
         lifetime->link_radio = lifetime->link_radio_next;
         lifetime->link_radio_next = 0U;
+        lifetime->link_holds_record = false;
         lifetime_bump(lifetime, MESH_LIFETIME_CONNECTIONS);
         return;
     }
@@ -567,6 +577,7 @@ void mesh_lifetime_note_link(struct mesh_lifetime *lifetime, bool up, uint64_t n
     if (!up) {
         lifetime->link_up = false;
         lifetime->link_radio = 0U;
+        lifetime->link_holds_record = false;
     }
 }
 

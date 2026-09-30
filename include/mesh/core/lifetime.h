@@ -172,6 +172,10 @@ struct mesh_lifetime {
        they belong to: the next link to come up takes it, and no later one. */
     uint32_t link_radio;
     uint32_t link_radio_next;
+    /* This link's stretch is what LONGEST_CONNECTION_S holds - it beat the record rather than
+       tying one - so a radio announced after the record was set, with nobody named, is named on
+       it: a tie keeps its holder, so the stretch's last bank would otherwise leave it blank. */
+    bool link_holds_record;
     /* `totals` differs from the card. */
     bool dirty;
     /* Moves whenever any value does, so a screen can ask whether to redraw. */
