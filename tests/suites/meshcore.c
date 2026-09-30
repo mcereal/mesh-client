@@ -412,6 +412,8 @@ MESH_TEST_CASE(meshcore_direct_messages_wait_for_their_ack, unit) {
                           0,
                       "a second message goes out");
     uint64_t now = g_meshcore.now_ms;
+    /* Each step is a minute on, which is the stats poll's too: it is not what this asks about. */
+    g_meshcore.stats_due_ms = 0U;
     for (unsigned attempt = 0U; attempt < MESH_MESHCORE_SEND_ATTEMPTS; ++attempt) {
         const uint8_t *frame = wire.frames[wire.count - 1U];
         MESH_TEST_FAIL_IF(frame[0] != MESH_MESHCORE_CMD_SEND_TXT_MSG || frame[2] != attempt,
@@ -2170,6 +2172,7 @@ MESH_TEST_CASE(meshcore_a_repeater_is_sent_commands, unit) {
     feed(&protocol, sent, sizeof sent);
     const size_t written = wire.count;
     const uint32_t notices = g_meshcore.notices;
+    g_meshcore.stats_due_ms = 0U; /* a minute on is the stats poll's, which would be a write */
     mesh_protocol_tick(&protocol, g_meshcore.now_ms + 60000U);
     MESH_TEST_FAIL_IF(mesh_message_log_find(&g_model.messages, packet_id)->ack !=
                           MESH_MESSAGE_ACK_FAILED,
@@ -3519,6 +3522,123 @@ MESH_TEST_CASE(meshcore_autoadd_config_is_read_and_written, unit) {
     g_meshcore.has_autoadd = false;
     MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EINVAL,
                       "a radio that refused the question is not written to");
+    record_success(test_name);
+}
+
+/* The radio's counters, which it never volunteers: asked once synced and every minute after,
+   each kind landing where Meshtastic's LocalStats does, with the airtime counters turned into
+   the shares the Radio tab reads. */
+static void stats_frame(const struct mesh_protocol *protocol, uint8_t type, const uint32_t *words,
+                        size_t count) {
+    uint8_t frame[2 + 7 * 4] = {MESH_MESHCORE_RESP_STATS, type};
+    for (size_t i = 0; i < count; ++i) {
+        mesh_test_put_u32(frame + 2 + i * 4U, words[i]);
+    }
+    feed(protocol, frame, 2U + count * 4U);
+}
+
+static void stats_core(const struct mesh_protocol *protocol, uint32_t uptime) {
+    uint8_t frame[11] = {MESH_MESHCORE_RESP_STATS, MESH_MESHCORE_STATS_CORE, 0xf7, 0x0f};
+    mesh_test_put_u32(frame + 4, uptime);
+    feed(protocol, frame, sizeof frame);
+}
+
+static void stats_radio(const struct mesh_protocol *protocol, uint32_t tx, uint32_t rx) {
+    uint8_t frame[14] = {MESH_MESHCORE_RESP_STATS, MESH_MESHCORE_STATS_RADIO, 0x88, 0xff, 0x89,
+                         0xe9};
+    mesh_test_put_u32(frame + 6, tx);
+    mesh_test_put_u32(frame + 10, rx);
+    feed(protocol, frame, sizeof frame);
+}
+
+static bool near(float value, float want) { return value > want - 0.01f && value < want + 0.01f; }
+
+MESH_TEST_CASE(meshcore_stats_are_polled_and_shared, unit) {
+    struct mesh_protocol protocol;
+    static struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const struct mesh_radio_stats *stats = mesh_session_radio_stats(&g_model);
+    MESH_TEST_FAIL_IF(!stats->valid || stats->uptime_seconds != 6U || !stats->has_noise_floor ||
+                          stats->noise_floor != -120 || !stats->has_routes ||
+                          stats->num_packets_tx != 0U,
+                      "the sync's counters are the radio's stats");
+    MESH_TEST_FAIL_IF(!near(stats->air_util_tx, 0.0f) || !near(stats->channel_utilization, 0.0f),
+                      "a radio that sent and heard nothing used none of the air");
+    const struct mesh_node_summary *self =
+        mesh_session_model_node(&g_model, g_meshcore.self_node, false);
+    MESH_TEST_FAIL_IF(self == NULL || !self->metrics.has_voltage ||
+                          !near(self->metrics.voltage, 3.856f) || self->metrics.has_battery,
+                      "the battery is our node's voltage, and no percentage is made up");
+
+    /* Nothing until the minute is up, then the battery and the three kinds again. */
+    const size_t before = wire.count;
+    mesh_protocol_tick(&protocol, g_meshcore.stats_due_ms - 1U);
+    MESH_TEST_FAIL_IF(wire.count != before, "not asked before it is due");
+    mesh_protocol_tick(&protocol, g_meshcore.stats_due_ms);
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) !=
+                          MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE,
+                      "the battery goes first");
+    uint8_t battery[11] = {MESH_MESHCORE_RESP_BATT_AND_STORAGE, 0x31, 0x11};
+    mesh_test_put_u32(battery + 3, 1U);
+    mesh_test_put_u32(battery + 7, 1404U);
+    feed(&protocol, battery, sizeof battery);
+    MESH_TEST_FAIL_IF(!stats->has_storage || stats->storage_used_kb != 1U ||
+                          stats->storage_total_kb != 1404U,
+                      "with the filesystem beside it");
+    MESH_TEST_FAIL_IF(wire.frames[wire.count - 1U][0] != MESH_MESHCORE_CMD_GET_STATS ||
+                          wire.frames[wire.count - 1U][1] != MESH_MESHCORE_STATS_CORE,
+                      "then the counters, core first");
+    stats_core(&protocol, 606U);
+    stats_radio(&protocol, 6U, 12U);
+    MESH_TEST_FAIL_IF(!near(stats->air_util_tx, 1.0f) || !near(stats->channel_utilization, 3.0f),
+                      "six seconds sent and twelve heard in ten minutes are 1% and 3%");
+    const uint32_t packets[7] = {40U, 5U, 3U, 2U, 30U, 8U, 2U};
+    stats_frame(&protocol, MESH_MESHCORE_STATS_PACKETS, packets, 7U);
+    MESH_TEST_FAIL_IF(stats->num_packets_rx != 40U || stats->num_packets_tx != 5U ||
+                          stats->sent_flood != 3U || stats->sent_direct != 2U ||
+                          stats->recv_flood != 30U || stats->recv_direct != 8U ||
+                          stats->num_packets_rx_bad != 2U,
+                      "the packets, split by route, with the receive errors");
+
+    /* A radio that rebooted counts from its boot again. */
+    g_meshcore.stats_due_ms = 1U;
+    mesh_protocol_tick(&protocol, g_meshcore.now_ms);
+    feed(&protocol, battery, sizeof battery);
+    stats_core(&protocol, 100U);
+    stats_radio(&protocol, 10U, 0U);
+    MESH_TEST_FAIL_IF(!near(stats->air_util_tx, 10.0f),
+                      "after a reboot the share is since boot, not since the old readings");
+    stats_frame(&protocol, MESH_MESHCORE_STATS_PACKETS, packets, 6U);
+    MESH_TEST_FAIL_IF(stats->num_packets_rx != 40U || stats->num_packets_rx_bad != 0U,
+                      "an older answer without the errors counts none");
+
+    /* A STATS whose question was given up on answers nothing outstanding now. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_reset_path(&g_meshcore, 0x40414243U) != 1,
+                      "a command is outstanding");
+    const size_t queued = g_meshcore.queue_count;
+    stats_core(&protocol, 9999U);
+    MESH_TEST_FAIL_IF(g_meshcore.queue_count != queued || stats->uptime_seconds == 9999U,
+                      "a late STATS neither pops the reset nor is believed");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+
+    /* A firmware older than the counters refuses them, and is asked only for its battery. */
+    g_meshcore.stats_due_ms = 1U;
+    mesh_protocol_tick(&protocol, g_meshcore.now_ms);
+    feed(&protocol, battery, sizeof battery);
+    const uint8_t refused[2] = {MESH_MESHCORE_RESP_ERR, 1U};
+    for (int i = 0; i < 3; ++i) {
+        feed(&protocol, refused, sizeof refused);
+    }
+    MESH_TEST_FAIL_IF(!g_meshcore.stats_refused || g_meshcore.queue_count != 0U,
+                      "refused, and nothing left waiting");
+    g_meshcore.stats_due_ms = 1U;
+    wire.count = 0U;
+    mesh_protocol_tick(&protocol, g_meshcore.now_ms);
+    MESH_TEST_FAIL_IF(wire.count != 1U ||
+                          wire.frames[0][0] != MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE ||
+                          g_meshcore.queue_count != 1U,
+                      "the next minute asks for the battery alone");
+    feed(&protocol, battery, sizeof battery);
     record_success(test_name);
 }
 

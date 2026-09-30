@@ -125,7 +125,8 @@ bool mesh_test_meshcore_sync(struct mesh_meshcore *meshcore, struct mesh_protoco
     memcpy(channel + 2, "Public", 6U);
     channel[34] = 0x8b;
     feed(protocol, channel, sizeof channel);
-    /* Ready: the message queue is drained, then the battery and the auto-add config asked for. */
+    /* Ready: the message queue is drained, then the battery, the auto-add config and the
+       counters asked for. */
     if (mesh_test_meshcore_wire_last(wire) != MESH_MESHCORE_CMD_SYNC_NEXT_MESSAGE) {
         return false;
     }
@@ -142,5 +143,20 @@ bool mesh_test_meshcore_sync(struct mesh_meshcore *meshcore, struct mesh_protoco
     }
     const uint8_t autoadd[3] = {MESH_MESHCORE_RESP_AUTOADD_CONFIG, 0U, 0U};
     feed(protocol, autoadd, sizeof autoadd);
+    /* Then its counters, each kind as the Heltec answered it six seconds after a reset: -120 dBm
+       of noise, nothing sent or heard. */
+    const uint8_t core[11] = {MESH_MESHCORE_RESP_STATS, MESH_MESHCORE_STATS_CORE, 0xf7, 0x0f, 6U};
+    const uint8_t radio[14] = {MESH_MESHCORE_RESP_STATS, MESH_MESHCORE_STATS_RADIO, 0x88, 0xff,
+                               0x89, 0xe9};
+    const uint8_t packets[30] = {MESH_MESHCORE_RESP_STATS, MESH_MESHCORE_STATS_PACKETS};
+    const uint8_t *const stats[3] = {core, radio, packets};
+    const size_t stats_len[3] = {sizeof core, sizeof radio, sizeof packets};
+    for (uint8_t type = 0U; type < 3U; ++type) {
+        if (mesh_test_meshcore_wire_last(wire) != MESH_MESHCORE_CMD_GET_STATS ||
+            wire->frames[wire->count - 1U][1] != type) {
+            return false;
+        }
+        feed(protocol, stats[type], stats_len[type]);
+    }
     return mesh_meshcore_ready(meshcore);
 }

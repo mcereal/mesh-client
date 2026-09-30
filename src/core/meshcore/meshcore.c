@@ -265,6 +265,20 @@ static void mesh_meshcore_request_plain(struct mesh_meshcore *meshcore, uint8_t 
     (void)mesh_meshcore_enqueue(meshcore, &cmd, 1, 0U);
 }
 
+/* The battery and the three kinds of counter, unless the last asking is still in line. */
+static void mesh_meshcore_request_stats(struct mesh_meshcore *meshcore) {
+    if (!mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE)) {
+        mesh_meshcore_request_plain(meshcore, MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE);
+    }
+    if (meshcore->stats_refused || mesh_meshcore_queued(meshcore, MESH_MESHCORE_CMD_GET_STATS)) {
+        return;
+    }
+    for (uint8_t type = MESH_MESHCORE_STATS_CORE; type <= MESH_MESHCORE_STATS_PACKETS; ++type) {
+        const uint8_t frame[2] = {MESH_MESHCORE_CMD_GET_STATS, type};
+        (void)mesh_meshcore_enqueue(meshcore, frame, (int)sizeof frame, 0U);
+    }
+}
+
 /* Drains the radio's message queue. One SYNC_NEXT_MESSAGE at a time; each answer that is a
    message asks again, and NO_MORE_MESSAGES stops. */
 static void mesh_meshcore_request_sync(struct mesh_meshcore *meshcore) {
@@ -864,6 +878,8 @@ static void mesh_meshcore_ready_now(struct mesh_meshcore *meshcore) {
     /* Refused by a firmware older than the question, which leaves `has_autoadd` false and the
        rows it fills unoffered. */
     mesh_meshcore_request_plain(meshcore, MESH_MESHCORE_CMD_GET_AUTOADD_CONFIG);
+    mesh_meshcore_request_stats(meshcore);
+    meshcore->stats_due_ms = inkwell_time_monotonic_ms() + MESH_MESHCORE_STATS_INTERVAL_MS;
 }
 
 static void mesh_meshcore_after_self(struct mesh_meshcore *meshcore) {
@@ -1186,6 +1202,113 @@ static void mesh_meshcore_store_neighbours(struct mesh_meshcore *meshcore,
 static uint32_t mesh_meshcore_u32_at(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8U) | ((uint32_t)p[2] << 16U) |
            ((uint32_t)p[3] << 24U);
+}
+
+/* The battery onto our own node's record, where every node's is, and the filesystem onto the
+   model's stats. A reading of 0 is a board with no divider to read, not a flat battery. */
+static void mesh_meshcore_store_battery(struct mesh_meshcore *meshcore, const uint8_t *frame,
+                                        size_t len) {
+    if (len < 3U) {
+        return;
+    }
+    meshcore->battery_mv = (uint16_t)(frame[1] | (frame[2] << 8U));
+    meshcore->battery_valid = true;
+    /* Ours is on the roster from SELF_INFO on, so this finds it rather than adding it. */
+    struct mesh_node_summary *self =
+        mesh_session_model_node(meshcore->model, meshcore->self_node, false);
+    if (self != NULL && meshcore->battery_mv != 0U) {
+        self->metrics.valid = true;
+        self->metrics.time = mesh_meshcore_clock_now(meshcore);
+        self->metrics.has_voltage = true;
+        self->metrics.voltage = (float)meshcore->battery_mv / 1000.0f;
+    }
+    if (len >= 11U) {
+        struct mesh_radio_stats *stats = &meshcore->model->stats;
+        stats->has_storage = true;
+        stats->storage_used_kb = mesh_meshcore_u32_at(frame + 3);
+        stats->storage_total_kb = mesh_meshcore_u32_at(frame + 7);
+    }
+}
+
+/*
+ * The airtime counters as shares, the way Meshtastic reports them: percent of the time between
+ * the oldest reading kept and this one, or since boot while this is the only one. An uptime gone
+ * backwards is a radio that rebooted, and its readings start again. Busy is what the radio sent
+ * and what it heard - it cannot count what it did not hear, so it is less than the whole air.
+ */
+static void mesh_meshcore_note_airtime(struct mesh_meshcore *meshcore, uint32_t tx_secs,
+                                       uint32_t rx_secs) {
+    struct mesh_radio_stats *stats = &meshcore->model->stats;
+    const struct mesh_meshcore_airtime now = {stats->uptime_seconds, tx_secs, rx_secs};
+    if (meshcore->airtime_count > 0U &&
+        now.uptime_secs < meshcore->airtime[meshcore->airtime_count - 1U].uptime_secs) {
+        meshcore->airtime_count = 0U;
+    }
+    if (meshcore->airtime_count == MESH_MESHCORE_AIRTIME_READINGS) {
+        memmove(meshcore->airtime, meshcore->airtime + 1,
+                (MESH_MESHCORE_AIRTIME_READINGS - 1U) * sizeof meshcore->airtime[0]);
+        meshcore->airtime_count -= 1U;
+    }
+    meshcore->airtime[meshcore->airtime_count++] = now;
+    const struct mesh_meshcore_airtime from =
+        meshcore->airtime_count > 1U ? meshcore->airtime[0] : (struct mesh_meshcore_airtime){0};
+    if (now.uptime_secs <= from.uptime_secs) {
+        return; /* no time between them: the last shares stand */
+    }
+    const float span = (float)(now.uptime_secs - from.uptime_secs);
+    const float tx = (float)(now.tx_secs >= from.tx_secs ? now.tx_secs - from.tx_secs : 0U);
+    const float rx = (float)(now.rx_secs >= from.rx_secs ? now.rx_secs - from.rx_secs : 0U);
+    stats->air_util_tx = tx * 100.0f / span;
+    stats->channel_utilization = (tx + rx) * 100.0f / span;
+    if (stats->air_util_tx > 100.0f) {
+        stats->air_util_tx = 100.0f;
+    }
+    if (stats->channel_utilization > 100.0f) {
+        stats->channel_utilization = 100.0f;
+    }
+}
+
+/* One of GET_STATS' three answers onto the model's stats. They are asked in order, and the last
+   is what makes the whole valid: a Radio tab drawn between them would show counters beside an
+   uptime from the reading before. */
+static void mesh_meshcore_store_stats(struct mesh_meshcore *meshcore, const uint8_t *frame,
+                                      size_t len) {
+    if (len < 2U) {
+        return;
+    }
+    struct mesh_radio_stats *stats = &meshcore->model->stats;
+    switch (frame[1]) {
+    case MESH_MESHCORE_STATS_CORE:
+        if (len >= 11U) {
+            stats->uptime_seconds = mesh_meshcore_u32_at(frame + 4);
+        }
+        break;
+    case MESH_MESHCORE_STATS_RADIO:
+        if (len >= 14U) {
+            const int16_t floor = (int16_t)(uint16_t)(frame[2] | (frame[3] << 8U));
+            stats->has_noise_floor = floor != 0;
+            stats->noise_floor = floor;
+            mesh_meshcore_note_airtime(meshcore, mesh_meshcore_u32_at(frame + 6),
+                                       mesh_meshcore_u32_at(frame + 10));
+        }
+        break;
+    case MESH_MESHCORE_STATS_PACKETS:
+        if (len >= 26U) {
+            stats->num_packets_rx = mesh_meshcore_u32_at(frame + 2);
+            stats->num_packets_tx = mesh_meshcore_u32_at(frame + 6);
+            stats->sent_flood = mesh_meshcore_u32_at(frame + 10);
+            stats->sent_direct = mesh_meshcore_u32_at(frame + 14);
+            stats->recv_flood = mesh_meshcore_u32_at(frame + 18);
+            stats->recv_direct = mesh_meshcore_u32_at(frame + 22);
+            stats->num_packets_rx_bad = len >= 30U ? mesh_meshcore_u32_at(frame + 26) : 0U;
+            stats->has_routes = true;
+            stats->valid = true;
+            stats->time = mesh_meshcore_clock_now(meshcore);
+        }
+        break;
+    default:
+        break;
+    }
 }
 
 /*
@@ -1627,12 +1750,13 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
      */
     /* And PRIVATE_KEY answers EXPORT_PRIVATE_KEY alone: one that lands after its export was
        given up on would otherwise pop - and lose - whatever command is outstanding now. So does
-       AUTOADD_CONFIG, for GET_AUTOADD_CONFIG. */
+       AUTOADD_CONFIG, for GET_AUTOADD_CONFIG, and STATS for GET_STATS. */
     if ((code == MESH_MESHCORE_RESP_DEVICE_INFO && cmd != MESH_MESHCORE_CMD_DEVICE_QUERY) ||
         (code == MESH_MESHCORE_RESP_SELF_INFO && cmd != MESH_MESHCORE_CMD_APP_START) ||
         (code == MESH_MESHCORE_RESP_PRIVATE_KEY && cmd != MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY) ||
         (code == MESH_MESHCORE_RESP_AUTOADD_CONFIG &&
-         cmd != MESH_MESHCORE_CMD_GET_AUTOADD_CONFIG)) {
+         cmd != MESH_MESHCORE_CMD_GET_AUTOADD_CONFIG) ||
+        (code == MESH_MESHCORE_RESP_STATS && cmd != MESH_MESHCORE_CMD_GET_STATS)) {
         inkwell_log_debug("meshcore", "Reply %u answers no command outstanding (head %u)",
                           (unsigned)code, (unsigned)cmd);
         return;
@@ -1883,10 +2007,10 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         }
         break;
     case MESH_MESHCORE_RESP_BATT_AND_STORAGE:
-        if (len >= 3U) {
-            meshcore->battery_mv = (uint16_t)(frame[1] | (frame[2] << 8U));
-            meshcore->battery_valid = true;
-        }
+        mesh_meshcore_store_battery(meshcore, frame, len);
+        break;
+    case MESH_MESHCORE_RESP_STATS:
+        mesh_meshcore_store_stats(meshcore, frame, len);
         break;
     case MESH_MESHCORE_RESP_PRIVATE_KEY:
         break; /* settled above; its bytes are never logged */
@@ -1917,6 +2041,10 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             meshcore->share_refused_node =
                 mesh_meshcore_node_id(request->frame + 1, MESH_MESHCORE_PUBKEY_LEN);
             meshcore->share_refusals += 1U;
+        }
+        /* A firmware older than the counters: asked once a connection, not once a minute. */
+        if (cmd == MESH_MESHCORE_CMD_GET_STATS) {
+            meshcore->stats_refused = true;
         }
         /* A walk step refused ends the walk where it stands. */
         if (cmd == MESH_MESHCORE_CMD_GET_CHANNEL && meshcore->phase == MESH_MESHCORE_CHANNELS) {
@@ -2025,6 +2153,9 @@ static void mesh_meshcore_detach(void *self) {
     meshcore->battery_valid = false;
     meshcore->has_autoadd = false;
     meshcore->contacts_full = false;
+    meshcore->stats_refused = false;
+    meshcore->stats_due_ms = 0U;
+    meshcore->airtime_count = 0U;
     mesh_session_detach(meshcore->model);
 }
 
@@ -2039,6 +2170,10 @@ static int mesh_meshcore_begin(void *self) {
     meshcore->has_device = false;
     meshcore->has_autoadd = false;
     meshcore->contacts_full = false;
+    /* Asked again once this sync is through, of a radio that may have been reflashed since. */
+    meshcore->stats_refused = false;
+    meshcore->stats_due_ms = 0U;
+    meshcore->airtime_count = 0U;
     /* A fresh connection asks for every contact: the model may hold nodes from another radio's
        list, and "since" is only meaningful against the list it came from. */
     meshcore->contacts_since = 0U;
@@ -2175,6 +2310,11 @@ static void mesh_meshcore_tick(void *self, uint64_t now_ms) {
         }
     }
     mesh_meshcore_request_expire(meshcore, now_ms);
+    if (meshcore->phase == MESH_MESHCORE_READY && meshcore->stats_due_ms != 0U &&
+        now_ms >= meshcore->stats_due_ms) {
+        meshcore->stats_due_ms = now_ms + MESH_MESHCORE_STATS_INTERVAL_MS;
+        mesh_meshcore_request_stats(meshcore);
+    }
 }
 
 static bool mesh_meshcore_silent(const void *self) {

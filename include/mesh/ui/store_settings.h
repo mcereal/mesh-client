@@ -305,6 +305,14 @@ struct mesh_ui_radio_stats {
     uint32_t heap_free_bytes;
     bool has_noise_floor;
     int32_t noise_floor;
+    bool has_routes; /* a MeshCore radio's flood and direct counts */
+    uint32_t sent_flood;
+    uint32_t sent_direct;
+    uint32_t recv_flood;
+    uint32_t recv_direct;
+    bool has_storage; /* whether or not `valid` */
+    uint32_t storage_used_kb;
+    uint32_t storage_total_kb;
 };
 
 /*

@@ -1032,7 +1032,13 @@ void mesh_app_flatten_traceroute(const struct mesh_handshake_status *status,
 static void mesh_app_flatten_radio_stats(const struct mesh_radio_stats *src,
                                          struct mesh_ui_radio_stats *dst) {
     memset(dst, 0, sizeof *dst);
-    if (src == NULL || !src->valid) {
+    if (src == NULL) {
+        return;
+    }
+    dst->has_storage = src->has_storage;
+    dst->storage_used_kb = src->storage_used_kb;
+    dst->storage_total_kb = src->storage_total_kb;
+    if (!src->valid) {
         return;
     }
     dst->valid = true;
@@ -1054,6 +1060,11 @@ static void mesh_app_flatten_radio_stats(const struct mesh_radio_stats *src,
     dst->heap_free_bytes = src->heap_free_bytes;
     dst->has_noise_floor = src->has_noise_floor;
     dst->noise_floor = src->noise_floor;
+    dst->has_routes = src->has_routes;
+    dst->sent_flood = src->sent_flood;
+    dst->sent_direct = src->sent_direct;
+    dst->recv_flood = src->recv_flood;
+    dst->recv_direct = src->recv_direct;
 }
 
 /* The radio's own announcements, copied by hand for the reason above. Both are always copied,
