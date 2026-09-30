@@ -3544,8 +3544,8 @@ static void stats_core(const struct mesh_protocol *protocol, uint32_t uptime) {
 }
 
 static void stats_radio(const struct mesh_protocol *protocol, uint32_t tx, uint32_t rx) {
-    uint8_t frame[14] = {MESH_MESHCORE_RESP_STATS, MESH_MESHCORE_STATS_RADIO, 0x88, 0xff, 0x89,
-                         0xe9};
+    uint8_t frame[14] = {
+        MESH_MESHCORE_RESP_STATS, MESH_MESHCORE_STATS_RADIO, 0x88, 0xff, 0x89, 0xe9};
     mesh_test_put_u32(frame + 6, tx);
     mesh_test_put_u32(frame + 10, rx);
     feed(protocol, frame, sizeof frame);
@@ -3575,25 +3575,32 @@ MESH_TEST_CASE(meshcore_stats_are_polled_and_shared, unit) {
     mesh_protocol_tick(&protocol, g_meshcore.stats_due_ms - 1U);
     MESH_TEST_FAIL_IF(wire.count != before, "not asked before it is due");
     mesh_protocol_tick(&protocol, g_meshcore.stats_due_ms);
-    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) !=
-                          MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE,
+    MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE,
                       "the battery goes first");
     uint8_t battery[11] = {MESH_MESHCORE_RESP_BATT_AND_STORAGE, 0x31, 0x11};
     mesh_test_put_u32(battery + 3, 1U);
     mesh_test_put_u32(battery + 7, 1404U);
     feed(&protocol, battery, sizeof battery);
-    MESH_TEST_FAIL_IF(!stats->has_storage || stats->storage_used_kb != 1U ||
-                          stats->storage_total_kb != 1404U,
-                      "with the filesystem beside it");
     MESH_TEST_FAIL_IF(wire.frames[wire.count - 1U][0] != MESH_MESHCORE_CMD_GET_STATS ||
                           wire.frames[wire.count - 1U][1] != MESH_MESHCORE_STATS_CORE,
                       "then the counters, core first");
+    /* A kind the head did not ask for is some earlier question's late answer. */
+    const size_t waiting = g_meshcore.queue_count;
+    stats_radio(&protocol, 999U, 999U);
+    MESH_TEST_FAIL_IF(g_meshcore.queue_count != waiting,
+                      "a RADIO with CORE outstanding pops nothing");
     stats_core(&protocol, 606U);
     stats_radio(&protocol, 6U, 12U);
-    MESH_TEST_FAIL_IF(!near(stats->air_util_tx, 1.0f) || !near(stats->channel_utilization, 3.0f),
-                      "six seconds sent and twelve heard in ten minutes are 1% and 3%");
+    MESH_TEST_FAIL_IF(stats->uptime_seconds != 6U || !near(stats->air_util_tx, 0.0f) ||
+                          stats->storage_total_kb != 0U,
+                      "nothing moves until the poll is whole: the chart samples each change");
     const uint32_t packets[7] = {40U, 5U, 3U, 2U, 30U, 8U, 2U};
     stats_frame(&protocol, MESH_MESHCORE_STATS_PACKETS, packets, 7U);
+    MESH_TEST_FAIL_IF(stats->uptime_seconds != 606U || !stats->has_storage ||
+                          stats->storage_used_kb != 1U || stats->storage_total_kb != 1404U,
+                      "then all of it lands, the filesystem with it");
+    MESH_TEST_FAIL_IF(!near(stats->air_util_tx, 1.0f) || !near(stats->channel_utilization, 3.0f),
+                      "six seconds sent and twelve heard in ten minutes are 1% and 3%");
     MESH_TEST_FAIL_IF(stats->num_packets_rx != 40U || stats->num_packets_tx != 5U ||
                           stats->sent_flood != 3U || stats->sent_direct != 2U ||
                           stats->recv_flood != 30U || stats->recv_direct != 8U ||
@@ -3606,11 +3613,23 @@ MESH_TEST_CASE(meshcore_stats_are_polled_and_shared, unit) {
     feed(&protocol, battery, sizeof battery);
     stats_core(&protocol, 100U);
     stats_radio(&protocol, 10U, 0U);
+    stats_frame(&protocol, MESH_MESHCORE_STATS_PACKETS, packets, 6U);
     MESH_TEST_FAIL_IF(!near(stats->air_util_tx, 10.0f),
                       "after a reboot the share is since boot, not since the old readings");
-    stats_frame(&protocol, MESH_MESHCORE_STATS_PACKETS, packets, 6U);
     MESH_TEST_FAIL_IF(stats->num_packets_rx != 40U || stats->num_packets_rx_bad != 0U,
                       "an older answer without the errors counts none");
+
+    /* A poll whose CORE went unanswered is dropped whole, not landed beside the last uptime. */
+    g_meshcore.stats_due_ms = 1U;
+    mesh_protocol_tick(&protocol, g_meshcore.now_ms);
+    feed(&protocol, battery, sizeof battery);
+    mesh_protocol_tick(&protocol, g_meshcore.awaiting_since_ms + MESH_MESHCORE_REPLY_TIMEOUT_MS);
+    stats_radio(&protocol, 50U, 0U);
+    const uint32_t more[7] = {99U, 99U, 0U, 0U, 0U, 0U, 0U};
+    stats_frame(&protocol, MESH_MESHCORE_STATS_PACKETS, more, 7U);
+    MESH_TEST_FAIL_IF(stats->num_packets_rx != 40U || !near(stats->air_util_tx, 10.0f) ||
+                          g_meshcore.queue_count != 0U,
+                      "half a poll leaves the last whole one standing");
 
     /* A STATS whose question was given up on answers nothing outstanding now. */
     MESH_TEST_FAIL_IF(mesh_meshcore_reset_path(&g_meshcore, 0x40414243U) != 1,

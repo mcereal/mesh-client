@@ -666,12 +666,25 @@ struct mesh_meshcore {
     uint16_t battery_mv;
     /*
      * GET_STATS, asked with the battery every MESH_MESHCORE_STATS_INTERVAL_MS from `stats_due_ms`
-     * (0 until the sync is through), and never again on this connection once refused. Its answers
-     * land on the model's `stats` as they come, CORE then RADIO then PACKETS; `airtime` is the
-     * readings the shares are worked out over, oldest first.
+     * (0 until the sync is through), and never again on this connection once refused. A poll's
+     * answers are staged in `stats_poll` - `parts` a bit per kind answered - and reach the model's
+     * `stats` together when PACKETS completes them: the store takes a chart sample each time a
+     * valid record changes, and a record changed a reply at a time is three samples, two of them
+     * half one reading and half the last. `airtime` is the readings the shares are worked out
+     * over, oldest first.
      */
     bool stats_refused;
     uint64_t stats_due_ms;
+    struct {
+        uint8_t parts;
+        uint32_t uptime_secs;
+        int16_t noise_floor;
+        uint32_t tx_secs;
+        uint32_t rx_secs;
+        bool has_storage;
+        uint32_t storage_used_kb;
+        uint32_t storage_total_kb;
+    } stats_poll;
     struct mesh_meshcore_airtime {
         uint32_t uptime_secs;
         uint32_t tx_secs;

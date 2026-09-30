@@ -146,8 +146,8 @@ bool mesh_test_meshcore_sync(struct mesh_meshcore *meshcore, struct mesh_protoco
     /* Then its counters, each kind as the Heltec answered it six seconds after a reset: -120 dBm
        of noise, nothing sent or heard. */
     const uint8_t core[11] = {MESH_MESHCORE_RESP_STATS, MESH_MESHCORE_STATS_CORE, 0xf7, 0x0f, 6U};
-    const uint8_t radio[14] = {MESH_MESHCORE_RESP_STATS, MESH_MESHCORE_STATS_RADIO, 0x88, 0xff,
-                               0x89, 0xe9};
+    const uint8_t radio[14] = {
+        MESH_MESHCORE_RESP_STATS, MESH_MESHCORE_STATS_RADIO, 0x88, 0xff, 0x89, 0xe9};
     const uint8_t packets[30] = {MESH_MESHCORE_RESP_STATS, MESH_MESHCORE_STATS_PACKETS};
     const uint8_t *const stats[3] = {core, radio, packets};
     const size_t stats_len[3] = {sizeof core, sizeof radio, sizeof packets};
