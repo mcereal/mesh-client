@@ -1895,6 +1895,170 @@ MESH_TEST_CASE(meshcore_path_discovery_is_the_traceroute, unit) {
     record_success(test_name);
 }
 
+/* A repeater with a route is traced along it, to itself, and back the same way: SEND_TRACE_PATH
+   with a tag the answer echoes, since TRACE_DATA names no node. Each hop's reading is the SNR
+   it heard the trace at, so the way out gets one per link ending at the repeater and the way
+   back one per link ending at this radio - the shape Meshtastic's trace fills. */
+MESH_TEST_CASE(meshcore_trace_path_reads_every_link, unit) {
+    struct mesh_protocol protocol;
+    static struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const uint32_t alice = 0x40414243U;
+    struct mesh_node_summary *node = mesh_session_model_node(g_meshcore.model, alice, false);
+    MESH_TEST_FAIL_IF(node == NULL, "Alice is on the roster");
+    struct mesh_meshcore_contact *contact = NULL;
+    for (size_t i = 0; i < g_meshcore.contact_count; ++i) {
+        if (g_meshcore.contacts[i].public_key[0] == 0x40) {
+            contact = &g_meshcore.contacts[i];
+        }
+    }
+    MESH_TEST_FAIL_IF(contact == NULL, "Alice is in the book");
+
+    MESH_TEST_FAIL_IF(mesh_meshcore_trace_path(&g_meshcore, alice) != -EINVAL,
+                      "a companion forwards nothing, so is no place for a trace to turn");
+    node->role = 4U;
+    contact->out_path_len = MESH_MESHCORE_PATH_NONE;
+    MESH_TEST_FAIL_IF(mesh_meshcore_trace_path(&g_meshcore, alice) != -EAGAIN,
+                      "a repeater with no route is left to a path discovery");
+
+    contact->out_path_len = 2U;
+    contact->out_path[0] = 0xAA;
+    contact->out_path[1] = 0xBB;
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_trace_path(&g_meshcore, alice) != 0, "Alice is traced");
+    const uint8_t *frame = wire.frames[0];
+    MESH_TEST_FAIL_IF(wire.lens[0] != 15U || frame[0] != MESH_MESHCORE_CMD_SEND_TRACE_PATH ||
+                          frame[5] != 0U || frame[8] != 0U || frame[9] != 0U,
+                      "a tag, no auth code, and one byte a hop");
+    MESH_TEST_FAIL_IF(frame[10] != 0xAA || frame[11] != 0xBB || frame[12] != 0x40 ||
+                          frame[13] != 0xBB || frame[14] != 0xAA,
+                      "out along the route, to her, and back the same way");
+    const struct mesh_traceroute *trace = &g_meshcore.model->traceroute;
+    MESH_TEST_FAIL_IF(trace->state != MESH_TRACEROUTE_PENDING || trace->target != alice,
+                      "the trace is running");
+    MESH_TEST_FAIL_IF(mesh_meshcore_discover_path(&g_meshcore, alice) != -EBUSY,
+                      "and holds the lock every request shares");
+
+    uint8_t sent[10] = {MESH_MESHCORE_RESP_SENT, 0, 0, 0, 0, 0, 0x30, 0x75, 0, 0};
+    memcpy(sent + 2, frame + 1, 4U);
+    feed(&protocol, sent, sizeof sent);
+
+    uint8_t data[12U + 5U + 6U] = {MESH_MESHCORE_PUSH_TRACE_DATA, 0, 5, 0};
+    memcpy(data + 4, frame + 1, 4U);
+    memcpy(data + 12, frame + 10, 5U);
+    static const int8_t k_snr[6] = {40, 20, -8, 24, 36, 44};
+    memcpy(data + 17, k_snr, sizeof k_snr);
+    data[4] ^= 0x02U;
+    feed(&protocol, data, sizeof data);
+    MESH_TEST_FAIL_IF(trace->state != MESH_TRACEROUTE_PENDING || g_meshcore.request_cmd == 0U,
+                      "a trace under another tag is somebody else's");
+    data[4] ^= 0x02U;
+    feed(&protocol, data, sizeof data);
+    MESH_TEST_FAIL_IF(g_meshcore.notice.cmd != MESH_MESHCORE_CMD_SEND_TRACE_PATH ||
+                          g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_ROUTE ||
+                          g_meshcore.request_cmd != 0U,
+                      "its own ends the request");
+    MESH_TEST_FAIL_IF(trace->state != MESH_TRACEROUTE_DONE || trace->completed == 0U,
+                      "and finishes the trace");
+    MESH_TEST_FAIL_IF(trace->route_count != 2U || trace->hash_size != 1U ||
+                          trace->route_hash[0][0] != 0xAA || trace->route_hash[1][0] != 0xBB ||
+                          trace->snr_count != 3U || trace->snr[0] != 40 || trace->snr[2] != -8,
+                      "the way out: two hops, and a reading on each of three links");
+    MESH_TEST_FAIL_IF(trace->back_count != 2U || trace->back_hash[0][0] != 0xBB ||
+                          trace->back_hash[1][0] != 0xAA || trace->snr_back_count != 3U ||
+                          trace->snr_back[0] != 24 || trace->snr_back[2] != 44,
+                      "the way back the same, ending at this radio's own reading");
+
+    /* A route named by three bytes a hop is traced by two: a trace's widths are powers of two,
+       and a hop matches on the start of its key. */
+    contact->out_path_len = (uint8_t)((2U << 6U) | 1U);
+    contact->out_path[0] = 0xAA;
+    contact->out_path[1] = 0xBB;
+    contact->out_path[2] = 0xCC;
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_trace_path(&g_meshcore, alice) != 0, "traced again");
+    MESH_TEST_FAIL_IF(wire.lens[0] != 16U || frame[9] != 1U || frame[10] != 0xAA ||
+                          frame[11] != 0xBB || frame[12] != 0x40 || frame[13] != 0x41 ||
+                          frame[14] != 0xAA || frame[15] != 0xBB,
+                      "two bytes a hop");
+
+    /* Silence is a trace that timed out. */
+    memcpy(sent + 2, frame + 1, 4U);
+    feed(&protocol, sent, sizeof sent);
+    mesh_protocol_tick(&protocol, g_meshcore.request_until_ms);
+    MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_SILENT ||
+                          trace->state != MESH_TRACEROUTE_TIMEOUT,
+                      "nothing by the deadline times the trace out");
+
+    /* The tag is the trace's own, so an answer that beats its SENT is still read. */
+    contact->out_path_len = 1U;
+    contact->out_path[0] = 0xAA;
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_trace_path(&g_meshcore, alice) != 0, "traced once more");
+    uint8_t early[12U + 3U + 4U] = {MESH_MESHCORE_PUSH_TRACE_DATA, 0, 3, 0};
+    memcpy(early + 4, frame + 1, 4U);
+    memcpy(early + 12, frame + 10, 3U);
+    feed(&protocol, early, sizeof early);
+    MESH_TEST_FAIL_IF(trace->state != MESH_TRACEROUTE_DONE || g_meshcore.request_cmd != 0U ||
+                          trace->route_count != 1U || trace->snr_count != 2U,
+                      "an answer before its SENT finishes the trace");
+    memcpy(sent + 2, frame + 1, 4U);
+    feed(&protocol, sent, sizeof sent);
+    MESH_TEST_FAIL_IF(g_meshcore.request_until_ms != 0U, "and the SENT after it sets no deadline");
+
+    /* Out and back past the firmware's 64 hops is left to a path discovery. */
+    contact->out_path_len = 32U;
+    memset(contact->out_path, 0xAA, 32U);
+    MESH_TEST_FAIL_IF(mesh_meshcore_trace_path(&g_meshcore, alice) != -EAGAIN,
+                      "a route too long to trace both ways falls back");
+    contact->out_path_len = 31U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_trace_path(&g_meshcore, alice) != 0,
+                      "one hop shorter fits in 63");
+    record_success(test_name);
+}
+
+/* TRACE_DATA is read only when its byte count is whole hops and every reading is there. */
+MESH_TEST_CASE(meshcore_trace_data_decode_is_strict, unit) {
+    struct mesh_meshcore_trace trace;
+    const uint8_t whole[] = {MESH_MESHCORE_PUSH_TRACE_DATA,
+                             0,
+                             4,
+                             1,
+                             1,
+                             2,
+                             3,
+                             4,
+                             0,
+                             0,
+                             0,
+                             0,
+                             0xAA,
+                             0xAA,
+                             0xBB,
+                             0xBB,
+                             8,
+                             (uint8_t)-4,
+                             12};
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_trace(whole, sizeof whole, &trace) != 0 ||
+                          trace.tag != 0x04030201U || trace.hash_size != 2U || trace.hops != 2U ||
+                          trace.snr_q4[1] != -4 || trace.snr_q4[2] != 12,
+                      "two two-byte hops and three readings");
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_trace(whole, sizeof whole - 1U, &trace) != -EBADMSG,
+                      "a reading short is refused");
+    uint8_t ragged[sizeof whole];
+    memcpy(ragged, whole, sizeof whole);
+    ragged[2] = 3U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_decode_trace(ragged, sizeof ragged, &trace) != -EBADMSG,
+                      "half a hop is refused");
+    uint8_t out[16];
+    const uint8_t hops[3] = {1, 2, 3};
+    MESH_TEST_FAIL_IF(mesh_meshcore_encode_trace(1U, 3U, hops, 1U, out, sizeof out) != -EINVAL,
+                      "a width the flags cannot say is not sent");
+    MESH_TEST_FAIL_IF(mesh_meshcore_encode_trace(1U, 1U, hops, 3U, out, 12U) != -ENOSPC,
+                      "nor a path the buffer cannot hold");
+    record_success(test_name);
+}
+
 /* A message to a repeater is a command: CLI_DATA rather than text, with no ack to wait for.
    The repeater's reply is the answer - it settles the command and lands in the conversation -
    and a command nobody answered is failed without being sent again, since it may have run. */

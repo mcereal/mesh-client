@@ -686,6 +686,69 @@ int mesh_meshcore_decode_neighbours(const uint8_t *data, size_t len,
     return 0;
 }
 
+/* The flags' low two bits: each hop is named by 1 << n bytes. -1 for a width they cannot say. */
+static int mesh_meshcore_trace_width_bits(uint8_t hash_size) {
+    switch (hash_size) {
+    case 1U:
+        return 0;
+    case 2U:
+        return 1;
+    case 4U:
+        return 2;
+    case 8U:
+        return 3;
+    default:
+        return -1;
+    }
+}
+
+int mesh_meshcore_encode_trace(uint32_t tag, uint8_t hash_size, const uint8_t *hops,
+                               uint8_t hop_count, uint8_t *out, size_t out_len) {
+    const int bits = mesh_meshcore_trace_width_bits(hash_size);
+    if (hops == NULL || out == NULL || bits < 0 || hop_count == 0U) {
+        return -EINVAL;
+    }
+    /* The command, the tag, the auth code (0: nothing on the way checks it), the flags, then
+       the hops - which the firmware counts against its 64 and its packet's payload. */
+    const size_t path = (size_t)hop_count * hash_size;
+    const size_t total = 10U + path;
+    if (hop_count > MESH_MESHCORE_PATH_MAX || total > MESH_MESHCORE_MAX_FRAME || out_len < total) {
+        return -ENOSPC;
+    }
+    out[0] = MESH_MESHCORE_CMD_SEND_TRACE_PATH;
+    mesh_meshcore_put_u32(out + 1, tag);
+    mesh_meshcore_put_u32(out + 5, 0U);
+    out[9] = (uint8_t)bits;
+    memcpy(out + 10, hops, path);
+    return (int)total;
+}
+
+int mesh_meshcore_decode_trace(const uint8_t *frame, size_t len, struct mesh_meshcore_trace *out) {
+    if (frame == NULL || out == NULL) {
+        return -EINVAL;
+    }
+    memset(out, 0, sizeof *out);
+    /* The code, a reserved byte, how many bytes of hops, the flags, the tag, the auth code,
+       the hops, a reading per hop, and the reading at this radio. */
+    if (len < 12U || frame[0] != MESH_MESHCORE_PUSH_TRACE_DATA) {
+        return -EBADMSG;
+    }
+    const uint8_t path = frame[2];
+    const uint8_t bits = (uint8_t)(frame[3] & 0x03U);
+    const uint8_t hops = (uint8_t)(path >> bits);
+    if ((path & ((1U << bits) - 1U)) != 0U || len < 12U + (size_t)path + hops + 1U) {
+        return -EBADMSG;
+    }
+    out->tag = mesh_meshcore_u32(frame + 4);
+    out->hash_size = (uint8_t)(1U << bits);
+    out->hops = hops;
+    memcpy(out->hashes, frame + 12, path);
+    for (uint8_t i = 0; i <= hops; ++i) {
+        out->snr_q4[i] = (int8_t)frame[12U + path + i];
+    }
+    return 0;
+}
+
 int mesh_meshcore_encode_reboot(uint8_t *out, size_t out_len) {
     static const char k_word[] = "reboot";
     if (out == NULL) {

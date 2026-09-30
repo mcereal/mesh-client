@@ -1363,11 +1363,19 @@ static void on_traceroute(struct mesh_app *app, const struct mesh_ui_action *act
 
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
     action_peer_name(app, action->dest, name, sizeof name);
-    /* MeshCore's trace is its path discovery, which is one of the requests its radio keeps
-       one of at a time - so busy there is the shared lock, not a trace already running. */
-    const int result = app->meshcore_bound
-                           ? mesh_meshcore_discover_path(&app->meshcore, action->dest)
-                           : mesh_session_send_traceroute(&app->session, action->dest);
+    /* MeshCore traces a repeater or room server along the route its radio keeps, which reads
+       an SNR on every link; anything else - or one with no route yet - gets a path discovery,
+       which finds the route but reads none. Both are among the requests its radio keeps one of
+       at a time, so busy there is the shared lock, not a trace already running. */
+    int result = 0;
+    if (app->meshcore_bound) {
+        result = mesh_meshcore_trace_path(&app->meshcore, action->dest);
+        if (result == -EINVAL || result == -EAGAIN) {
+            result = mesh_meshcore_discover_path(&app->meshcore, action->dest);
+        }
+    } else {
+        result = mesh_session_send_traceroute(&app->session, action->dest);
+    }
     if (result == 0) {
         inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_TRACING, name);
         inkwell_log_info("ui", "Traceroute to 0x%08x from the Nodes tab", action->dest);
