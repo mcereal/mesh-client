@@ -3452,5 +3452,19 @@ MESH_TEST_CASE(meshcore_reset_path_forgets_the_stored_route, unit) {
                           node->path[MESH_NODE_PATH_BYTES - 1U] !=
                               0x10U + MESH_NODE_PATH_BYTES - 1U,
                       "twenty two-byte hops counted, the first twelve kept");
+
+    /* A contact the radio deleted keeps no route, and neither does an advert it did not add. */
+    uint8_t push[1U + MESH_MESHCORE_PUBKEY_LEN];
+    memcpy(push + 1, frame + 1, MESH_MESHCORE_PUBKEY_LEN);
+    push[0] = MESH_MESHCORE_PUSH_CONTACT_DELETED;
+    feed(&protocol, push, sizeof push);
+    MESH_TEST_FAIL_IF(node->in_nodedb || node->path_state != MESH_NODE_PATH_NONE,
+                      "a deleted contact's route went with it");
+    const size_t heard_len = mesh_test_meshcore_contact(
+        frame, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x60, "Bob", MESH_MESHCORE_ADV_CHAT, 1U, 1700000700U);
+    feed(&protocol, frame, heard_len);
+    const struct mesh_node_summary *bob = model_node(0x60616263U);
+    MESH_TEST_FAIL_IF(bob == NULL || bob->in_nodedb || bob->path_state != MESH_NODE_PATH_NONE,
+                      "an advert the radio did not add shows no route");
     record_success(test_name);
 }

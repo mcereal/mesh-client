@@ -421,6 +421,14 @@ static void mesh_meshcore_note_path(struct mesh_node_summary *node,
     memcpy(node->path, contact->out_path, bytes);
 }
 
+/* A node that is not, or is no longer, one of the radio's contacts holds no route. */
+static void mesh_meshcore_drop_path(struct mesh_node_summary *node) {
+    node->path_state = MESH_NODE_PATH_NONE;
+    node->path_hops = 0U;
+    node->path_width = 0U;
+    memset(node->path, 0, sizeof node->path);
+}
+
 /* `imported` is a contact the user added themselves, which the roster takes without calling it
    a discovery; see mesh_session_model_contact(). */
 static void mesh_meshcore_store_contact(struct mesh_meshcore *meshcore,
@@ -1282,6 +1290,7 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
             struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, id, false);
             if (node != NULL) {
                 node->in_nodedb = false;
+                mesh_meshcore_drop_path(node);
                 const bool has_hops = contact.out_path_len != MESH_MESHCORE_PATH_NONE;
                 mesh_meshcore_note_heard(
                     meshcore, node, has_hops,
@@ -1413,7 +1422,8 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
             struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, id, false);
             if (node != NULL) {
                 node->in_nodedb = false;
-                node->is_favorite = false; /* the flag went with the record */
+                node->is_favorite = false;     /* the flag went with the record */
+                mesh_meshcore_drop_path(node); /* and so did the route */
             }
         }
         break;
