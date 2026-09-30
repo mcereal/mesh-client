@@ -626,8 +626,18 @@ the first - stands the two side by side. Three screens do so:
   included, with the list keeping the top-level row (Modules, Channels) they are under. The share
   and contact sheets a row raises still take the body, as on the Brick.
 
-With nothing open, the detail pane holds a note saying what will appear there, in the middle of
-the pane (inkcell's `inkcell_fb_draw_placeholder()`). The action bar runs under both panes, its
+With nothing open, the detail pane previews the row under the list's cursor: what A would open
+there, drawn without a cursor of its own, since the keys are still the list's. Moving down the list
+reads each conversation, node or section beside it, and previewing a conversation marks nothing
+read. What a row previews is A itself, run on a copy of the nav (`mesh_ui_nav_preview()`), so the
+two cannot disagree; a click anywhere in the preview is that A (`MESH_UI_FOCUS_PREVIEW`). A row
+whose A goes elsewhere - New message, the chip bar, a heading - and a pointer reader with no row lit
+get a note saying what will appear there instead, in the middle of the pane (inkcell's
+`inkcell_fb_draw_placeholder()`). `ui_nav_preview_*` and
+`ui_click_a_wide_window_previews_the_row_under_the_cursor` hold it.
+
+With a detail open, the list's row stays lit as the selection, but its capsule is drawn in the
+dim ink rather than the accent, so the only accent on the frame is the cursor in the detail. The action bar runs under both panes, its
 keycaps leading at the list's edge and the link's state trailing at the detail's. The nav is the
 one-pane nav, unchanged: A opens, every press is the detail's while it is open, and B closes it.
 What the width buys is that the list stays put, with the row the detail came from still under its
@@ -658,6 +668,16 @@ measure off (`inkcell_fb_set_measured()`), since neither is running text, and th
 them follows. The frame turns the measure back on once that bar is drawn. On the Brick the frame is
 compact and neither changes. `ui_click_a_wide_window_stands_the_status_cards_in_two_columns` and
 `ui_click_a_wide_window_puts_the_map_heading_over_the_whole_map` hold them.
+
+A **node's detail** does the same where it has the room: its cards stand in two columns, split at
+the heading that comes nearest to levelling them, and the measure is off for it and its heading
+(`fb_node_detail_columns()` in `src/ui/backends/fb_screens_nodes.c`). The room is asked of the
+frame as well as the pane, because a split's detail pane is as narrow as the Brick's whole panel:
+judged by its region alone the two cannot be told apart. Each column is a list of its own, so the
+cursor's column windows round the cursor and the other shows from its top; the d-pad walks the
+same stops in the same order, down the first column and on into the second. At the Brick's own
+scale the frame is compact and it is one column, as it was.
+`ui_capture_a_wide_window_stands_a_nodes_facts_in_two_columns` holds it.
 
 `make ui-capture` is still the way to *review* a UI change, because a picture in a pull request
 is reviewable and a window on somebody's desk is not.

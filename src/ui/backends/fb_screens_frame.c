@@ -724,6 +724,11 @@ void fb_body_route(struct inkcell_draw_state *state, const struct mesh_ui_snapsh
     mesh_ui_route_under_layers(&thread, out);
 }
 
+bool fb_frame_is_split(const struct inkcell_draw_state *state) {
+    const struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+    return cache != NULL && cache->split;
+}
+
 bool fb_render_split_pair(const struct inkcell_draw_state *state, const struct mesh_ui_route *from,
                           const struct mesh_ui_route *to) {
     const struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
@@ -732,8 +737,90 @@ bool fb_render_split_pair(const struct inkcell_draw_state *state, const struct m
 }
 
 /*
- * A tab in two panes: its list, and beside it whatever is open from the list or a note saying
- * where it will be.
+ * The snapshot a preview is drawn from - the frame's own, with the nav A would leave behind - and
+ * the store view that nav is asked of. At file scope because each is far too large for the stack,
+ * and the screen renderers under a preview build views of their own; one of each is enough, since
+ * a frame draws at most one preview and nothing holds either past the call that drew it.
+ */
+static struct mesh_ui_snapshot fb_preview_snapshot;
+static struct mesh_ui_store fb_preview_view;
+
+/*
+ * With nothing open, the detail pane shows what A would open from the row under the list's
+ * cursor, so moving through the list reads each item beside it - the reading pane every mail
+ * client has - instead of a note saying where it will be. See mesh_ui_nav_preview() for which
+ * rows have one; false for a row that has none, and the caller draws the note.
+ *
+ * The preview is a picture, and three things keep it one:
+ *
+ *   - **No cursor in it.** The keys are still the list's, so the pane is drawn under
+ *     inkcell_fb_set_cursor_elsewhere() and no row, bubble or ring in it lights up.
+ *   - **None of its boxes in the map, and no hover.** Its rows would register in the same block
+ *     as the list's own (MESH_UI_FOCUS_ROWS) and answer ids that mean the list's rows, so the map
+ *     is detached while it draws. In their place the whole pane is one target,
+ *     MESH_UI_FOCUS_PREVIEW, and a click on it is A on the row it previews: it opens it.
+ *   - **No back arrow and none of the heading's verbs.** The list's heading has already claimed
+ *     those (fb_draw_app_bar()), since the list is where the reader is.
+ *
+ * Nothing it draws marks a conversation read: that is the app's answer to a thread being open,
+ * and the nav that opened this one was a copy.
+ */
+static bool fb_render_preview(struct inkcell_draw_state *state,
+                              const struct mesh_ui_snapshot *snapshot,
+                              const struct inkcell_fb_scaffold_frame *frame,
+                              struct inkcell_fb_layout *detail) {
+    /* Only while the list's cursor is drawn. A reader on the pointer sees no row lit in the list
+       (inkcell_fb_cursor_shown()), and a detail beside it would be about a row they cannot see
+       and did not choose; the note stays until they click one, which opens it. */
+    if (!inkcell_fb_cursor_shown(state)) {
+        return false;
+    }
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    mesh_ui_store_view(snapshot, &fb_preview_view);
+    /* The deep thread too, which a store view leaves out: the preview's clamp has to measure the
+       same messages the preview is drawn from (mesh_ui_snapshot_message_view()), and a view
+       without it would place the cursor in the transport ring instead. */
+    fb_preview_view.thread = snapshot->thread;
+    struct mesh_ui_nav next;
+    if (!mesh_ui_nav_preview(nav, &fb_preview_view, &next)) {
+        return false;
+    }
+    fb_preview_snapshot = *snapshot;
+    fb_preview_snapshot.nav = next;
+
+    struct inkcell_focus_map *const map = state->focus;
+    const uint32_t hover = state->hover;
+    inkcell_fb_set_focus_map(state, NULL);
+    state->hover = INKCELL_FOCUS_NONE;
+    const bool elsewhere = inkcell_fb_set_cursor_elsewhere(state, true);
+    detail->back = false;
+    switch (nav->screen) {
+    case MESH_UI_SCREEN_NODES:
+        fb_render_node_pane(state, &fb_preview_snapshot, detail);
+        break;
+    case MESH_UI_SCREEN_SETTINGS:
+        fb_render_settings(state, &fb_preview_snapshot, detail);
+        break;
+    case MESH_UI_SCREEN_MESSAGES:
+    default:
+        fb_render_thread(state, &fb_preview_snapshot, detail);
+        break;
+    }
+    (void)inkcell_fb_set_cursor_elsewhere(state, elsewhere);
+    state->hover = hover;
+    inkcell_fb_set_focus_map(state, map);
+
+    inkcell_fb_target_register(state, (uint32_t)MESH_UI_FOCUS_PREVIEW,
+                               &(const struct inkcell_fb_rect){.x = frame->detail.x,
+                                                               .y = frame->detail.y,
+                                                               .w = frame->detail.w,
+                                                               .h = frame->detail.h});
+    return true;
+}
+
+/*
+ * A tab in two panes: its list, and beside it whatever is open from the list, or a preview of
+ * the row under its cursor, or a note saying where it will be.
  *
  * The nav is the one-pane nav, unchanged, and that is the whole design. With nothing open the
  * d-pad walks the list and A opens a row; with one open every press is the detail's, and B
@@ -801,7 +888,7 @@ static void fb_render_split(struct inkcell_draw_state *state,
             fb_render_thread(state, snapshot, &detail);
             break;
         }
-    } else {
+    } else if (!fb_render_preview(state, snapshot, frame, &detail)) {
         switch (nav->screen) {
         case MESH_UI_SCREEN_NODES:
             inkcell_fb_draw_placeholder(state, &detail, INKCELL_ICON_NODES,

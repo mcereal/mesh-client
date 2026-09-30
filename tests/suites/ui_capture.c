@@ -4226,6 +4226,61 @@ static const char *cursor_stays_inside_its_card(const struct inkcell_capture *ca
     return NULL;
 }
 
+/*
+ * On a window with room, a node's facts stand in two columns of cards rather than one column with
+ * the pane's other half empty - so some row of the frame crosses two separate card surfaces, each
+ * a column wide. One column cannot draw that: its cards are one surface across the pane.
+ */
+MESH_TEST_CASE(ui_capture_a_wide_window_stands_a_nodes_facts_in_two_columns, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    while (store.nav.screen != MESH_UI_SCREEN_NODES) {
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_R1, &action);
+    }
+    for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
+        (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    }
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open, mesh_ui_store_shutdown(&store),
+                              "A should open the node detail");
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_render(capture, &snapshot);
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = inkcell_capture_pixels(capture, &width, &height, &stride);
+    const uint32_t wide = 400U;
+    bool two = false;
+    for (uint32_t y = 0U; y < height && !two; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        uint32_t runs = 0U;
+        uint32_t run = 0U;
+        for (uint32_t x = 0U; x <= width; ++x) {
+            if (x < width && pixel_is_role(capture, row + (size_t)x * 4U, INKCELL_COLOR_SURFACE)) {
+                ++run;
+                continue;
+            }
+            runs += run >= wide ? 1U : 0U;
+            run = 0U;
+        }
+        two = runs >= 2U;
+    }
+    inkcell_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(!two, "the node's cards should stand in two columns beside the roster");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
@@ -4275,13 +4330,19 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
         inkcell_capture_render(capture, &snapshot);
         pixels = capture_body(capture, pixels, &width);
 
+        /* A frame wider than compact - the smaller glyph scales on this panel - stands the detail
+           in two columns (fb_render_node_detail()), so a card spans most of a column rather than
+           most of the body: half the share each. */
+        const bool two =
+            inkcell_fb_width_class(inkcell_capture_state(capture)) != INKCELL_WIDTH_COMPACT;
+        const unsigned span = two ? 40U : 80U;
         const unsigned fill =
             widest_row_run(capture, pixels, width, height, stride, INKCELL_COLOR_SURFACE);
         const unsigned edge =
             widest_row_run(capture, pixels, width, height, stride, INKCELL_COLOR_OUTLINE);
-        if (fill < 80U) {
+        if (fill < span) {
             failure = "the node detail draws no card fill across the body";
-        } else if (edge < 80U) {
+        } else if (edge < span) {
             failure = "the node detail draws no card edge across the body";
         }
 

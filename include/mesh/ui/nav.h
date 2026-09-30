@@ -1305,6 +1305,25 @@ bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_stor
 bool mesh_ui_nav_handle_context(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                 uint32_t target, int x, int y);
 
+/*
+ * What A would open from the list under the cursor, as the nav it would leave behind - for a
+ * split frame to draw beside the list before anybody presses anything.
+ *
+ * True, with *out that nav, only when the tab is standing on its list (Messages, Nodes or
+ * Settings, nothing open over it) and A there would open the detail a split frame draws beside
+ * it: a conversation, a node, a section. False for every row that does something else - the
+ * chip bar, New message, a heading, a row that sends the reader to the device list - and *out is
+ * then a copy of `nav` that means nothing.
+ *
+ * The answer is the press itself, run on a copy and clamped as a press is before it is drawn,
+ * rather than a second account of what each row opens: a preview that disagreed with the press
+ * would be a picture of a place A does not go. The press's own action, if it raised one, is dropped
+ * - a preview is looked at, never acted on, which is also why previewing a conversation marks
+ * nothing read.
+ */
+bool mesh_ui_nav_preview(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                         struct mesh_ui_nav *out);
+
 /* Keeps cursors inside their lists after the data changed. Returns true if anything moved. */
 bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
 

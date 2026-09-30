@@ -382,6 +382,16 @@ static bool mesh_ui_nav_click_target(struct mesh_ui_nav *nav, const struct mesh_
         }
         return true;
     }
+    /* The preview beside a list: A on the row it previews, asked again of this nav rather than
+       trusted from the frame that drew it - a list that has moved since would have A open
+       something else, and a pane that no longer has a preview is a click on nothing. */
+    if (target == (uint32_t)MESH_UI_FOCUS_PREVIEW) {
+        struct mesh_ui_nav preview;
+        if (!mesh_ui_nav_preview(nav, store, &preview)) {
+            return false;
+        }
+        return mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_A, out_action);
+    }
     if (target >= (uint32_t)MESH_UI_FOCUS_TABS &&
         target < (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_COUNT) {
         return mesh_ui_nav_click_tab(

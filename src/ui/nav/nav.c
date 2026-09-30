@@ -2490,6 +2490,39 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
     }
 }
 
+bool mesh_ui_nav_preview(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                         struct mesh_ui_nav *out) {
+    if (nav == NULL || store == NULL || out == NULL) {
+        return false;
+    }
+    *out = *nav;
+    struct mesh_ui_route here;
+    mesh_ui_route_of(nav, &here);
+    if (here.level != MESH_UI_ROUTE_LIST ||
+        (here.screen != MESH_UI_SCREEN_MESSAGES && here.screen != MESH_UI_SCREEN_NODES &&
+         here.screen != MESH_UI_SCREEN_SETTINGS)) {
+        return false;
+    }
+    /* A's own answer, on the copy. Whatever it asked the app for is dropped with `action`. */
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    if (!mesh_ui_nav_confirm(out, store, &action)) {
+        return false;
+    }
+    /* And the clamp every press is followed by before it is drawn, which is what puts a thread
+       just opened on its newest message rather than its oldest: without it the preview would be
+       laid out round a cursor the opened thread never shows. */
+    (void)mesh_ui_nav_clamp(out, store);
+    /* And only when it opened the detail beside the list. A press that moved the reader
+       elsewhere - the device list, the picker, the node filter's keyboard - or stayed on the list
+       (a chip) is a row with nothing to preview. */
+    struct mesh_ui_route there;
+    mesh_ui_route_of(out, &there);
+    return there.screen == here.screen &&
+           (there.level == MESH_UI_ROUTE_THREAD || there.level == MESH_UI_ROUTE_NODE ||
+            there.level == MESH_UI_ROUTE_SECTION);
+}
+
 /*
  * One key while help is up.
  *

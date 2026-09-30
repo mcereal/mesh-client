@@ -57,6 +57,11 @@ enum mesh_ui_focus_id {
        window wider than the Brick. */
     MESH_UI_FOCUS_RAIL_EXPAND = 0x0B00,
     MESH_UI_FOCUS_RAIL_COLLAPSE = 0x0B01,
+    /* The preview a split frame draws beside a list with nothing open (mesh_ui_nav_preview()):
+       the whole pane is one target, and a click on it is A on the list's cursor row - it opens
+       what the pane was showing. Its own id rather than that row's, because the row is already
+       in the map under its own and a map holds an id once. Pointer only. */
+    MESH_UI_FOCUS_PREVIEW = 0x0B02,
     /* The Nodes list's chip bar, `base + enum mesh_ui_nodes_chip`. Its own block rather than
        row 0 of the rows', because a row is one target and the bar is five. */
     MESH_UI_FOCUS_NODE_CHIPS = 0x0C00,
