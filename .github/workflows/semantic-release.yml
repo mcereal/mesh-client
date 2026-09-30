@@ -446,3 +446,19 @@ jobs:
             dist/MeshClient-windows-x86_64-setup.exe dist/MeshClient-windows-x86_64-setup.exe.sha256 `
             dist/meshclient-windows-x86_64.exe dist/meshclient-windows-x86_64.exe.sha256
           if ($LASTEXITCODE -ne 0) { throw 'gh release upload failed.' }
+
+      # The packaged EXE is copied from this unstripped build output. Its DWARF and RSDS debug
+      # id let Sentry match the PE image in a Windows crash report to this exact release build.
+      - name: Upload debug files to Sentry
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: |
+          if (-not $env:SENTRY_AUTH_TOKEN) {
+            Write-Host 'No SENTRY_AUTH_TOKEN; not uploading debug files.'
+            exit 0
+          }
+          npx --yes @sentry/cli@2 debug-files upload build/windows-release/meshclient.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Sentry debug file upload failed.' }

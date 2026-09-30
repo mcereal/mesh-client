@@ -170,9 +170,10 @@ Symbols are matched to a report by image id, not by version: every Linux binary 
 with `--build-id`, which writes an RSDS CodeView id into the PE. The report includes that debug
 id, the COFF timestamp and image size as its code id, and the loaded image base. The exact
 unstripped Windows executable must be uploaded to Sentry; stripping it changes its code id.
-MSH-10 verified that Sentry resolves frames from that executable, with source lines. The Windows
-release job does not upload it yet (MSH-12), so Windows reports from ordinary releases remain
-unsymbolicated until that upload is performed. Symbol upload failure never fails a release.
+The Windows job uploads `build/windows-release/meshclient.exe` after packaging, which copies that
+same executable into the installer and standalone download. MSH-10 verified that Sentry resolves
+frames from the uploaded executable, with source lines. Without `SENTRY_AUTH_TOKEN`, symbol upload
+is skipped; an upload failure does not fail the release.
 
 ## Troubleshooting
 
