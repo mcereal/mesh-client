@@ -551,7 +551,8 @@ static bool mesh_meshcore_is_settings_write(uint8_t cmd) {
     return cmd == MESH_MESHCORE_CMD_SET_ADVERT_NAME || cmd == MESH_MESHCORE_CMD_SET_RADIO_PARAMS ||
            cmd == MESH_MESHCORE_CMD_SET_RADIO_TX_POWER ||
            cmd == MESH_MESHCORE_CMD_SET_ADVERT_LATLON || cmd == MESH_MESHCORE_CMD_SET_CHANNEL ||
-           cmd == MESH_MESHCORE_CMD_SET_OTHER_PARAMS || cmd == MESH_MESHCORE_CMD_SET_DEVICE_PIN;
+           cmd == MESH_MESHCORE_CMD_SET_OTHER_PARAMS || cmd == MESH_MESHCORE_CMD_SET_DEVICE_PIN ||
+           cmd == MESH_MESHCORE_CMD_SET_AUTOADD_CONFIG;
 }
 
 /* One command of a save answered: `error` is 0 for OK. The last answer settles the save into
@@ -860,6 +861,9 @@ static void mesh_meshcore_ready_now(struct mesh_meshcore *meshcore) {
                      meshcore->model->handshake.channel_count);
     mesh_meshcore_request_sync(meshcore);
     mesh_meshcore_request_plain(meshcore, MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE);
+    /* Refused by a firmware older than the question, which leaves `has_autoadd` false and the
+       rows it fills unoffered. */
+    mesh_meshcore_request_plain(meshcore, MESH_MESHCORE_CMD_GET_AUTOADD_CONFIG);
 }
 
 static void mesh_meshcore_after_self(struct mesh_meshcore *meshcore) {
@@ -1429,6 +1433,14 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
         break;
     case MESH_MESHCORE_PUSH_LOG_RX_DATA:
         break; /* every packet the radio heard, raw; nothing here reads it yet */
+    case MESH_MESHCORE_PUSH_CONTACTS_FULL:
+        /* Sent for every new node heard while the list is full, so it is a state rather than an
+           event: the publish says so once, not once an advert. */
+        if (!meshcore->contacts_full) {
+            inkwell_log_info("meshcore", "Contact list full: a heard node was not added");
+        }
+        meshcore->contacts_full = true;
+        break;
     default:
         inkwell_log_debug("meshcore", "Push 0x%02x (%zu bytes) ignored", (unsigned)frame[0], len);
         break;
@@ -1493,6 +1505,12 @@ static void mesh_meshcore_apply_write(struct mesh_meshcore *meshcore, const uint
             meshcore->device.ble_pin = mesh_meshcore_u32_at(frame + 1);
         }
         return; /* DEVICE_INFO's, not SELF_INFO's */
+    case MESH_MESHCORE_CMD_SET_AUTOADD_CONFIG:
+        if (len >= 3U) {
+            meshcore->autoadd_config = frame[1];
+            meshcore->autoadd_max_hops = frame[2];
+        }
+        return; /* its own answer's, not SELF_INFO's */
     default:
         return;
     }
@@ -1826,6 +1844,9 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             if (id != 0U && mesh_session_model_drop_node(meshcore->model, id) == 0) {
                 inkwell_log_info("meshcore", "Removed contact 0x%08x", id);
             }
+            /* A slot is free. Not on CONTACT_DELETED: that is the radio overwriting its oldest,
+               and the list is exactly as full as it was. */
+            meshcore->contacts_full = false;
         } else if (cmd == MESH_MESHCORE_CMD_RESET_PATH && request != NULL &&
                    request->len == 1U + MESH_MESHCORE_PUBKEY_LEN) {
             /* The user's reset and the one before a message's last attempt alike: the radio
@@ -1866,6 +1887,13 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         break;
     case MESH_MESHCORE_RESP_PRIVATE_KEY:
         break; /* settled above; its bytes are never logged */
+    case MESH_MESHCORE_RESP_AUTOADD_CONFIG:
+        if (len >= 3U) {
+            meshcore->has_autoadd = true;
+            meshcore->autoadd_config = frame[1];
+            meshcore->autoadd_max_hops = frame[2];
+        }
+        break;
     case MESH_MESHCORE_RESP_ERR:
     case MESH_MESHCORE_RESP_DISABLED: {
         const unsigned error = len >= 2U ? frame[1] : 0U;
@@ -1986,6 +2014,8 @@ static void mesh_meshcore_detach(void *self) {
     meshcore->timeouts = 0U;
     meshcore->phase = MESH_MESHCORE_IDLE;
     meshcore->battery_valid = false;
+    meshcore->has_autoadd = false;
+    meshcore->contacts_full = false;
     mesh_session_detach(meshcore->model);
 }
 
@@ -1998,6 +2028,8 @@ static int mesh_meshcore_begin(void *self) {
     meshcore->phase = MESH_MESHCORE_HANDSHAKE;
     meshcore->has_self = false;
     meshcore->has_device = false;
+    meshcore->has_autoadd = false;
+    meshcore->contacts_full = false;
     /* A fresh connection asks for every contact: the model may hold nodes from another radio's
        list, and "since" is only meaningful against the list it came from. */
     meshcore->contacts_since = 0U;
@@ -2792,8 +2824,8 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
     }
     /* Encoded whole before anything is queued, so a value the codec refuses leaves the radio
        untouched rather than half written. */
-    uint8_t frames[7][MESH_MESHCORE_MAX_FRAME];
-    int lens[7];
+    uint8_t frames[8][MESH_MESHCORE_MAX_FRAME];
+    int lens[8];
     size_t count = 0U;
     if (write->set_name) {
         lens[count] = mesh_meshcore_encode_name(write->name, frames[count], sizeof frames[count]);
@@ -2824,6 +2856,18 @@ int mesh_meshcore_write_settings(struct mesh_meshcore *meshcore,
                                   write->multi_acks};
         memcpy(frames[count], other, sizeof other);
         lens[count] = (int)sizeof other;
+        count += 1U;
+    }
+    /* Only to a radio that has said what it holds: an older one refuses the command, and a
+       write made over values never read would be a guess at the rest of them. */
+    if (write->set_autoadd) {
+        if (!meshcore->has_autoadd || write->autoadd_max_hops > MESH_MESHCORE_AUTOADD_HOPS_MAX) {
+            return -EINVAL;
+        }
+        const uint8_t autoadd[3] = {MESH_MESHCORE_CMD_SET_AUTOADD_CONFIG, write->autoadd_config,
+                                    write->autoadd_max_hops};
+        memcpy(frames[count], autoadd, sizeof autoadd);
+        lens[count] = (int)sizeof autoadd;
         count += 1U;
     }
     /* The firmware's own bound, refused here rather than answered with ILLEGAL_ARG. */

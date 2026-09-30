@@ -405,6 +405,8 @@ struct mesh_app {
     uint32_t ui_reboot_notices_seen;
     /* How the last MeshCore request to another node ended (mesh_meshcore.notices). */
     uint32_t ui_meshcore_notices_seen;
+    /* Whether the full contact list has been said: once each time the radio's list fills. */
+    bool ui_meshcore_full_told;
     /*
      * The key-verification ceremony as the UI last saw it: the `seq` that was published, and
      * the stage the sheet was opened for.

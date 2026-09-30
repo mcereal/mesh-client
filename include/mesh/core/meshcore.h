@@ -88,6 +88,9 @@ enum mesh_meshcore_cmd {
        mesh_meshcore_req_type. Answered by a BINARY_RESPONSE carrying the tag SENT named. */
     MESH_MESHCORE_CMD_SEND_BINARY_REQ = 50,
     MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ = 52,
+    /* Which heard nodes the radio adds by itself (1.12 on; older firmware refuses both). */
+    MESH_MESHCORE_CMD_SET_AUTOADD_CONFIG = 58,
+    MESH_MESHCORE_CMD_GET_AUTOADD_CONFIG = 59,
 };
 
 enum mesh_meshcore_resp {
@@ -109,6 +112,7 @@ enum mesh_meshcore_resp {
     MESH_MESHCORE_RESP_CONTACT_MSG_RECV_V3 = 16,
     MESH_MESHCORE_RESP_CHANNEL_MSG_RECV_V3 = 17,
     MESH_MESHCORE_RESP_CHANNEL_INFO = 18,
+    MESH_MESHCORE_RESP_AUTOADD_CONFIG = 25,
     MESH_MESHCORE_RESP_CHANNEL_DATA_RECV = 27,
 };
 
@@ -635,6 +639,19 @@ struct mesh_meshcore {
     bool battery_valid;
     uint16_t battery_mv;
     /*
+     * GET_AUTOADD_CONFIG, read once the handshake is through: which kinds of heard node the
+     * radio adds while `manual_add_contacts` is set (MESH_MESHCORE_AUTOADD_*), whether it
+     * replaces its oldest non-favourite when the list is full, and how far away a node may be
+     * - 0 any distance, 1 heard directly, N up to N - 1 hops. `has_autoadd` is false on a
+     * firmware that refuses the question.
+     */
+    bool has_autoadd;
+    uint8_t autoadd_config;
+    uint8_t autoadd_max_hops;
+    /* PUSH_CONTACTS_FULL arrived: a node was heard that the radio had no room to add. Cleared
+       when a contact leaves the list and on every new connection. */
+    bool contacts_full;
+    /*
      * The radio's clock, for a message's timestamp when ours is not credible (a Brick with no
      * network boots into 1970). Read with GET_DEVICE_TIME and advanced by our monotonic clock;
      * `radio_clock` is 0 until it has been read. `last_timestamp` keeps stamps strictly
@@ -693,6 +710,15 @@ enum mesh_meshcore_identity_state {
     MESH_MESHCORE_IDENTITY_UNKNOWN,
 };
 
+/* The bits of GET/SET_AUTOADD_CONFIG's first byte. */
+#define MESH_MESHCORE_AUTOADD_OVERWRITE_OLDEST 0x01U
+#define MESH_MESHCORE_AUTOADD_CHAT 0x02U
+#define MESH_MESHCORE_AUTOADD_REPEATER 0x04U
+#define MESH_MESHCORE_AUTOADD_ROOM 0x08U
+#define MESH_MESHCORE_AUTOADD_SENSOR 0x10U
+/* The farthest `autoadd_max_hops` the firmware keeps. */
+#define MESH_MESHCORE_AUTOADD_HOPS_MAX 64U
+
 /*
  * A settings save, as MeshCore's commands take it: each group is written only when its `set_`
  * flag is, and a group is written whole - the radio parameters are one command.
@@ -716,6 +742,10 @@ struct mesh_meshcore_settings_write {
     uint8_t telemetry_modes;
     uint8_t advert_loc_policy;
     uint8_t multi_acks;
+    /* SET_AUTOADD_CONFIG, whole: refused by a radio that never answered GET_AUTOADD_CONFIG. */
+    bool set_autoadd;
+    uint8_t autoadd_config;
+    uint8_t autoadd_max_hops;
     /* The Bluetooth PIN DEVICE_INFO reports: 0 or 100000..999999, as the firmware takes it. */
     bool set_pin;
     uint32_t ble_pin;

@@ -2036,7 +2036,24 @@ static void build_meshcore_other(const struct mesh_ui_settings *s, struct item_l
     item_field(list, MESH_UI_FIELD_ASK_LOCATION, (modes >> 2U) & 0x03U, NULL);
     item_field(list, MESH_UI_FIELD_ASK_SENSORS, (modes >> 4U) & 0x03U, NULL);
     item_heading(list, MESH_STR_USER_CONTACTS_HEAD);
-    item_field(list, MESH_UI_FIELD_AUTO_ADD, s->meshcore_manual_add == 0U ? 1U : 0U, NULL);
+    const struct mesh_ui_settings_item *auto_row =
+        item_field(list, MESH_UI_FIELD_AUTO_ADD, s->meshcore_manual_add == 0U ? 1U : 0U, NULL);
+    if (s->has_meshcore_autoadd) {
+        /* The kinds matter only with auto-add off, when the radio adds these and no others.
+           They stay listed either way, so the rows do not move as that switch is edited. */
+        const bool all = auto_row != NULL ? auto_row->number != 0U : s->meshcore_manual_add == 0U;
+        const uint32_t first = list->count;
+        item_flag_group(list, MESH_UI_FIELD_GROUP_AUTOADD, s->meshcore_autoadd_config);
+        for (uint32_t r = first; r < list->count; ++r) {
+            list->items[r].inactive = all;
+            list->items[r].inactive_note =
+                all ? MESH_STR_TOAST_USED_WITHOUT_AUTO_ADD : INKCELL_STR_NONE;
+        }
+        item_field(list, MESH_UI_FIELD_AUTOADD_OVERWRITE,
+                   (s->meshcore_autoadd_config & 0x01U) != 0U ? 1U : 0U, NULL);
+        item_field(list, MESH_UI_FIELD_AUTOADD_HOPS,
+                   s->meshcore_autoadd_max_hops > 64U ? 64U : s->meshcore_autoadd_max_hops, NULL);
+    }
     item_field(list, MESH_UI_FIELD_EXTRA_ACKS, s->meshcore_multi_acks != 0U ? 1U : 0U, NULL);
     /* The PIN is kept whichever build is running, so it can be set over a cable before the
        radio moves to Bluetooth. */

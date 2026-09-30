@@ -795,6 +795,12 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_SETTINGS_FIELD_ASK_LOCATION] = "Pedidos de ubicación",
     [MESH_STR_SETTINGS_FIELD_ASK_SENSORS] = "Pedidos de sensores",
     [MESH_STR_SETTINGS_FIELD_AUTO_ADD] = "Añadir nodos oídos",
+    [MESH_STR_SETTINGS_FIELD_AUTOADD_CHAT] = "Compañeros",
+    [MESH_STR_SETTINGS_FIELD_AUTOADD_REPEATER] = "Repetidores",
+    [MESH_STR_SETTINGS_FIELD_AUTOADD_ROOM] = "Salas",
+    [MESH_STR_SETTINGS_FIELD_AUTOADD_SENSOR] = "Sensores",
+    [MESH_STR_SETTINGS_FIELD_AUTOADD_OVERWRITE] = "Reemplazar el más antiguo",
+    [MESH_STR_SETTINGS_FIELD_AUTOADD_HOPS] = "Añadir desde",
     [MESH_STR_SETTINGS_FIELD_EXTRA_ACKS] = "Confirmaciones extra",
     [MESH_STR_SETTINGS_NOTE_ADVERT_LOCATION] =
         "Pone la posición de esta radio en cada anuncio, para que cualquier radio que lo oiga "
@@ -806,6 +812,15 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Quién puede preguntar a esta radio dónde está, lleven o no posición sus anuncios.",
     [MESH_STR_SETTINGS_NOTE_ASK_SENSORS] =
         "Quién puede pedir lecturas de los sensores conectados a esta radio.",
+    [MESH_STR_SETTINGS_NOTE_AUTOADD_KINDS] =
+        "Con \"Añadir nodos oídos\" apagado, los tipos marcados aquí se siguen añadiendo al "
+        "oírse; los demás se listan y esperan a añadirse a mano.",
+    [MESH_STR_SETTINGS_NOTE_AUTOADD_OVERWRITE] =
+        "Con la lista de contactos llena, un nodo recién oído ocupa el lugar del contacto oído "
+        "hace más tiempo. Los contactos fijados nunca se reemplazan. Apagado, no se añade.",
+    [MESH_STR_SETTINGS_NOTE_AUTOADD_HOPS] =
+        "Solo se añaden solos los nodos cuyo anuncio llegó a esta radio en estos saltos o menos. "
+        "Los más lejanos se listan y pueden añadirse a mano.",
     [MESH_STR_SETTINGS_NOTE_AUTO_ADD] =
         "Hace contacto a un nodo en cuanto se oye su anuncio. Apagado, el nodo se lista pero no "
         "se añade, y no puede recibir mensajes directos hasta que lo esté.",
@@ -986,6 +1001,10 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_ENUM_ASK_NOBODY] = "Nadie",
     [MESH_STR_ENUM_ASK_CHOSEN] = "Contactos elegidos",
     [MESH_STR_ENUM_ASK_EVERYONE] = "Todos",
+    [MESH_STR_ENUM_AUTOADD_ANY] = "Cualquier distancia",
+    [MESH_STR_ENUM_AUTOADD_DIRECT] = "Solo directos",
+    [MESH_STR_ENUM_AUTOADD_ONE_HOP] = "Hasta 1 salto",
+    [MESH_STR_ENUM_AUTOADD_HOPS] = "Hasta %u saltos",
     [MESH_STR_ENUM_CHANNEL_SECONDARY] = "Secundario",
     [MESH_STR_ENUM_CHANNEL_PRIMARY] = "Principal",
     [MESH_STR_ENUM_PAIRING_RANDOM_PIN] = "PIN aleatorio",
@@ -1566,6 +1585,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_BUSY_RETRY] = "Ocupado; vuelve a intentar en un momento",
     [MESH_STR_TOAST_USED_WITHOUT_PRESET] = "Se usa al desactivar \"Usar preajuste\"",
     [MESH_STR_TOAST_USED_WITH_PRESET] = "Se usa al activar \"Usar preajuste\"",
+    [MESH_STR_TOAST_USED_WITHOUT_AUTO_ADD] = "Se usa al apagar \"Añadir nodos oídos\"",
+    [MESH_STR_TOAST_CONTACTS_FULL] = "Lista de contactos llena: no se añaden nodos nuevos",
     [MESH_STR_TOAST_CONNECTING] = "Conectando a %.40s",
     [MESH_STR_TOAST_CONNECT_FAILED] = "Falló la conexión (%d)",
     [MESH_STR_TOAST_SENT_TO] = "Enviado a %s",

@@ -125,7 +125,7 @@ bool mesh_test_meshcore_sync(struct mesh_meshcore *meshcore, struct mesh_protoco
     memcpy(channel + 2, "Public", 6U);
     channel[34] = 0x8b;
     feed(protocol, channel, sizeof channel);
-    /* Ready: the message queue is drained, then the battery asked for. */
+    /* Ready: the message queue is drained, then the battery and the auto-add config asked for. */
     if (mesh_test_meshcore_wire_last(wire) != MESH_MESHCORE_CMD_SYNC_NEXT_MESSAGE) {
         return false;
     }
@@ -135,5 +135,12 @@ bool mesh_test_meshcore_sync(struct mesh_meshcore *meshcore, struct mesh_protoco
     }
     uint8_t battery[11] = {MESH_MESHCORE_RESP_BATT_AND_STORAGE, 0x10, 0x0f};
     feed(protocol, battery, sizeof battery);
+    /* And which heard nodes it adds, answered as the 1.17 build answers it: nothing by kind, no
+       overwrite, any distance. */
+    if (mesh_test_meshcore_wire_last(wire) != MESH_MESHCORE_CMD_GET_AUTOADD_CONFIG) {
+        return false;
+    }
+    const uint8_t autoadd[3] = {MESH_MESHCORE_RESP_AUTOADD_CONFIG, 0U, 0U};
+    feed(protocol, autoadd, sizeof autoadd);
     return mesh_meshcore_ready(meshcore);
 }

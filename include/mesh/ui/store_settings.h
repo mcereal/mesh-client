@@ -757,6 +757,11 @@ struct mesh_ui_settings {
        is false until it has, and for any other protocol. */
     bool has_meshcore_pin;
     uint32_t meshcore_ble_pin;
+    /* GET_AUTOADD_CONFIG's two bytes, raw; `has_meshcore_autoadd` is false until the radio has
+       answered, and on a firmware that refuses the question. */
+    bool has_meshcore_autoadd;
+    uint8_t meshcore_autoadd_config;
+    uint8_t meshcore_autoadd_max_hops;
     bool ignore_mqtt;
     bool config_ok_to_mqtt;
     /*

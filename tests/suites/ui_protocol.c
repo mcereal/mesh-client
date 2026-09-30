@@ -1346,3 +1346,79 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
                       "while Meshtastic's still warns of both");
     record_success(test_name);
 }
+
+/*
+ * The auto-add config is listed under "Add heard nodes" only once the radio has answered for
+ * it. The four kinds are the firmware's own bits and recede while auto-add is on - pending edit
+ * included - since the radio then adds every kind; the overwrite switch is the config's low bit
+ * and the hop row names the raw byte.
+ */
+MESH_TEST_CASE(ui_protocol_meshcore_autoadd_rows_follow_the_radio, unit) {
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_group_count(MESH_UI_FIELD_GROUP_AUTOADD) != 4U ||
+            mesh_ui_settings_field_bit(MESH_UI_FIELD_AUTOADD_CHAT) != MESH_MESHCORE_AUTOADD_CHAT ||
+            mesh_ui_settings_field_bit(MESH_UI_FIELD_AUTOADD_REPEATER) !=
+                MESH_MESHCORE_AUTOADD_REPEATER ||
+            mesh_ui_settings_field_bit(MESH_UI_FIELD_AUTOADD_ROOM) != MESH_MESHCORE_AUTOADD_ROOM ||
+            mesh_ui_settings_field_bit(MESH_UI_FIELD_AUTOADD_SENSOR) !=
+                MESH_MESHCORE_AUTOADD_SENSOR,
+        "the four kinds are the firmware's AUTO_ADD_* bits");
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.has_owner = true;
+    settings.protocol = (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
+    settings.protocol_lacks = MESH_UI_FEATURE_FULL_CONFIG;
+    settings.has_meshcore_other = true;
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.link_up = true;
+
+    uint16_t fields[32];
+    size_t n = section_fields(&settings, &handshake, MESH_UI_SETTINGS_USER, fields, 32U);
+    for (size_t i = 0; i < n; ++i) {
+        MESH_TEST_FAIL_IF(fields[i] == MESH_UI_FIELD_AUTOADD_HOPS,
+                          "no auto-add config the radio has not reported");
+    }
+
+    settings.has_meshcore_autoadd = true;
+    settings.meshcore_manual_add = 0U; /* auto-add on */
+    settings.meshcore_autoadd_config =
+        MESH_MESHCORE_AUTOADD_REPEATER | MESH_MESHCORE_AUTOADD_OVERWRITE_OLDEST;
+    settings.meshcore_autoadd_max_hops = 3U;
+    static struct mesh_ui_settings_item rows[64];
+    uint32_t count = mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_USER,
+                                            MESH_UI_SETTINGS_NO_CHANNEL, rows, 64U);
+    uint32_t at = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (rows[i].field == MESH_UI_FIELD_AUTO_ADD) {
+            at = i;
+        }
+    }
+    MESH_TEST_FAIL_IF(at + 6U >= count || rows[at + 1U].field != MESH_UI_FIELD_AUTOADD_CHAT ||
+                          rows[at + 4U].field != MESH_UI_FIELD_AUTOADD_SENSOR ||
+                          rows[at + 5U].field != MESH_UI_FIELD_AUTOADD_OVERWRITE ||
+                          rows[at + 6U].field != MESH_UI_FIELD_AUTOADD_HOPS,
+                      "the kinds, the overwrite and the distance follow the auto-add switch");
+    MESH_TEST_FAIL_IF(rows[at + 1U].number != 0U || rows[at + 2U].number != 1U ||
+                          rows[at + 5U].number != 1U || rows[at + 6U].number != 3U,
+                      "each row reads its own bit, and the distance its byte");
+    MESH_TEST_FAIL_IF(!rows[at + 2U].inactive ||
+                          rows[at + 2U].inactive_note != MESH_STR_TOAST_USED_WITHOUT_AUTO_ADD ||
+                          rows[at + 5U].inactive,
+                      "with auto-add on the kinds recede, and only the kinds");
+    char hops[32];
+    inkcell_str_format(hops, sizeof hops, MESH_STR_ENUM_AUTOADD_HOPS, 2U);
+    MESH_TEST_FAIL_IF(strcmp(rows[at + 6U].value, hops) != 0, "3 is up to two hops");
+
+    /* Auto-add switched off in an edit not yet saved: the kinds are what counts now. */
+    struct mesh_ui_setting_edit edit;
+    memset(&edit, 0, sizeof edit);
+    edit.field = (uint16_t)MESH_UI_FIELD_AUTO_ADD;
+    edit.number = 0U;
+    count = mesh_ui_settings_items(&settings, &handshake, &edit, 1U, MESH_UI_SETTINGS_USER,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, rows, 64U);
+    MESH_TEST_FAIL_IF(at + 2U >= count || rows[at + 2U].inactive,
+                      "with auto-add off the kinds are live");
+    record_success(test_name);
+}

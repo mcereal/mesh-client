@@ -1021,6 +1021,27 @@ static const char *ask_enum_name(uint32_t value) {
     }
 }
 
+/* GET_AUTOADD_CONFIG's hop byte: 0 any distance, 1 heard directly, N up to N - 1 hops. Named
+   into one of a few buffers, since a screen may name two values in one frame. */
+static const char *autoadd_hops_name(uint32_t value) {
+    switch (value) {
+    case 0U:
+        return inkcell_str(MESH_STR_ENUM_AUTOADD_ANY);
+    case 1U:
+        return inkcell_str(MESH_STR_ENUM_AUTOADD_DIRECT);
+    case 2U:
+        return inkcell_str(MESH_STR_ENUM_AUTOADD_ONE_HOP);
+    default: {
+        static char names[4][32];
+        static unsigned next;
+        char *name = names[next++ % 4U];
+        inkcell_str_format(name, sizeof names[0], MESH_STR_ENUM_AUTOADD_HOPS,
+                           (unsigned)(value - 1U));
+        return name;
+    }
+    }
+}
+
 static const char *pairing_enum_name(uint32_t mode) {
     switch (mode) {
     case 0U:
@@ -2037,6 +2058,30 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                        MESH_STR_SETTINGS_NOTE_ASK_SENSORS),
     MESHCORE_OTHER_TOGGLE(MESH_UI_FIELD_AUTO_ADD, MESH_STR_SETTINGS_FIELD_AUTO_ADD,
                           MESH_STR_SETTINGS_NOTE_AUTO_ADD),
+/* The kinds' bits are the firmware's AUTO_ADD_* and pinned against them by a test. One note
+   for the four; see the catalog. */
+#define MESHCORE_AUTOADD_KIND(field, label, bit, note)                                             \
+    [field] = {                                                                                    \
+        {label, INKSTAND_FORM_FLAG, MESH_UI_SETTINGS_USER, bit, NULL, NO_PRESETS, 0U, note},       \
+        INKCELL_STR_NONE,                                                                          \
+        NULL}
+    MESHCORE_AUTOADD_KIND(MESH_UI_FIELD_AUTOADD_CHAT, MESH_STR_SETTINGS_FIELD_AUTOADD_CHAT, 0x02U,
+                          MESH_STR_SETTINGS_NOTE_AUTOADD_KINDS),
+    MESHCORE_AUTOADD_KIND(MESH_UI_FIELD_AUTOADD_REPEATER, MESH_STR_SETTINGS_FIELD_AUTOADD_REPEATER,
+                          0x04U, INKCELL_STR_NONE),
+    MESHCORE_AUTOADD_KIND(MESH_UI_FIELD_AUTOADD_ROOM, MESH_STR_SETTINGS_FIELD_AUTOADD_ROOM, 0x08U,
+                          INKCELL_STR_NONE),
+    MESHCORE_AUTOADD_KIND(MESH_UI_FIELD_AUTOADD_SENSOR, MESH_STR_SETTINGS_FIELD_AUTOADD_SENSOR,
+                          0x10U, INKCELL_STR_NONE),
+#undef MESHCORE_AUTOADD_KIND
+    MESHCORE_OTHER_TOGGLE(MESH_UI_FIELD_AUTOADD_OVERWRITE,
+                          MESH_STR_SETTINGS_FIELD_AUTOADD_OVERWRITE,
+                          MESH_STR_SETTINGS_NOTE_AUTOADD_OVERWRITE),
+    [MESH_UI_FIELD_AUTOADD_HOPS] = {{MESH_STR_SETTINGS_FIELD_AUTOADD_HOPS, INKSTAND_FORM_ENUM,
+                                     MESH_UI_SETTINGS_USER, 65U, autoadd_hops_name, NO_PRESETS, 0U,
+                                     MESH_STR_SETTINGS_NOTE_AUTOADD_HOPS},
+                                    INKCELL_STR_NONE,
+                                    NULL},
     MESHCORE_OTHER_TOGGLE(MESH_UI_FIELD_EXTRA_ACKS, MESH_STR_SETTINGS_FIELD_EXTRA_ACKS,
                           MESH_STR_SETTINGS_NOTE_EXTRA_ACKS),
     [MESH_UI_FIELD_MESHCORE_PAIRING] = {{MESH_STR_SETTINGS_FIELD_BT_MODE, INKSTAND_FORM_ENUM,
@@ -2851,6 +2896,7 @@ static const struct {
        MESH_UI_BEACON_TARGET_FIELDS: both callers walk one and divide by the other. */
     [MESH_UI_FIELD_GROUP_BEACON_TARGETS] = {MESH_UI_FIELD_BEACON_TARGET_0_PRESET,
                                             MESH_UI_BEACON_TARGETS *MESH_UI_BEACON_TARGET_FIELDS},
+    [MESH_UI_FIELD_GROUP_AUTOADD] = {MESH_UI_FIELD_AUTOADD_CHAT, 4U},
 };
 
 uint32_t mesh_ui_settings_group_count(enum mesh_ui_setting_field_group group) {
