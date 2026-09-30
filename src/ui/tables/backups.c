@@ -339,7 +339,7 @@ void mesh_ui_backups_topic(const struct mesh_radio_backup_change *change, char *
            are literals for the reason the label table's are; a test pins them. */
         inkcell_str_id module = INKCELL_STR_NONE;
         switch (change->index >= MESH_UI_BACKUPS_MODULE_UNPLACED
-                    ? change->index - MESH_UI_BACKUPS_MODULE_UNPLACED
+                    ? (unsigned)(change->index - MESH_UI_BACKUPS_MODULE_UNPLACED)
                     : 0U) {
         case 2U:
             module = MESH_STR_BACKUPS_MODULE_SERIAL;
@@ -888,14 +888,17 @@ static void backups_value(const struct mesh_radio_backup_value *value, uint8_t f
         snprintf(out, out_len, "%" PRIu64, (uint64_t)value->number);
         return;
     case MESH_RADIO_BACKUP_VALUE_DECIMAL: {
+        /* The width is the digits the scale actually took, so the padding and the fraction
+           agree however many decimals a value claims. */
+        const int digits = value->decimals < 12U ? (int)value->decimals : 12;
         int64_t scale = 1;
-        for (uint8_t i = 0; i < value->decimals && i < 12U; ++i) {
+        for (int i = 0; i < digits; ++i) {
             scale *= 10;
         }
         const int64_t whole = value->number / scale;
         const int64_t part = value->number % scale;
         snprintf(out, out_len, "%s%" PRId64 ".%0*" PRId64,
-                 value->number < 0 && whole == 0 ? "-" : "", whole, (int)value->decimals,
+                 value->number < 0 && whole == 0 ? "-" : "", whole, digits,
                  part < 0 ? -part : part);
         return;
     }

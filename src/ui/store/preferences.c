@@ -6,6 +6,7 @@
 
 #include "inkwell/base/file.h"
 #include "inkwell/base/log.h"
+#include "inkwell/base/text.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -207,8 +208,8 @@ bool mesh_ui_preferences_forget_device(struct mesh_ui_preferences *prefs, const 
     if (prefs->preferred_device[0] != '\0' &&
         device_same(&wanted, prefs->preferred_device, prefs->preferred_device_kind)) {
         if (prefs->known_device_count > 0U) {
-            snprintf(prefs->preferred_device, sizeof prefs->preferred_device, "%s",
-                     prefs->known_devices[0].identifier);
+            inkwell_str_copy(prefs->preferred_device, sizeof prefs->preferred_device,
+                             prefs->known_devices[0].identifier);
             prefs->preferred_device_kind = prefs->known_devices[0].kind;
         } else {
             prefs->preferred_device[0] = '\0';

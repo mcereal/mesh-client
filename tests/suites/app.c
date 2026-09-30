@@ -6796,7 +6796,7 @@ MESH_TEST_CASE(app_profile_cfg_goes_out_to_the_card_and_back_in, unit) {
                         strcmp(app.ui_store.nav.toast.text, "Saved Ridge_kit.cfg to the card") == 0;
     /* Exported again, it goes beside the first rather than over it: that file may be the one
        a profile was imported from, holding what an import leaves behind. */
-    char first[APP_TEST_HOME_CAP + 64];
+    char first[sizeof app.profiles.dir + 32];
     snprintf(first, sizeof first, "%s/Ridge_kit.cfg", app.profiles.dir);
     FILE *mark = fopen(first, "ab");
     if (mark != NULL) {

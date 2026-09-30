@@ -1477,7 +1477,7 @@ MESH_TEST_CASE(ui_store_cache_keeps_a_full_roster, unit) {
         hs.nodes[i].node_id = 0x4000U + i;
         hs.nodes[i].in_nodedb = true;
         hs.nodes[i].last_heard = 1750000000U - i;
-        snprintf(hs.nodes[i].short_name, sizeof hs.nodes[i].short_name, "N%03u", i);
+        snprintf(hs.nodes[i].short_name, sizeof hs.nodes[i].short_name, "N%03u", i % 1000U);
     }
     mesh_ui_store_set_handshake(&store, &hs);
 
@@ -2051,7 +2051,8 @@ MESH_TEST_CASE(ui_store_cache_survives_a_failed_save, unit) {
     for (uint32_t i = 0; i < handshake.node_count; ++i) {
         handshake.nodes[i].node_id = 0x2000U + i;
         handshake.nodes[i].last_heard = 100U + i;
-        snprintf(handshake.nodes[i].short_name, sizeof handshake.nodes[i].short_name, "N%02u", i);
+        snprintf(handshake.nodes[i].short_name, sizeof handshake.nodes[i].short_name, "N%02u",
+                 i % 100U);
     }
     mesh_ui_store_set_handshake(&store, &handshake);
 
@@ -2158,7 +2159,8 @@ MESH_TEST_CASE(ui_store_cache_truncated_roster_has_no_holes, unit) {
     handshake.node_count = 5U;
     for (uint32_t i = 0; i < handshake.node_count; ++i) {
         handshake.nodes[i].node_id = 0x3000U + i;
-        snprintf(handshake.nodes[i].short_name, sizeof handshake.nodes[i].short_name, "N%02u", i);
+        snprintf(handshake.nodes[i].short_name, sizeof handshake.nodes[i].short_name, "N%02u",
+                 i % 100U);
     }
     mesh_ui_store_set_handshake(&store, &handshake);
 

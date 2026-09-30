@@ -75,7 +75,10 @@ static void fake_answer(struct fake_rom *rom, uint8_t op, uint32_t value, const 
         }
     }
     out[at++] = 0xC0U;
-    (void)write(rom->fd, out, at);
+    /* A short write is an answer the loader never hears, and the case fails on that. */
+    if (write(rom->fd, out, at) != (ssize_t)at) {
+        return;
+    }
 }
 
 static uint32_t word(const uint8_t *at) {
@@ -154,7 +157,7 @@ static void fake_request(struct fake_rom *rom, const uint8_t *req, size_t len) {
 
 /* Reads what the loader wrote and answers every whole request in it. */
 static void fake_service(struct fake_rom *rom) {
-    for (;;) {
+    while (rom->in_len < sizeof rom->in) {
         const ssize_t got = read(rom->fd, rom->in + rom->in_len, sizeof rom->in - rom->in_len);
         if (got <= 0) {
             break;
