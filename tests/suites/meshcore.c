@@ -3397,3 +3397,60 @@ MESH_TEST_CASE(meshcore_identity_import_taken_restarts_before_anything_else, uni
                       "something queued behind the import went out before the restart");
     record_success(test_name);
 }
+
+/* A contact's stored route reaches its roster entry hop by hop, and forgetting it is asked of
+   the radio and believed only once the radio says OK. */
+MESH_TEST_CASE(meshcore_reset_path_forgets_the_stored_route, unit) {
+    struct mesh_protocol protocol;
+    static struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const uint32_t alice = 0x40414243U;
+
+    /* Two hops named by two bytes each: 0x42 is (2 - 1) << 6 | 2. */
+    uint8_t frame[160];
+    const size_t len = mesh_test_meshcore_contact(frame, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice",
+                                                  MESH_MESHCORE_ADV_CHAT, 0x42U, 1700000500U);
+    static const uint8_t k_route[4] = {0xAA, 0x01, 0xBB, 0x02};
+    memcpy(frame + 36, k_route, sizeof k_route);
+    feed(&protocol, frame, len);
+    const struct mesh_node_summary *node = model_node(alice);
+    MESH_TEST_FAIL_IF(node == NULL || node->path_state != MESH_NODE_PATH_KNOWN ||
+                          node->path_hops != 2U || node->path_width != 2U ||
+                          memcmp(node->path, k_route, sizeof k_route) != 0,
+                      "the route is on the roster, two bytes a hop");
+
+    MESH_TEST_FAIL_IF(mesh_meshcore_reset_path(&g_meshcore, 0U) != -EINVAL, "nobody");
+    MESH_TEST_FAIL_IF(mesh_meshcore_reset_path(&g_meshcore, 0x99999999U) != -ENOENT,
+                      "not a contact");
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_reset_path(&g_meshcore, alice) != 1, "Alice's is asked");
+    MESH_TEST_FAIL_IF(wire.count != 1U || wire.lens[0] != 1U + MESH_MESHCORE_PUBKEY_LEN ||
+                          wire.frames[0][0] != MESH_MESHCORE_CMD_RESET_PATH ||
+                          wire.frames[0][1] != 0x40,
+                      "RESET_PATH and her key");
+    MESH_TEST_FAIL_IF(node->path_state != MESH_NODE_PATH_KNOWN, "and kept until the radio agrees");
+
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(node->path_state != MESH_NODE_PATH_FLOOD || node->path_hops != 0U,
+                      "OK: the next message floods");
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_at(&g_meshcore, 0U)->out_path_len !=
+                          MESH_MESHCORE_PATH_NONE,
+                      "and the book agrees, so a trace falls back to discovery");
+    MESH_TEST_FAIL_IF(mesh_meshcore_reset_path(&g_meshcore, alice) != -EALREADY,
+                      "nothing left to forget");
+
+    /* A route longer than the roster keeps is counted whole and kept to its first hops. */
+    const size_t long_len =
+        mesh_test_meshcore_contact(frame, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice",
+                                   MESH_MESHCORE_ADV_CHAT, 0x54U, 1700000600U);
+    for (uint8_t i = 0; i < 40U; ++i) {
+        frame[36 + i] = (uint8_t)(0x10U + i);
+    }
+    feed(&protocol, frame, long_len);
+    MESH_TEST_FAIL_IF(node->path_state != MESH_NODE_PATH_KNOWN || node->path_hops != 20U ||
+                          node->path_width != 2U || node->path[0] != 0x10U ||
+                          node->path[MESH_NODE_PATH_BYTES - 1U] !=
+                              0x10U + MESH_NODE_PATH_BYTES - 1U,
+                      "twenty two-byte hops counted, the first twelve kept");
+    record_success(test_name);
+}

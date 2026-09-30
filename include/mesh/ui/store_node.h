@@ -184,6 +184,11 @@ struct mesh_ui_node_neighbors {
     struct mesh_ui_node_neighbor entries[MESH_UI_MAX_NEIGHBORS];
 };
 
+/* MESH_NODE_PATH_HOPS_SHOWN and MESH_NODE_PATH_BYTES, restated on this side of the seam and
+   pinned equal in app_publish.c. */
+#define MESH_UI_NODE_PATH_HOPS 8U
+#define MESH_UI_NODE_PATH_BYTES 24U
+
 struct mesh_ui_node_summary {
     uint32_t node_id;
     char long_name[40];
@@ -211,6 +216,14 @@ struct mesh_ui_node_summary {
     bool has_route;
     uint8_t relay_node;
     uint8_t next_hop;
+    /* A MeshCore contact's stored route, as the session's twin holds it. `path_node` is each
+       shown hop resolved at publish over the whole session roster - 0 for a hash no node or
+       more than one node's key starts with - so the screen names a hop only when it is sure. */
+    uint8_t path_state; /* enum mesh_node_path */
+    uint8_t path_hops;
+    uint8_t path_width;
+    uint8_t path[MESH_UI_NODE_PATH_BYTES];
+    uint32_t path_node[MESH_UI_NODE_PATH_HOPS];
     /*
      * Whether more than one node ends in that byte, answered at publish over the *whole*
      * session roster rather than here.

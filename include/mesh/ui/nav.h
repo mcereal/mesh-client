@@ -986,6 +986,7 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_LOGIN,             /* dest = node to log in to; `text` its password */
     MESH_UI_ACTION_REQUEST_STATUS,    /* dest = repeater or room server to ask for its status */
     MESH_UI_ACTION_REQUEST_NEIGHBORS, /* dest = repeater to ask which nodes it hears */
+    MESH_UI_ACTION_RESET_PATH,        /* dest = contact whose stored route the radio forgets */
     MESH_UI_ACTION_TOGGLE_IGNORE,     /* dest = node; `number` is 1 to start ignoring it */
     /* dest = node. Mute is a bare toggle rather than a wanted state, because the admin verb
        behind it (toggle_muted_node) offers nothing else. */

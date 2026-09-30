@@ -43,6 +43,16 @@ extern "C" {
 /* The widest hop MeshCore names a repeater by: three bytes of its key (the fourth is reserved). */
 #define MESH_TRACEROUTE_HASH_MAX 3U
 
+/* The first eight hops of a stored MeshCore route at its widest; a screen shows no more. */
+#define MESH_NODE_PATH_HOPS_SHOWN 8U
+#define MESH_NODE_PATH_BYTES (MESH_NODE_PATH_HOPS_SHOWN * MESH_TRACEROUTE_HASH_MAX)
+
+enum mesh_node_path {
+    MESH_NODE_PATH_NONE = 0, /* not a MeshCore contact: zero, so a Meshtastic node is untouched */
+    MESH_NODE_PATH_FLOOD,    /* a contact with no route: the next message floods and finds one */
+    MESH_NODE_PATH_KNOWN,    /* a contact with a route, `path_hops` long (0 is direct) */
+};
+
 /* How long a traceroute waits before it is called lost. A reply has to cross the mesh twice,
    and the firmware answers only after the request has reached the far end, so this is much
    longer than an admin round trip on the local link. */
@@ -442,6 +452,16 @@ struct mesh_node_summary {
     bool has_route;
     uint8_t relay_node;
     uint8_t next_hop;
+    /*
+     * The route the radio holds for a MeshCore contact: the repeaters a direct message goes
+     * through, each named by the first `path_width` bytes of its key. `path_hops` is the whole
+     * count; `path` keeps the first MESH_NODE_PATH_BYTES of it. MESH_NODE_PATH_NONE on a
+     * Meshtastic node, which keeps no such thing. Not cached, for the reason above.
+     */
+    uint8_t path_state; /* enum mesh_node_path */
+    uint8_t path_hops;
+    uint8_t path_width;
+    uint8_t path[MESH_NODE_PATH_BYTES];
     /* Identity, from NodeInfo.user. `user_id` is the "!0a1b2c3d" form the apps show. */
     char user_id[16];
     /* False while the only identity we have is the one derived from the node number; true once

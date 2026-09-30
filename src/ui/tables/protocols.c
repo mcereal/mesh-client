@@ -8,7 +8,8 @@
    neighbours and its commands. */
 #define MESHTASTIC_LACKS                                                                           \
     ((uint32_t)(MESH_UI_FEATURE_NODE_LOGIN | MESH_UI_FEATURE_NODE_STATUS |                         \
-                MESH_UI_FEATURE_NODE_NEIGHBORS | MESH_UI_FEATURE_NODE_COMMANDS))
+                MESH_UI_FEATURE_NODE_NEIGHBORS | MESH_UI_FEATURE_NODE_COMMANDS |                   \
+                MESH_UI_FEATURE_NODE_PATH))
 
 static const struct {
     const char *name; /* mesh_protocol_ops.name */

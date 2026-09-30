@@ -79,7 +79,8 @@ static bool root_lists(const struct mesh_ui_settings *settings,
 MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
     const uint32_t k_meshcore_only =
         (uint32_t)(MESH_UI_FEATURE_NODE_LOGIN | MESH_UI_FEATURE_NODE_STATUS |
-                   MESH_UI_FEATURE_NODE_NEIGHBORS | MESH_UI_FEATURE_NODE_COMMANDS);
+                   MESH_UI_FEATURE_NODE_NEIGHBORS | MESH_UI_FEATURE_NODE_COMMANDS |
+                   MESH_UI_FEATURE_NODE_PATH);
     static struct mesh_session session;
     mesh_session_init(&session);
     const struct mesh_protocol meshtastic = mesh_session_protocol(&session);
@@ -536,6 +537,142 @@ MESH_TEST_CASE(ui_protocol_meshcore_logs_in_to_a_repeater, unit) {
         items[login_row + 2U].action != MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS ||
         action.type != MESH_UI_ACTION_REQUEST_NEIGHBORS || action.dest != repeater->node_id) {
         failure = "the row after the status asks the repeater for its neighbours";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A MeshCore contact's stored route is read out a hop a row: by name where exactly one node's
+ * key starts with the hop, as the hash where the publish could not say which. A contact with no
+ * route says it floods. Its sheet offers to forget the route beside the trace, only while there
+ * is one and never on Meshtastic, and the press names the contact.
+ */
+MESH_TEST_CASE(ui_protocol_meshcore_route_is_shown_and_forgotten, unit) {
+    static const struct mesh_protocol_ops k_meshcore = {.name = "meshcore"};
+    static int meshcore_self;
+    const struct mesh_protocol meshcore_protocol = {&k_meshcore, &meshcore_self};
+    uint32_t lacks = 0U;
+    mesh_ui_protocol_features(&meshcore_protocol, NULL, &lacks);
+
+    static struct mesh_ui_handshake_state roster;
+    memset(&roster, 0, sizeof roster);
+    roster.node_count = 2U;
+    struct mesh_ui_node_summary *hill = &roster.nodes[0];
+    hill->node_id = 0xAA010203U;
+    snprintf(hill->short_name, sizeof hill->short_name, "%s", "Hill");
+    struct mesh_ui_node_summary *node = &roster.nodes[1];
+    node->node_id = 0x40414243U;
+    node->public_key_len = 32U;
+    memset(node->public_key, 0x40, 32U);
+    node->in_nodedb = true;
+    node->last_heard = 1749999000U;
+    node->has_hops_away = true;
+    node->hops_away = 10U;
+    node->path_state = MESH_NODE_PATH_KNOWN;
+    node->path_hops = 10U;
+    node->path_width = 2U;
+    static const uint8_t k_route[4] = {0xAA, 0x01, 0xBB, 0x02};
+    memcpy(node->path, k_route, sizeof k_route);
+    node->path_node[0] = hill->node_id;
+
+    static struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    uint32_t count = mesh_ui_node_detail_build(node, false, 1750000000U, NULL, &roster, NULL, false,
+                                               items, MESH_UI_NODE_ITEMS_MAX);
+    char named[MESH_UI_NODE_LABEL_MAX];
+    char hashed[MESH_UI_NODE_LABEL_MAX];
+    char more[MESH_UI_NODE_LABEL_MAX];
+    snprintf(named, sizeof named, "%sHill", inkcell_str(MESH_STR_NODE_HOP_ARROW));
+    snprintf(hashed, sizeof hashed, "%sbb02", inkcell_str(MESH_STR_NODE_HOP_ARROW));
+    inkcell_str_format(more, sizeof more, MESH_STR_NODE_PATH_MORE, 2U);
+    uint32_t at = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, named) == 0) {
+            at = i;
+        }
+    }
+    MESH_TEST_FAIL_IF(at + 8U >= count || strcmp(items[at].value, "aa01") != 0,
+                      "the first hop by its name, its hash beside it");
+    MESH_TEST_FAIL_IF(strcmp(items[at + 1U].label, hashed) != 0 || items[at + 1U].value[0] != '\0',
+                      "the second by its hash: no node is known to start with it");
+    MESH_TEST_FAIL_IF(strcmp(items[at + 8U].label, more) != 0,
+                      "eight hops shown and the other two counted");
+
+    count = mesh_ui_node_actions_build(node, false, NULL, false, lacks, items,
+                                       MESH_UI_NODE_ACTIONS_MAX);
+    uint32_t trace_row = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].action == MESH_UI_NODE_ACTION_TRACEROUTE) {
+            trace_row = i;
+        }
+    }
+    MESH_TEST_FAIL_IF(trace_row + 1U >= count ||
+                          items[trace_row + 1U].action != MESH_UI_NODE_ACTION_RESET_PATH,
+                      "forgetting the route sits right after tracing it");
+    MESH_TEST_FAIL_IF(mesh_ui_node_path_resettable(node, MESH_UI_FEATURE_NODE_PATH),
+                      "not on Meshtastic");
+
+    node->path_state = MESH_NODE_PATH_FLOOD;
+    MESH_TEST_FAIL_IF(mesh_ui_node_path_resettable(node, lacks), "no route, nothing to forget");
+    count = mesh_ui_node_detail_build(node, false, 1750000000U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    bool floods = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        floods = floods || (strcmp(items[i].label, inkcell_str(MESH_STR_NODE_PATH)) == 0 &&
+                            strcmp(items[i].value, inkcell_str(MESH_STR_NODE_PATH_FLOOD)) == 0 &&
+                            items[i].chip);
+    }
+    MESH_TEST_FAIL_IF(!floods, "a contact with no route says it floods");
+
+    /* The press, through the nav. */
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    store.settings.protocol_lacks = lacks;
+    struct mesh_ui_action action;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_RIGHT, &action); /* Nodes */
+    for (uint32_t step = 0; step < MESH_UI_NODES_LEAD_ROWS + 1U; ++step) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    struct mesh_ui_node_summary *contact = (struct mesh_ui_node_summary *)mesh_ui_node_detail_find(
+        &store.handshake, store.nav.node_detail_node);
+    if (!store.nav.node_detail_open || contact == NULL) {
+        failure = "A opens a node's detail";
+        goto cleanup;
+    }
+    contact->in_nodedb = true;
+    contact->public_key_len = 32U;
+    memset(contact->public_key, 0x42, 32U);
+    contact->path_state = MESH_NODE_PATH_KNOWN;
+    contact->path_hops = 1U;
+    contact->path_width = 1U;
+    contact->path[0] = 0xAA;
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    count = mesh_ui_node_actions_build(contact, false, NULL, false, lacks, items,
+                                       MESH_UI_NODE_ACTIONS_MAX);
+    uint32_t reset_row = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].action == MESH_UI_NODE_ACTION_RESET_PATH) {
+            reset_row = i;
+        }
+    }
+    if (!store.nav.node_actions_open || reset_row >= count) {
+        failure = "the contact's sheet offers to forget its route";
+        goto cleanup;
+    }
+    while (store.nav.node_actions_cursor < reset_row &&
+           mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action)) {
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_RESET_PATH || action.dest != contact->node_id) {
+        failure = "A on it asks the radio to forget that contact's route";
         goto cleanup;
     }
 

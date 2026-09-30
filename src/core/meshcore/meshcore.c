@@ -395,6 +395,32 @@ static void mesh_meshcore_book_drop(struct mesh_meshcore *meshcore, const uint8_
     meshcore->contact_count -= 1U;
 }
 
+/* The route the radio holds for `contact`, onto its roster entry. */
+static void mesh_meshcore_note_path(struct mesh_node_summary *node,
+                                    const struct mesh_meshcore_contact *contact) {
+    memset(node->path, 0, sizeof node->path);
+    if (contact->out_path_len == MESH_MESHCORE_PATH_NONE) {
+        node->path_state = MESH_NODE_PATH_FLOOD;
+        node->path_hops = 0U;
+        node->path_width = 0U;
+        return;
+    }
+    const uint8_t width = (uint8_t)((contact->out_path_len >> 6U) + 1U);
+    const uint8_t hops = MESH_MESHCORE_PATH_HOPS(contact->out_path_len);
+    node->path_state = MESH_NODE_PATH_KNOWN;
+    node->path_hops = hops;
+    node->path_width = width;
+    size_t bytes = (size_t)hops * width;
+    const size_t room = (sizeof node->path / width) * width;
+    if (bytes > room) {
+        bytes = room;
+    }
+    if (bytes > sizeof contact->out_path) {
+        bytes = sizeof contact->out_path;
+    }
+    memcpy(node->path, contact->out_path, bytes);
+}
+
 /* `imported` is a contact the user added themselves, which the roster takes without calling it
    a discovery; see mesh_session_model_contact(). */
 static void mesh_meshcore_store_contact(struct mesh_meshcore *meshcore,
@@ -422,6 +448,7 @@ static void mesh_meshcore_store_contact(struct mesh_meshcore *meshcore,
         node->has_hops_away = true;
         node->hops_away = MESH_MESHCORE_PATH_HOPS(contact->out_path_len);
     }
+    mesh_meshcore_note_path(node, contact);
     if (contact->latitude_e6 != 0 || contact->longitude_e6 != 0) {
         node->position.valid = true;
         node->position.latitude_i = contact->latitude_e6 * 10;
@@ -1789,6 +1816,29 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             if (id != 0U && mesh_session_model_drop_node(meshcore->model, id) == 0) {
                 inkwell_log_info("meshcore", "Removed contact 0x%08x", id);
             }
+        } else if (cmd == MESH_MESHCORE_CMD_RESET_PATH && request != NULL &&
+                   request->len == 1U + MESH_MESHCORE_PUBKEY_LEN) {
+            /* The user's reset and the one before a message's last attempt alike: the radio
+               floods the next message, and says nothing more until a route is learnt
+               (PUSH_PATH_UPDATED). */
+            const size_t at = mesh_meshcore_book_find(meshcore, request->frame + 1);
+            if (at != SIZE_MAX) {
+                struct mesh_meshcore_contact *contact = &meshcore->contacts[at];
+                contact->out_path_len = MESH_MESHCORE_PATH_NONE;
+                memset(contact->out_path, 0, sizeof contact->out_path);
+                const uint32_t id =
+                    mesh_meshcore_node_id(contact->public_key, MESH_MESHCORE_PUBKEY_LEN);
+                /* Looked up first: model_node() would add a contact the roster has let go. */
+                struct mesh_node_summary *node =
+                    mesh_meshcore_roster_node(meshcore, id) != NULL
+                        ? mesh_session_model_node(meshcore->model, id, false)
+                        : NULL;
+                if (node != NULL && node->public_key_len == MESH_MESHCORE_PUBKEY_LEN &&
+                    memcmp(node->public_key, contact->public_key, MESH_MESHCORE_PUBKEY_LEN) == 0) {
+                    mesh_meshcore_note_path(node, contact);
+                    inkwell_log_info("meshcore", "Forgot the route to 0x%08x", id);
+                }
+            }
         }
         break;
     case MESH_MESHCORE_RESP_CURR_TIME:
@@ -2267,6 +2317,30 @@ int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_i
     const int result =
         mesh_meshcore_enqueue(meshcore, frame,
                               mesh_meshcore_encode_key(MESH_MESHCORE_CMD_REMOVE_CONTACT,
+                                                       node->public_key, frame, sizeof frame),
+                              0U);
+    return result < 0 ? result : 1;
+}
+
+int mesh_meshcore_reset_path(struct mesh_meshcore *meshcore, uint32_t node_id) {
+    if (meshcore == NULL || node_id == 0U || node_id == meshcore->self_node) {
+        return -EINVAL;
+    }
+    if (!mesh_meshcore_ready(meshcore)) {
+        return -ENOTCONN;
+    }
+    const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, node_id);
+    if (node == NULL || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN || !node->in_nodedb) {
+        return -ENOENT;
+    }
+    const size_t at = mesh_meshcore_book_find(meshcore, node->public_key);
+    if (at == SIZE_MAX || meshcore->contacts[at].out_path_len == MESH_MESHCORE_PATH_NONE) {
+        return -EALREADY;
+    }
+    uint8_t frame[1U + MESH_MESHCORE_PUBKEY_LEN];
+    const int result =
+        mesh_meshcore_enqueue(meshcore, frame,
+                              mesh_meshcore_encode_key(MESH_MESHCORE_CMD_RESET_PATH,
                                                        node->public_key, frame, sizeof frame),
                               0U);
     return result < 0 ? result : 1;

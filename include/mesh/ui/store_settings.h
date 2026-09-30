@@ -482,10 +482,13 @@ enum mesh_ui_feature {
     /* A repeater's conversation is its console: a message is a command it runs for its admin,
        and the compose sheet offers its commands where the canned replies would be. */
     MESH_UI_FEATURE_NODE_COMMANDS = 1U << 20,
+    /* A contact's stored route: shown on its screen, and forgotten on request. Meshtastic's
+       next hop is learnt and dropped by the firmware and is not the user's to reset. */
+    MESH_UI_FEATURE_NODE_PATH = 1U << 21,
 };
 
 /* Every bit above: what a protocol this client has no row for lacks. */
-#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_COMMANDS << 1) - 1U))
+#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_PATH << 1) - 1U))
 
 /*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so the

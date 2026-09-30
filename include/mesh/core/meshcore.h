@@ -766,6 +766,15 @@ int mesh_meshcore_send_advert(struct mesh_meshcore *meshcore, bool flood);
  */
 int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_id);
 /*
+ * Asks the radio to forget the route it holds for a contact, so the next message floods and the
+ * answer teaches it a fresh one - the way out of a route through a repeater that has gone. The
+ * roster reads the contact as having no route once the radio says OK. 1 when asked; -EINVAL for
+ * 0 or this radio, -ENOTCONN until the handshake has named the radio, -ENOENT for a node that is
+ * not one of the radio's contacts, -EALREADY for one with no route to forget, -ENOBUFS when the
+ * command queue is full.
+ */
+int mesh_meshcore_reset_path(struct mesh_meshcore *meshcore, uint32_t node_id);
+/*
  * Asks the radio to make a heard node a contact, from what the roster holds of its advert: the
  * key, the name, the kind of node and where it said it was, with no route known yet so the
  * first message floods. The node joins the radio's list when the radio says OK. 1 when asked;
