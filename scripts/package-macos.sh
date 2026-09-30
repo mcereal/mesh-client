@@ -122,6 +122,9 @@ fi
 CMAKE_ARGS=(
     -S . -B "${BUILD_DIR}" -G Ninja
     -DCMAKE_BUILD_TYPE=Release
+    # Debug info, for the dSYM below and nothing else: -g changes no code, and on a Mac it stays
+    # in the object files until dsymutil collects it.
+    -DCMAKE_C_FLAGS=-g
     -DCMAKE_OSX_ARCHITECTURES="${ARCHS}"
     -DCMAKE_OSX_DEPLOYMENT_TARGET="${MIN_MACOS}"
     -DCMAKE_PREFIX_PATH="${SDL_PREFIX}"
@@ -147,6 +150,7 @@ cmake "${CMAKE_ARGS[@]}"
 cmake --build "${BUILD_DIR}" --target meshclient
 
 BINARY="${BUILD_DIR}/meshclient"
+DSYM="${BUILD_DIR}/meshclient.dSYM"
 BUILT_ARCHS=" $(lipo -archs "${BINARY}") "
 for arch in ${ARCHS//;/ }; do
     if [[ "${BUILT_ARCHS}" != *" ${arch} "* ]]; then
@@ -160,6 +164,17 @@ if [[ -n "${VERSION}" ]]; then
         echo "${BINARY} does not contain the string ${VERSION}." >&2
         exit 1
     fi
+fi
+
+# The symbols a sent crash report is read against, file and line included, matched to it by
+# LC_UUID. The release workflow uploads this directory to Sentry; nothing ships it. It has to be
+# made from the linked binary while the object files it points into are still beside it.
+rm -rf "${DSYM}"
+dsymutil "${BINARY}" -o "${DSYM}"
+DSYM_UUIDS=$(dwarfdump --uuid "${DSYM}" | awk '{ print $2 }' | sort)
+if [[ -z "${DSYM_UUIDS}" || "${DSYM_UUIDS}" != "$(dwarfdump --uuid "${BINARY}" | awk '{ print $2 }' | sort)" ]]; then
+    echo "${DSYM} does not match ${BINARY}." >&2
+    exit 1
 fi
 
 # ---------------------------------------------------------------------------------------------
@@ -199,6 +214,9 @@ for f in Assets.car MeshClient.icns; do
     cp "${ICON_OUT}/${f}" "${APP}/Contents/Resources/${f}"
 done
 cp "${BINARY}" "${APP}/Contents/MacOS/meshclient"
+# The debug map -g left behind: build-machine paths to object files no other Mac has. The dSYM
+# above is where that went; the function names stay, and so does the UUID.
+strip -S "${APP}/Contents/MacOS/meshclient"
 cp -L "${SDL_PREFIX}/lib/${SDL_LIB_FILE}" "${APP}/Contents/Frameworks/${SDL_LIB_FILE}"
 chmod 0644 "${APP}/Contents/Frameworks/${SDL_LIB_FILE}"
 
