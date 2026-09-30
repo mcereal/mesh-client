@@ -171,6 +171,15 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   everyone), auto-add and multi-acks - are rows under the name in User, and one
   `SET_OTHER_PARAMS` with all four bytes over what SELF_INFO reported. "Add heard nodes" is the
   firmware's `manual_add_contacts` turned over.
+- **Which heard nodes are added** is `GET_AUTOADD_CONFIG`, asked once the handshake is through
+  and refused by firmware older than it, which leaves the rows unoffered. Under "Add heard
+  nodes": the four kinds still added with it off (FLAG rows over the byte's
+  `AUTO_ADD_CHAT`..`SENSOR` bits, dimmed while it is on - the firmware adds every kind then),
+  "Replace oldest when full" (bit 0) and "Add from", the raw hop byte (0 any, 1 direct, N up to
+  N - 1 hops). One `SET_AUTOADD_CONFIG` with both bytes, believed on its `OK`. Not in a backup.
+- **A full contact list** is `PUSH_CONTACTS_FULL`, which the radio sends with every node it then
+  hears and cannot add. It is kept as `contacts_full` and said once as a toast; a contact the
+  user removes clears it, an overwrite of the oldest (`CONTACT_DELETED`) does not.
 - **The Bluetooth PIN** is DEVICE_INFO's `ble_pin`, under its own heading below them: Pairing
   (random, 0; fixed) and the six digits, one `SET_DEVICE_PIN` u32 with no read-back - its OK
   moves the PIN. The firmware reads it at boot, so it takes effect on the next restart, and a

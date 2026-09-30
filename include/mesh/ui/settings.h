@@ -353,6 +353,15 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_ASK_LOCATION,
     MESH_UI_FIELD_ASK_SENSORS,
     MESH_UI_FIELD_AUTO_ADD,
+    /* GET/SET_AUTOADD_CONFIG, under it where the radio answers the question: the four kinds
+       still added with it off (FLAG rows over the config byte, MESH_UI_FIELD_GROUP_AUTOADD),
+       whether a full list makes room, and how far away a node may be (an enum 0..64, raw). */
+    MESH_UI_FIELD_AUTOADD_CHAT,
+    MESH_UI_FIELD_AUTOADD_REPEATER,
+    MESH_UI_FIELD_AUTOADD_ROOM,
+    MESH_UI_FIELD_AUTOADD_SENSOR,
+    MESH_UI_FIELD_AUTOADD_OVERWRITE,
+    MESH_UI_FIELD_AUTOADD_HOPS,
     MESH_UI_FIELD_EXTRA_ACKS,
     /* MeshCore's Bluetooth PIN (CMD_SET_DEVICE_PIN), under them: a random one each boot or a
        fixed six digits, the pair one u32 on the wire. */
@@ -1317,6 +1326,8 @@ enum mesh_ui_setting_field_group {
      * what keeps the row builder and the write builder from each writing the run out.
      */
     MESH_UI_FIELD_GROUP_BEACON_TARGETS,
+    /* MeshCore's auto-add config byte: which kinds of node are added while auto-add is off. */
+    MESH_UI_FIELD_GROUP_AUTOADD,
     MESH_UI_FIELD_GROUP_COUNT,
 };
 

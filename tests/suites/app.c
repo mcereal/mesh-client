@@ -5959,6 +5959,32 @@ MESH_TEST_CASE(app_meshcore_other_params_save, unit) {
         goto cleanup;
     }
 
+    /* The auto-add config: each row sets its own part of the byte, the rest as the radio has
+       it, and the hops ride along whole. */
+    app.meshcore.has_autoadd = true;
+    app.meshcore.autoadd_config = MESH_MESHCORE_AUTOADD_CHAT | MESH_MESHCORE_AUTOADD_SENSOR;
+    app.meshcore.autoadd_max_hops = 0U;
+    mesh_app_publish_ui_state(&app);
+    if (!app.ui_store.settings.has_meshcore_autoadd ||
+        app.ui_store.settings.meshcore_autoadd_config != 0x12U) {
+        failure = "the auto-add config is published for the rows";
+        goto cleanup;
+    }
+    app.settings_save_pending = false;
+    action.edit_count = 3U;
+    action.edits[0].field = (uint16_t)MESH_UI_FIELD_AUTOADD_REPEATER;
+    action.edits[0].number = 1U;
+    action.edits[1].field = (uint16_t)MESH_UI_FIELD_AUTOADD_OVERWRITE;
+    action.edits[1].number = 1U;
+    action.edits[2].field = (uint16_t)MESH_UI_FIELD_AUTOADD_HOPS;
+    action.edits[2].number = 2U;
+    mesh_app_save_settings(&app, &action, 3000U);
+    const uint8_t autoadd[3] = {MESH_MESHCORE_CMD_SET_AUTOADD_CONFIG, 0x17U, 2U};
+    if (wire.count != 1U || wire.lens[0] != 3U || memcmp(wire.frames[0], autoadd, 3U) != 0) {
+        failure = "repeaters and the overwrite join companions and sensors, within one hop";
+        goto cleanup;
+    }
+
 cleanup:
     if (app_ready) {
         mesh_protocol_detach(&protocol);

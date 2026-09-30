@@ -1626,6 +1626,8 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
     write.telemetry_modes = self->telemetry_modes;
     write.advert_loc_policy = self->advert_loc_policy;
     write.multi_acks = self->multi_acks;
+    write.autoadd_config = app->meshcore.autoadd_config;
+    write.autoadd_max_hops = app->meshcore.autoadd_max_hops;
 
     const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)action->section;
     if (section == MESH_UI_SETTINGS_CHANNELS) {
@@ -1678,6 +1680,29 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
         case MESH_UI_FIELD_EXTRA_ACKS:
             write.multi_acks = edit->number != 0U ? 1U : 0U;
             write.set_other = true;
+            break;
+        /* One byte of kinds and the overwrite bit, and one of hops: each row sets its own part
+           and leaves the rest as the radio reported it. */
+        case MESH_UI_FIELD_AUTOADD_CHAT:
+        case MESH_UI_FIELD_AUTOADD_REPEATER:
+        case MESH_UI_FIELD_AUTOADD_ROOM:
+        case MESH_UI_FIELD_AUTOADD_SENSOR:
+        case MESH_UI_FIELD_AUTOADD_OVERWRITE: {
+            const uint8_t bit =
+                edit->field == MESH_UI_FIELD_AUTOADD_OVERWRITE
+                    ? (uint8_t)MESH_MESHCORE_AUTOADD_OVERWRITE_OLDEST
+                    : (uint8_t)mesh_ui_settings_field_bit((enum mesh_ui_setting_field)edit->field);
+            write.autoadd_config = edit->number != 0U ? (uint8_t)(write.autoadd_config | bit)
+                                                      : (uint8_t)(write.autoadd_config & ~bit);
+            write.set_autoadd = true;
+            break;
+        }
+        case MESH_UI_FIELD_AUTOADD_HOPS:
+            if (edit->number > MESH_MESHCORE_AUTOADD_HOPS_MAX) {
+                return -EINVAL;
+            }
+            write.autoadd_max_hops = (uint8_t)edit->number;
+            write.set_autoadd = true;
             break;
         case MESH_UI_FIELD_MESHCORE_PAIRING:
             pairing = edit->number != 0U ? 1 : 0;

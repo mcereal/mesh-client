@@ -3468,3 +3468,82 @@ MESH_TEST_CASE(meshcore_reset_path_forgets_the_stored_route, unit) {
                       "an advert the radio did not add shows no route");
     record_success(test_name);
 }
+
+/* The auto-add config is read once the handshake is through and written whole, believed once
+   the radio says OK; a radio that never answered for it is not written to. */
+MESH_TEST_CASE(meshcore_autoadd_config_is_read_and_written, unit) {
+    struct mesh_protocol protocol;
+    static struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    MESH_TEST_FAIL_IF(!g_meshcore.has_autoadd || g_meshcore.autoadd_config != 0U ||
+                          g_meshcore.autoadd_max_hops != 0U,
+                      "the ready radio said which nodes it adds");
+
+    struct mesh_meshcore_settings_write write;
+    memset(&write, 0, sizeof write);
+    write.set_autoadd = true;
+    write.autoadd_config = MESH_MESHCORE_AUTOADD_OVERWRITE_OLDEST | MESH_MESHCORE_AUTOADD_REPEATER;
+    write.autoadd_max_hops = MESH_MESHCORE_AUTOADD_HOPS_MAX + 1U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EINVAL,
+                      "past the firmware's 64 hops is refused here");
+    write.autoadd_max_hops = 3U;
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != 1, "one command goes");
+    MESH_TEST_FAIL_IF(wire.count != 1U || wire.lens[0] != 3U ||
+                          wire.frames[0][0] != MESH_MESHCORE_CMD_SET_AUTOADD_CONFIG ||
+                          wire.frames[0][1] != 0x05U || wire.frames[0][2] != 3U,
+                      "SET_AUTOADD_CONFIG, the byte of kinds and the hops");
+    MESH_TEST_FAIL_IF(g_meshcore.autoadd_config != 0U, "and not believed before the OK");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(g_meshcore.autoadd_config != 0x05U || g_meshcore.autoadd_max_hops != 3U ||
+                          g_meshcore.writes_outstanding != 0U,
+                      "OK: the radio holds it, and the save settled");
+
+    /* An answer that outlived its question answers nothing now outstanding: the command at the
+       head keeps its place for its own reply. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_reset_path(&g_meshcore, 0x40414243U) != 1,
+                      "a command is outstanding");
+    const size_t queued = g_meshcore.queue_count;
+    const uint8_t late[3] = {MESH_MESHCORE_RESP_AUTOADD_CONFIG, 0x1EU, 9U};
+    feed(&protocol, late, sizeof late);
+    MESH_TEST_FAIL_IF(g_meshcore.queue_count != queued ||
+                          mesh_meshcore_contact_at(&g_meshcore, 0U)->out_path_len ==
+                              MESH_MESHCORE_PATH_NONE ||
+                          g_meshcore.autoadd_config != 0x05U,
+                      "a late AUTOADD_CONFIG neither pops the reset nor is believed");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_at(&g_meshcore, 0U)->out_path_len !=
+                          MESH_MESHCORE_PATH_NONE,
+                      "and the reset's own OK is still its own");
+
+    g_meshcore.has_autoadd = false;
+    MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EINVAL,
+                      "a radio that refused the question is not written to");
+    record_success(test_name);
+}
+
+/* A full contact list is a state: said by the radio with each node it then hears, and over once
+   a removal makes room. */
+MESH_TEST_CASE(meshcore_contacts_full_lasts_until_room_is_made, unit) {
+    struct mesh_protocol protocol;
+    static struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    MESH_TEST_FAIL_IF(g_meshcore.contacts_full, "not full to begin with");
+    feed_code(&protocol, MESH_MESHCORE_PUSH_CONTACTS_FULL);
+    feed_code(&protocol, MESH_MESHCORE_PUSH_CONTACTS_FULL);
+    MESH_TEST_FAIL_IF(!g_meshcore.contacts_full, "the radio said it was full");
+
+    uint8_t deleted[1U + MESH_MESHCORE_PUBKEY_LEN];
+    deleted[0] = MESH_MESHCORE_PUSH_CONTACT_DELETED;
+    memset(deleted + 1, 0x77, MESH_MESHCORE_PUBKEY_LEN);
+    feed(&protocol, deleted, sizeof deleted);
+    MESH_TEST_FAIL_IF(!g_meshcore.contacts_full,
+                      "an overwrite of the oldest leaves the list as full as it was");
+
+    MESH_TEST_FAIL_IF(mesh_meshcore_remove_contact(&g_meshcore, 0x40414243U) != 1,
+                      "Alice's removal is asked");
+    MESH_TEST_FAIL_IF(!g_meshcore.contacts_full, "and not believed before the OK");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(g_meshcore.contacts_full, "a removal made room");
+    record_success(test_name);
+}

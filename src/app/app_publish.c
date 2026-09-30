@@ -2300,6 +2300,13 @@ static void mesh_app_report_meshcore_answers(struct mesh_app *app) {
         mesh_app_report_meshcore_notice(
             app, &app->meshcore.notice_log[seen % MESH_MESHCORE_NOTICES_KEPT]);
     }
+    /* The radio says its list is full with every node it then hears, so this is said on the
+       way in and again only after a removal has made room and the list filled once more. */
+    if (app->meshcore.contacts_full && !app->ui_meshcore_full_told) {
+        mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(),
+                                inkcell_str(MESH_STR_TOAST_CONTACTS_FULL));
+    }
+    app->ui_meshcore_full_told = app->meshcore.contacts_full;
 }
 
 /*
@@ -3259,6 +3266,11 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app->meshcore_bound && app->meshcore.has_device) {
         ui_settings.has_meshcore_pin = true;
         ui_settings.meshcore_ble_pin = app->meshcore.device.ble_pin;
+    }
+    if (app->meshcore_bound && app->meshcore.has_autoadd) {
+        ui_settings.has_meshcore_autoadd = true;
+        ui_settings.meshcore_autoadd_config = app->meshcore.autoadd_config;
+        ui_settings.meshcore_autoadd_max_hops = app->meshcore.autoadd_max_hops;
     }
     /* This radio as the MeshCore app's contact link - never the Meshtastic one the flatten may
        have made from the same name, which that app could not read. Its channels share one to a
