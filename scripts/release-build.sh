@@ -84,7 +84,7 @@ cmake -S . -B build/release -G Ninja \
     -DCMAKE_SYSTEM_NAME=Linux \
     -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
     -DCMAKE_EXE_LINKER_FLAGS="-static ${DBUS_LDFLAGS:-}" \
-    -DCMAKE_C_FLAGS="-Os -fno-omit-frame-pointer ${DBUS_CFLAGS:-}" \
+    -DCMAKE_C_FLAGS="-Os -g -fno-omit-frame-pointer ${DBUS_CFLAGS:-}" \
     -DPython3_EXECUTABLE="${SYSTEM_PYTHON}" \
     -DMESHCLIENT_VERSION_OVERRIDE="${VERSION}" \
     -DMESHCLIENT_RELEASE_BUILD=ON
@@ -102,6 +102,15 @@ if [[ "${VERSION_HITS}" -eq 0 ]]; then
     echo "The version rewrite must happen before this script; see release.config.mjs." >&2
     exit 1
 fi
+
+# The debug info -g put in, moved out: into the file the release workflow uploads to Sentry, so a
+# sent crash report reads as file and line, and off the binary the pak and the updater ship. The
+# build id is in both and is what Sentry matches a report on; the symbol table stays behind, so a
+# report still names functions without it. Before package.sh, so the pak gets the stripped one.
+OBJCOPY="${CROSS_COMPILE:-}objcopy"
+mkdir -p dist/symbols
+"${OBJCOPY}" --only-keep-debug build/release/meshclient "dist/symbols/meshclient-${PLATFORM}-aarch64.debug"
+"${OBJCOPY}" --strip-debug build/release/meshclient
 
 # The same step `make package` would run, called directly: going through the make target would
 # re-enter cmake and rebuild, and the configure above is the one that matters.
