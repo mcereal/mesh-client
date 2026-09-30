@@ -157,14 +157,21 @@ struct mesh_lifetime {
     uint32_t settled_ids[MESH_MESSAGE_LOG_CAPACITY];
     uint8_t settled_in[MESH_MESSAGE_LOG_CAPACITY]; /* enum mesh_lifetime_stat, or 0xFF: neither */
     /* The link as the last mesh_lifetime_note_link() saw it: whether one was up, when it came
-       up and up to when its time is already in CONNECTED_S (monotonic ms), and which radio it
-       reached, once that radio said. Not on the card. A reset clears them with everything else,
-       so a link up across a reset is the first connection of the stats that start then, timed
-       from the next turn - "starts again from today" includes the link that is up today. */
+       up and up to when its time is already in CONNECTED_S (monotonic ms). Not on the card. A
+       reset clears them with everything else, so a link up across a reset is the first
+       connection of the stats that start then, timed from the next sample - "starts again from
+       today" includes the link that is up today. */
     bool link_up;
     uint64_t link_since_ms;
     uint64_t link_banked_ms;
+    /* The radio the link reaches, as the session announced it (mesh_lifetime_note_radio()) on
+       this link and never before it: 0 until then, which leaves a record set by that stretch
+       with nobody to name rather than the last radio's name. An announcement while no link is
+       up waits in `link_radio_next` for the next one, which is how the reset's re-announcement
+       and a handshake frame handled just before the link was sampled still reach the link
+       they belong to: the next link to come up takes it, and no later one. */
     uint32_t link_radio;
+    uint32_t link_radio_next;
     /* `totals` differs from the card. */
     bool dirty;
     /* Moves whenever any value does, so a screen can ask whether to redraw. */
@@ -184,20 +191,20 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
 
 /* A radio this client has been attached to. Idempotent; 0 is ignored. The observer calls it
    for the session's RADIO event, which is how a run that never publishes a frame still counts
-   the radio it talked to. */
+   the radio it talked to - and it is the only way a link learns its radio: the session says it
+   once per handshake, so it is never the last radio's number still in the handshake status. */
 void mesh_lifetime_note_radio(struct mesh_lifetime *lifetime, uint32_t node_num);
 
 /*
- * Whether a link is up now, told as often as the app likes, and which radio it reaches (0 until
- * that radio has said). A link coming up is a CONNECTION; while it stays up its time is banked into
- * CONNECTED_S a minute at a time, and the stretch as a whole raises LONGEST_CONNECTION_S, a
- * record held by the radio it was with. A link going down banks what is left. `now_ms` is
- * inkwell's monotonic clock; a reading that goes backwards is ignored rather than wrapped.
- * The app tells it the link is down as it shuts down, so a clean exit banks the last seconds.
+ * Whether a link is up now, told as often as the app likes. A link coming up is a CONNECTION; while
+ * it stays up its time is banked into CONNECTED_S a minute at a time, and the stretch as a whole
+ * raises LONGEST_CONNECTION_S, a record held by the radio the session announced on it. A link going
+ * down banks what is left. `now_ms` is inkwell's monotonic clock; a reading that goes backwards is
+ * ignored rather than wrapped. The app tells it the link is down as it shuts down, so a clean exit
+ * banks the last seconds.
  */
 #define MESH_LIFETIME_LINK_BANK_MS 60000U
-void mesh_lifetime_note_link(struct mesh_lifetime *lifetime, bool up, uint32_t radio,
-                             uint64_t now_ms);
+void mesh_lifetime_note_link(struct mesh_lifetime *lifetime, bool up, uint64_t now_ms);
 
 /* A COUNT, a MAX or a SET. A MIN is signed and reads as 0 here: see mesh_lifetime_signed(). */
 uint64_t mesh_lifetime_value(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat);

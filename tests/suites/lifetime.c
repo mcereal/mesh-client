@@ -1025,21 +1025,30 @@ MESH_TEST_CASE(lifetime_counts_what_the_session_announces, unit) {
     record_success(test_name);
 }
 
+/* A link sampled at `now`, and - as the session does once per handshake - the radio on it
+   announced, when `radio` is not 0. */
+static void lt_link(bool up, uint32_t radio, uint64_t now) {
+    mesh_lifetime_note_link(&g_lifetime, up, now);
+    if (up && radio != 0U) {
+        mesh_lifetime_note_radio(&g_lifetime, radio);
+    }
+}
+
 /* A connection is the edge, not the state: a link reported up every turn is one connection, and
    only a drop and a return makes a second. */
 MESH_TEST_CASE(lifetime_counts_a_connection_once_per_link, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
     for (uint64_t now = 0U; now < 5000U; now += 20U) {
-        mesh_lifetime_note_link(&g_lifetime, true, LT_US, 1000U + now);
+        lt_link(true, LT_US, 1000U + now);
     }
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 1U,
                       "a link up for many turns is one connection");
-    mesh_lifetime_note_link(&g_lifetime, false, 0U, 7000U);
-    mesh_lifetime_note_link(&g_lifetime, false, 0U, 8000U);
+    lt_link(false, 0U, 7000U);
+    lt_link(false, 0U, 8000U);
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 1U,
                       "a link staying down is not a connection");
-    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 9000U);
+    lt_link(true, LT_US, 9000U);
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 2U,
                       "a link back after a drop is the second");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
@@ -1051,20 +1060,20 @@ MESH_TEST_CASE(lifetime_counts_a_connection_once_per_link, unit) {
 MESH_TEST_CASE(lifetime_banks_connected_time_a_minute_at_a_time, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
-    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 0U);
+    lt_link(true, LT_US, 0U);
     MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
 
-    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 30000U);
+    lt_link(true, LT_US, 30000U);
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 0U,
                       "half a minute is not banked yet");
     MESH_TEST_FAIL_IF(mesh_lifetime_dirty(&g_lifetime), "an unbanked turn writes nothing");
 
-    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 60500U);
+    lt_link(true, LT_US, 60500U);
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 60U,
                       "a minute is banked in whole seconds");
     MESH_TEST_FAIL_IF(!mesh_lifetime_dirty(&g_lifetime), "a bank is something to write");
 
-    mesh_lifetime_note_link(&g_lifetime, false, 0U, 90700U);
+    lt_link(false, 0U, 90700U);
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 90U,
                       "a drop banks the rest, and the half second before it was carried");
     MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S),
@@ -1073,8 +1082,8 @@ MESH_TEST_CASE(lifetime_banks_connected_time_a_minute_at_a_time, unit) {
                       "the longest is the whole stretch");
 
     /* A shorter second stretch adds to the total and leaves the record. */
-    mesh_lifetime_note_link(&g_lifetime, true, LT_OTHER, 100000U);
-    mesh_lifetime_note_link(&g_lifetime, false, 0U, 110000U);
+    lt_link(true, LT_OTHER, 100000U);
+    lt_link(false, 0U, 110000U);
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 100U,
                       "every stretch adds to the total");
     uint32_t holder = 0U;
@@ -1090,9 +1099,9 @@ MESH_TEST_CASE(lifetime_banks_connected_time_a_minute_at_a_time, unit) {
 MESH_TEST_CASE(lifetime_longest_connection_names_a_radio_that_spoke_late, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
-    mesh_lifetime_note_link(&g_lifetime, true, 0U, 0U);
-    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 2000U);
-    mesh_lifetime_note_link(&g_lifetime, false, 0U, 120000U);
+    lt_link(true, 0U, 0U);
+    lt_link(true, LT_US, 2000U);
+    lt_link(false, 0U, 120000U);
     uint32_t holder = 0U;
     MESH_TEST_FAIL_IF(
         !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S, &holder, NULL) ||
@@ -1106,11 +1115,11 @@ MESH_TEST_CASE(lifetime_longest_connection_names_a_radio_that_spoke_late, unit) 
 MESH_TEST_CASE(lifetime_link_ignores_a_clock_that_goes_back, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
-    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 100000U);
-    mesh_lifetime_note_link(&g_lifetime, false, 0U, 5000U);
+    lt_link(true, LT_US, 100000U);
+    lt_link(false, 0U, 5000U);
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 0U,
                       "no time is banked off a reading from before the link");
-    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 6000U);
+    lt_link(true, LT_US, 6000U);
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 2U,
                       "the link still went down");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
@@ -1121,8 +1130,8 @@ MESH_TEST_CASE(lifetime_link_ignores_a_clock_that_goes_back, unit) {
 MESH_TEST_CASE(lifetime_connected_time_survives_a_restart, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
-    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 0U);
-    mesh_lifetime_note_link(&g_lifetime, false, 0U, 45000U);
+    lt_link(true, LT_US, 0U);
+    lt_link(false, 0U, 45000U);
     MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
 
     MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
@@ -1135,7 +1144,7 @@ MESH_TEST_CASE(lifetime_connected_time_survives_a_restart, unit) {
         !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S, &holder, NULL) ||
             holder != LT_US,
         "the longest keeps its holder");
-    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 1000U);
+    lt_link(true, LT_US, 1000U);
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 2U,
                       "the first link of a new run is a new connection");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
@@ -1146,15 +1155,57 @@ MESH_TEST_CASE(lifetime_connected_time_survives_a_restart, unit) {
 MESH_TEST_CASE(lifetime_a_reset_counts_the_link_that_is_up, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
-    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 0U);
-    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 600000U);
+    lt_link(true, LT_US, 0U);
+    lt_link(true, LT_US, 600000U);
     MESH_TEST_FAIL_IF(mesh_lifetime_reset(&g_lifetime) != 0, "the reset failed");
-    mesh_lifetime_note_link(&g_lifetime, true, LT_US, 600020U);
-    mesh_lifetime_note_link(&g_lifetime, false, 0U, 610020U);
+    lt_link(true, LT_US, 600020U);
+    lt_link(false, 0U, 610020U);
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTIONS) != 1U,
                       "the link up across the reset is counted once");
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONNECTED_S) != 10U,
                       "only the time since the reset is counted");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* A link names only the radio announced on it. The handshake status still holds the last
+   radio's number until the new one says, so a stretch that ended before it did has nobody to
+   name rather than the wrong one. */
+MESH_TEST_CASE(lifetime_longest_connection_never_names_the_last_radio, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_link(true, LT_US, 0U);
+    lt_link(false, 0U, 60000U);
+    lt_link(true, 0U, 70000U);
+    lt_link(false, 0U, 250000U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S) != 180U,
+                      "the second stretch is the record");
+    MESH_TEST_FAIL_IF(
+        mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S, NULL, NULL),
+        "a radio that never spoke on this link is not its holder");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* An announcement handled before the link was sampled - a received frame reaches the session
+   before the tap, and a reset re-announces the radio before the next sample - belongs to the
+   link that comes up next, and a link going down forgets one it never used. */
+MESH_TEST_CASE(lifetime_a_radio_announced_before_the_link_is_its_radio, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    mesh_lifetime_note_radio(&g_lifetime, LT_PEER);
+    lt_link(true, 0U, 0U);
+    lt_link(false, 0U, 90000U);
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S, &holder, NULL) ||
+            holder != LT_PEER,
+        "the radio announced just before the link is the link's");
+    lt_link(true, 0U, 100000U);
+    lt_link(false, 0U, 300000U);
+    MESH_TEST_FAIL_IF(
+        mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S, NULL, NULL),
+        "the next link does not inherit it");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }

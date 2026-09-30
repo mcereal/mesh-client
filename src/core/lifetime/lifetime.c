@@ -514,6 +514,14 @@ void mesh_lifetime_note_radio(struct mesh_lifetime *lifetime, uint32_t node_num)
         return;
     }
     lifetime_record(lifetime, node_num, SEEN_RADIO);
+    if (node_num == 0U) {
+        return;
+    }
+    if (lifetime->link_up) {
+        lifetime->link_radio = node_num;
+    } else {
+        lifetime->link_radio_next = node_num;
+    }
 }
 
 /* ------------------------------------------------------------------------------ the link */
@@ -535,8 +543,7 @@ static void lifetime_bank_link(struct mesh_lifetime *lifetime, uint64_t now_ms) 
                    lifetime->link_radio);
 }
 
-void mesh_lifetime_note_link(struct mesh_lifetime *lifetime, bool up, uint32_t radio,
-                             uint64_t now_ms) {
+void mesh_lifetime_note_link(struct mesh_lifetime *lifetime, bool up, uint64_t now_ms) {
     if (lifetime == NULL) {
         return;
     }
@@ -548,14 +555,10 @@ void mesh_lifetime_note_link(struct mesh_lifetime *lifetime, bool up, uint32_t r
         lifetime->link_up = true;
         lifetime->link_since_ms = now_ms;
         lifetime->link_banked_ms = now_ms;
-        lifetime->link_radio = radio;
+        lifetime->link_radio = lifetime->link_radio_next;
+        lifetime->link_radio_next = 0U;
         lifetime_bump(lifetime, MESH_LIFETIME_CONNECTIONS);
         return;
-    }
-    /* The radio says which node it is some turns after the link comes up, and a link going
-       down may already have forgotten it; the stretch keeps the last one it was told. */
-    if (radio != 0U) {
-        lifetime->link_radio = radio;
     }
     if (now_ms >= lifetime->link_banked_ms &&
         (!up || now_ms - lifetime->link_banked_ms >= MESH_LIFETIME_LINK_BANK_MS)) {
@@ -563,6 +566,7 @@ void mesh_lifetime_note_link(struct mesh_lifetime *lifetime, bool up, uint32_t r
     }
     if (!up) {
         lifetime->link_up = false;
+        lifetime->link_radio = 0U;
     }
 }
 

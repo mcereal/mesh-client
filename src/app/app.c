@@ -173,10 +173,12 @@ bool mesh_app_canned_path(const struct mesh_app *app, char *out, size_t out_len)
 }
 
 /*
- * Tells the lifetime stats whether a link is up and which radio it reaches, which is how they
- * count connections and time connected (mesh_lifetime_note_link()). "Up" is the question the
- * link-lost toast asks - a transport holding a device - rather than a finished handshake,
- * because the time a radio spends sending its database is time connected too.
+ * Tells the lifetime stats whether a link is up, which is how they count connections and time
+ * connected (mesh_lifetime_note_link()). "Up" is the question the link-lost toast asks - a
+ * transport holding a device - rather than a finished handshake, because the time a radio spends
+ * sending its database is time connected too. Which radio the link reaches is not said here:
+ * the session announces it once per handshake, and the handshake status still holds the last
+ * radio's number until then.
  *
  * Asked from two places, because neither sees every run: the foreground loop once a turn,
  * which is what notices a link that went quiet and dropped, and every frame across the protocol
@@ -194,13 +196,10 @@ static void mesh_app_note_link_time(struct mesh_app *app) {
     inkwell_str_copy(device, sizeof device, connected != NULL ? connected : "");
     if (app->lifetime_link[0] != '\0' && device[0] != '\0' &&
         strcmp(app->lifetime_link, device) != 0) {
-        mesh_lifetime_note_link(&app->lifetime, false, 0U, now);
+        mesh_lifetime_note_link(&app->lifetime, false, now);
     }
     inkwell_str_copy(app->lifetime_link, sizeof app->lifetime_link, device);
-    const struct mesh_handshake_status *handshake = mesh_session_handshake(&app->session);
-    const uint32_t radio =
-        handshake != NULL && handshake->has_my_info ? handshake->my_info.my_node_num : 0U;
-    mesh_lifetime_note_link(&app->lifetime, connected != NULL, radio, now);
+    mesh_lifetime_note_link(&app->lifetime, connected != NULL, now);
 }
 
 /* A frame crossed the protocol seam: the counts go to the store, which wakes the frame only
@@ -1872,7 +1871,7 @@ void mesh_app_shutdown(struct mesh_app *app) {
     }
     mesh_ui_store_shutdown(&app->ui_store);
     /* A clean exit ends the link it had, so the seconds since the last bank are counted. */
-    mesh_lifetime_note_link(&app->lifetime, false, 0U, inkwell_time_monotonic_ms());
+    mesh_lifetime_note_link(&app->lifetime, false, inkwell_time_monotonic_ms());
     (void)mesh_lifetime_flush(&app->lifetime);
     if (app->ui_preferences_dirty && app->ui_preferences_path[0] != '\0') {
         mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path);
