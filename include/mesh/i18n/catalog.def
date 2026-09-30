@@ -1079,6 +1079,9 @@ MESH_STR_ENTRY(NODE_ACT_REQUEST_STATUS,   "Ask for status")
 MESH_STR_ENTRY(NODE_ACT_REQUEST_NEIGHBOURS, "Ask for neighbours")
 /* Having the radio forget a MeshCore contact's stored route, so the next message floods. */
 MESH_STR_ENTRY(NODE_ACT_RESET_PATH,       "Forget route")
+/* Having the radio send a MeshCore contact's last advert to the nodes in earshot, so they can
+   add it. Under MESH_UI_NODE_LABEL_MAX (20 bytes). */
+MESH_STR_ENTRY(NODE_ACT_SHARE_NEARBY,     "Share with nearby")
 
 /* ---- the key verification sheet ------------------------------------------------------------
  *
@@ -3072,6 +3075,10 @@ MESH_STR_ENTRY(TOAST_ASKED_STATUS,        "Asked %.20s for its status")
 MESH_STR_ENTRY(TOAST_ASKED_NEIGHBOURS,    "Asked %.20s who it hears")
 MESH_STR_ENTRY(TOAST_RESETTING_PATH,      "Forgetting the route to %.20s")
 MESH_STR_ENTRY(TOAST_NO_PATH,             "No route to forget")
+MESH_STR_ENTRY(TOAST_SHARING_NEARBY,      "Sending %.20s's advert to nodes nearby")
+/* The radio keeps a contact's advert only once it has heard one: a contact added from a link
+   has none to send. */
+MESH_STR_ENTRY(TOAST_SHARE_NO_ADVERT,     "The radio has no advert from %.20s to share")
 /* How a request to a MeshCore node ended, when its answer - or the lack of one - arrives. */
 MESH_STR_ENTRY(TOAST_LOGGED_IN,           "Logged in to %.20s")
 MESH_STR_ENTRY(TOAST_LOGGED_IN_ADMIN,     "Logged in to %.20s as admin")

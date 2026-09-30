@@ -1095,6 +1095,29 @@ static void on_reset_path(struct mesh_app *app, const struct mesh_ui_action *act
     mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
 }
 
+/* A MeshCore contact's advert, again, to the nodes in earshot. A refusal is said by the publish
+   when the radio answers. */
+static void on_share_nearby(struct mesh_app *app, const struct mesh_ui_action *action) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    char name[MESH_UI_NAV_TARGET_NAME_MAX];
+    action_peer_name(app, action->dest, name, sizeof name);
+    const int result =
+        app->meshcore_bound ? mesh_meshcore_share_contact(&app->meshcore, action->dest) : -ENOTSUP;
+    if (result >= 0) {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SHARING_NEARBY, name);
+    } else if (result == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
+    } else if (result == -ENOENT) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NODE_GONE));
+    } else if (result == -EINVAL || result == -ENOTSUP) {
+        snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_CANNOT_ASK));
+    } else {
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REQUEST_FAILED, result);
+        inkwell_log_warn("ui", "Sharing 0x%08x nearby failed: %d", action->dest, result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+}
+
 /* The nodes a MeshCore repeater hears. Its list lands in the node's Neighbours group when it
    comes; silence is a notice the publish says, with the likely reason. */
 static void on_request_neighbors(struct mesh_app *app, const struct mesh_ui_action *action) {
@@ -2855,6 +2878,7 @@ static const struct app_action_entry k_app_actions[] = {
     {MESH_UI_ACTION_REQUEST_STATUS, on_request_status, false},
     {MESH_UI_ACTION_REQUEST_NEIGHBORS, on_request_neighbors, false},
     {MESH_UI_ACTION_RESET_PATH, on_reset_path, false},
+    {MESH_UI_ACTION_SHARE_NEARBY, on_share_nearby, false},
     {MESH_UI_ACTION_TOGGLE_IGNORE, on_toggle_ignore, false},
     {MESH_UI_ACTION_TOGGLE_MUTE, on_toggle_mute, false},
     {MESH_UI_ACTION_REMOVE_NODE, on_remove_node, false},

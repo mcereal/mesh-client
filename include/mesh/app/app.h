@@ -407,6 +407,8 @@ struct mesh_app {
     uint32_t ui_meshcore_notices_seen;
     /* Whether the full contact list has been said: once each time the radio's list fills. */
     bool ui_meshcore_full_told;
+    /* The last SHARE_CONTACT refusal said (mesh_meshcore.share_refusals). */
+    uint32_t ui_meshcore_share_refusals_seen;
     /*
      * The key-verification ceremony as the UI last saw it: the `seq` that was published, and
      * the stage the sheet was opened for.

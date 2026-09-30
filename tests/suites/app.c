@@ -5985,6 +5985,23 @@ MESH_TEST_CASE(app_meshcore_other_params_save, unit) {
         goto cleanup;
     }
 
+    /* A contact the radio would not share - no advert kept for it - is said once, by name. */
+    app.settings_save_pending = false;
+    app.meshcore.writes_outstanding = 0U;
+    app.meshcore.share_refused_node = 0x40414243U;
+    app.meshcore.share_refusals += 1U;
+    mesh_app_publish_ui_state(&app);
+    if (strstr(app.ui_store.nav.toast.text, "no advert") == NULL) {
+        failure = "a refused share is said";
+        goto cleanup;
+    }
+    snprintf(app.ui_store.nav.toast.text, sizeof app.ui_store.nav.toast.text, "%s", "");
+    mesh_app_publish_ui_state(&app);
+    if (app.ui_store.nav.toast.text[0] != '\0') {
+        failure = "and said once";
+        goto cleanup;
+    }
+
 cleanup:
     if (app_ready) {
         mesh_protocol_detach(&protocol);

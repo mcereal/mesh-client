@@ -485,10 +485,12 @@ enum mesh_ui_feature {
     /* A contact's stored route: shown on its screen, and forgotten on request. Meshtastic's
        next hop is learnt and dropped by the firmware and is not the user's to reset. */
     MESH_UI_FEATURE_NODE_PATH = 1U << 21,
+    /* Sending a contact's advert again to the nodes in earshot: MeshCore's SHARE_CONTACT. */
+    MESH_UI_FEATURE_NODE_SHARE = 1U << 22,
 };
 
 /* Every bit above: what a protocol this client has no row for lacks. */
-#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_PATH << 1) - 1U))
+#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_SHARE << 1) - 1U))
 
 /*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so the

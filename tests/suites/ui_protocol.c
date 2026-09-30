@@ -80,7 +80,7 @@ MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
     const uint32_t k_meshcore_only =
         (uint32_t)(MESH_UI_FEATURE_NODE_LOGIN | MESH_UI_FEATURE_NODE_STATUS |
                    MESH_UI_FEATURE_NODE_NEIGHBORS | MESH_UI_FEATURE_NODE_COMMANDS |
-                   MESH_UI_FEATURE_NODE_PATH);
+                   MESH_UI_FEATURE_NODE_PATH | MESH_UI_FEATURE_NODE_SHARE);
     static struct mesh_session session;
     mesh_session_init(&session);
     const struct mesh_protocol meshtastic = mesh_session_protocol(&session);
@@ -615,6 +615,15 @@ MESH_TEST_CASE(ui_protocol_meshcore_route_is_shown_and_forgotten, unit) {
                       "forgetting the route sits right after tracing it");
     MESH_TEST_FAIL_IF(mesh_ui_node_path_resettable(node, MESH_UI_FEATURE_NODE_PATH),
                       "not on Meshtastic");
+    MESH_TEST_FAIL_IF(trace_row + 2U >= count ||
+                          items[trace_row + 2U].action != MESH_UI_NODE_ACTION_SHARE_NEARBY,
+                      "and handing the contact on to the nodes nearby after that");
+    MESH_TEST_FAIL_IF(mesh_ui_node_shareable_nearby(node, MESH_UI_FEATURE_NODE_SHARE),
+                      "sharing nearby is not Meshtastic's");
+    node->in_nodedb = false;
+    MESH_TEST_FAIL_IF(mesh_ui_node_shareable_nearby(node, lacks),
+                      "a node the radio does not carry has no advert kept to share");
+    node->in_nodedb = true;
 
     node->path_state = MESH_NODE_PATH_FLOOD;
     MESH_TEST_FAIL_IF(mesh_ui_node_path_resettable(node, lacks), "no route, nothing to forget");
@@ -673,6 +682,14 @@ MESH_TEST_CASE(ui_protocol_meshcore_route_is_shown_and_forgotten, unit) {
     mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_RESET_PATH || action.dest != contact->node_id) {
         failure = "A on it asks the radio to forget that contact's route";
+        goto cleanup;
+    }
+    /* The row after it hands the contact on to the nodes nearby. */
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_SHARE_NEARBY || action.dest != contact->node_id) {
+        failure = "A on Share with nearby names the same contact";
         goto cleanup;
     }
 

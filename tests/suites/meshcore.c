@@ -3547,3 +3547,31 @@ MESH_TEST_CASE(meshcore_contacts_full_lasts_until_room_is_made, unit) {
     MESH_TEST_FAIL_IF(g_meshcore.contacts_full, "a removal made room");
     record_success(test_name);
 }
+
+/* A contact's advert, sent again to the nodes in earshot: SHARE_CONTACT by its key, and a
+   refusal - no advert kept for it - counted against the contact it was for. */
+MESH_TEST_CASE(meshcore_share_contact_sends_its_advert_nearby, unit) {
+    struct mesh_protocol protocol;
+    static struct mesh_test_meshcore_wire wire;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    const uint32_t alice = 0x40414243U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_share_contact(&g_meshcore, 0U) != -EINVAL, "nobody");
+    MESH_TEST_FAIL_IF(mesh_meshcore_share_contact(&g_meshcore, 0x99999999U) != -ENOENT,
+                      "not a contact");
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_share_contact(&g_meshcore, alice) != 1, "Alice's is asked");
+    MESH_TEST_FAIL_IF(wire.count != 1U || wire.lens[0] != 1U + MESH_MESHCORE_PUBKEY_LEN ||
+                          wire.frames[0][0] != MESH_MESHCORE_CMD_SHARE_CONTACT ||
+                          wire.frames[0][1] != 0x40,
+                      "SHARE_CONTACT and her key");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(g_meshcore.share_refusals != 0U, "OK: it went");
+
+    MESH_TEST_FAIL_IF(mesh_meshcore_share_contact(&g_meshcore, alice) != 1, "asked again");
+    /* What a Heltec on 1.17 answers for a contact added over USB: 3, "unable to send". */
+    const uint8_t refused[2] = {MESH_MESHCORE_RESP_ERR, 3U};
+    feed(&protocol, refused, sizeof refused);
+    MESH_TEST_FAIL_IF(g_meshcore.share_refusals != 1U || g_meshcore.share_refused_node != alice,
+                      "refused: counted, and against Alice");
+    record_success(test_name);
+}

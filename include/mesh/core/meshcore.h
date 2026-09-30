@@ -62,6 +62,7 @@ enum mesh_meshcore_cmd {
     MESH_MESHCORE_CMD_RESET_PATH = 13,
     MESH_MESHCORE_CMD_SET_ADVERT_LATLON = 14,
     MESH_MESHCORE_CMD_REMOVE_CONTACT = 15,
+    MESH_MESHCORE_CMD_SHARE_CONTACT = 16, /* a contact's last advert again, zero-hop */
     MESH_MESHCORE_CMD_IMPORT_CONTACT = 18,
     MESH_MESHCORE_CMD_REBOOT = 19,
     MESH_MESHCORE_CMD_GET_BATT_AND_STORAGE = 20,
@@ -651,6 +652,11 @@ struct mesh_meshcore {
     /* PUSH_CONTACTS_FULL arrived: a node was heard that the radio had no room to add. Cleared
        when a contact leaves the list and on every new connection. */
     bool contacts_full;
+    /* SHARE_CONTACT refused: the radio keeps no advert for that contact - one added from a link,
+       never heard - or had no packet to send it in. A count that moves on each refusal, and
+       whose it was, for the publish to say. */
+    uint32_t share_refusals;
+    uint32_t share_refused_node;
     /*
      * The radio's clock, for a message's timestamp when ours is not credible (a Brick with no
      * network boots into 1970). Read with GET_DEVICE_TIME and advanced by our monotonic clock;
@@ -804,6 +810,14 @@ int mesh_meshcore_remove_contact(struct mesh_meshcore *meshcore, uint32_t node_i
  * command queue is full.
  */
 int mesh_meshcore_reset_path(struct mesh_meshcore *meshcore, uint32_t node_id);
+/*
+ * Asks the radio to send a contact's last advert again to the nodes in earshot, zero-hop, so
+ * they can add it without having heard it themselves. The radio refuses a contact it has no
+ * advert for (`share_refusals`). 1 when asked; -EINVAL for 0 or this radio, -ENOTCONN until
+ * the handshake has named the radio, -ENOENT for a node that is not one of the radio's
+ * contacts, -ENOBUFS when the command queue is full.
+ */
+int mesh_meshcore_share_contact(struct mesh_meshcore *meshcore, uint32_t node_id);
 /*
  * Asks the radio to make a heard node a contact, from what the roster holds of its advert: the
  * key, the name, the kind of node and where it said it was, with no route known yet so the

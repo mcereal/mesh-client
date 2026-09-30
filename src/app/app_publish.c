@@ -2307,6 +2307,15 @@ static void mesh_app_report_meshcore_answers(struct mesh_app *app) {
                                 inkcell_str(MESH_STR_TOAST_CONTACTS_FULL));
     }
     app->ui_meshcore_full_told = app->meshcore.contacts_full;
+    if (app->meshcore.share_refusals != app->ui_meshcore_share_refusals_seen) {
+        app->ui_meshcore_share_refusals_seen = app->meshcore.share_refusals;
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        char toast[MESH_UI_NAV_TOAST_MAX];
+        mesh_app_format_peer_name(&app->session.handshake, app->meshcore.share_refused_node, name,
+                                  sizeof name);
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SHARE_NO_ADVERT, name);
+        mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+    }
 }
 
 /*

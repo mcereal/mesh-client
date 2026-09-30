@@ -139,6 +139,8 @@ static const enum inkcell_icon k_action_icons[] = {
     [MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS] = INKCELL_ICON_NEIGHBORS,
     /* The traceroute verb's mark: the same route, the other question about it. */
     [MESH_UI_NODE_ACTION_RESET_PATH] = INKCELL_ICON_LINK,
+    /* The advert's own mark, as Radio's advert rows wear it. */
+    [MESH_UI_NODE_ACTION_SHARE_NEARBY] = INKCELL_ICON_BROADCAST,
 };
 
 /*
@@ -194,6 +196,7 @@ static const enum inkcell_tone k_action_tones[] = {
     [MESH_UI_NODE_ACTION_REQUEST_STATUS] = INKCELL_TONE_NORMAL,
     [MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS] = INKCELL_TONE_NORMAL,
     [MESH_UI_NODE_ACTION_RESET_PATH] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_SHARE_NEARBY] = INKCELL_TONE_NORMAL,
 };
 
 static enum inkcell_icon action_icon(enum mesh_ui_node_action action) {
@@ -1473,6 +1476,11 @@ bool mesh_ui_node_path_resettable(const struct mesh_ui_node_summary *node, uint3
            node->path_state == MESH_NODE_PATH_KNOWN;
 }
 
+bool mesh_ui_node_shareable_nearby(const struct mesh_ui_node_summary *node, uint32_t lacks) {
+    return node != NULL && node_actions_offer(lacks, MESH_UI_FEATURE_NODE_SHARE) &&
+           node->in_nodedb && node->public_key_len == sizeof node->public_key;
+}
+
 bool mesh_ui_node_neighbourable(const struct mesh_ui_node_summary *node, uint32_t lacks) {
     /* A repeater's alone: a room server keeps no list of what it hears. */
     return node != NULL && node_actions_offer(lacks, MESH_UI_FEATURE_NODE_NEIGHBORS) &&
@@ -1524,6 +1532,12 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
         if (mesh_ui_node_path_resettable(node, lacks)) {
             rows_action(&rows, MESH_STR_NODE_ACT_RESET_PATH, inkcell_str(MESH_STR_COMMON_PRESS_A),
                         MESH_UI_NODE_ACTION_RESET_PATH);
+        }
+        /* A contact handed on to whoever is in earshot - the way to introduce a node to a
+           neighbour who has never heard it. */
+        if (mesh_ui_node_shareable_nearby(node, lacks)) {
+            rows_action(&rows, MESH_STR_NODE_ACT_SHARE_NEARBY, inkcell_str(MESH_STR_COMMON_PRESS_A),
+                        MESH_UI_NODE_ACTION_SHARE_NEARBY);
         }
         /* The one row that answers "who is this?" for a node that joined after the NodeDB
            replay and has been sitting in the list as a bare id ever since. */

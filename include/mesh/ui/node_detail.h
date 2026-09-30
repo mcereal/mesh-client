@@ -178,6 +178,8 @@ enum mesh_ui_node_action {
     /* Have the radio forget the route it holds for a MeshCore contact, so the next message
        floods and learns a fresh one. Offered only while there is a route to forget. */
     MESH_UI_NODE_ACTION_RESET_PATH,
+    /* Have the radio send a MeshCore contact's last advert again to the nodes in earshot. */
+    MESH_UI_NODE_ACTION_SHARE_NEARBY,
 };
 
 struct mesh_ui_node_item {
@@ -431,6 +433,9 @@ bool mesh_ui_node_neighbourable(const struct mesh_ui_node_summary *node, uint32_
 /* Whether the sheet offers to forget `node`'s stored route: a contact the radio holds one for,
    on a protocol that keeps one. */
 bool mesh_ui_node_path_resettable(const struct mesh_ui_node_summary *node, uint32_t lacks);
+/* Whether the sheet offers to send `node`'s advert to the nodes in earshot: a contact the radio
+   carries by its whole key, on a protocol that can. */
+bool mesh_ui_node_shareable_nearby(const struct mesh_ui_node_summary *node, uint32_t lacks);
 
 /* Verbs the node would offer. Zero is a node with no sheet - see the builder above. */
 uint32_t mesh_ui_node_actions_count(const struct mesh_ui_node_summary *node, bool is_self,
