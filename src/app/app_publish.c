@@ -1164,6 +1164,13 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
     dst->weakest_snr_measured = mesh_lifetime_measured(lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB);
     mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_WEAKEST_SNR_QDB,
                             &dst->weakest_snr_holder);
+    dst->connections = mesh_lifetime_value(lifetime, MESH_LIFETIME_CONNECTIONS);
+    dst->connected_s = mesh_lifetime_value(lifetime, MESH_LIFETIME_CONNECTED_S);
+    dst->longest_connection_s = mesh_lifetime_value(lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S);
+    dst->longest_connection_measured =
+        mesh_lifetime_measured(lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S);
+    mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_LONGEST_CONNECTION_S,
+                            &dst->longest_connection_holder);
     dst->since = lifetime->since;
 }
 

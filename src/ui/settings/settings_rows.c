@@ -30,6 +30,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/backups.h"
 #include "mesh/ui/channel_share.h"
+#include "mesh/ui/duration.h"
 #include "mesh/ui/profiles.h"
 #include "mesh/ui/units.h"
 
@@ -3443,6 +3444,15 @@ static void stats_count_row(struct item_list *list, inkcell_str_id label, uint64
     item_text(list, label, INKSTAND_FORM_INFO, value);
 }
 
+/* A length of time in seconds, as mesh_ui_format_duration() words it. Past what a uint32_t of
+   seconds holds - 136 years - it reads as that, which no card will reach. */
+static void stats_duration_row(struct item_list *list, inkcell_str_id label, uint64_t seconds) {
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    mesh_ui_format_duration(seconds > UINT32_MAX ? UINT32_MAX : (uint32_t)seconds, value,
+                            sizeof value);
+    item_text(list, label, INKSTAND_FORM_INFO, value);
+}
+
 /* A node count, which is a floor once the set has had to turn a node away - and says so on
    the number itself, since "at least" is part of the value rather than a note about it. */
 static void stats_nodes_row(struct item_list *list, inkcell_str_id label, uint32_t count,
@@ -3541,6 +3551,10 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     stats_nodes_row(list, MESH_STR_STATS_NODES_HEARD_RF, stats->nodes_heard_rf, stats->nodes_floor);
     stats_nodes_row(list, MESH_STR_STATS_RADIOS, stats->radios, stats->nodes_floor);
 
+    item_heading(list, MESH_STR_STATS_HEAD_CONNECTION);
+    stats_count_row(list, MESH_STR_STATS_CONNECTIONS, stats->connections);
+    stats_duration_row(list, MESH_STR_STATS_CONNECTED_TIME, stats->connected_s);
+
     item_heading(list, MESH_STR_STATS_HEAD_RECORDS);
     char value[MESH_UI_SETTINGS_VALUE_MAX];
     if (stats->most_hops_measured) {
@@ -3573,6 +3587,13 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
         stats_holder_row(list, &stats->weakest_snr_holder);
     } else {
         item_str(list, MESH_STR_STATS_WEAKEST_SNR, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
+    }
+    if (stats->longest_connection_measured) {
+        stats_duration_row(list, MESH_STR_STATS_LONGEST_CONNECTION, stats->longest_connection_s);
+        stats_holder_row(list, &stats->longest_connection_holder);
+    } else {
+        item_str(list, MESH_STR_STATS_LONGEST_CONNECTION, INKSTAND_FORM_INFO,
+                 MESH_STR_STATS_NONE_YET);
     }
 
     item_heading(list, MESH_STR_STATS_HEAD_RESET);

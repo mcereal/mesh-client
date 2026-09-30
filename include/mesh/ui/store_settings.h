@@ -139,6 +139,14 @@ struct mesh_ui_lifetime_stats {
     struct mesh_ui_lifetime_holder farthest_direct_holder;
     struct mesh_ui_lifetime_holder farthest_heard_holder;
     struct mesh_ui_lifetime_holder weakest_snr_holder;
+    /* How many times a link has come up, and the seconds it has been up in all. The total is
+       banked a minute at a time, so it can trail a link that is up now by up to that minute. */
+    uint64_t connections;
+    uint64_t connected_s;
+    /* The longest single stretch, in seconds, and the radio it was with. */
+    uint64_t longest_connection_s;
+    bool longest_connection_measured;
+    struct mesh_ui_lifetime_holder longest_connection_holder;
     /* The first credible wall-clock second the stats saw; 0 on a device that has never had a
        clock, which is a page that cannot say since when rather than one that started today. */
     uint32_t since;

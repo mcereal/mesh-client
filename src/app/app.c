@@ -172,11 +172,42 @@ bool mesh_app_canned_path(const struct mesh_app *app, char *out, size_t out_len)
     return snprintf(slash + 1, room, "%s", "canned.txt") < (int)room;
 }
 
+/*
+ * Tells the lifetime stats whether a link is up, which is how they count connections and time
+ * connected (mesh_lifetime_note_link()). "Up" is the question the link-lost toast asks - a
+ * transport holding a device - rather than a finished handshake, because the time a radio spends
+ * sending its database is time connected too. Which radio the link reaches is not said here:
+ * the session announces it once per handshake, and the handshake status still holds the last
+ * radio's number until then.
+ *
+ * Asked from two places, because neither sees every run: the foreground loop once a turn,
+ * which is what notices a link that went quiet and dropped, and every frame across the protocol
+ * seam, which is the one thing a single poll and each of the CLI's one-shot commands share -
+ * each drives the loop itself and never reaches the foreground turn.
+ *
+ * A link that moves to another device between two samples - a serial connect can finish in
+ * the same turn that dropped the old radio - would read as one link up throughout, so a
+ * changed device is reported as the old link going down first.
+ */
+static void mesh_app_note_link_time(struct mesh_app *app) {
+    const uint64_t now = inkwell_time_monotonic_ms();
+    const char *const connected = mesh_app_connected_identifier();
+    char device[sizeof app->lifetime_link];
+    inkwell_str_copy(device, sizeof device, connected != NULL ? connected : "");
+    if (app->lifetime_link[0] != '\0' && device[0] != '\0' &&
+        strcmp(app->lifetime_link, device) != 0) {
+        mesh_lifetime_note_link(&app->lifetime, false, now);
+    }
+    inkwell_str_copy(app->lifetime_link, sizeof app->lifetime_link, device);
+    mesh_lifetime_note_link(&app->lifetime, connected != NULL, now);
+}
+
 /* A frame crossed the protocol seam: the counts go to the store, which wakes the frame only
    when one moved. See struct mesh_protocol_tap. */
 static void mesh_app_on_link_traffic(void *ctx) {
     struct mesh_app *app = (struct mesh_app *)ctx;
     mesh_ui_store_set_link_traffic(&app->ui_store, app->link_tap.sent, app->link_tap.received);
+    mesh_app_note_link_time(app);
 }
 
 struct mesh_protocol mesh_app_protocol(struct mesh_app *app) {
@@ -1839,6 +1870,8 @@ void mesh_app_shutdown(struct mesh_app *app) {
         app->ui_handshake_cache_dirty = false;
     }
     mesh_ui_store_shutdown(&app->ui_store);
+    /* A clean exit ends the link it had, so the seconds since the last bank are counted. */
+    mesh_lifetime_note_link(&app->lifetime, false, inkwell_time_monotonic_ms());
     (void)mesh_lifetime_flush(&app->lifetime);
     if (app->ui_preferences_dirty && app->ui_preferences_path[0] != '\0') {
         mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path);
@@ -1997,6 +2030,7 @@ int mesh_app_run(struct mesh_app *app) {
                already cleared the config sync that this reads to decide whether to stay
                connected at all. */
             mesh_app_mqtt_tick(app, inkwell_time_monotonic_ms());
+            mesh_app_note_link_time(app);
             mesh_app_backup_tick(app);
             /* Before auto-connect, not after: a retry starts the link over and clears the
                reason the last attempt failed. */

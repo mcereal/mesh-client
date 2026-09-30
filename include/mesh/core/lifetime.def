@@ -12,7 +12,7 @@
  * KIND is how a value moves, and it decides where a value may be fed from (mesh/core/lifetime.h
  * says why):
  *
- *   COUNT   one more each time it happens      - x += 1
+ *   COUNT   one more each time it happens      - x += 1, or x += n for time that passed
  *   MAX     the largest seen                   - x = max(x, v)
  *   MIN     the smallest seen, and signed      - x = min(x, v)
  *   SET     how many distinct things           - set.size, off the seen file; never written
@@ -41,3 +41,6 @@ MESH_LIFETIME_STAT(RECEIVED_MQTT, "received_mqtt", COUNT)
 MESH_LIFETIME_STAT(DIRECT_RECEIVED_PRIVATE, "direct_received_private", COUNT)
 MESH_LIFETIME_STAT(FARTHEST_HEARD_M, "farthest_heard_m", MAX)
 MESH_LIFETIME_STAT(WEAKEST_SNR_QDB, "weakest_snr_qdb", MIN)
+MESH_LIFETIME_STAT(CONNECTIONS, "connections", COUNT)
+MESH_LIFETIME_STAT(CONNECTED_S, "connected_s", COUNT)
+MESH_LIFETIME_STAT(LONGEST_CONNECTION_S, "longest_connection_s", MAX)

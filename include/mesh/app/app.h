@@ -258,6 +258,10 @@ struct mesh_app {
      * cache's two-second window.
      */
     struct mesh_lifetime lifetime;
+    /* The device the lifetime stats last saw a link on, or empty for none: a switch from one
+       radio to another inside one turn never shows the stats a link that is down, so the app
+       tells them it was when this changes. See mesh_app_note_link_time(). */
+    char lifetime_link[MESH_APP_PROBE_ID_MAX];
     /*
      * The radios' settings, kept on the card (mesh/core/radio_backup.h), and the one radio the
      * first-connect check has already been made for: a node is looked up once per run, not once
