@@ -1,0 +1,120 @@
+---
+import Base from "../layouts/Base.astro";
+import { asset, latestRelease, LATEST_URL, RELEASES_URL, REPO_URL } from "../lib/release";
+
+// Asset names are the ones release.config.mjs and the desktop packaging jobs publish. Renaming
+// one there breaks its link here.
+const release = await latestRelease();
+const published = release?.published.toLocaleDateString("en", { year: "numeric", month: "long", day: "numeric" });
+---
+
+<Base title="Download" description="Download MeshClient for the TrimUI Brick, macOS, Windows or Linux.">
+    <div class="wrap page">
+        <h1>Download</h1>
+        {
+            release ? (
+                <p class="muted">
+                    Latest release <a href={release.url}>{release.tag}</a>, published {published}. Every link below
+                    points at the newest release.
+                </p>
+            ) : (
+                <p class="muted">
+                    Every link below points at the <a href={LATEST_URL}>newest release</a>.
+                </p>
+            )
+        }
+
+        <section class="card">
+            <h2>TrimUI Brick</h2>
+            <p>
+                The easy way is the <a href="https://github.com/LoveRetro/nextui-pak-store">NextUI Pak Store</a>: on
+                the Brick, open <strong>Tools → Pak Store</strong>, find <strong>MeshClient</strong> under{" "}
+                <strong>Miscellaneous Tools</strong>, and install it.
+            </p>
+            <p>To install by hand, download the pak and unzip it <em>into</em> a folder you make first:</p>
+            <p><a class="button" href={asset("MeshClient.pak.zip")}>MeshClient.pak.zip</a></p>
+            <pre><code>mkdir -p /Volumes/SDCARD/Tools/tg5040/MeshClient.pak
+unzip MeshClient.pak.zip -d /Volumes/SDCARD/Tools/tg5040/MeshClient.pak</code></pre>
+            <p class="muted">
+                The zip holds the pak's contents, not the pak folder. Unzipping it without making that folder first
+                gives you <code>MeshClient.pak/MeshClient.pak/launch.sh</code>, which the launcher will not run.
+            </p>
+        </section>
+
+        <p class="note">
+            <strong>The desktop builds are experimental.</strong> The Brick is the main target; the desktop builds
+            are newer and less tested. Please <a href={`${REPO_URL}/issues`}>open an issue</a> when you hit a rough
+            edge.
+        </p>
+
+        <section class="card">
+            <h2>macOS</h2>
+            <p>Apple silicon and Intel, macOS 11 or later.</p>
+            <p><a class="button" href={asset("MeshClient-macos.dmg")}>MeshClient-macos.dmg</a></p>
+            <p>
+                Open it and drag <strong>MeshClient</strong> to <strong>Applications</strong>. The app asks for
+                Bluetooth the first time it looks for a radio. It updates itself from <strong>Settings → About</strong>{" "}
+                once it is in Applications.
+            </p>
+        </section>
+
+        <section class="card">
+            <h2>Windows</h2>
+            <p>x64, Windows 10 or later.</p>
+            <p>
+                <a class="button" href={asset("MeshClient-windows-x86_64-setup.exe")}>
+                    MeshClient-windows-x86_64-setup.exe
+                </a>
+            </p>
+            <p>
+                It installs for your user only and needs no administrator. The installer is not code-signed yet, so
+                SmartScreen may say “Windows protected your PC”: choose <strong>More info → Run anyway</strong>.
+            </p>
+        </section>
+
+        <section class="card">
+            <h2>Linux command line</h2>
+            <p>One static x86-64 binary with nothing to install: Bluetooth, serial and TCP, all headless.</p>
+            <pre><code>curl -LO {asset("meshclient-linux-x86_64")}
+curl -LO {asset("meshclient-linux-x86_64.sha256")}
+sha256sum -c meshclient-linux-x86_64.sha256
+chmod +x meshclient-linux-x86_64 && ./meshclient-linux-x86_64 --status</code></pre>
+            <p class="muted">
+                On ARM (a Raspberry Pi, say), build it from source with <code>make linux-cli</code>. The{" "}
+                <code>meshclient-tg5040-aarch64</code> binary in a release is the handheld's and will not run there.
+                Flags and controls are in <a href={`${REPO_URL}/blob/main/docs/cli.md`}>docs/cli.md</a>.
+            </p>
+        </section>
+
+        <p class="muted">
+            Older versions and checksums for every file are on the <a href={RELEASES_URL}>releases page</a>.
+        </p>
+    </div>
+</Base>
+
+<style>
+    .page {
+        padding-top: 3rem;
+        max-width: 48rem;
+    }
+    h1 {
+        margin: 0 0 0.5rem;
+    }
+    .card {
+        margin-top: 1.5rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 0.25rem 1.5rem 0.75rem;
+    }
+    .card h2 {
+        font-size: 1.3rem;
+    }
+    .note {
+        margin-top: 2rem;
+        padding: 0.9rem 1.1rem;
+        border-left: 3px solid var(--accent);
+        background: var(--code-bg);
+        border-radius: 0 var(--radius) var(--radius) 0;
+    }
+</style>

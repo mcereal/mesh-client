@@ -1,0 +1,16 @@
+{
+    "$schema": "./node_modules/wrangler/config-schema.json",
+    "name": "meshclient-site",
+    "compatibility_date": "2026-09-30",
+    // Assets only: no "main", so no Worker code runs and every request is a file from dist/.
+    "assets": {
+        "directory": "./dist",
+        "not_found_handling": "404-page"
+    },
+    // The deploy attaches the domain and creates its DNS record and certificate. The zone has
+    // to be active on this Cloudflare account first.
+    "routes": [
+        { "pattern": "meshclient.dev", "custom_domain": true },
+        { "pattern": "www.meshclient.dev", "custom_domain": true }
+    ]
+}

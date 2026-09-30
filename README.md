@@ -182,6 +182,7 @@ With the Brick on WiFi and the SSH Server pak installed, skip the SD card: set `
 | `Tools/tg5040/MeshClient.pak/` | pak scaffold: `launch.sh` |
 | `proto/meshtastic/`, `third_party/nanopb/` | upstream protobufs and nanopb (submodules); Mbed TLS is inkwell's, nested inside it |
 | `docs/` | architecture, transports, UI, CLI, device and release documentation |
+| `site/` | the [meshclient.dev](https://meshclient.dev) website (Astro, served by Cloudflare) |
 
 ## Documentation
 

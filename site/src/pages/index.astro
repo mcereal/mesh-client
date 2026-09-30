@@ -1,0 +1,198 @@
+---
+import Base from "../layouts/Base.astro";
+import { latestRelease } from "../lib/release";
+
+// The same files the README shows; `make screenshots` redraws them.
+import messages from "../../../.github/resources/screenshots/messages.png";
+import nodes from "../../../.github/resources/screenshots/nodes.png";
+import waypoints from "../../../.github/resources/screenshots/waypoints.png";
+import status from "../../../.github/resources/screenshots/status.png";
+import settings from "../../../.github/resources/screenshots/settings.png";
+
+const shots = [
+    { img: messages, alt: "A channel thread, with sent and received messages", caption: "Messages" },
+    { img: nodes, alt: "The node roster, with age and signal per node", caption: "Nodes" },
+    { img: waypoints, alt: "The waypoint list, with the distance and bearing to each shared place", caption: "Waypoints" },
+    { img: status, alt: "The Radio tab: link, mesh and radio cards", caption: "Radio" },
+    { img: settings, alt: "The LoRa settings section", caption: "Settings" },
+];
+
+const features = [
+    {
+        title: "No phone needed",
+        body: "Read and send messages, browse the mesh and edit your radio's settings from the handheld itself.",
+    },
+    {
+        title: "Bluetooth, USB or network",
+        body: "Pair over Bluetooth LE with PIN entry on the device, plug in over USB serial, or reach a radio over TCP.",
+    },
+    {
+        title: "Built for a d-pad",
+        body: "Five tabs - Messages, Nodes, Map, Radio, Settings - all driven by the d-pad and face buttons.",
+    },
+    {
+        title: "Updates itself",
+        body: "Settings → About checks for a new release, installs it and relaunches, on the Brick and the desktop alike.",
+    },
+    {
+        title: "Small and native",
+        body: "A single-threaded C program with no runtime to install. The same core runs headless as a static Linux CLI.",
+    },
+    {
+        title: "Open source",
+        body: "MIT licensed and developed in the open on GitHub.",
+    },
+];
+
+const release = await latestRelease();
+---
+
+<Base>
+    <section class="hero wrap">
+        <div class="copy">
+            <h1>Meshtastic on your handheld.</h1>
+            <p class="lede">
+                MeshClient is a Meshtastic client for the TrimUI Brick and other NextUI handhelds. Talk to your
+                radio over Bluetooth or USB and keep your phone in your pocket.
+            </p>
+            <div class="actions">
+                <a class="button" href="/download/">Download</a>
+                <a class="button secondary" href="https://github.com/mcereal/mesh-client">View on GitHub</a>
+            </div>
+            {release && <p class="muted version">Latest release: {release.tag}</p>}
+        </div>
+        <figure class="device">
+            <img src={messages.src} width={messages.width} height={messages.height} alt={shots[0]!.alt} />
+        </figure>
+    </section>
+
+    <section class="wrap">
+        <h2>What it does</h2>
+        <div class="features">
+            {
+                features.map((f) => (
+                    <div class="feature">
+                        <h3>{f.title}</h3>
+                        <p>{f.body}</p>
+                    </div>
+                ))
+            }
+        </div>
+    </section>
+
+    <section class="wrap">
+        <h2>On the screen</h2>
+        <div class="gallery">
+            {
+                shots.map((s) => (
+                    <figure>
+                        <img src={s.img.src} width={s.img.width} height={s.img.height} alt={s.alt} loading="lazy" />
+                        <figcaption class="muted">{s.caption}</figcaption>
+                    </figure>
+                ))
+            }
+        </div>
+    </section>
+
+    <section class="wrap install">
+        <h2>Get it on a Brick</h2>
+        <p>
+            MeshClient is in the <a href="https://github.com/LoveRetro/nextui-pak-store">NextUI Pak Store</a>. On your
+            Brick, open <strong>Tools → Pak Store</strong>, find <strong>MeshClient</strong> under{" "}
+            <strong>Miscellaneous Tools</strong>, and install it. It then appears under <strong>Tools</strong>.
+        </p>
+        <p>
+            Rather install by hand, or run it on a Mac, a Windows PC or a Linux server? See the{" "}
+            <a href="/download/">downloads</a>.
+        </p>
+    </section>
+</Base>
+
+<style>
+    .hero {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 2.5rem;
+        align-items: center;
+        padding-top: 3.5rem;
+        padding-bottom: 3rem;
+    }
+    @media (min-width: 860px) {
+        .hero {
+            grid-template-columns: 1.05fr 1fr;
+            padding-top: 5rem;
+        }
+    }
+    h1 {
+        font-size: clamp(2.1rem, 5vw, 3.2rem);
+        line-height: 1.1;
+        margin: 0 0 1rem;
+        letter-spacing: -0.02em;
+    }
+    .lede {
+        font-size: 1.15rem;
+        color: var(--muted);
+        margin: 0 0 1.75rem;
+    }
+    .actions {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+    .version {
+        margin-top: 1rem;
+        font-size: 0.9rem;
+    }
+    .device {
+        margin: 0;
+        padding: 14px;
+        background: #202326;
+        border-radius: 18px;
+        box-shadow: 0 20px 50px rgb(0 0 0 / 0.25);
+    }
+    .device img {
+        border-radius: 6px;
+    }
+    h2 {
+        margin-top: 3.5rem;
+        font-size: 1.6rem;
+    }
+    .features {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1rem;
+    }
+    .feature {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1.1rem 1.25rem;
+    }
+    .feature h3 {
+        margin: 0 0 0.35rem;
+        font-size: 1.05rem;
+    }
+    .feature p {
+        margin: 0;
+        color: var(--muted);
+    }
+    .gallery {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+        gap: 1rem;
+    }
+    .gallery figure {
+        margin: 0;
+    }
+    .gallery img {
+        border-radius: 8px;
+        border: 1px solid var(--border);
+    }
+    .gallery figcaption {
+        font-size: 0.875rem;
+        margin-top: 0.4rem;
+    }
+    .install p {
+        max-width: 42rem;
+    }
+</style>

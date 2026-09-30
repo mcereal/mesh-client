@@ -65,6 +65,8 @@ dist/
 # Node.js / semantic-release (used only for release automation)
 node_modules/
 package-lock.json
+# The website's lockfile is kept: Cloudflare installs from it, and it pins what a build ran on.
+!site/package-lock.json
 .npm/
 # Device deploy settings (scripts/deploy-device.sh)
 .brick.env
