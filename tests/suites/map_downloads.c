@@ -156,7 +156,8 @@ static bool downloads_exists(const char *dir, const char *name) {
 static void downloads_clear(const char *dir) {
     char command[600];
     snprintf(command, sizeof command, "rm -rf '%s'", dir);
-    (void)system(command);
+    const int status = system(command);
+    (void)status;
 }
 
 /*

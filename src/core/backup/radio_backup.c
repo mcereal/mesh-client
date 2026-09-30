@@ -541,9 +541,12 @@ bool mesh_radio_backup_store_enabled(const struct mesh_radio_backup_store *store
     return store != NULL && store->enabled;
 }
 
-static void radio_backup_node_dir(const struct mesh_radio_backup_store *store, uint32_t node_id,
-                                  char *out, size_t out_len) {
-    snprintf(out, out_len, "%s/%08" PRIx32, store->dir, node_id);
+/* The store's init left room for this, so truncation cannot happen - but the answer is still
+   checked rather than assumed, and a caller refuses on it. */
+static int radio_backup_node_dir(const struct mesh_radio_backup_store *store, uint32_t node_id,
+                                 char *out, size_t out_len) {
+    const int written = snprintf(out, out_len, "%s/%08" PRIx32, store->dir, node_id);
+    return written < 0 || (size_t)written >= out_len ? -ENAMETOOLONG : 0;
 }
 
 /* "00000007.before_write.backup" into its parts; false for anything else in the directory. */
@@ -631,7 +634,10 @@ int mesh_radio_backup_store_list(const struct mesh_radio_backup_store *store, ui
         return -EINVAL;
     }
     char dir[MESH_RADIO_BACKUP_PATH_MAX];
-    radio_backup_node_dir(store, node_id, dir, sizeof dir);
+    const int named = radio_backup_node_dir(store, node_id, dir, sizeof dir);
+    if (named != 0) {
+        return named;
+    }
     if (!inkwell_file_is_dir(dir)) {
         return 0;
     }
@@ -739,7 +745,10 @@ int mesh_radio_backup_store_save(struct mesh_radio_backup_store *store,
         return -EINVAL;
     }
     char dir[MESH_RADIO_BACKUP_PATH_MAX];
-    radio_backup_node_dir(store, backup->header.node_id, dir, sizeof dir);
+    const int named = radio_backup_node_dir(store, backup->header.node_id, dir, sizeof dir);
+    if (named != 0) {
+        return named;
+    }
     const int made = inkwell_file_mkdir(dir);
     if (made != 0 && !(made == -EEXIST && inkwell_file_is_dir(dir))) {
         return made == -EEXIST ? -ENOTDIR : made;
@@ -848,7 +857,10 @@ int mesh_radio_backup_store_remove(struct mesh_radio_backup_store *store, uint32
         return -ENODEV;
     }
     char dir[MESH_RADIO_BACKUP_PATH_MAX];
-    radio_backup_node_dir(store, node_id, dir, sizeof dir);
+    const int named = radio_backup_node_dir(store, node_id, dir, sizeof dir);
+    if (named != 0) {
+        return named;
+    }
     if (!inkwell_file_is_dir(dir)) {
         return -ENOENT;
     }
