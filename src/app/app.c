@@ -369,7 +369,7 @@ static bool mesh_app_on_ui_wheel(void *userdata, int steps, int x, int y,
     if (mesh_ui_nav_status_showing(nav)) {
         return true; /* the Status verbs are buttons, not a scrolling list */
     }
-    /* These routes draw active rows in MESH_UI_FOCUS_ROWS and use nav.cursor[screen]. */
+    /* These routes use nav.cursor[screen] and can draw rows in MESH_UI_FOCUS_ROWS. */
     switch ((enum mesh_ui_route_level)route.level) {
     case MESH_UI_ROUTE_LIST:
     case MESH_UI_ROUTE_THREAD:
@@ -384,7 +384,7 @@ static bool mesh_app_on_ui_wheel(void *userdata, int steps, int x, int y,
         return false;
     }
     if (map == NULL || map->items == NULL) {
-        return true;
+        return false;
     }
 
     uint32_t first = UINT32_MAX;
@@ -420,7 +420,7 @@ static bool mesh_app_on_ui_wheel(void *userdata, int steps, int x, int y,
         }
     }
     if (first == UINT32_MAX) {
-        return true;
+        return false;
     }
     const uint32_t hit = inkcell_focus_hit(map, x, y);
     const bool over_rows = x >= left && x < right && y >= top && y < bottom;
