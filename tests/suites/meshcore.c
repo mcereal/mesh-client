@@ -3499,6 +3499,23 @@ MESH_TEST_CASE(meshcore_autoadd_config_is_read_and_written, unit) {
                           g_meshcore.writes_outstanding != 0U,
                       "OK: the radio holds it, and the save settled");
 
+    /* An answer that outlived its question answers nothing now outstanding: the command at the
+       head keeps its place for its own reply. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_reset_path(&g_meshcore, 0x40414243U) != 1,
+                      "a command is outstanding");
+    const size_t queued = g_meshcore.queue_count;
+    const uint8_t late[3] = {MESH_MESHCORE_RESP_AUTOADD_CONFIG, 0x1EU, 9U};
+    feed(&protocol, late, sizeof late);
+    MESH_TEST_FAIL_IF(g_meshcore.queue_count != queued ||
+                          mesh_meshcore_contact_at(&g_meshcore, 0U)->out_path_len ==
+                              MESH_MESHCORE_PATH_NONE ||
+                          g_meshcore.autoadd_config != 0x05U,
+                      "a late AUTOADD_CONFIG neither pops the reset nor is believed");
+    feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    MESH_TEST_FAIL_IF(mesh_meshcore_contact_at(&g_meshcore, 0U)->out_path_len !=
+                          MESH_MESHCORE_PATH_NONE,
+                      "and the reset's own OK is still its own");
+
     g_meshcore.has_autoadd = false;
     MESH_TEST_FAIL_IF(mesh_meshcore_write_settings(&g_meshcore, &write) != -EINVAL,
                       "a radio that refused the question is not written to");

@@ -1626,10 +1626,13 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
      * END_OF_CONTACTS then finds nothing outstanding, and the sync never finishes.
      */
     /* And PRIVATE_KEY answers EXPORT_PRIVATE_KEY alone: one that lands after its export was
-       given up on would otherwise pop - and lose - whatever command is outstanding now. */
+       given up on would otherwise pop - and lose - whatever command is outstanding now. So does
+       AUTOADD_CONFIG, for GET_AUTOADD_CONFIG. */
     if ((code == MESH_MESHCORE_RESP_DEVICE_INFO && cmd != MESH_MESHCORE_CMD_DEVICE_QUERY) ||
         (code == MESH_MESHCORE_RESP_SELF_INFO && cmd != MESH_MESHCORE_CMD_APP_START) ||
-        (code == MESH_MESHCORE_RESP_PRIVATE_KEY && cmd != MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY)) {
+        (code == MESH_MESHCORE_RESP_PRIVATE_KEY && cmd != MESH_MESHCORE_CMD_EXPORT_PRIVATE_KEY) ||
+        (code == MESH_MESHCORE_RESP_AUTOADD_CONFIG &&
+         cmd != MESH_MESHCORE_CMD_GET_AUTOADD_CONFIG)) {
         inkwell_log_debug("meshcore", "Reply %u answers no command outstanding (head %u)",
                           (unsigned)code, (unsigned)cmd);
         return;
