@@ -82,21 +82,44 @@ static bool crash_hex_value(const char *text, uint64_t *out) {
     return true;
 }
 
+static bool crash_hex_digits(const char *text) {
+    if (*text == '\0') {
+        return false;
+    }
+    for (const char *at = text; *at != '\0'; ++at) {
+        if (!((*at >= '0' && *at <= '9') || (*at >= 'a' && *at <= 'f') ||
+              (*at >= 'A' && *at <= 'F'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void crash_read_head(struct mesh_crash_report *out, const char *line, const char *end) {
     const size_t len = (size_t)(end - line);
     const char *value = NULL;
     char text[MESH_CRASH_FIELD_MAX];
 
     if ((value = crash_field(line, len, "signal")) != NULL) {
-        out->signal = atoi(value);
+        if (value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) {
+            uint64_t code = 0U;
+            if (crash_hex_value(value, &code) && code <= UINT32_MAX) {
+                out->windows_exception = true;
+                out->exception_code = (uint32_t)code;
+            }
+        } else {
+            out->signal = atoi(value);
+        }
         const char *open = memchr(value, '(', (size_t)(end - value));
         const char *close = open != NULL ? memchr(open, ')', (size_t)(end - open)) : NULL;
         if (open != NULL && close != NULL) {
             crash_copy(out->signal_name, sizeof out->signal_name, open + 1, close);
         }
     } else if ((value = crash_field(line, len, "code")) != NULL) {
-        out->code = atoi(value);
-        out->have_code = true;
+        if (!out->windows_exception) {
+            out->code = atoi(value);
+            out->have_code = true;
+        }
     } else if ((value = crash_field(line, len, "fault addr")) != NULL) {
         out->have_fault_addr = crash_hex_value(value, &out->fault_addr);
     } else if ((value = crash_field(line, len, "uptime ms")) != NULL) {
@@ -107,6 +130,13 @@ static void crash_read_head(struct mesh_crash_report *out, const char *line, con
         (void)crash_hex_value(value, &out->image_size);
     } else if ((value = crash_field(line, len, "build id")) != NULL) {
         crash_copy(text, sizeof text, value, end);
+        if (strncmp(text, "RSDS ", 5U) == 0) {
+            const size_t digits = strlen(text + 5U);
+            if (digits > 32U && crash_hex_digits(text + 5U)) {
+                inkwell_str_copy(out->build_id, sizeof out->build_id, text);
+            }
+            return;
+        }
         /* Hex and nothing else: this goes into JSON and a symbol server's lookup as it is. */
         size_t hex = 0U;
         while (text[hex] != '\0' &&
@@ -115,6 +145,11 @@ static void crash_read_head(struct mesh_crash_report *out, const char *line, con
         }
         if (text[hex] == '\0' && hex >= 2U && hex % 2U == 0U) {
             inkwell_str_copy(out->build_id, sizeof out->build_id, text);
+        }
+    } else if ((value = crash_field(line, len, "code id")) != NULL) {
+        crash_copy(text, sizeof text, value, end);
+        if (strlen(text) >= 9U && crash_hex_digits(text)) {
+            inkwell_str_copy(out->code_id, sizeof out->code_id, text);
         }
     } else if ((value = crash_field(line, len, "version")) != NULL) {
         crash_copy(out->version, sizeof out->version, value, end);
@@ -179,10 +214,12 @@ bool mesh_crash_report_parse(const char *text, size_t len, struct mesh_crash_rep
                 section = CRASH_SECTION_END;
             }
         } else if (section == CRASH_SECTION_HEAD) {
-            if (crash_field(line, line_len, "signal") != NULL) {
-                have_signal = true;
-            }
+            const char *signal = crash_field(line, line_len, "signal");
             crash_read_head(out, line, end);
+            if (signal != NULL) {
+                const bool hex = signal[0] == '0' && (signal[1] == 'x' || signal[1] == 'X');
+                have_signal = have_signal || !hex || out->windows_exception;
+            }
         } else if (section == CRASH_SECTION_WHERE) {
             const char *value = crash_field(line, line_len, "pc");
             uint64_t pc = 0U;
@@ -352,6 +389,7 @@ void mesh_crash_context_init(struct mesh_crash_context *out, uint64_t now_unix) 
     out->os = "macos";
 #elif defined(_WIN32)
     out->os = "windows";
+    out->binary = "meshclient.exe";
 #elif defined(__linux__)
     out->os = "linux";
 #else
@@ -418,11 +456,25 @@ static void crash_debug_id(const char *build_id, bool swap, char out[37]) {
                    bytes[15]);
 }
 
+/* Inkwell's RSDS line is the canonical GUID's 32 hex digits followed by its hex age. */
+static void crash_pe_debug_id(const char *build_id, char out[MESH_CRASH_BUILD_ID_MAX]) {
+    const char *id = build_id + 5U;
+    (void)snprintf(out, MESH_CRASH_BUILD_ID_MAX, "%.8s-%.4s-%.4s-%.4s-%.12s-%s", id, id + 8U,
+                   id + 12U, id + 16U, id + 20U, id + 32U);
+    for (char *at = out; *at != '\0'; ++at) {
+        if (*at >= 'A' && *at <= 'F') {
+            *at = (char)(*at - 'A' + 'a');
+        }
+    }
+}
+
 static void crash_write_event(struct crash_json *json, const struct mesh_crash_report *report,
                               const char *event_id, const struct mesh_crash_context *context) {
     const char *const version =
         report->version[0] != '\0' ? report->version : context->sender_version;
-    const char *const signal_name = report->signal_name[0] != '\0' ? report->signal_name : "signal";
+    const char *const signal_name = report->signal_name[0] != '\0' ? report->signal_name
+                                    : report->windows_exception    ? "exception"
+                                                                   : "signal";
 
     json_fmt(json, "{\"event_id\":\"%s\",\"timestamp\":%llu,", event_id,
              (unsigned long long)context->now_unix);
@@ -462,7 +514,12 @@ static void crash_write_event(struct crash_json *json, const struct mesh_crash_r
     json_lit(json, ",\"exception\":{\"values\":[{\"type\":");
     json_str(json, signal_name);
     char value[96];
-    if (report->have_fault_addr) {
+    if (report->windows_exception && report->have_fault_addr) {
+        (void)snprintf(value, sizeof value, "Windows exception 0x%08x at 0x%llx",
+                       report->exception_code, (unsigned long long)report->fault_addr);
+    } else if (report->windows_exception) {
+        (void)snprintf(value, sizeof value, "Windows exception 0x%08x", report->exception_code);
+    } else if (report->have_fault_addr) {
         (void)snprintf(value, sizeof value, "Fatal signal %d at 0x%llx", report->signal,
                        (unsigned long long)report->fault_addr);
     } else {
@@ -470,12 +527,21 @@ static void crash_write_event(struct crash_json *json, const struct mesh_crash_r
     }
     json_lit(json, ",\"value\":");
     json_str(json, value);
-    json_fmt(json,
-             ",\"mechanism\":{\"type\":\"signalhandler\",\"handled\":false,\"synthetic\":true,"
-             "\"meta\":{\"signal\":{\"number\":%d,\"code\":%d,\"name\":",
-             report->signal, report->have_code ? report->code : 0);
-    json_str(json, signal_name);
-    json_lit(json, "}}}");
+    if (report->windows_exception) {
+        json_fmt(json,
+                 ",\"mechanism\":{\"type\":\"seh\",\"handled\":false,\"synthetic\":true,"
+                 "\"meta\":{\"exception\":{\"code\":\"0x%08x\",\"name\":",
+                 report->exception_code);
+        json_str(json, signal_name);
+        json_lit(json, "}}}");
+    } else {
+        json_fmt(json,
+                 ",\"mechanism\":{\"type\":\"signalhandler\",\"handled\":false,\"synthetic\":true,"
+                 "\"meta\":{\"signal\":{\"number\":%d,\"code\":%d,\"name\":",
+                 report->signal, report->have_code ? report->code : 0);
+        json_str(json, signal_name);
+        json_lit(json, "}}}");
+    }
     if (report->frame_count > 0U) {
         json_lit(json, ",\"stacktrace\":{\"frames\":[");
         for (size_t i = report->frame_count; i > 0U; --i) {
@@ -490,19 +556,30 @@ static void crash_write_event(struct crash_json *json, const struct mesh_crash_r
     /* The one image, when the report named it: what lets the addresses above become names. */
     if (report->build_id[0] != '\0' && report->have_load_base) {
         const bool macho = context->os != NULL && strcmp(context->os, "macos") == 0;
-        char debug_id[37];
-        crash_debug_id(report->build_id, !macho, debug_id);
-        json_fmt(json,
-                 ",\"debug_meta\":{\"images\":[{\"type\":\"%s\",\"code_id\":\"%s\","
-                 "\"debug_id\":\"%s\",\"image_addr\":\"0x%llx\"",
-                 macho ? "macho" : "elf", report->build_id, debug_id,
-                 (unsigned long long)report->load_base);
-        if (report->image_size > 0U) {
-            json_fmt(json, ",\"image_size\":%llu", (unsigned long long)report->image_size);
+        const bool pe = context->os != NULL && strcmp(context->os, "windows") == 0;
+        if (!pe || (strncmp(report->build_id, "RSDS ", 5U) == 0 && report->code_id[0] != '\0' &&
+                    report->image_size > 0U)) {
+            char debug_id[MESH_CRASH_BUILD_ID_MAX];
+            if (pe) {
+                crash_pe_debug_id(report->build_id, debug_id);
+            } else {
+                crash_debug_id(report->build_id, !macho, debug_id);
+            }
+            json_fmt(json,
+                     ",\"debug_meta\":{\"images\":[{\"type\":\"%s\",\"code_id\":\"%s\","
+                     "\"debug_id\":\"%s\",\"image_addr\":\"0x%llx\"",
+                     pe      ? "pe"
+                     : macho ? "macho"
+                             : "elf",
+                     pe ? report->code_id : report->build_id, debug_id,
+                     (unsigned long long)report->load_base);
+            if (report->image_size > 0U) {
+                json_fmt(json, ",\"image_size\":%llu", (unsigned long long)report->image_size);
+            }
+            json_lit(json, ",\"code_file\":");
+            json_str(json, context->binary != NULL ? context->binary : "");
+            json_lit(json, "}]}");
         }
-        json_lit(json, ",\"code_file\":");
-        json_str(json, context->binary != NULL ? context->binary : "");
-        json_lit(json, "}]}");
     }
     json_lit(json, "}");
 }

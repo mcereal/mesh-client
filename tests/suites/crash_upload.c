@@ -68,6 +68,88 @@ static const struct mesh_crash_context k_context = {
 
 static const char k_dsn[] = "https://abc123@example.invalid/42";
 
+/* INK-26's captured Windows layout, with PE identifiers from the MSH-10 MinGW probe. */
+static const char k_windows_report[] =
+    "MeshClient crash report\n"
+    "=======================\n"
+    "signal       0xc0000005 (EXCEPTION_ACCESS_VIOLATION)\n"
+    "code         3221225477\n"
+    "fault addr   0x0000000000000010\n"
+    "uptime ms    123456\n"
+    "load base    0x0000000140000000\n"
+    "build id     RSDS 14D6B55813E95C4E6F611D5FE09F58251\n"
+    "code id      6ABD65C91AB1000\n"
+    "image size   0x1ab1000\n"
+    "version      1.2.3\n"
+    "route        nodes/detail:0a1b2c3d\n"
+    "backend      sdl\n"
+    "screen       1280x800@3\n"
+    "\n--- where ---------------------------------------------------------------\n"
+    "pc           0x000000014023e620\n"
+    "\n--- log -----------------------------------------------------------------\n"
+    "version      LEAKED-WINDOWS-SECRET\n"
+    "code id      000000000000000\n"
+    "build id     RSDS 000000000000000000000000000000001\n"
+    " #07 0x00000000deadbeef\n"
+    "\n--- stack ---------------------------------------------------------------\n"
+    " #00 0x0000000140064d90\n"
+    "\n--- end -----------------------------------------------------------------\n";
+
+MESH_TEST_CASE(crash_upload_windows_report_builds_a_pe_event, unit) {
+    struct mesh_crash_report report;
+    struct mesh_crash_dsn dsn;
+    MESH_TEST_FAIL_IF(
+        !mesh_crash_report_parse(k_windows_report, sizeof k_windows_report - 1U, &report) ||
+            !mesh_crash_dsn_parse(k_dsn, &dsn),
+        "the Windows report parses");
+    MESH_TEST_FAIL_IF(!report.windows_exception || report.exception_code != 0xc0000005U ||
+                          strcmp(report.signal_name, "EXCEPTION_ACCESS_VIOLATION") != 0,
+                      "the NTSTATUS and exception name");
+    MESH_TEST_FAIL_IF(strcmp(report.code_id, "6ABD65C91AB1000") != 0 ||
+                          strcmp(report.build_id, "RSDS 14D6B55813E95C4E6F611D5FE09F58251") != 0 ||
+                          report.image_size != 0x1ab1000U,
+                      "the PE identifiers and image size");
+    MESH_TEST_FAIL_IF(report.frame_count != 2U || report.frames[0] != 0x14023e620ULL ||
+                          report.frames[1] != 0x140064d90ULL,
+                      "the fault and stack frames, without a log frame");
+
+    struct mesh_crash_context windows = k_context;
+    windows.os = "windows";
+    windows.binary = "meshclient.exe";
+    windows.arch = "x86_64";
+    char envelope[MESH_CRASH_ENVELOPE_MAX];
+    MESH_TEST_FAIL_IF(mesh_crash_envelope_build(&report, "0123456789abcdef0123456789abcdef", &dsn,
+                                                &windows, envelope, sizeof envelope) <= 0,
+                      "the Windows envelope builds");
+    const char *const first = strchr(envelope, '\n');
+    const char *const second = first != NULL ? strchr(first + 1, '\n') : NULL;
+    MESH_TEST_FAIL_IF(second == NULL, "the Windows envelope has an event");
+    const char *const event = second + 1;
+    struct inkwell_json json;
+    inkwell_json_init(&json, event, strcspn(event, "\n"));
+    MESH_TEST_FAIL_IF(!inkwell_json_skip_value(&json), "the PE event is valid JSON");
+    MESH_TEST_FAIL_IF(
+        strstr(envelope, "\"type\":\"pe\"") == NULL ||
+            strstr(envelope, "\"code_id\":\"6ABD65C91AB1000\"") == NULL ||
+            strstr(envelope, "\"debug_id\":\"14d6b558-13e9-5c4e-6f61-1d5fe09f5825-1\"") == NULL ||
+            strstr(envelope, "\"image_addr\":\"0x140000000\"") == NULL ||
+            strstr(envelope, "\"image_size\":27987968") == NULL ||
+            strstr(envelope, "\"code_file\":\"meshclient.exe\"") == NULL ||
+            strstr(envelope, "debug_file") != NULL,
+        "the image matches the symbolicated MSH-10 PE");
+    MESH_TEST_FAIL_IF(strstr(envelope, "\"type\":\"EXCEPTION_ACCESS_VIOLATION\"") == NULL ||
+                          strstr(envelope, "\"type\":\"seh\"") == NULL ||
+                          strstr(envelope, "\"code\":\"0xc0000005\"") == NULL,
+                      "the fault is a Windows exception, not a POSIX signal");
+    MESH_TEST_FAIL_IF(strstr(envelope, "LEAKED-WINDOWS-SECRET") != NULL ||
+                          strstr(envelope, "00000000000000000000000000000000") != NULL ||
+                          strstr(envelope, "deadbeef") != NULL ||
+                          strstr(envelope, "\"backend\":\"sdl\"") == NULL ||
+                          strstr(envelope, "\"screen\":\"1280x800@3\"") == NULL,
+                      "the log is ignored while the Windows display notes survive");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(crash_upload_reads_only_what_it_was_told_to, unit) {
     struct mesh_crash_report report;
     MESH_TEST_FAIL_IF(!mesh_crash_report_parse(k_report, sizeof k_report - 1U, &report),

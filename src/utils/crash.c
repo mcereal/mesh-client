@@ -10,12 +10,15 @@ static const char *const k_note_labels[MESH_CRASH_NOTE_SLOT_COUNT] = {
 };
 
 int mesh_crash_install(const char *dir) {
+    /* The report's resolver hint names the executable, not the product shown on screen. */
     const struct inkwell_crash_config config = {
         .dir = dir,
         .product = "MeshClient",
-        /* Lowercase, because it is what a reader runs addr2line against rather than what the
-           screen calls the program. */
+#if defined(_WIN32)
+        .binary = "meshclient.exe",
+#else
         .binary = "meshclient",
+#endif
         .issues_url = "https://github.com/mcereal/mesh-client/issues",
         .log_warning =
             "Depending on what you were doing they can name nodes, channels and places,\n"

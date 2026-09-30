@@ -17,8 +17,11 @@ is what lets the client replace its own `meshclient.exe` from Settings > About, 
 A Program Files install would need an administrator for that.
 
 - The Start menu shortcut passes `--foreground` and starts the client in
-  `%LOCALAPPDATA%\MeshClient`, which is where its settings and history land, since Windows has no
-  `HOME`. An uninstall leaves that directory alone.
+  `%LOCALAPPDATA%\MeshClient`. Every launch uses that directory for its `.meshclient` settings,
+  history and `crash.txt`, regardless of the current working directory. An uninstall leaves it
+  alone. A build that ran from another directory before this change left settings and any crash
+  report in that directory's `.meshclient`; move the files to
+  `%LOCALAPPDATA%\MeshClient\.meshclient` to keep them.
 - Setup closes a running client through the Restart Manager before it replaces the files. The
   uninstaller has no Restart Manager, so it finds any copy running from the install directory,
   says it will close it, and asks it to close as its close button would, rather than killing it.
@@ -57,6 +60,10 @@ own. A
 device is not required to see the window. A radio in Bluetooth range or plugged in over USB is
 found and connected to on its own. Set `$env:MESHCLIENT_UI_BACKEND = 'cli'` when a terminal-only
 run is intended.
+
+After a crash, the next launch shows a report on Settings > About. **Send report** appears when
+the build has a Sentry DSN configured; it sends the fault, addresses, PE identifiers, version and
+UI notes on a press. The log in `crash.txt` is never sent. **Discard report** removes the file.
 
 ## Toolchain
 
@@ -145,8 +152,7 @@ try {
 } finally { Pop-Location }
 ```
 
-The temporary working directory keeps the current fallback `.meshclient` preferences out of
-the checkout. The Windows CI job runs this build and smoke check on every PR.
+The Windows CI job runs this build and smoke check on every PR.
 
 The remaining work is primarily in platform backends:
 

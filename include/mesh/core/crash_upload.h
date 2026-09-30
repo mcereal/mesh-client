@@ -64,7 +64,9 @@ struct inkwell_loop;
  */
 struct mesh_crash_report {
     int signal;
-    char signal_name[16];
+    bool windows_exception;
+    uint32_t exception_code;
+    char signal_name[MESH_CRASH_FIELD_MAX];
     bool have_code;
     int code;
     bool have_fault_addr;
@@ -74,6 +76,7 @@ struct mesh_crash_report {
     uint64_t load_base;
     uint64_t image_size;
     char build_id[MESH_CRASH_BUILD_ID_MAX];
+    char code_id[MESH_CRASH_BUILD_ID_MAX];
     /* The notes, by the labels mesh/utils/crash.h gives them. */
     char version[MESH_CRASH_FIELD_MAX];
     char route[MESH_CRASH_FIELD_MAX]; /* screen and level only - see the top of this file */

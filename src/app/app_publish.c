@@ -65,7 +65,7 @@ void mesh_app_flush_ui_cache(struct mesh_app *app) {
 void mesh_app_close_ui_cache_timer(struct mesh_app *app) {
     if (app->ui_cache_timer_armed) {
         inkwell_loop_remove_fd(&app->loop, app->ui_cache_timer_fd);
-        close(app->ui_cache_timer_fd);
+        inkwell_timer_close(app->ui_cache_timer_fd);
         app->ui_cache_timer_armed = false;
         app->ui_cache_timer_fd = -1;
     }
@@ -102,7 +102,7 @@ static void mesh_app_schedule_ui_cache(struct mesh_app *app) {
             }
             inkwell_loop_remove_fd(&app->loop, fd);
         }
-        close(fd);
+        inkwell_timer_close(fd);
     }
     /* Persistence still works when an event source cannot be allocated. */
     mesh_app_flush_ui_cache(app);
