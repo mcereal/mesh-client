@@ -253,10 +253,11 @@ jobs:
         run: GITHUB_REF="${RELEASE_REF}" npx semantic-release
 
       # The debug files a sent crash report is symbolicated against: the handheld's binary and
-      # the Linux CLI, as they shipped. Neither is stripped, so their symbol tables are enough
-      # for function names; Sentry matches them to a report by build id, which every Linux
-      # binary here is linked with. Skipped until the SENTRY_AUTH_TOKEN secret exists, and
-      # never fatal - a release without symbols is still a release.
+      # the Linux CLI as they shipped, for their symbol tables, and the debug info split off
+      # each (dist/symbols/, never published) for file and line. Sentry matches them to a report
+      # by build id, which every Linux binary here is linked with. Skipped until the
+      # SENTRY_AUTH_TOKEN secret exists, and never fatal - a release without symbols is still a
+      # release.
       - name: Upload debug files to Sentry
         if: steps.semantic-release.outputs.version != ''
         continue-on-error: true
@@ -270,7 +271,7 @@ jobs:
             exit 0
           fi
           files=()
-          for f in dist/meshclient-tg5040-aarch64 dist/meshclient-linux-*; do
+          for f in dist/meshclient-tg5040-aarch64 dist/meshclient-linux-* dist/symbols/*.debug; do
             case "$f" in *.sha256) ;; *) [ -f "$f" ] && files+=("$f") ;; esac
           done
           npx --yes @sentry/cli@2 debug-files upload "${files[@]}"
@@ -371,8 +372,9 @@ jobs:
             dist/MeshClient-macos.dmg dist/MeshClient-macos.dmg.sha256 \
             dist/MeshClient-macos-app.zip dist/MeshClient-macos-app.zip.sha256
 
-      # The Mac binary's symbols, matched to a report by its LC_UUID. As in the release job:
-      # skipped without a token, never fatal.
+      # The Mac binary's symbols, matched to a report by its LC_UUID: the binary for its symbol
+      # table and the dSYM for file and line. As in the release job: skipped without a token,
+      # never fatal.
       - name: Upload debug files to Sentry
         continue-on-error: true
         env:
@@ -384,7 +386,7 @@ jobs:
             echo "No SENTRY_AUTH_TOKEN; not uploading debug files."
             exit 0
           fi
-          npx --yes @sentry/cli@2 debug-files upload build/macos-release/meshclient
+          npx --yes @sentry/cli@2 debug-files upload build/macos-release/meshclient build/macos-release/meshclient.dSYM
 
   windows:
     name: Windows download

@@ -126,7 +126,7 @@ CMAKE_ARGS=(
     -DCMAKE_BUILD_TYPE=Release
     -DCMAKE_C_COMPILER=musl-gcc
     -DCMAKE_EXE_LINKER_FLAGS="-static -L${MUSL_DBUS_PREFIX}/lib"
-    -DCMAKE_C_FLAGS="-Os -fno-omit-frame-pointer ${KERNEL_HEADERS} -I${MUSL_DBUS_PREFIX}/include/dbus-1.0 -I${MUSL_DBUS_PREFIX}/lib/dbus-1.0/include"
+    -DCMAKE_C_FLAGS="-Os -g -fno-omit-frame-pointer ${KERNEL_HEADERS} -I${MUSL_DBUS_PREFIX}/include/dbus-1.0 -I${MUSL_DBUS_PREFIX}/lib/dbus-1.0/include"
     -DPython3_EXECUTABLE="${SYSTEM_PYTHON}"
     -DBUILD_TESTING=OFF
     # No window backend in a static binary. inkcell picks SDL2 up by presence, and `make setup`
@@ -185,6 +185,12 @@ if [[ "$(strings "${BINARY}" | grep -cF -- "${ASSET_NAME}" || true)" -eq 0 ]]; t
 fi
 
 "${BINARY}" --version
+
+# The debug info apart from the download, for the release workflow's Sentry upload - as
+# scripts/release-build.sh does for the pak's binary.
+mkdir -p "${OUT_DIR}/symbols"
+objcopy --only-keep-debug "${BINARY}" "${OUT_DIR}/symbols/${ASSET_NAME}.debug"
+objcopy --strip-debug "${BINARY}"
 
 mkdir -p "${OUT_DIR}"
 cp "${BINARY}" "${OUT_DIR}/${ASSET_NAME}"
