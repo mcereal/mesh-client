@@ -566,8 +566,8 @@ the addresses, the image identifiers, the version, and the route cut to its scre
 The parser never reads the log section, so there is no path by which a log line reaches the
 request. The file stays until the server says it has the report. Its event id is a digest of the
 report's text, so a resend is the same event. Windows sends a `pe` image with the RSDS GUID and
-age as its debug id; the exact unstripped executable supplies its symbols. Automated Windows
-symbol upload is MSH-12.
+age as its debug id; the Windows release job uploads the exact unstripped executable after
+packaging so Sentry can resolve frames from that id.
 
 **The file does not promise to be free of private data, and must not start.** Its header once
 claimed to carry no message text or names, and three quarters of that was false — the log tail is
