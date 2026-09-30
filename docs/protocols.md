@@ -91,6 +91,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `NODE_STATUS` | asking a MeshCore repeater or room server for its counters - MeshCore's alone |
 | `NODE_NEIGHBORS` | asking a MeshCore repeater which nodes it hears - MeshCore's alone |
 | `NODE_COMMANDS` | a MeshCore repeater's thread as its console: its commands where the quick replies would be - MeshCore's alone |
+| `NODE_PATH` | a MeshCore contact's stored route on its screen, and the verb that forgets it - MeshCore's alone |
 | `NODE_FLAGS` | mute, ignore - and pin on a node that is not a whole-key contact |
 | `NODE_PIN` | pin, on the sheet and as X on the list and the detail |
 | `NODE_REMOVE` | remove, on a node's sheet |
@@ -241,6 +242,12 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   hop is traced by its first two. Anything else - a repeater with no route yet, or one whose
   route out and back is past the firmware's 64 hops - gets a path discovery. The tag is set
   when the trace is asked, so an answer that beats its `SENT` is still read.
+- **A contact's stored route** is its record's `out_path`, kept on the roster entry
+  (`mesh_node_summary.path_*`, the first eight hops) and read out on the node's Signal group a
+  hop a row, named the way a path discovery's hops are. "Forget route" on its sheet is
+  `CMD_RESET_PATH`, believed once the radio says `OK` - the same reset a message's last attempt
+  sends - after which the next message floods and `PATH_UPDATED` brings the route it learns.
+  Meshtastic lacks `NODE_PATH`: its next hop is the firmware's to learn and drop.
 - **A path discovery** is `SEND_PATH_DISCOVERY_REQ` by the whole key, flooded, answered by
   `PATH_DISCOVERY_RESPONSE`: the path our flood took out and the path the answer took back, each
   a length byte (hop count in the low six bits, bytes per hop less one in the top two) and the

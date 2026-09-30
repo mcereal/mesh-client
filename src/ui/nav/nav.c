@@ -1840,7 +1840,8 @@ static bool mesh_ui_nav_node_action_run(struct mesh_ui_nav *nav, const struct me
         item->action == MESH_UI_NODE_ACTION_REQUEST_POSITION ||
         item->action == MESH_UI_NODE_ACTION_REQUEST_TELEMETRY ||
         item->action == MESH_UI_NODE_ACTION_REQUEST_STATUS ||
-        item->action == MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS) {
+        item->action == MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS ||
+        item->action == MESH_UI_NODE_ACTION_RESET_PATH) {
         if (action != NULL) {
             switch (item->action) {
             case MESH_UI_NODE_ACTION_REQUEST_POSITION:
@@ -1854,6 +1855,9 @@ static bool mesh_ui_nav_node_action_run(struct mesh_ui_nav *nav, const struct me
                 break;
             case MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS:
                 action->type = MESH_UI_ACTION_REQUEST_NEIGHBORS;
+                break;
+            case MESH_UI_NODE_ACTION_RESET_PATH:
+                action->type = MESH_UI_ACTION_RESET_PATH;
                 break;
             default:
                 action->type = MESH_UI_ACTION_REQUEST_NODE_INFO;

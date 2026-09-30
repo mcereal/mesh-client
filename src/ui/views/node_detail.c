@@ -137,6 +137,8 @@ static const enum inkcell_icon k_action_icons[] = {
     [MESH_UI_NODE_ACTION_REQUEST_STATUS] = INKCELL_ICON_STATUS,
     /* The Neighbours group's own mark, since that group is where the answer lands. */
     [MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS] = INKCELL_ICON_NEIGHBORS,
+    /* The traceroute verb's mark: the same route, the other question about it. */
+    [MESH_UI_NODE_ACTION_RESET_PATH] = INKCELL_ICON_LINK,
 };
 
 /*
@@ -191,6 +193,7 @@ static const enum inkcell_tone k_action_tones[] = {
     [MESH_UI_NODE_ACTION_LOGIN] = INKCELL_TONE_NORMAL,
     [MESH_UI_NODE_ACTION_REQUEST_STATUS] = INKCELL_TONE_NORMAL,
     [MESH_UI_NODE_ACTION_REQUEST_NEIGHBORS] = INKCELL_TONE_NORMAL,
+    [MESH_UI_NODE_ACTION_RESET_PATH] = INKCELL_TONE_NORMAL,
 };
 
 static enum inkcell_icon action_icon(enum mesh_ui_node_action action) {
@@ -694,6 +697,69 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
     }
 }
 
+/*
+ * A MeshCore contact's stored route: the repeaters a direct message to it goes through, which
+ * the hop count above only counts. One row a hop, named where exactly one node's key starts
+ * with the hop's hash and shown as that hash where none or several do. No route is a row of its
+ * own, because it is the answer to why a message took the long way: it floods.
+ *
+ * Nothing for a direct route - the hop row above already reads "direct" - nor for a node that
+ * is not a MeshCore contact, which holds no route at all.
+ */
+static void node_rows_path(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                           const struct mesh_ui_handshake_state *roster) {
+    if (node->path_state == MESH_NODE_PATH_FLOOD) {
+        rows_state(rows, MESH_STR_NODE_PATH, inkcell_str(MESH_STR_NODE_PATH_FLOOD),
+                   INKCELL_TONE_TERTIARY);
+        return;
+    }
+    const uint8_t width = node->path_width;
+    if (node->path_state != MESH_NODE_PATH_KNOWN || node->path_hops == 0U || width == 0U ||
+        width > MESH_TRACEROUTE_HASH_MAX) {
+        return;
+    }
+    uint8_t shown = node->path_hops;
+    if (shown > MESH_UI_NODE_PATH_HOPS) {
+        shown = MESH_UI_NODE_PATH_HOPS;
+    }
+    if (shown > sizeof node->path / width) {
+        shown = (uint8_t)(sizeof node->path / width);
+    }
+    const uint32_t count = roster == NULL ? 0U
+                           : roster->node_count > MESH_UI_MAX_HANDSHAKE_NODES
+                               ? MESH_UI_MAX_HANDSHAKE_NODES
+                               : roster->node_count;
+    for (uint8_t i = 0; i < shown; ++i) {
+        char hash[2U * MESH_TRACEROUTE_HASH_MAX + 1U];
+        for (uint8_t b = 0; b < width; ++b) {
+            snprintf(hash + 2U * b, sizeof hash - 2U * b, "%02x",
+                     (unsigned)node->path[(size_t)i * width + b]);
+        }
+        const char *name = NULL;
+        for (uint32_t n = 0; n < count && node->path_node[i] != 0U; ++n) {
+            if (roster->nodes[n].node_id == node->path_node[i]) {
+                const struct mesh_ui_node_summary *hop = &roster->nodes[n];
+                name = hop->short_name[0] != '\0' ? hop->short_name : hop->long_name;
+                break;
+            }
+        }
+        const bool named = name != NULL && name[0] != '\0';
+        char label[MESH_UI_NODE_LABEL_MAX];
+        snprintf(label, sizeof label, "%s%s", inkcell_str(MESH_STR_NODE_HOP_ARROW),
+                 named ? name : hash);
+        struct mesh_ui_node_item *row = rows_info_row(rows, label);
+        if (row != NULL && named) {
+            snprintf(row->value, sizeof row->value, "%s", hash);
+        }
+    }
+    if (node->path_hops > shown) {
+        char label[MESH_UI_NODE_LABEL_MAX];
+        inkcell_str_format(label, sizeof label, MESH_STR_NODE_PATH_MORE,
+                           (unsigned)(node->path_hops - shown));
+        (void)rows_info_row(rows, label);
+    }
+}
+
 static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_summary *node,
                              const struct mesh_ui_handshake_state *roster, bool is_self,
                              uint32_t now) {
@@ -763,6 +829,7 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
            which node stands between us are one question asked twice, and a heading between
            them would put a card boundary through the middle of it. */
         node_rows_route(rows, node, roster);
+        node_rows_path(rows, node, roster);
     }
     /* The slot by the name the conversation list gives it. As a bare index it read "0", which
        is the radio's numbering and not a thing anybody calls a channel. */
@@ -1400,6 +1467,12 @@ bool mesh_ui_node_statusable(const struct mesh_ui_node_summary *node, uint32_t l
            node->public_key_len == sizeof node->public_key;
 }
 
+bool mesh_ui_node_path_resettable(const struct mesh_ui_node_summary *node, uint32_t lacks) {
+    return node != NULL && node_actions_offer(lacks, MESH_UI_FEATURE_NODE_PATH) &&
+           node->in_nodedb && node->public_key_len == sizeof node->public_key &&
+           node->path_state == MESH_NODE_PATH_KNOWN;
+}
+
 bool mesh_ui_node_neighbourable(const struct mesh_ui_node_summary *node, uint32_t lacks) {
     /* A repeater's alone: a room server keeps no list of what it hears. */
     return node != NULL && node_actions_offer(lacks, MESH_UI_FEATURE_NODE_NEIGHBORS) &&
@@ -1445,6 +1518,12 @@ uint32_t mesh_ui_node_actions_build(const struct mesh_ui_node_summary *node, boo
         if (node_actions_offer(lacks, MESH_UI_FEATURE_TRACEROUTE) &&
             (flags || (node->in_nodedb && node->public_key_len == sizeof node->public_key))) {
             node_rows_route_action(&rows, node, trace);
+        }
+        /* Beside the trace, which is the other question about the same route: a trace says
+           which way it goes, and this is what to do when that way has stopped working. */
+        if (mesh_ui_node_path_resettable(node, lacks)) {
+            rows_action(&rows, MESH_STR_NODE_ACT_RESET_PATH, inkcell_str(MESH_STR_COMMON_PRESS_A),
+                        MESH_UI_NODE_ACTION_RESET_PATH);
         }
         /* The one row that answers "who is this?" for a node that joined after the NodeDB
            replay and has been sitting in the list as a bare id ever since. */

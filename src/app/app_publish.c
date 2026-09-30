@@ -226,6 +226,45 @@ bool mesh_app_relay_byte_is_ambiguous(const struct mesh_handshake_status *status
     return mesh_app_relay_candidates(status, last_byte, 0U, &first) > 1U;
 }
 
+/* The one node whose key starts with `hash`, or 0 for none or several. */
+static uint32_t mesh_app_path_node(const struct mesh_handshake_status *status, const uint8_t *hash,
+                                   size_t len) {
+    uint32_t found = 0U;
+    for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        const struct mesh_node_summary *node = &status->nodes[i];
+        if (node->public_key_len >= len && memcmp(node->public_key, hash, len) == 0) {
+            if (found != 0U) {
+                return 0U;
+            }
+            found = node->node_id;
+        }
+    }
+    return found;
+}
+
+_Static_assert(MESH_UI_NODE_PATH_HOPS == MESH_NODE_PATH_HOPS_SHOWN &&
+                   MESH_UI_NODE_PATH_BYTES == MESH_NODE_PATH_BYTES,
+               "a stored route is the same size either side of the publish");
+
+/* A MeshCore contact's stored route, each shown hop named over the whole roster. */
+static void mesh_app_copy_path(const struct mesh_handshake_status *status,
+                               const struct mesh_node_summary *src,
+                               struct mesh_ui_node_summary *dst) {
+    dst->path_state = src->path_state;
+    dst->path_hops = src->path_hops;
+    dst->path_width = src->path_width;
+    memcpy(dst->path, src->path, sizeof dst->path);
+    memset(dst->path_node, 0, sizeof dst->path_node);
+    if (src->path_state != MESH_NODE_PATH_KNOWN || src->path_width == 0U ||
+        src->path_width > MESH_TRACEROUTE_HASH_MAX) {
+        return;
+    }
+    for (uint8_t i = 0; i < src->path_hops && i < MESH_NODE_PATH_HOPS_SHOWN; ++i) {
+        dst->path_node[i] =
+            mesh_app_path_node(status, src->path + (size_t)i * src->path_width, src->path_width);
+    }
+}
+
 /* The last-byte form of the same question; see app_internal.h for the ambiguity rule. */
 void mesh_app_format_relay_name(const struct mesh_handshake_status *status, uint8_t last_byte,
                                 uint32_t origin, int origin_hops, char *out, size_t out_len) {
@@ -3044,6 +3083,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
                mesh_app_relay_byte_is_ambiguous(). */
             dst->relay_ambiguous = mesh_app_relay_byte_is_ambiguous(status, src->relay_node);
             dst->next_hop_ambiguous = mesh_app_relay_byte_is_ambiguous(status, src->next_hop);
+            mesh_app_copy_path(status, src, dst);
             snprintf(dst->user_id, sizeof(dst->user_id), "%s", src->user_id);
             dst->has_user = src->has_user;
             dst->in_nodedb = src->in_nodedb;
