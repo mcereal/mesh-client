@@ -1912,6 +1912,12 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         } else {
             mesh_meshcore_mark(meshcore, packet_id, MESH_MESSAGE_ACK_FAILED);
         }
+        if (cmd == MESH_MESHCORE_CMD_SHARE_CONTACT && request != NULL &&
+            request->len == 1U + MESH_MESHCORE_PUBKEY_LEN) {
+            meshcore->share_refused_node =
+                mesh_meshcore_node_id(request->frame + 1, MESH_MESHCORE_PUBKEY_LEN);
+            meshcore->share_refusals += 1U;
+        }
         /* A walk step refused ends the walk where it stands. */
         if (cmd == MESH_MESHCORE_CMD_GET_CHANNEL && meshcore->phase == MESH_MESHCORE_CHANNELS) {
             mesh_meshcore_ready_now(meshcore);
@@ -2386,6 +2392,26 @@ int mesh_meshcore_reset_path(struct mesh_meshcore *meshcore, uint32_t node_id) {
     const int result =
         mesh_meshcore_enqueue(meshcore, frame,
                               mesh_meshcore_encode_key(MESH_MESHCORE_CMD_RESET_PATH,
+                                                       node->public_key, frame, sizeof frame),
+                              0U);
+    return result < 0 ? result : 1;
+}
+
+int mesh_meshcore_share_contact(struct mesh_meshcore *meshcore, uint32_t node_id) {
+    if (meshcore == NULL || node_id == 0U || node_id == meshcore->self_node) {
+        return -EINVAL;
+    }
+    if (!mesh_meshcore_ready(meshcore)) {
+        return -ENOTCONN;
+    }
+    const struct mesh_node_summary *node = mesh_meshcore_roster_node(meshcore, node_id);
+    if (node == NULL || node->public_key_len != MESH_MESHCORE_PUBKEY_LEN || !node->in_nodedb) {
+        return -ENOENT;
+    }
+    uint8_t frame[1U + MESH_MESHCORE_PUBKEY_LEN];
+    const int result =
+        mesh_meshcore_enqueue(meshcore, frame,
+                              mesh_meshcore_encode_key(MESH_MESHCORE_CMD_SHARE_CONTACT,
                                                        node->public_key, frame, sizeof frame),
                               0U);
     return result < 0 ? result : 1;

@@ -92,6 +92,7 @@ cache written before the field - is full Meshtastic and nothing on screen change
 | `NODE_NEIGHBORS` | asking a MeshCore repeater which nodes it hears - MeshCore's alone |
 | `NODE_COMMANDS` | a MeshCore repeater's thread as its console: its commands where the quick replies would be - MeshCore's alone |
 | `NODE_PATH` | a MeshCore contact's stored route on its screen, and the verb that forgets it - MeshCore's alone |
+| `NODE_SHARE` | a MeshCore contact's advert sent again to the nodes in earshot - MeshCore's alone |
 | `NODE_FLAGS` | mute, ignore - and pin on a node that is not a whole-key contact |
 | `NODE_PIN` | pin, on the sheet and as X on the list and the detail |
 | `NODE_REMOVE` | remove, on a node's sheet |
@@ -257,6 +258,10 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   `CMD_RESET_PATH`, believed once the radio says `OK` - the same reset a message's last attempt
   sends - after which the next message floods and `PATH_UPDATED` brings the route it learns.
   Meshtastic lacks `NODE_PATH`: its next hop is the firmware's to learn and drop.
+- **Share with nearby** on a contact's sheet is `SHARE_CONTACT` by key: the radio sends the
+  last advert it kept for that contact again, zero-hop, so the nodes in earshot can add a node
+  they never heard. A contact added from a link has no advert kept, and the radio's refusal is
+  said as a toast naming it (`share_refusals`). Meshtastic lacks `NODE_SHARE`.
 - **A path discovery** is `SEND_PATH_DISCOVERY_REQ` by the whole key, flooded, answered by
   `PATH_DISCOVERY_RESPONSE`: the path our flood took out and the path the answer took back, each
   a length byte (hop count in the low six bits, bytes per hop less one in the top two) and the
