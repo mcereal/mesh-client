@@ -1,5 +1,13 @@
 # MeshClient
 
+[![CI](https://github.com/mcereal/mesh-client/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mcereal/mesh-client/actions/workflows/ci.yml)
+[![Fuzz](https://github.com/mcereal/mesh-client/actions/workflows/fuzz.yml/badge.svg?branch=main)](https://github.com/mcereal/mesh-client/actions/workflows/fuzz.yml)
+[![Release](https://img.shields.io/github/v/release/mcereal/mesh-client?sort=semver)](https://github.com/mcereal/mesh-client/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/mcereal/mesh-client/total)](https://github.com/mcereal/mesh-client/releases)
+[![License: MIT](https://img.shields.io/github/license/mcereal/mesh-client)](LICENSE)
+[![Platform: TrimUI Brick](https://img.shields.io/badge/platform-TrimUI%20Brick%20(tg5040)-blue)](https://github.com/LoveRetro/nextui-pak-store)
+[![C17](https://img.shields.io/badge/language-C17-informational)](CMakeLists.txt)
+
 A Meshtastic client for the TrimUI Brick and other NextUI/MinUI handhelds. Read and send
 messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB — no phone
 needed.
