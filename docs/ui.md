@@ -532,9 +532,10 @@ already registers for the d-pad (`mesh/ui/focus.h`). A tab switches to it, a row
 on it and A, and a dialog's answer is answered - `src/ui/nav/nav_click.c`, which turns each
 click into the presses it stands for so every guard a key meets, a click meets. Two exceptions:
 a bubble in a thread is only selected, since A there writes a reply, and a click under a sheet
-goes nowhere. The wheel is Up and Down, a hint in the action bar is its key, and the mouse's
-back button is B (inkcell's `inkcell/ui/pointer.h`). `tests/suites/ui_click.c` clicks the
-real frame.
+goes nowhere. A hint in the action bar is its key, and the mouse's back button is B (inkcell's
+`inkcell/ui/pointer.h`). In the window, the wheel advances a list past its visible edge so one
+notch moves the content even while the keyboard cursor is hidden. It pans the map and leaves
+the Radio tab's Status actions alone. `tests/suites/ui_click.c` clicks the real frame.
 
 The cursor is a keyboard's cue, and a window shows it only while the keys are in use: a click
 or a scroll hides the ring and the lifted row, and the next arrow or face key brings them back

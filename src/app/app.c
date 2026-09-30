@@ -32,11 +32,13 @@
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/fb.h"
 #include "mesh/ui/backends/stub.h"
+#include "mesh/ui/focus.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/route.h"
 #include "mesh/utils/crash.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -351,6 +353,95 @@ static void mesh_app_on_ui_window_key(void *userdata, enum inkcell_key key) {
     mesh_app_on_ui_key(userdata, key);
 }
 
+/* The last frame's row targets say which rows are visible, including the effect of density
+   and window size. Crossing that edge moves the list even while its key cursor is hidden. */
+static bool mesh_app_on_ui_wheel(void *userdata, int steps, int x, int y,
+                                 const struct inkcell_focus_map *map) {
+    struct mesh_app *app = (struct mesh_app *)userdata;
+    if (app == NULL || steps == 0) {
+        return false;
+    }
+    const struct mesh_ui_nav *nav = &app->ui_store.nav;
+    struct mesh_ui_route route;
+    mesh_ui_route_of(nav, &route);
+    if (route.level == MESH_UI_ROUTE_MAP) {
+        return false; /* the map already pans with Up and Down */
+    }
+    if (mesh_ui_nav_status_showing(nav)) {
+        return true; /* the Status verbs are buttons, not a scrolling list */
+    }
+    if (route.level != MESH_UI_ROUTE_LIST && route.level != MESH_UI_ROUTE_DEVICES) {
+        return false;
+    }
+    if (map == NULL || map->items == NULL) {
+        return true;
+    }
+
+    uint32_t first = UINT32_MAX;
+    uint32_t last = 0U;
+    int left = INT_MAX;
+    int right = INT_MIN;
+    int top = INT_MAX;
+    int bottom = INT_MIN;
+    for (uint32_t i = 0U; i < map->count; ++i) {
+        const struct inkcell_focus_item *item = &map->items[i];
+        if (item->id < (uint32_t)MESH_UI_FOCUS_ROWS ||
+            item->id >= (uint32_t)MESH_UI_FOCUS_ROWS + MESH_UI_FOCUS_BLOCK) {
+            continue;
+        }
+        const uint32_t row = item->id - (uint32_t)MESH_UI_FOCUS_ROWS;
+        if (row < first) {
+            first = row;
+        }
+        if (row > last) {
+            last = row;
+        }
+        if (item->rect.x < left) {
+            left = item->rect.x;
+        }
+        if (item->rect.x + item->rect.w > right) {
+            right = item->rect.x + item->rect.w;
+        }
+        if (item->rect.y < top) {
+            top = item->rect.y;
+        }
+        if (item->rect.y + item->rect.h > bottom) {
+            bottom = item->rect.y + item->rect.h;
+        }
+    }
+    if (first == UINT32_MAX) {
+        return true;
+    }
+    const uint32_t hit = inkcell_focus_hit(map, x, y);
+    const bool over_rows = x >= left && x < right && y >= top && y < bottom;
+    const bool over_node_chips =
+        nav->screen == MESH_UI_SCREEN_NODES && hit >= (uint32_t)MESH_UI_FOCUS_NODE_CHIPS &&
+        hit < (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)MESH_UI_NODES_CHIP_COUNT;
+    if (!over_rows && !over_node_chips) {
+        return true;
+    }
+
+    const uint32_t rows = mesh_ui_nav_row_count(nav, &app->ui_store, nav->screen);
+    const uint32_t list_start = nav->screen == MESH_UI_SCREEN_NODES ? MESH_UI_NODES_LEAD_ROWS : 0U;
+    const enum inkcell_key key = steps > 0 ? INKCELL_KEY_UP : INKCELL_KEY_DOWN;
+    for (int notch = 0; notch < (steps > 0 ? steps : -steps); ++notch) {
+        if ((steps > 0 && first <= list_start) || (steps < 0 && last + 1U >= rows)) {
+            break;
+        }
+        uint32_t *cursor = &app->ui_store.nav.cursor[nav->screen];
+        /* The first notch reaches the visible edge. Later notches move one more row, even if
+           several SDL events arrived before the next frame updated the target map. */
+        for (uint32_t n = 0U; n <= last - first + 2U; ++n) {
+            const uint32_t before = *cursor;
+            mesh_app_on_ui_key(app, key);
+            if (*cursor == before || (steps > 0 ? *cursor < first : *cursor > last)) {
+                break;
+            }
+        }
+    }
+    return true;
+}
+
 static void mesh_app_on_ui_text(void *userdata, const char *text) {
     struct mesh_app *app = (struct mesh_app *)userdata;
     if (app != NULL) {
@@ -463,6 +554,7 @@ static bool mesh_app_select_sdl(struct mesh_app *app, const struct inkcell_backe
                      .request_stop = mesh_app_ui_request_stop},
             .on_key = mesh_app_on_ui_window_key,
             .on_action_key = mesh_app_on_ui_action_key,
+            .on_wheel = mesh_app_on_ui_wheel,
             .on_shortcut = mesh_app_on_ui_shortcut,
             .text_input_active = mesh_app_ui_text_active,
             .on_text_input = mesh_app_on_ui_text,
