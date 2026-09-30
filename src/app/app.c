@@ -353,8 +353,7 @@ static void mesh_app_on_ui_window_key(void *userdata, enum inkcell_key key) {
     mesh_app_on_ui_key(userdata, key);
 }
 
-/* The last frame's row targets say which rows are visible, including the effect of density
-   and window size. Crossing that edge moves the list even while its key cursor is hidden. */
+/* The last frame's row targets show the visible rows at the current density and window size. */
 static bool mesh_app_on_ui_wheel(void *userdata, int steps, int x, int y,
                                  const struct inkcell_focus_map *map) {
     struct mesh_app *app = (struct mesh_app *)userdata;
@@ -370,7 +369,18 @@ static bool mesh_app_on_ui_wheel(void *userdata, int steps, int x, int y,
     if (mesh_ui_nav_status_showing(nav)) {
         return true; /* the Status verbs are buttons, not a scrolling list */
     }
-    if (route.level != MESH_UI_ROUTE_LIST && route.level != MESH_UI_ROUTE_DEVICES) {
+    /* These routes draw active rows in MESH_UI_FOCUS_ROWS and use nav.cursor[screen]. */
+    switch ((enum mesh_ui_route_level)route.level) {
+    case MESH_UI_ROUTE_LIST:
+    case MESH_UI_ROUTE_THREAD:
+    case MESH_UI_ROUTE_NODE:
+    case MESH_UI_ROUTE_WAYPOINT:
+    case MESH_UI_ROUTE_SECTION:
+    case MESH_UI_ROUTE_CHANNEL:
+    case MESH_UI_ROUTE_DEVICES:
+    case MESH_UI_ROUTE_WAYPOINTS:
+        break;
+    default:
         return false;
     }
     if (map == NULL || map->items == NULL) {
@@ -422,15 +432,17 @@ static bool mesh_app_on_ui_wheel(void *userdata, int steps, int x, int y,
     }
 
     const uint32_t rows = mesh_ui_nav_row_count(nav, &app->ui_store, nav->screen);
-    const uint32_t list_start = nav->screen == MESH_UI_SCREEN_NODES ? MESH_UI_NODES_LEAD_ROWS : 0U;
+    const uint32_t list_start =
+        route.level == MESH_UI_ROUTE_LIST && nav->screen == MESH_UI_SCREEN_NODES
+            ? MESH_UI_NODES_LEAD_ROWS
+            : 0U;
     const enum inkcell_key key = steps > 0 ? INKCELL_KEY_UP : INKCELL_KEY_DOWN;
     for (int notch = 0; notch < (steps > 0 ? steps : -steps); ++notch) {
         if ((steps > 0 && first <= list_start) || (steps < 0 && last + 1U >= rows)) {
             break;
         }
         uint32_t *cursor = &app->ui_store.nav.cursor[nav->screen];
-        /* The first notch reaches the visible edge. Later notches move one more row, even if
-           several SDL events arrived before the next frame updated the target map. */
+        /* The first notch reaches the visible edge; later notches advance one row. */
         for (uint32_t n = 0U; n <= last - first + 2U; ++n) {
             const uint32_t before = *cursor;
             mesh_app_on_ui_key(app, key);
