@@ -496,7 +496,7 @@ static int mesh_ble_setup_refresh_timer(struct mesh_transport *transport,
     const int armed = inkwell_timer_arm_every(fd, 5000U);
     if (armed < 0) {
         inkwell_log_warn("ble", "arming the refresh timer failed: %s", strerror(-armed));
-        close(fd);
+        inkwell_timer_close(fd);
         return armed;
     }
     state->refresh_timer_fd = fd;
@@ -505,7 +505,7 @@ static int mesh_ble_setup_refresh_timer(struct mesh_transport *transport,
                                          mesh_ble_refresh_timer_callback, transport);
     if (add_result < 0) {
         inkwell_log_warn("ble", "Failed to add refresh timer fd: %d", add_result);
-        close(state->refresh_timer_fd);
+        inkwell_timer_close(state->refresh_timer_fd);
         state->refresh_timer_fd = -1;
         return add_result;
     }
@@ -519,7 +519,7 @@ static void mesh_ble_teardown_refresh_timer(struct mesh_ble_transport_state *sta
         if (state->loop != NULL) {
             inkwell_loop_remove_fd(state->loop, state->refresh_timer_fd);
         }
-        close(state->refresh_timer_fd);
+        inkwell_timer_close(state->refresh_timer_fd);
         state->refresh_timer_fd = -1;
     }
 }
