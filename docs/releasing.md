@@ -165,10 +165,14 @@ decide how much of that works, and a release builds without either:
 | `SENTRY_AUTH_TOKEN` | secret | Lets the release job upload each binary's symbols (`sentry-cli debug-files upload`) so a report's addresses read as function names. Needs the `project:releases` scope |
 | `SENTRY_ORG`, `SENTRY_PROJECT` | variables | Which Sentry project the symbols go to |
 
-Symbols are matched to a report by build id, not by version: every Linux binary is linked with
-`--build-id`, and a Mac binary's `LC_UUID` is its id. The shipped binaries are not stripped, so
-their symbol tables are what is uploaded - function names, not line numbers. The upload never
-fails a release. A Windows report carries no build id yet, so it arrives unsymbolicated.
+Symbols are matched to a report by image id, not by version: every Linux binary is linked with
+`--build-id`, and a Mac binary's `LC_UUID` is its id. Windows release builds keep DWARF and link
+with `--build-id`, which writes an RSDS CodeView id into the PE. The report includes that debug
+id, the COFF timestamp and image size as its code id, and the loaded image base. The exact
+unstripped Windows executable must be uploaded to Sentry; stripping it changes its code id.
+MSH-10 verified that Sentry resolves frames from that executable, with source lines. The Windows
+release job does not upload it yet (MSH-12), so Windows reports from ordinary releases remain
+unsymbolicated until that upload is performed. Symbol upload failure never fails a release.
 
 ## Troubleshooting
 

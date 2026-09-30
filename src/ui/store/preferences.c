@@ -37,6 +37,22 @@ int mesh_ui_preferences_default_path(char *buffer, size_t buffer_len) {
     }
 
     const char *home = getenv("HOME");
+#if defined(_WIN32)
+    char windows_home[1024];
+    const char *local_app_data = getenv("LOCALAPPDATA");
+    if (local_app_data != NULL && local_app_data[0] != '\0') {
+        const int root_len =
+            snprintf(windows_home, sizeof windows_home, "%s/MeshClient", local_app_data);
+        if (root_len < 0 || (size_t)root_len >= sizeof windows_home) {
+            return -ENAMETOOLONG;
+        }
+        const int created = inkwell_file_mkdir(windows_home);
+        if (created < 0 && created != -EEXIST) {
+            return created;
+        }
+        home = windows_home;
+    }
+#endif
     if (home == NULL || home[0] == '\0') {
         home = ".";
     }

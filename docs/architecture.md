@@ -549,10 +549,11 @@ folds C0 controls, replaces malformed bytes with `?` and never splits a sequence
 boundary. **Names are radio input exactly like message text is**, and `User.short_name` is
 `char[5]` — sized for one four-byte emoji and its NUL — so multi-byte names are the norm.
 
-`crash.c` catches SIGSEGV, SIGBUS, SIGILL, SIGFPE and SIGABRT, writes
-`$HOME/.meshclient/crash.txt` (signal and fault address, uptime, load base, build id and image
-size, version/route/transport/backend/screen notes, the last 32 log lines, the PC and a frame
-walk), then re-raises so the process still dies of the signal it was given.
+On Linux and macOS, inkwell catches SIGSEGV, SIGBUS, SIGILL, SIGFPE and SIGABRT and writes a
+report under `$HOME/.meshclient/crash.txt`. On Windows it catches structured exceptions and CRT
+abort and writes `%LOCALAPPDATA%\MeshClient\.meshclient\crash.txt`. The report records the fault,
+uptime, image identifiers and size, version/route/transport/backend/screen notes, the last 32
+log lines, the PC and a frame walk. The process still exits with its fault.
 
 **Nothing leaves the device by itself.** The handler is deliberately not a crash-reporting
 service: the memory of this process holds node names, coordinates, the message log and the channel
@@ -560,11 +561,13 @@ keys. What lands on disk is a page of text the user can read in full before atta
 issue.
 
 **Send report is a press, and it sends an allowlist.** On a build with a Sentry DSN compiled in,
-About offers a row that sends *part* of the file (`src/core/report/crash_upload.c`): the signal,
-the addresses, the build id, the version, and the route cut to its screen and level. The parser
-never reads the log section, so there is no path by which a log line reaches the request. The
-file stays until the server says it has the report, and its event id is a digest of its text, so a
-resend is the same event. Symbols go up from the release workflow and are matched by build id.
+About offers a row that sends *part* of the file (`src/core/report/crash_upload.c`): the fault,
+the addresses, the image identifiers, the version, and the route cut to its screen and level.
+The parser never reads the log section, so there is no path by which a log line reaches the
+request. The file stays until the server says it has the report. Its event id is a digest of the
+report's text, so a resend is the same event. Windows sends a `pe` image with the RSDS GUID and
+age as its debug id; the exact unstripped executable supplies its symbols. Automated Windows
+symbol upload is MSH-12.
 
 **The file does not promise to be free of private data, and must not start.** Its header once
 claimed to carry no message text or names, and three quarters of that was false — the log tail is

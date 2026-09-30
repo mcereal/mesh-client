@@ -10,6 +10,12 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# The shipped MinGW PE keeps DWARF in every linked object. Together with ld's RSDS record this
+# lets Sentry resolve Windows frames from the exact executable uploaded after packaging.
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    add_compile_options("$<$<CONFIG:Release>:-g>")
+endif()
+
 option(MESHCLIENT_ENABLE_ASAN "Enable AddressSanitizer for debugging" OFF)
 option(MESHCLIENT_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer for debugging" OFF)
 
@@ -300,6 +306,8 @@ endif()
 # the toolchain's default.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_link_options(-Wl,--build-id=sha1)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    add_link_options(-Wl,--build-id)
 endif()
 
 # inkwell as well as inkcell, and PUBLIC for the same reason inkcell is: this client's own
