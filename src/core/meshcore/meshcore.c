@@ -1699,10 +1699,9 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
             mesh_meshcore_decode_sent(frame, len, &sent) == 0) {
             const uint32_t wait = sent.timeout_ms > 0U ? sent.timeout_ms : 10000U;
             meshcore->request_until_ms = inkwell_time_monotonic_ms() + (uint64_t)wait + 2000U;
-            /* The answers that name no node: they carry this tag instead - the firmware's for
-               a binary request, and for a trace the one it was sent with, echoed. */
-            if (cmd == MESH_MESHCORE_CMD_SEND_BINARY_REQ ||
-                cmd == MESH_MESHCORE_CMD_SEND_TRACE_PATH) {
+            /* The one answer that names no node and carries a tag only SENT can say. A trace's
+               tag is its own, kept from when it was asked. */
+            if (cmd == MESH_MESHCORE_CMD_SEND_BINARY_REQ) {
                 meshcore->request_tag = sent.expected_ack;
             }
         }
@@ -2475,6 +2474,12 @@ int mesh_meshcore_trace_path(struct mesh_meshcore *meshcore, uint32_t node_id) {
     if ((size_t)count * stored > MESH_MESHCORE_PATH_MAX) {
         return -EINVAL;
     }
+    /* Out and back is twice the route and the node: past the firmware's 64 hops, or what one
+       frame carries, it is a route only a path discovery can still measure. */
+    const size_t total = 2U * count + 1U;
+    if (total > MESH_MESHCORE_PATH_MAX || 10U + total * width > MESH_MESHCORE_MAX_FRAME) {
+        return -EAGAIN;
+    }
     uint8_t hops[(2U * MESH_MESHCORE_PATH_MAX + 1U) * 2U];
     uint8_t n = 0U;
     for (uint8_t i = 0; i < count; ++i, ++n) {
@@ -2494,6 +2499,8 @@ int mesh_meshcore_trace_path(struct mesh_meshcore *meshcore, uint32_t node_id) {
     }
     const int result = mesh_meshcore_ask(meshcore, frame, (size_t)len, node_id, node->public_key);
     if (result == 0) {
+        /* Known now, not only once SENT echoes it: an answer can beat its SENT. */
+        meshcore->request_tag = tag;
         struct mesh_traceroute *trace = &meshcore->model->traceroute;
         memset(trace, 0, sizeof *trace);
         trace->state = MESH_TRACEROUTE_PENDING;

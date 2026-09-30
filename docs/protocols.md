@@ -238,8 +238,9 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   reversed, under a tag that `TRACE_DATA` echoes. Every hop appends the SNR it heard the trace
   at, so both ways get a reading per link. Only a node that forwards can be a stop - a companion
   cannot - and a trace names each hop by 1, 2, 4 or 8 bytes, so a route kept at three bytes a
-  hop is traced by its first two. Anything else, or a repeater with no route yet, gets a path
-  discovery.
+  hop is traced by its first two. Anything else - a repeater with no route yet, or one whose
+  route out and back is past the firmware's 64 hops - gets a path discovery. The tag is set
+  when the trace is asked, so an answer that beats its `SENT` is still read.
 - **A path discovery** is `SEND_PATH_DISCOVERY_REQ` by the whole key, flooded, answered by
   `PATH_DISCOVERY_RESPONSE`: the path our flood took out and the path the answer took back, each
   a length byte (hop count in the low six bits, bytes per hop less one in the top two) and the

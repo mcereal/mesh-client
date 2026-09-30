@@ -1989,6 +1989,31 @@ MESH_TEST_CASE(meshcore_trace_path_reads_every_link, unit) {
     MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_SILENT ||
                           trace->state != MESH_TRACEROUTE_TIMEOUT,
                       "nothing by the deadline times the trace out");
+
+    /* The tag is the trace's own, so an answer that beats its SENT is still read. */
+    contact->out_path_len = 1U;
+    contact->out_path[0] = 0xAA;
+    wire.count = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_trace_path(&g_meshcore, alice) != 0, "traced once more");
+    uint8_t early[12U + 3U + 4U] = {MESH_MESHCORE_PUSH_TRACE_DATA, 0, 3, 0};
+    memcpy(early + 4, frame + 1, 4U);
+    memcpy(early + 12, frame + 10, 3U);
+    feed(&protocol, early, sizeof early);
+    MESH_TEST_FAIL_IF(trace->state != MESH_TRACEROUTE_DONE || g_meshcore.request_cmd != 0U ||
+                          trace->route_count != 1U || trace->snr_count != 2U,
+                      "an answer before its SENT finishes the trace");
+    memcpy(sent + 2, frame + 1, 4U);
+    feed(&protocol, sent, sizeof sent);
+    MESH_TEST_FAIL_IF(g_meshcore.request_until_ms != 0U, "and the SENT after it sets no deadline");
+
+    /* Out and back past the firmware's 64 hops is left to a path discovery. */
+    contact->out_path_len = 32U;
+    memset(contact->out_path, 0xAA, 32U);
+    MESH_TEST_FAIL_IF(mesh_meshcore_trace_path(&g_meshcore, alice) != -EAGAIN,
+                      "a route too long to trace both ways falls back");
+    contact->out_path_len = 31U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_trace_path(&g_meshcore, alice) != 0,
+                      "one hop shorter fits in 63");
     record_success(test_name);
 }
 

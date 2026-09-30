@@ -625,7 +625,7 @@ struct mesh_meshcore {
     uint32_t request_node;                            /* asked of whom */
     uint8_t request_prefix[MESH_MESHCORE_PREFIX_LEN]; /* whose answer frees it */
     /* A binary request's answer names no node, only the tag its SENT carried: 0 until then.
-       A trace's names none either, and carries the tag it was sent with. */
+       A trace's names none either, and carries the tag it was sent with, set when it is asked. */
     uint32_t request_tag;
     /* How the last of them ended, and a count that moves each time one does. `notice_log`
        holds the last MESH_MESHCORE_NOTICES_KEPT, notice n at n % that - `notice` is the newest. */
@@ -825,8 +825,8 @@ int mesh_meshcore_discover_path(struct mesh_meshcore *meshcore, uint32_t node_id
  * way into the model's traceroute - which a path discovery cannot. Only a node that forwards
  * can be a stop, so a companion cannot be traced to. The same one request as
  * mesh_meshcore_request_telemetry(), and the same returns; -EINVAL too for a node that is not a
- * repeater or room server, and -EAGAIN for one the radio has no route to yet, which a path
- * discovery finds first.
+ * repeater or room server, and -EAGAIN for one the radio has no route to yet - or one too long
+ * to go out and back in a trace's 64 hops - which a path discovery measures instead.
  */
 int mesh_meshcore_trace_path(struct mesh_meshcore *meshcore, uint32_t node_id);
 /*
