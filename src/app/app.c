@@ -1676,8 +1676,9 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     }
     if (result < 0) {
         inkwell_log_warn("app", "UI backend init failed (%d); falling back to stub", result);
-        result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store,
-                                         mesh_ui_backend_stub(), NULL, &app->loop);
+        ui_backend = mesh_ui_backend_stub();
+        result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store, ui_backend, NULL,
+                                         &app->loop);
     }
     if (result < 0) {
         inkwell_log_error("app", "UI controller init failed: %d", result);
@@ -1686,6 +1687,12 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         return result;
     }
     mesh_ui_controller_set_action_handler(&app->ui_controller, mesh_app_on_ui_action, app);
+    /* A window is read with a mouse and a desk keyboard, and the Brick's sentences name buttons
+       it does not have - see mesh_i18n_set_desktop(). Decided by the backend that opened, after
+       every fallback above, not the one chosen: a window that would not open leaves the
+       framebuffer and the Brick's buttons, and the Brick's words with them. */
+    mesh_i18n_set_desktop(ui_backend == inkcell_backend_sdl() &&
+                          mesh_ui_controller_has_backend(&app->ui_controller));
     /* Which backend this run ended up with, after every fallback above: a crash report's form
        factor. The frame renderer adds the panel's size once it has drawn one. */
     const char *const backend_name =

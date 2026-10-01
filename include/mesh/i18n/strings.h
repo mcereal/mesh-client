@@ -81,6 +81,21 @@ enum {
  */
 void mesh_i18n_register(void);
 
+/*
+ * Whether the words are a window's rather than the Brick's.
+ *
+ * The Brick's sentences name the buttons printed on its case - "Y writes one", "X to refresh".
+ * A window has none of them, so a few dozen ids carry a second reading, the catalog entry named
+ * <ID>_DESKTOP, which says what a pointer or a desk keyboard does instead. Turning this on puts
+ * each of those in its id's place for every locale, so a screen, a toast or a help note asks
+ * for MESH_STR_THREAD_EMPTY as it always did and gets the sentence for the reader it has.
+ *
+ * The app turns it on once it has a window (src/app/app.c); a capture turns it on with
+ * `pointer`. Off by default, which is the Brick. The locale in force is kept across the switch.
+ */
+void mesh_i18n_set_desktop(bool desktop);
+bool mesh_i18n_desktop(void);
+
 /* inkcell_i18n_locale_count() and inkcell_i18n_locale_at() answer for both halves: they are
    inkcell's, reading the catalog registered above. */
 

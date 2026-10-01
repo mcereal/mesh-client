@@ -7427,3 +7427,51 @@ MESH_TEST_CASE(app_backup_identity_meshcore_never_waits_for_ever, unit) {
     MESH_TEST_FAIL_IF(!gave_up, "a radio that never came back held the restore for good");
     record_success(test_name);
 }
+
+/*
+ * The words follow the backend the run ended up with. A window asked for and not had falls back
+ * to another backend, whose reader has the Brick's buttons; desktop wording left on from the
+ * request would tell that reader to click. Turned on beforehand here, so the run has to turn it
+ * off rather than merely leave it alone.
+ *
+ * What this reaches is SDL refused at selection (a video driver that does not exist fails
+ * inkcell's availability probe). SDL selected and then refused at open - the case the wording is
+ * set after every fallback in mesh_app_init() for - needs a window system that starts and then
+ * declines, which a unit test cannot arrange; this holds the same outcome from the nearer side.
+ */
+MESH_TEST_CASE(app_reads_the_brick_wording_without_a_window, unit) {
+    char home_dir[APP_TEST_HOME_CAP];
+    if (!app_test_home(home_dir, sizeof home_dir, "wording")) {
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+    mesh_i18n_set_desktop(true);
+    /* A window asked for and refused. A build without SDL refuses it the same way. */
+    setenv("MESHCLIENT_UI_BACKEND", "sdl", 1);
+    setenv("SDL_VIDEODRIVER", "no-such-driver", 1);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_SINGLE_POLL;
+    config.enable_serial = false;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    const bool ready = mesh_app_init(&app, &config) == 0;
+    const bool desktop = mesh_i18n_desktop();
+    if (ready) {
+        mesh_app_shutdown(&app);
+    }
+    mesh_i18n_set_desktop(false);
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    unsetenv("SDL_VIDEODRIVER");
+    {
+        char path[256];
+        snprintf(path, sizeof path, "%s/.meshclient/ui_prefs", home_dir);
+        unlink(path);
+        snprintf(path, sizeof path, "%s/.meshclient", home_dir);
+        rmdir(path);
+        rmdir(home_dir);
+    }
+    MESH_TEST_FAIL_IF(!ready, "app init failed");
+    MESH_TEST_FAIL_IF(desktop, "a run that got no window kept the window's wording");
+    record_success(test_name);
+}
