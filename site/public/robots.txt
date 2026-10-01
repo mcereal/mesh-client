@@ -1,2 +1,4 @@
 User-agent: *
 Allow: /
+
+Sitemap: https://meshclient.dev/sitemap-index.xml

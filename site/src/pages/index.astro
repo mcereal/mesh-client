@@ -36,11 +36,11 @@ const features = [
     },
     {
         title: "Small and native",
-        body: "A single-threaded C program with no runtime to install. The same core runs headless as a static Linux CLI.",
+        body: "An open-source C program with no runtime to install. The same core runs headless as a static Linux CLI.",
     },
     {
-        title: "Open source",
-        body: "MIT licensed and developed in the open on GitHub.",
+        title: "Meshtastic and MeshCore",
+        body: "Works with Meshtastic radios and MeshCore companion radios, and works out which one it is talking to.",
     },
 ];
 
@@ -57,7 +57,7 @@ const release = await latestRelease();
             </p>
             <div class="actions">
                 <a class="button" href="/download/">Download</a>
-                <a class="button secondary" href="https://github.com/mcereal/mesh-client">View on GitHub</a>
+                <a class="button secondary" href="/guide/">Read the guide</a>
             </div>
             {release && <p class="muted version">Latest release: {release.tag}</p>}
         </div>
@@ -103,7 +103,8 @@ const release = await latestRelease();
         </p>
         <p>
             Rather install by hand, or run it on a Mac, a Windows PC or a Linux server? See the{" "}
-            <a href="/download/">downloads</a>.
+            <a href="/download/">downloads</a>. Once it's installed, the <a href="/guide/">guide</a> walks you through
+            connecting your first radio.
         </p>
     </section>
 </Base>
