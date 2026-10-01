@@ -258,6 +258,8 @@ device's older glibc is never asked for anything - and the folder is copied onto
   log is `App/MeshClient/MeshClient.txt`, cut back at startup like the Brick's, and opens with the
   panel, input devices and serial ports the run found. `MESHCLIENT_LOG_LEVEL=debug` in `env.sh`
   logs every button's code.
-- **No self-update yet.** The build names its own release asset, `meshclient-miyoomini-armhf`,
-  which no release publishes, so a check says there is nothing to install rather than fetching
-  the Brick's aarch64 binary.
+- **Releases carry it.** `MeshClient-miyoomini.zip` is `App/MeshClient/`, unzipped at the card's
+  root for a fresh install (it has no `env.sh`, so unzipping over an install keeps yours); the
+  in-app updater replaces the binary from `meshclient-miyoomini-armhf`, the name the build
+  compiles in, and never fetches the Brick's aarch64 one. `launch.sh` does not ship through
+  self-update here either.

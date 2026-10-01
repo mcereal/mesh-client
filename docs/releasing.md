@@ -46,6 +46,8 @@ since the last tag, not anything about your working tree.
    `.sha256`:
    - `MeshClient.pak.zip` for a fresh install on the handheld, and `meshclient-tg5040-aarch64`,
      the bare static binary its in-app updater downloads;
+   - `MeshClient-miyoomini.zip` for a fresh install on a Miyoo Mini (Onion OS), and
+     `meshclient-miyoomini-armhf`, the static armhf binary its updater downloads;
    - `meshclient-linux-x86_64`, the same client built static against musl for a desktop or a
      server;
    - `MeshClient-macos.dmg` for a fresh install on a Mac, and `MeshClient-macos-app.zip`, the
@@ -53,11 +55,12 @@ since the last tag, not anything about your working tree.
    - `MeshClient-windows-x86_64-setup.exe` for a fresh install on Windows, and
      `meshclient-windows-x86_64.exe`, which the Windows updater downloads.
 
-The three builds are three toolchains, not one binary renamed: the pak and the device binary are
-the aarch64 cross build, and the Linux one is [`scripts/linux-cli-build.sh`](../scripts/linux-cli-build.sh)
+The four builds are four toolchains, not one binary renamed: the pak and the device binary are
+the aarch64 cross build, the Miyoo's is Ubuntu's armhf glibc cross gcc linked static
+([`scripts/cross-build-miyoo.sh`](../scripts/cross-build-miyoo.sh)), and the Linux one is [`scripts/linux-cli-build.sh`](../scripts/linux-cli-build.sh)
 on the runner's own architecture — x86-64, so a release publishes no general-purpose ARM CLI and
-a Pi builds its own. That last asset is a convenience and is built non-fatally: a runner without
-`musl-tools` costs the release its desktop download and nothing else.
+a Pi builds its own. The last two are built non-fatally: a runner without `musl-tools` or the
+armhf cross gcc costs the release that download and nothing else.
 
 ### The desktop downloads
 
@@ -75,6 +78,7 @@ Each package is one fresh-install file and one file the updater swaps in:
 | | Fresh install | What the updater replaces | What it leaves alone |
 |---|---|---|---|
 | Handheld | `MeshClient.pak.zip` | `bin/shared/meshclient` | `launch.sh` |
+| Miyoo Mini | `MeshClient-miyoomini.zip` | `App/MeshClient/meshclient` | `launch.sh`, `env.sh` |
 | macOS | `MeshClient-macos.dmg` | the whole `MeshClient.app`, from `MeshClient-macos-app.zip` | nothing |
 | Windows | `MeshClient-windows-x86_64-setup.exe` | `meshclient.exe` | `SDL2.dll` and the other DLLs |
 

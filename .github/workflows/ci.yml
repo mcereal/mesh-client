@@ -370,6 +370,43 @@ jobs:
             dist/meshclient-tg5040-aarch64
           if-no-files-found: error
 
+  # The Miyoo Mini (Onion OS) build, on every pull request: a 32-bit ARM, glibc target with no
+  # BlueZ, so it is the one configuration where a `long` is 32 bits *and* `time_t` is 64 - which is
+  # how `struct input_event` lost its `.time`. Ubuntu's armhf cross gcc comes from apt, so there is
+  # no toolchain to cache; this is the script the release calls, run as it is.
+  miyoo:
+    name: Cross build (Miyoo Mini, static armhf)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config protobuf-compiler python3 python3-pip file zip gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
+
+      - name: Install Python packages for nanopb generator
+        run: |
+          python3 -m pip install --user --upgrade pip setuptools wheel
+          python3 -m pip install --user protobuf grpcio-tools jinja2 jsonschema
+
+      # Asserts the binary is static 32-bit ARM and carries its own update asset's name.
+      - name: Build the app
+        run: ./scripts/cross-build-miyoo.sh
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: MeshClient-miyoomini
+          path: |
+            dist/MeshClient-miyoomini.zip
+            dist/meshclient-miyoomini-armhf
+          if-no-files-found: error
+
   # The desktop and server download, on every pull request, for the reason the job above it
   # exists: a release is the wrong place to discover that something no longer builds against
   # musl. This one is cheap enough not to need the toolchain cache that job has - musl-gcc comes
