@@ -1582,6 +1582,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_LINK_TIMEOUT] = "%.32s no respondió",
     [MESH_STR_LINK_CLOSED] = "%.32s cerró la conexión",
     [MESH_STR_LINK_TLS] = "%.24s: %.64s",
+    [MESH_STR_LINK_CLOCK] = "%.24s: el reloj de este dispositivo está mal; ajusta la hora",
     [MESH_STR_LINK_TCP_DISABLED] = "Enlaces de red desactivados",
     [MESH_STR_LINK_TCP_BAD_TARGET] = "%.32s no es una dirección con puerto",
     [MESH_STR_LINK_TCP_NO_ANSWER] = "%.24s: la radio no respondió",

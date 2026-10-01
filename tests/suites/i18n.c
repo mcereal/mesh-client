@@ -463,6 +463,12 @@ MESH_TEST_CASE(i18n_net_reason_format_takes_each_entrys_arguments, unit) {
                       "a TLS failure has a sentence");
     MESH_TEST_FAIL_IF(strstr(out, "bad cert") == NULL, "carrying the TLS library's own words");
 
+    const struct inkwell_net_failure clock = {INKWELL_NET_CLOCK, 0};
+    MESH_TEST_FAIL_IF(!mesh_net_reason_format(&clock, "api.github.com", "ignored", out, sizeof out),
+                      "a clock behind the certificate has a sentence");
+    (void)inkcell_str_format(want, sizeof want, MESH_STR_LINK_CLOCK, "api.github.com");
+    MESH_TEST_FAIL_IF(strcmp(out, want) != 0, "naming the clock rather than the TLS library");
+
     const struct inkwell_net_failure none = {INKWELL_NET_OK, 0};
     snprintf(out, sizeof out, "%s", "untouched");
     MESH_TEST_FAIL_IF(mesh_net_reason_format(&none, "github.com", NULL, out, sizeof out),

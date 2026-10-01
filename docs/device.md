@@ -181,7 +181,7 @@ either profile by reading the compass name as a position and you get A and B rig
 swap X and Y. `tests/suites/ui_input.c` asserts both by number.
 
 That is why the codes and the keycaps are **one table**: inkcell's `src/input/input_profile.c` holds a row per
-device, and `MESHCLIENT_INPUT_PROFILE` (`brick` or `xbox`) picks one for both the key mapping and
+device, and `MESHCLIENT_INPUT_PROFILE` (`brick`, `xbox` or `miyoo`) picks one for both the key mapping and
 the action bar's caps. Correcting one without the other is invisible — the binding still works,
 it just does the other thing, and the bar goes on promising the first.
 
@@ -238,3 +238,26 @@ device attached set `BRICK_ADB_SERIAL`. Everything works over either transport e
 The Brick's `adbd` is old — no `exec-out`, no no-pty shell, and it does not report remote exit
 codes — so the USB path moves every byte with `adb push`/`pull` and verifies the pak by checksum
 rather than by exit status. This is device data access, not USB mass storage.
+
+## The Miyoo Mini Plus (Onion OS)
+
+A second, smaller target: the same client as an Onion app, `/mnt/SDCARD/App/MeshClient/`.
+`make docker-miyoo` builds it into `dist/miyoomini/MeshClient/` - a static armhf binary, so the
+device's older glibc is never asked for anything - and the folder is copied onto the card as it is.
+
+- **No Bluetooth.** The device has none, and the build leaves BlueZ out. A radio is reached over
+  the network: `MESHCLIENT_TCP_HOST` in `App/MeshClient/env.sh`, which `launch.sh` reads, along
+  with `MESHCLIENT_PROTOCOL` and `MESHCLIENT_LOG_LEVEL`. A MeshCore radio needs its Wi-Fi
+  companion build, which listens on port 5000; a Meshtastic radio's network module listens on 4403.
+- **The panel is upside down.** `launch.sh` sets `MESHCLIENT_FB_ROTATE=180` and
+  `MESHCLIENT_INPUT_PROFILE=miyoo`; the pad reports keyboard codes (A is `KEY_SPACE`, START is
+  `KEY_ENTER`), and MENU is `KEY_ESC`, which quits.
+- **Turn on network time.** The clock starts at 1970 until Onion sets it (Apps > Tweaks >
+  Network), and until then every HTTPS fetch is refused with *this device's clock is wrong*.
+- **Getting on it.** Onion's SSH (Tweaks > Network) logs `root` in with an empty password. The
+  log is `App/MeshClient/MeshClient.txt`, cut back at startup like the Brick's, and opens with the
+  panel, input devices and serial ports the run found. `MESHCLIENT_LOG_LEVEL=debug` in `env.sh`
+  logs every button's code.
+- **No self-update yet.** The build names its own release asset, `meshclient-miyoomini-armhf`,
+  which no release publishes, so a check says there is nothing to install rather than fetching
+  the Brick's aarch64 binary.

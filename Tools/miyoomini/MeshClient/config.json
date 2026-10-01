@@ -1,0 +1,6 @@
+{
+	"label":	"MeshClient",
+	"icon":	"/mnt/SDCARD/App/MeshClient/icon.png",
+	"launch":	"launch.sh",
+	"description":	"Meshtastic client"
+}

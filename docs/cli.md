@@ -172,6 +172,7 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_SCAN_RESUME_GRACE_MS` | how long a teardown keeps the BLE scan down, 0–60000, default 3000, so it is not restarted for the second between a drop and the reconnect |
 | `MESHCLIENT_UI_BACKEND` | `fb\|sdl\|headless\|cli\|stub`; Windows defaults to `sdl`. Elsewhere the default is `fb` unless there is no `/dev/fb0`, and then `cli`. `sdl` is never reached by fallback on those hosts — a window is a thing you ask for. `headless` draws the device's frame into memory for a host with neither a panel nor a display; see [`ui.md`](ui.md#driving-the-running-client) |
 | `MESHCLIENT_UI_CONTROL` | same as `--ui-control`: the control socket's path. Unset is off |
+| `MESHCLIENT_FB_ROTATE` | `180` turns the `fb` frame over on its way to the panel, for a panel mounted upside down (the Miyoo Mini's). Anything else draws upright |
 | `MESHCLIENT_FB_SCALE` | font multiplier, 2–6; default is the theme's (4). In an `sdl` window the default is sized for the display instead - the theme's at two pixels per point, so 4 on a Retina Mac and 2 at 100% on Windows - and naming one here overrides that. Without it, Settings > About > Text size steps whichever of those is in use by one either way and remembers it; with it, that row is shown as held |
 | `MESHCLIENT_SDL_SIZE` | the window's geometry as `WxH`, in points; default `1024x768`, the Brick's panel. The window draws at the display's density, so on a Retina display that is a 2048x1536 frame; `MESHCLIENT_SDL_FIXED=1` keeps a frame the panel's size and scales it, which is the way to look at what the device will draw |
 | `MESHCLIENT_SDL_VSYNC` | `1` waits for the scan-out before returning from a present. Off by default: this client has one thread, and waiting there is up to a frame in which no transport is serviced |
@@ -179,7 +180,7 @@ from 2 s to 60 s; only an established link clears it. The USB and BLE preference
 | `MESHCLIENT_MAP_PACK` | the tile pack, or directory of packs, the map draws. Read once at startup |
 | `MESHCLIENT_THEME` | `dark\|light\|contrast\|colorblind`. Outranks Settings → About, which then shows it as a fact rather than a switch |
 | `MESHCLIENT_LANG` | which language the UI is drawn in. Outranks `LC_ALL`, `LC_MESSAGES`, `LANG`. See [`i18n.md`](i18n.md) |
-| `MESHCLIENT_INPUT_PROFILE` | `brick` (default) or `xbox`. Decides which evdev code each *printed* face button reports **and** the keycaps the bar draws — one table, since correcting the codes and not the words would name a key that does something else. See [`device.md`](device.md#the-buttons) |
+| `MESHCLIENT_INPUT_PROFILE` | `brick` (default), `xbox` or `miyoo`. Decides which evdev code each *printed* face button reports **and** the keycaps the bar draws — one table, since correcting the codes and not the words would name a key that does something else. See [`device.md`](device.md#the-buttons) |
 | `MESHCLIENT_QUIT_KEYS` | override the evdev codes that quit, e.g. `"139,316"` |
 | `MESHCLIENT_KEY_REPEAT_DELAY_MS` | hold-before-repeat, 0–5000, default 350; `0` turns hold-to-scroll off |
 | `MESHCLIENT_KEY_HOLD_MS` | how long B is held before it goes back to the tab's own list, 0–5000, default 600; `0` turns it off |

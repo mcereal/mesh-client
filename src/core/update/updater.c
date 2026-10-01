@@ -474,7 +474,13 @@ static void updater_fetch_failed(struct mesh_updater *updater,
         }
         break;
     case INKWELL_FETCH_TLS:
-        snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_TLS_UNVERIFIED));
+        /* A clock behind the certificate is this device's to fix, and says so; anything else
+           about the certificate is GitHub's. */
+        if (result->failure.reason != INKWELL_NET_CLOCK ||
+            !mesh_net_reason_format(&result->failure, result->host, NULL, message,
+                                    sizeof message)) {
+            snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_TLS_UNVERIFIED));
+        }
         break;
     case INKWELL_FETCH_FILE:
         snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_UPDATE_WRITE_FAILED));

@@ -220,7 +220,12 @@ static void firmware_fetch_failed(struct mesh_firmware *firmware,
         }
         break;
     case INKWELL_FETCH_TLS:
-        inkwell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_TLS_UNVERIFIED));
+        /* See updater_fetch_failed(): a clock behind the certificate is named as the clock. */
+        if (result->failure.reason != INKWELL_NET_CLOCK ||
+            !mesh_net_reason_format(&result->failure, result->host, NULL, message,
+                                    sizeof message)) {
+            inkwell_str_copy(message, sizeof message, inkcell_str(MESH_STR_FW_TLS_UNVERIFIED));
+        }
         break;
     case INKWELL_FETCH_HTTP_STATUS:
         inkcell_str_format(message, sizeof message, MESH_STR_FW_CHECK_HTTP, result->status);

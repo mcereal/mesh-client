@@ -54,6 +54,7 @@ and sanitizer (`build/san`) trees; everything else about a configure comes from 
 make docker-test                          # the same, in the dev container (use this on macOS)
 make docker-shell                         # bash in the dev container
 make docker-pak                           # cross container -> dist/MeshClient.pak.zip
+make docker-miyoo                         # armhf container -> dist/miyoomini/MeshClient (Onion OS)
 make docker-image                         # force dev image rebuild after editing docker/
 ```
 

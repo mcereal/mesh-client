@@ -488,7 +488,12 @@ static void packs_fetch_failed(struct mesh_map_packs *packs,
         }
         break;
     case INKWELL_FETCH_TLS:
-        snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_MAP_PACKS_TLS_UNVERIFIED));
+        /* See updater_fetch_failed(): a clock behind the certificate is named as the clock. */
+        if (result->failure.reason != INKWELL_NET_CLOCK ||
+            !mesh_net_reason_format(&result->failure, result->host, NULL, message,
+                                    sizeof message)) {
+            snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_MAP_PACKS_TLS_UNVERIFIED));
+        }
         break;
     case INKWELL_FETCH_FILE:
         snprintf(message, sizeof message, "%s", inkcell_str(MESH_STR_MAP_PACKS_WRITE_FAILED));
