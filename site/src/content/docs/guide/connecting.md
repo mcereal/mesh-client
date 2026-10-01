@@ -31,6 +31,12 @@ If you changed the radio's PIN, or reflashed it, the old pairing no longer works
 list, press **Y** twice on that radio to forget the pairing, then pair again.
 :::
 
+:::caution[Windows and PIN-protected radios]
+Windows can't pair with a Meshtastic radio that uses a PIN yet, in either Fixed PIN or Random
+PIN mode. A radio set to **No PIN** connects and works normally over Bluetooth. For a radio with
+a PIN, connect over USB instead.
+:::
+
 On a Mac, the first connection asks for Bluetooth permission. Until you allow it, the client
 shows "Bluetooth is starting". If you run the client from a terminal, macOS asks on behalf of
 the terminal app.

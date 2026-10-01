@@ -24,6 +24,10 @@ NextUI.
 The radio's PIN probably changed, or the radio was reflashed, and the old pairing no longer
 matches. In the device list, press **Y** twice on the radio to forget it, then pair again.
 
+**On Windows, a radio with a PIN won't pair.**
+Windows can't pair with a PIN-protected Meshtastic radio yet. Set the radio to **No PIN**, or
+connect over USB.
+
 **On a Mac, it stays on "Bluetooth is starting".**
 MeshClient hasn't been given Bluetooth access. Allow it under **System Settings → Privacy &
 Security → Bluetooth**. If you run the client from a terminal, allow the terminal app.

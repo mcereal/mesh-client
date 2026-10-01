@@ -40,9 +40,12 @@ actions you can take on it.
 The details page checks whether a newer firmware release exists for your radio's board, and can
 install it:
 
-- **ESP32 radios** (Heltec V3, T-Beam and similar) install over Bluetooth.
+- **ESP32 radios** (Heltec V3, T-Beam and similar) install over Bluetooth. On Windows the
+  radio has to be set to No PIN first, because Windows can't pair with a PIN-protected radio
+  yet.
 - **nRF52 radios** (RAK4631, T-Echo, T114 and similar) install over Bluetooth on the Brick,
-  or over USB. On a Mac or PC they install over USB only.
+  or over USB. On a Mac they install over USB only. Windows can't install them yet, so use
+  the [Meshtastic web flasher](https://flasher.meshtastic.org) there.
 
 MeshClient saves a [backup](../settings/#backups) of the radio's settings before it installs
 firmware.
