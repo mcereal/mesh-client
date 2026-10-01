@@ -1135,6 +1135,19 @@ static void mesh_app_flatten_holder(const struct mesh_lifetime *lifetime,
     dst->at = at;
 }
 
+/* The head of a trait's tally, as many rows as the page lists. */
+static uint8_t mesh_app_flatten_top(const struct mesh_lifetime *lifetime,
+                                    enum mesh_lifetime_trait trait,
+                                    struct mesh_ui_lifetime_share *dst) {
+    struct mesh_lifetime_share top[MESH_UI_LIFETIME_TOP];
+    const size_t count = mesh_lifetime_top(lifetime, trait, top, MESH_UI_LIFETIME_TOP);
+    for (size_t i = 0; i < count; ++i) {
+        dst[i].value = top[i].value;
+        dst[i].count = top[i].count;
+    }
+    return (uint8_t)count;
+}
+
 /* The lifetime stats for the Stats page, by name. The MAXes are small by nature - a hop count
    is a byte - so the narrowing is the clamp's, stated rather than assumed. */
 static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
@@ -1156,6 +1169,8 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
     dst->nodes_heard_direct = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_NODES_HEARD_DIRECT);
     dst->radios = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_RADIOS);
     dst->nodes_floor = !mesh_lifetime_complete(lifetime);
+    dst->model_count = mesh_app_flatten_top(lifetime, MESH_LIFETIME_TRAIT_MODEL, dst->models);
+    dst->role_count = mesh_app_flatten_top(lifetime, MESH_LIFETIME_TRAIT_ROLE, dst->roles);
     dst->most_hops = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_MOST_HOPS);
     dst->most_hops_measured = mesh_lifetime_measured(lifetime, MESH_LIFETIME_MOST_HOPS);
     dst->farthest_direct_m = mesh_lifetime_value(lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M);

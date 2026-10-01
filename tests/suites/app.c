@@ -3896,6 +3896,9 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     struct mesh_node_summary node;
     memset(&node, 0, sizeof node);
     node.node_id = 0x61000002U;
+    node.has_user = true;
+    node.hw_model = meshtastic_HardwareModel_HELTEC_V3;
+    node.role = meshtastic_Config_DeviceConfig_Role_ROUTER;
     const struct mesh_session_event heard_event = {
         .kind = MESH_SESSION_EVENT_NODE_HEARD, .node = &node, .has_hops = true, .hops = 3U};
     mesh_lifetime_observe(&app.lifetime, &app.session, &heard_event);
@@ -3946,6 +3949,12 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     if (page->nodes_heard != 1U || page->nodes_heard_rf != 1U || page->radios != 1U ||
         page->nodes_floor || page->most_hops != 3U) {
         failure = "the page should carry the node counts and the records";
+        goto cleanup;
+    }
+    if (page->model_count != 1U || page->models[0].value != meshtastic_HardwareModel_HELTEC_V3 ||
+        page->models[0].count != 1U || page->role_count != 1U ||
+        page->roles[0].value != meshtastic_Config_DeviceConfig_Role_ROUTER) {
+        failure = "the page should carry what the nodes heard run on and are for";
         goto cleanup;
     }
     /* The record's holder by name, out of the roster at publish time: a node the roster has

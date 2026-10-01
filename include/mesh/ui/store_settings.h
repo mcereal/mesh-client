@@ -102,6 +102,19 @@ struct mesh_ui_lifetime_holder {
     uint32_t at;
 };
 
+/*
+ * A trait's most common values among the nodes heard (mesh_lifetime_top()), most first: the raw
+ * value, which the page names, and how many nodes have it. As many as MESH_UI_LIFETIME_TOP - the
+ * page lists the head of a tally rather than all of it, since a city mesh's hardware is a long
+ * tail of models one node each.
+ */
+#define MESH_UI_LIFETIME_TOP 5U
+
+struct mesh_ui_lifetime_share {
+    uint32_t value;
+    uint32_t count;
+};
+
 struct mesh_ui_lifetime_stats {
     uint64_t messages_sent;
     uint64_t messages_received;
@@ -125,6 +138,12 @@ struct mesh_ui_lifetime_stats {
     /* The node set has turned one away, so the three counts above are at least what they say
        rather than exactly it. */
     bool nodes_floor;
+    /* The hardware models and the roles the nodes heard most often have, our own radios left
+       out; a node not yet introduced is in neither. */
+    struct mesh_ui_lifetime_share models[MESH_UI_LIFETIME_TOP];
+    uint8_t model_count;
+    struct mesh_ui_lifetime_share roles[MESH_UI_LIFETIME_TOP];
+    uint8_t role_count;
     /* The records, and whether anything has set each: 0 is a real record for all of them - a
        node only ever heard straight to us, two radios at one spot, a packet decoded exactly at
        the noise - so the value cannot say "none yet" by itself (mesh_lifetime_measured()). */

@@ -3005,3 +3005,45 @@ MESH_TEST_CASE(ui_nav_settings_maps_a_download_is_the_only_offer, unit) {
     MESH_TEST_FAIL_IF(offered, "and no second download is offered");
     record_success(test_name);
 }
+
+/*
+ * The Stats page's tallies: a group per trait, headed and in the tally's order, the row named by
+ * the value it counts - and no group at all while no node has said what it is.
+ */
+MESH_TEST_CASE(ui_stats_page_lists_what_the_nodes_heard_are, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    struct mesh_ui_settings_item item;
+    MESH_TEST_FAIL_IF(stats_value_of(&store, "Hardware heard", &item) != NULL ||
+                          stats_value_of(&store, "Roles heard", &item) != NULL,
+                      "an empty tally has no heading");
+
+    struct mesh_ui_settings settings = store.settings;
+    struct mesh_ui_lifetime_stats *stats = &settings.client.lifetime;
+    /* meshtastic_HardwareModel_HELTEC_V3 and _RAK4631; meshtastic_Config_DeviceConfig_Role_ROUTER
+       and _CLIENT. */
+    stats->models[0] = (struct mesh_ui_lifetime_share){.value = 43U, .count = 12U};
+    stats->models[1] = (struct mesh_ui_lifetime_share){.value = 9U, .count = 4U};
+    stats->model_count = 2U;
+    stats->roles[0] = (struct mesh_ui_lifetime_share){.value = 0U, .count = 15U};
+    stats->roles[1] = (struct mesh_ui_lifetime_share){.value = 2U, .count = 1U};
+    stats->role_count = 2U;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    const char *value = NULL;
+    MESH_TEST_FAIL_IF(stats_value_of(&store, "Hardware heard", &item) == NULL ||
+                          item.kind != INKSTAND_FORM_HEADING,
+                      "the hardware group is headed");
+    MESH_TEST_FAIL_IF((value = stats_value_of(&store, "Heltec V3", &item)) == NULL ||
+                          strcmp(value, "12") != 0 || item.kind != INKSTAND_FORM_INFO,
+                      "a model is a row of its own, named, with its count");
+    MESH_TEST_FAIL_IF((value = stats_value_of(&store, "RAK4631", &item)) == NULL ||
+                          strcmp(value, "4") != 0,
+                      "and so is the next");
+    MESH_TEST_FAIL_IF(
+        (value = stats_value_of(&store, "Client", &item)) == NULL || strcmp(value, "15") != 0 ||
+            (value = stats_value_of(&store, "Router", &item)) == NULL || strcmp(value, "1") != 0,
+        "the roles likewise");
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}

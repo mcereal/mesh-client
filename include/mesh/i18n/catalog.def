@@ -2591,6 +2591,11 @@ MESH_STR_ENTRY(STATS_RADIOS,              "Radios used")
 MESH_STR_ENTRY(STATS_TRACES,              "Routes traced")
 /* How many nodes' keys this client has confirmed by comparing codes with their owner. */
 MESH_STR_ENTRY(STATS_KEYS_VERIFIED,       "Keys verified")
+/* The Stats page's heading over the hardware the nodes heard run on: each row under it is a
+   model's name and how many of the nodes heard are that model, most common first. */
+MESH_STR_ENTRY(STATS_HEAD_HARDWARE,       "Hardware heard")
+/* The same for what the nodes heard are set up to do - client, router, repeater. */
+MESH_STR_ENTRY(STATS_HEAD_ROLES,          "Roles heard")
 /* The Stats page's heading over the places, contacts and channels passed between this client
    and other people. */
 MESH_STR_ENTRY(STATS_HEAD_SHARING,        "Sharing")

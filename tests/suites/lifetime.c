@@ -1582,3 +1582,155 @@ MESH_TEST_CASE(lifetime_a_late_radio_names_the_record_its_link_set, unit) {
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }
+
+/* A node as it introduces itself: the hardware it runs on and the role it was given. */
+static struct mesh_node_summary lt_introduced(uint32_t id, uint32_t model, uint32_t role) {
+    struct mesh_node_summary node = lt_summary(id);
+    node.has_user = true;
+    node.hw_model = model;
+    node.role = role;
+    return node;
+}
+
+/* The tally's first `n` rows are these (value, count) pairs, in order, and there are no more. */
+static bool lt_top_is(enum mesh_lifetime_trait trait, const uint32_t *pairs, size_t n) {
+    struct mesh_lifetime_share top[8];
+    const size_t got = mesh_lifetime_top(&g_lifetime, trait, top, 8U);
+    if (got != n) {
+        return false;
+    }
+    for (size_t i = 0; i < n; ++i) {
+        if (top[i].value != pairs[i * 2U] || top[i].count != pairs[i * 2U + 1U]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+MESH_TEST_CASE(lifetime_tallies_what_the_nodes_heard_are, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    const uint32_t heltec = meshtastic_HardwareModel_HELTEC_V3;
+    const uint32_t tbeam = meshtastic_HardwareModel_TBEAM;
+    const uint32_t router = meshtastic_Config_DeviceConfig_Role_ROUTER;
+    const uint32_t client = meshtastic_Config_DeviceConfig_Role_CLIENT;
+
+    struct mesh_node_summary a = lt_introduced(0x2001U, tbeam, client);
+    struct mesh_node_summary b = lt_introduced(0x2002U, heltec, router);
+    struct mesh_node_summary c = lt_introduced(0x2003U, heltec, client);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &a, false, false, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &b, true, false, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_LISTED, &c, false, false, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &c, false, false, 0U);
+    const uint32_t models[] = {heltec, 2U, tbeam, 1U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_MODEL, models, 2U),
+                      "two of one model and one of the other, however each was heard");
+    const uint32_t roles[] = {client, 2U, router, 1U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_ROLE, roles, 2U), "and the roles likewise");
+
+    /* A node that has not introduced itself has a role of 0 that is only a default. */
+    struct mesh_node_summary stranger = lt_summary(0x2004U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &stranger, false, false, 0U);
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_ROLE, roles, 2U),
+                      "a node with no User is no client");
+
+    /* A role changed moves the node rather than counting it twice. */
+    b.role = client;
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &b, false, false, 0U);
+    const uint32_t moved[] = {client, 3U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_ROLE, moved, 1U),
+                      "the router became a client");
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "role") != 4U, "a role line each time one was learned");
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &b, false, false, 0U);
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "role") != 4U, "and none for one heard again unchanged");
+
+    /* Our own radio is no node we heard, whatever it runs on. */
+    struct mesh_node_summary ours = lt_introduced(LT_US, tbeam, client);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &ours, false, false, 0U);
+    mesh_lifetime_note_radio(&g_lifetime, LT_US);
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_MODEL, models, 2U),
+                      "our radio leaves the tally once it is known to be ours");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_MODEL, models, 2U) ||
+                          !lt_top_is(MESH_LIFETIME_TRAIT_ROLE, moved, 1U),
+                      "the tallies survive a restart, with the newest role");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(lifetime_a_tally_is_cut_to_its_most_common, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    /* Models 1 to 5, model n on n nodes - and model 6 on as many as model 5, which it ties. */
+    uint32_t id = 0x3000U;
+    for (uint32_t model = 1U; model <= 6U; ++model) {
+        for (uint32_t n = 0; n < (model == 6U ? 5U : model); ++n) {
+            struct mesh_node_summary node = lt_introduced(++id, model, 0U);
+            lt_node(MESH_SESSION_EVENT_NODE_HEARD, &node, false, false, 0U);
+        }
+    }
+    struct mesh_lifetime_share top[3];
+    MESH_TEST_FAIL_IF(mesh_lifetime_top(&g_lifetime, MESH_LIFETIME_TRAIT_MODEL, top, 3U) != 3U,
+                      "three asked for, three answered");
+    MESH_TEST_FAIL_IF(top[0].value != 5U || top[0].count != 5U || top[1].value != 6U ||
+                          top[1].count != 5U || top[2].value != 4U || top[2].count != 4U,
+                      "most first, a tie to the lower value");
+    MESH_TEST_FAIL_IF(mesh_lifetime_top(&g_lifetime, MESH_LIFETIME_TRAIT_MODEL, top, 0U) != 0U,
+                      "nothing asked for, nothing written");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* The newest line wins, a malformed one is skipped, and a trait is not a hearing. */
+MESH_TEST_CASE(lifetime_reads_trait_lines_back, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    char path[128];
+    snprintf(path, sizeof path, "%s/seen.stats", dir);
+    FILE *file = fopen(path, "w");
+    MESH_TEST_FAIL_IF(file == NULL, "could not write the seen file");
+    fputs("heard=00002222\nmodel=00002222:43\nrole=00002222:2\nmodel=00002222:4\n"
+          "model=zz:4\nmodel=00002222:\nmodel=00002222:0\nmodel=00002222:256\nrole=00002222:-1\n"
+          "role=00003333:0\nmodel=0000",
+          file);
+    fclose(file);
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    const uint32_t models[] = {4U, 1U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_MODEL, models, 1U), "the later model wins");
+    const uint32_t roles[] = {0U, 1U, 2U, 1U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_ROLE, roles, 2U),
+                      "a role of 0 is a role once it is written down");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 1U,
+                      "a node known only by its trait is not a node heard");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(lifetime_a_failed_trait_append_is_retried, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "could not take the directory away");
+
+    peer = lt_introduced(LT_PEER, meshtastic_HardwareModel_RAK4631, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    MESH_TEST_FAIL_IF(g_lifetime.pending != 1U || !mesh_lifetime_dirty(&g_lifetime),
+                      "the trait waits for a flush that can write it");
+    MESH_TEST_FAIL_IF(mkdir(dir, 0700) != 0, "could not restore the directory");
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0 || g_lifetime.pending != 0U,
+                      "the next flush writes it");
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "model") != 1U || lt_seen_lines(dir, "role") != 1U ||
+                          lt_seen_lines(dir, "heard") != 0U,
+                      "the traits alone, since the hearing was written before the card went");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    const uint32_t models[] = {meshtastic_HardwareModel_RAK4631, 1U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_MODEL, models, 1U), "and they are read back");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}

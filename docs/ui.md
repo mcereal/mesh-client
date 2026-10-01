@@ -224,9 +224,17 @@ never announced as news; MeshCore writes the model through `mesh_session_model_l
 
 | | `totals.stats` | `seen.stats` |
 |---|---|---|
-| What | the counts and the records, and the first credible wall-clock second (`since`) | one line each time a node gains a fact: heard, heard over the air, one of our radios |
+| What | the counts and the records, and the first credible wall-clock second (`since`) | one line each time a node gains a fact (heard, heard over the air, one of our radios), and one each time its hardware model or role is learned or changes |
 | Written | rewritten whole on the cache's two-second window, when changed | appended at once, since a new node is rare |
 | Read | at launch | at launch, into a sorted array of node numbers |
+
+The hardware and role lines are what the page's **Hardware heard** and **Roles heard** groups
+tally: the newest each node reported, so a node that changes role moves rather than counting
+twice, our own radios left out as they are from the node counts. A build that predates them skips
+the lines and never removes them, and a node already on the card before them is of unknown
+hardware until it is heard again. Each group lists its most common few
+(`MESH_UI_LIFETIME_TOP`), named by `mesh_radio_hw_model_name()` and `mesh_radio_role_name()`,
+and is left off the page until some node has said what it is.
 
 Unlike the trend log it does **not** start again on a radio swap: a second radio adds to the
 same numbers, and a radio that has ever been attached is left out of the node counts.

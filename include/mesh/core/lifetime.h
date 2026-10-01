@@ -38,6 +38,18 @@
  * from the front of a public key, so the two protocols share one set; two nodes landing on one
  * number is a chance in four billion per pair, and would cost one node from a count.
  *
+ * **What a node is, beside whether it was heard.** A node's hardware model and its role are kept
+ * per node, as the newest the session reported, so the page can say how many nodes of each have
+ * been heard. They are facts rather than counts - told twice, the same model is the same model -
+ * and a node that changes role moves between the tallies rather than being in both. They are
+ * written as lines a build before them skips (`model=<node>:<n>`, `role=<node>:<n>`), so a card
+ * moved between builds keeps them, and a node read off a card written before them is a node of
+ * unknown hardware until it is heard again. A role is believed only once the node has introduced
+ * itself (`has_user`): before that its 0 is a default rather than "client". The hardware is
+ * Meshtastic's alone, since a MeshCore advert does not carry one; MeshCore's advert type is
+ * already a role. A model is kept in a byte: Meshtastic's own enum ends at PRIVATE_HW (255), and
+ * one past it is not a model this build could name.
+ *
  * **Our own radios are not nodes we heard.** A radio that has ever been attached is marked as
  * one, and the node counts leave it out - at count time rather than at insert time, so a second
  * radio heard over the air before it was ever plugged in stops counting the day it is.
@@ -146,6 +158,22 @@ enum mesh_lifetime_kind {
  */
 #define MESH_LIFETIME_NODES_MAX 8192U
 
+/* What a node is, as mesh_lifetime_top() tallies it. */
+enum mesh_lifetime_trait {
+    MESH_LIFETIME_TRAIT_MODEL = 0, /* meshtastic_HardwareModel */
+    MESH_LIFETIME_TRAIT_ROLE,      /* meshtastic_Config_DeviceConfig_Role */
+    MESH_LIFETIME_TRAIT_COUNT
+};
+
+/* A tally holds one count per value a byte can take. */
+#define MESH_LIFETIME_TRAIT_VALUES 256U
+
+/* One row of a tally: a trait's value, and how many nodes heard have it. */
+struct mesh_lifetime_share {
+    uint32_t value;
+    uint32_t count;
+};
+
 /* Keys a newer build wrote that this one does not know, carried through a rewrite rather than
    dropped - a card moved back to an older build keeps what the newer one counted. */
 #define MESH_LIFETIME_FOREIGN_MAX 16U
@@ -164,9 +192,17 @@ struct mesh_lifetime {
     uint32_t holders[MESH_LIFETIME_STAT_COUNT];
     uint32_t held_at[MESH_LIFETIME_STAT_COUNT];
     uint32_t since; /* first credible wall-clock second, or 0 */
-    /* The set: node numbers ascending, and what is known about each (lifetime.c's SEEN_*). */
+    /* The set: node numbers ascending, and what is known about each (lifetime.c's SEEN_*, and in
+       the high byte the lines still to be written). */
     uint32_t ids[MESH_LIFETIME_NODES_MAX];
-    uint8_t facts[MESH_LIFETIME_NODES_MAX];
+    uint16_t facts[MESH_LIFETIME_NODES_MAX];
+    /* Each node's traits, beside it: a model as itself and a role one above itself, so 0 is
+       "not known" for both. */
+    uint8_t traits[MESH_LIFETIME_TRAIT_COUNT][MESH_LIFETIME_NODES_MAX];
+    /* How many nodes have each value of each trait, our own radios left out as the node counts
+       leave them out. Kept as the traits move rather than counted when asked, so a page that
+       reads them on every publish costs a walk of 256 rather than of the set. */
+    uint32_t trait_counts[MESH_LIFETIME_TRAIT_COUNT][MESH_LIFETIME_TRAIT_VALUES];
     uint32_t id_count;
     /* Nodes with a fact the seen file does not hold yet, because its append failed. */
     uint32_t pending;
@@ -264,6 +300,14 @@ bool mesh_lifetime_measured(const struct mesh_lifetime *lifetime, enum mesh_life
  */
 bool mesh_lifetime_holder(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat,
                           uint32_t *out_node, uint32_t *out_at);
+
+/*
+ * The most common values of a trait among the nodes heard, most first, a tie to the lower value:
+ * up to `cap` of them into `out`. Answers how many it wrote. A node whose trait is not known yet
+ * is in none of them, and our own radios are left out.
+ */
+size_t mesh_lifetime_top(const struct mesh_lifetime *lifetime, enum mesh_lifetime_trait trait,
+                         struct mesh_lifetime_share *out, size_t cap);
 
 /* False once the set has had to turn a node away, which makes every SET a floor. Kept across a
    restart; only mesh_lifetime_reset() makes the set complete again. */
