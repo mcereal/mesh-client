@@ -92,6 +92,11 @@ void mesh_test_event_record_fn(void *ctx, const struct mesh_session *session,
         out->has_position = event->node->position.valid;
         out->last_heard = event->node->last_heard;
     }
+    if (event->trace != NULL) {
+        out->node_id = event->trace->target;
+        out->trace_out = event->trace->hops_out;
+        out->trace_back = event->trace->hops_back;
+    }
     out->radio = event->radio;
     out->via_mqtt = event->via_mqtt;
     out->has_hops = event->has_hops;

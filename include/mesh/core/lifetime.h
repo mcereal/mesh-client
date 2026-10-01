@@ -77,6 +77,12 @@
  * modified with the advert's own time, on the sender's clock, and a gap between two clocks is
  * their difference rather than the node's absence.
  *
+ * **A trace counts once it is answered.** The session announces a traceroute when the answer
+ * lands (MESH_SESSION_EVENT_TRACE), from either protocol, and a trace that times out is never
+ * announced - an unanswered trace says nothing about the mesh, only that the request or its
+ * answer was lost somewhere. The longest trace is in relays, as the most-hops record is, and is
+ * the longer way of the two: an answer may come back by another route than the request took.
+ *
  * **Time on a link is the one thing the session does not feed**, because the session does not
  * know it has a link: it is told about frames, not about a transport coming and going. So the
  * app says, each turn and each frame, whether a link is up (mesh_lifetime_note_link()), and the

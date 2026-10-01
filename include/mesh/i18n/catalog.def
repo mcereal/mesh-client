@@ -2584,6 +2584,8 @@ MESH_STR_ENTRY(STATS_NODES_HEARD_RF,      "Over the air")
 MESH_STR_ENTRY(STATS_NODES_HEARD_DIRECT,  "Directly")
 /* How many different radios this client has been plugged into or paired with. */
 MESH_STR_ENTRY(STATS_RADIOS,              "Radios used")
+/* How many traceroutes this client has sent that came back with the route to the node. */
+MESH_STR_ENTRY(STATS_TRACES,              "Routes traced")
 /* The Stats page's heading over how often and how long this client has been attached to a
    radio. */
 MESH_STR_ENTRY(STATS_HEAD_CONNECTION,     "Connection")
@@ -2594,6 +2596,8 @@ MESH_STR_ENTRY(STATS_CONNECTED_TIME,      "Time connected")
 MESH_STR_ENTRY(STATS_HEAD_RECORDS,        "Records")
 /* The most relays a packet has passed through on its way to us. */
 MESH_STR_ENTRY(STATS_MOST_HOPS,           "Most hops")
+/* The most relays on a route a traceroute found to a node, either way; the value is a count. */
+MESH_STR_ENTRY(STATS_LONGEST_TRACE,       "Longest route")
 /* The longest distance a packet has come straight to our radio, with no relay. */
 MESH_STR_ENTRY(STATS_FARTHEST_DIRECT,     "Farthest direct")
 /* The farthest node our radio has heard over the air, through any number of relays. */

@@ -578,6 +578,10 @@ enum mesh_traceroute_state {
  * name alone is 0 in `route` with its bytes in `route_hash`, `hash_size` long (and the same for
  * the way back).
  *
+ * `hops_out` and `hops_back` are the relays each way as the answer counted them, which a long
+ * MeshCore route can take past what `route` keeps - MeshCore reports up to 63 hops a path, and
+ * the stops past the first MESH_TRACEROUTE_MAX_HOPS are not drawn, but they were still crossed.
+ *
  * One trace at a time, and the result is kept after it completes so the node detail can show
  * the last known route without re-running it - the firmware rate-limits traceroutes, and a
  * screen that re-traced on every repaint would be refused and would flood the mesh.
@@ -600,6 +604,8 @@ struct mesh_traceroute {
     uint8_t route_hash[MESH_TRACEROUTE_MAX_HOPS][MESH_TRACEROUTE_HASH_MAX];
     uint8_t back_hash_size; /* each way is its own packet, and names its hops its own width */
     uint8_t back_hash[MESH_TRACEROUTE_MAX_HOPS][MESH_TRACEROUTE_HASH_MAX];
+    uint8_t hops_out; /* the relays each way, kept or not */
+    uint8_t hops_back;
 };
 
 struct mesh_channel_summary {
@@ -681,6 +687,9 @@ typedef void (*mesh_session_mqtt_fn)(void *ctx, const char *topic, const uint8_t
  *                after the change and `previous_ack` the state it left, so a listener counts a
  *                change rather than a state - a duplicate answer, which changes nothing, is not
  *                announced, and neither is the radio echoing the send.
+ *   TRACE        a trace we asked for came back answered: `trace` is the finished record. A
+ *                trace that timed out, or an answer that could not be read, is not announced -
+ *                and neither is one passing through for somebody else.
  *
  * A node is announced only once its record holds everything the packet carried: its position,
  * its telemetry, its hop count.
@@ -693,6 +702,7 @@ enum mesh_session_event_kind {
     MESH_SESSION_EVENT_NODE_LISTED,
     MESH_SESSION_EVENT_RADIO,
     MESH_SESSION_EVENT_DELIVERY,
+    MESH_SESSION_EVENT_TRACE,
 };
 
 struct mesh_session_event {
@@ -722,6 +732,8 @@ struct mesh_session_event {
     uint32_t previous_heard;
     /* RADIO: the attached radio's node number. */
     uint32_t radio;
+    /* TRACE: the session's traceroute, finished. Valid only for the call. */
+    const struct mesh_traceroute *trace;
 };
 
 struct mesh_session;
@@ -950,6 +962,9 @@ struct mesh_message *mesh_session_model_log_message(struct mesh_session *session
                                                     const struct mesh_message *message);
 void mesh_session_model_note_node(struct mesh_session *session,
                                   const struct mesh_session_event *event);
+/* Announces `traceroute` (MESH_SESSION_EVENT_TRACE) once a protocol has filled it with an
+   answer; nothing unless its state is MESH_TRACEROUTE_DONE. */
+void mesh_session_model_note_trace(struct mesh_session *session);
 
 /*
  * Applies a delivery result to the outbound message with `packet_id` and, when that changed its

@@ -3550,6 +3550,7 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     stats_nodes_row(list, MESH_STR_STATS_NODES_HEARD_DIRECT, stats->nodes_heard_direct,
                     stats->nodes_floor);
     stats_nodes_row(list, MESH_STR_STATS_RADIOS, stats->radios, stats->nodes_floor);
+    stats_count_row(list, MESH_STR_STATS_TRACES, stats->traces);
 
     item_heading(list, MESH_STR_STATS_HEAD_CONNECTION);
     stats_count_row(list, MESH_STR_STATS_CONNECTIONS, stats->connections);
@@ -3563,6 +3564,14 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
         stats_holder_row(list, &stats->most_hops_holder);
     } else {
         item_str(list, MESH_STR_STATS_MOST_HOPS, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
+    }
+    if (stats->longest_trace_measured) {
+        inkcell_str_format(value, sizeof value, MESH_STR_VALUE_PLAIN,
+                           (unsigned)stats->longest_trace_hops);
+        item_text(list, MESH_STR_STATS_LONGEST_TRACE, INKSTAND_FORM_INFO, value);
+        stats_holder_row(list, &stats->longest_trace_holder);
+    } else {
+        item_str(list, MESH_STR_STATS_LONGEST_TRACE, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
     }
     if (stats->farthest_direct_measured) {
         mesh_ui_format_distance((double)stats->farthest_direct_m, list->imperial, value,

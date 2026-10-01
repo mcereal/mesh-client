@@ -37,7 +37,7 @@ int mesh_test_trace_capture_fn(void *ctx, const uint8_t *packet, size_t len, uin
 
 struct mesh_test_event {
     enum mesh_session_event_kind kind;
-    uint32_t node_id;   /* NODE_*; the sender for MESSAGE */
+    uint32_t node_id;   /* NODE_*; the sender for MESSAGE; the target for TRACE */
     uint32_t packet_id; /* MESSAGE */
     uint8_t direction;  /* MESSAGE */
     bool via_mqtt;
@@ -49,6 +49,8 @@ struct mesh_test_event {
     uint8_t previous_ack;    /* DELIVERY */
     uint32_t previous_heard; /* NODE_HEARD: the node's last_heard before the packet */
     uint32_t last_heard;     /* NODE_*: the record's, as announced */
+    uint8_t trace_out;       /* TRACE: the relays between us and the target, each way */
+    uint8_t trace_back;
 };
 
 struct mesh_test_event_record {
