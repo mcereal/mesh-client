@@ -7,6 +7,9 @@
         "directory": "./dist",
         "not_found_handling": "404-page"
     },
+    // A pull request's build deploys with `wrangler preview`, which refuses to run without this
+    // block. Empty is enough: the assets above are what a preview serves too.
+    "previews": {},
     // The deploy attaches the domain and creates its DNS record and certificate. The zone has
     // to be active on this Cloudflare account first.
     "routes": [
