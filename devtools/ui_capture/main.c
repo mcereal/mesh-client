@@ -3506,6 +3506,22 @@ static unsigned uicap_flag_number(const char *text, const char *what) {
     return (unsigned)value;
 }
 
+/* A glyph scale in whole steps, or a half one ("3.5"), which is what a desktop's display scale
+   lands on (inkcell_sdl_display_scale()). */
+static int uicap_flag_scale(const char *text) {
+    const size_t len = strlen(text);
+    if (len > 2U && strcmp(text + len - 2U, ".5") == 0) {
+        char whole[16];
+        if (len - 2U >= sizeof whole) {
+            uicap_flag_number(text, "--scale");
+        }
+        memcpy(whole, text, len - 2U);
+        whole[len - 2U] = '\0';
+        return INKCELL_SCALE((int)uicap_flag_number(whole, "--scale")) + INKCELL_SCALE(1) / 2;
+    }
+    return INKCELL_SCALE((int)uicap_flag_number(text, "--scale"));
+}
+
 int main(int argc, char **argv) {
     /*
      * The same two statements src/app/app.c opens with, and this tool needs them for the same
@@ -3542,7 +3558,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(arg, "--prefix") == 0 && value != NULL) {
             files.prefix = argv[++i];
         } else if (strcmp(arg, "--scale") == 0 && value != NULL) {
-            config.scale = INKCELL_SCALE((int)uicap_flag_number(argv[++i], "--scale"));
+            config.scale = uicap_flag_scale(argv[++i]);
         } else if (strcmp(arg, "--delay") == 0 && value != NULL) {
             config.delay_ms = uicap_flag_number(argv[++i], "--delay");
         } else if (strcmp(arg, "--geometry") == 0 && value != NULL) {

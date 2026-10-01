@@ -57,10 +57,10 @@ BUILD_ARGS=()
 for name in "${NAMES[@]}"; do
     scene="${SCENE_DIR}/${name}.scene"
     [[ -f "${scene}" ]] || die "no scene for '${name}' (looked for ${scene})"
-    args=("${BUILD_ARGS[@]}")
+    args=(${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"})
     if [[ -n "${THEME}" ]]; then
         args+=(-t "${THEME}")
     fi
-    ./scripts/ui-capture.sh "${args[@]}" -o "${OUT_DIR}/${name}.png" "${scene}"
+    ./scripts/ui-capture.sh ${args[@]+"${args[@]}"} -o "${OUT_DIR}/${name}.png" "${scene}"
     BUILD_ARGS=(--no-build)
 done

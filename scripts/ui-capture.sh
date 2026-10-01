@@ -15,7 +15,8 @@
 # Options:
 #   -o, --out FILE        output path; .png captures a single frame, anything else is a GIF.
 #                         Default: the scene's name with .gif, or ui-capture.gif from stdin.
-#   -s, --scale N         glyph scale 2..6 (the device default is 4)
+#   -s, --scale N         glyph scale 2..6, in half steps (the device default is 4; 3.5 is a
+#                         Retina desktop's)
 #   -g, --geometry WxH    the panel to render into. Default 1024x768, the Brick's. A change
 #                         that has to hold up on another screen is reviewable by rendering the
 #                         same scene twice - the renderer measures everything it draws, so the
