@@ -72,7 +72,10 @@
  * after it, and the gap between the two is how long the node went unheard. The roster outlives
  * a run, so a node heard again after the client was off for a week was absent for that week as
  * far as this client knows - and a radio whose NodeDB heard it meanwhile says so at the next
- * listing, which moves `last_heard` on before any packet arrives.
+ * listing, which moves `last_heard` on before any packet arrives. Both ends have to be on a
+ * receiver's clock, so only Meshtastic reports one: MeshCore stamps a contact the radio never
+ * modified with the advert's own time, on the sender's clock, and a gap between two clocks is
+ * their difference rather than the node's absence.
  *
  * **Time on a link is the one thing the session does not feed**, because the session does not
  * know it has a link: it is told about frames, not about a transport coming and going. So the
