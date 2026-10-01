@@ -1,6 +1,6 @@
 {
     "$schema": "./node_modules/wrangler/config-schema.json",
-    "name": "meshclient-site",
+    "name": "mesh-client",
     "compatibility_date": "2026-09-30",
     // Assets only: no "main", so no Worker code runs and every request is a file from dist/.
     "assets": {
