@@ -1248,6 +1248,39 @@ static int verb_verified(struct inkstand_scene *scene, char *rest, void *userdat
     return 0;
 }
 
+/* `login ECHO read-only`: a MeshCore server's last login answer for that node, said five
+   minutes ago - guest, read-only, read-write, admin, or unsaid for a firmware that gives none. */
+static int verb_login(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *name = inkstand_scene_word(&rest);
+    char *role = inkstand_scene_word(&rest);
+    static const char *const k_roles[] = {"unsaid", "guest", "read-only", "read-write", "admin"};
+    uint8_t login = MESH_NODE_LOGIN_NONE;
+    for (size_t i = 0; role != NULL && i < sizeof k_roles / sizeof k_roles[0]; ++i) {
+        if (strcmp(role, k_roles[i]) == 0) {
+            login = (uint8_t)(MESH_NODE_LOGIN_IN + i);
+        }
+    }
+    if (name == NULL || login == MESH_NODE_LOGIN_NONE) {
+        return inkstand_scene_fail(scene, "'login' needs a short name and a role");
+    }
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    bool matched = false;
+    for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        struct mesh_ui_node_summary *node = &handshake.nodes[i];
+        if (strcmp(node->short_name, name) == 0) {
+            node->login = login;
+            node->login_time = inkwell_time_wall_s() - 300U;
+            matched = true;
+        }
+    }
+    if (!matched) {
+        return inkstand_scene_fail(scene, "no node in the scene called '%s'", name);
+    }
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    return 0;
+}
+
 static int verb_verify(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
     char *stage = inkstand_scene_word(&rest);
@@ -3382,6 +3415,7 @@ static const struct inkstand_scene_verb uicap_verbs[] = {
     {"react", 0U, verb_react},
     {"mute", 0U, verb_mute},
     {"verified", 0U, verb_verified},
+    {"login", 0U, verb_login},
     {"verify", 0U, verb_verify},
     {"pin", 0U, verb_pin},
     {"battery", 0U, verb_battery},

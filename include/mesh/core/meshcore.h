@@ -566,7 +566,7 @@ struct mesh_meshcore_pending {
 /* How a request to another node ended, for whoever has to say so. */
 enum mesh_meshcore_answer {
     MESH_MESHCORE_ANSWER_READINGS = 1, /* its readings arrived */
-    MESH_MESHCORE_ANSWER_GUEST,        /* logged in, without admin rights */
+    MESH_MESHCORE_ANSWER_GUEST,        /* logged in, without admin rights; `login` says as what */
     MESH_MESHCORE_ANSWER_ADMIN,        /* logged in as its admin */
     MESH_MESHCORE_ANSWER_REFUSED,      /* the password was not one it takes */
     MESH_MESHCORE_ANSWER_SILENT,       /* no answer by the radio's deadline */
@@ -601,6 +601,7 @@ struct mesh_meshcore_notice {
        SEND_TXT_MSG for a command to a repeater that got no reply. */
     uint8_t cmd;
     uint8_t answer; /* enum mesh_meshcore_answer */
+    uint8_t login;  /* enum mesh_node_login, for a login taken */
 };
 
 struct mesh_meshcore {

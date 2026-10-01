@@ -12,6 +12,7 @@
 #include "mesh/ui/store_node.h"
 #include "mesh/ui/units.h"
 
+#include "mesh/core/session.h"
 #include "mesh/geo/vector.h"
 
 #include <stdio.h>
@@ -562,5 +563,22 @@ void mesh_ui_channel_name(const struct mesh_ui_handshake_state *handshake, uint8
         snprintf(out, out_len, "%s", inkcell_str(MESH_STR_CHANNEL_PRIMARY));
     } else {
         inkcell_str_format(out, out_len, MESH_STR_CHANNEL_NUMBERED, (unsigned)index);
+    }
+}
+
+inkcell_str_id mesh_ui_node_login_name(uint8_t login) {
+    switch (login) {
+    case MESH_NODE_LOGIN_IN:
+        return MESH_STR_NODE_LOGIN_UNSAID;
+    case MESH_NODE_LOGIN_GUEST:
+        return MESH_STR_NODE_LOGIN_GUEST;
+    case MESH_NODE_LOGIN_READ_ONLY:
+        return MESH_STR_NODE_LOGIN_READ_ONLY;
+    case MESH_NODE_LOGIN_READ_WRITE:
+        return MESH_STR_NODE_LOGIN_READ_WRITE;
+    case MESH_NODE_LOGIN_ADMIN:
+        return MESH_STR_NODE_LOGIN_ADMIN;
+    default:
+        return INKCELL_STR_NONE;
     }
 }

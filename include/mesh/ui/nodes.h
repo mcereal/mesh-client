@@ -341,6 +341,10 @@ void mesh_ui_node_title(const struct mesh_ui_node_summary *node, uint32_t node_i
 void mesh_ui_channel_name(const struct mesh_ui_handshake_state *handshake, uint8_t index, char *out,
                           size_t out_len);
 
+/* A MeshCore server's word for us at our last login (enum mesh_node_login): "read-only",
+   "admin". INKCELL_STR_NONE for a node never logged in to. */
+inkcell_str_id mesh_ui_node_login_name(uint8_t login);
+
 #ifdef __cplusplus
 }
 #endif

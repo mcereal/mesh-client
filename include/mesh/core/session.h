@@ -53,6 +53,20 @@ enum mesh_node_path {
     MESH_NODE_PATH_KNOWN,    /* a contact with a route, `path_hops` long (0 is direct) */
 };
 
+/*
+ * What a MeshCore repeater or room server said we are on its access list when we last logged in
+ * to it. Its list is the server's and outlives the login; nothing tells the client when it drops
+ * us from it, so this is what was said and when, not a session.
+ */
+enum mesh_node_login {
+    MESH_NODE_LOGIN_NONE = 0,   /* never logged in, as far as this run knows */
+    MESH_NODE_LOGIN_IN,         /* taken, by a firmware that did not say as what */
+    MESH_NODE_LOGIN_GUEST,      /* on its list with no rights: a room's read-only visitor */
+    MESH_NODE_LOGIN_READ_ONLY,  /* may read */
+    MESH_NODE_LOGIN_READ_WRITE, /* may read and post */
+    MESH_NODE_LOGIN_ADMIN,      /* its admin */
+};
+
 /* How long a traceroute waits before it is called lost. A reply has to cross the mesh twice,
    and the firmware answers only after the request has reached the far end, so this is much
    longer than an admin round trip on the local link. */
@@ -474,6 +488,10 @@ struct mesh_node_summary {
     uint8_t path_hops;
     uint8_t path_width;
     uint8_t path[MESH_NODE_PATH_BYTES];
+    /* Our standing on a MeshCore server's access list, as its last login answer put it, and our
+       clock then. Not cached: a restart forgets it, as it forgets the route above. */
+    uint8_t login; /* enum mesh_node_login */
+    uint32_t login_time;
     /* Identity, from NodeInfo.user. `user_id` is the "!0a1b2c3d" form the apps show. */
     char user_id[16];
     /* False while the only identity we have is the one derived from the node number; true once

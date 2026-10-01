@@ -204,6 +204,7 @@ static void mesh_meshcore_notify(struct mesh_meshcore *meshcore, uint32_t node_i
     meshcore->notice.node_id = node_id;
     meshcore->notice.cmd = cmd;
     meshcore->notice.answer = answer;
+    meshcore->notice.login = MESH_NODE_LOGIN_NONE;
     meshcore->notice_log[meshcore->notices % MESH_MESHCORE_NOTICES_KEPT] = meshcore->notice;
     meshcore->notices += 1U;
 }
@@ -1200,6 +1201,42 @@ static void mesh_meshcore_store_neighbours(struct mesh_meshcore *meshcore,
 
 /* ---------------------------------------------------------------------------- receiving */
 
+/*
+ * LOGIN_SUCCESS: a byte, the node's key prefix, then on a newer firmware its clock, our ACL
+ * permissions and its firmware level. The ACL's low two bits are the role, and are the answer
+ * where they came. The byte is all an older firmware gives, and is not "is admin" whatever the
+ * firmware calls it: a room server sends 1 for its admin, 2 for a visitor with no rights and 0
+ * for anyone else, a repeater 1 or 0, and the oldest an "OK" that says nothing.
+ */
+static void mesh_meshcore_note_login(struct mesh_meshcore *meshcore, const uint8_t *frame,
+                                     size_t len) {
+    static const uint8_t k_acl_role[4] = {MESH_NODE_LOGIN_GUEST, MESH_NODE_LOGIN_READ_ONLY,
+                                          MESH_NODE_LOGIN_READ_WRITE, MESH_NODE_LOGIN_ADMIN};
+    uint8_t login = MESH_NODE_LOGIN_IN;
+    if (len >= 2U + MESH_MESHCORE_PREFIX_LEN + 4U + 1U) {
+        login = k_acl_role[frame[2U + MESH_MESHCORE_PREFIX_LEN + 4U] & 0x03U];
+    } else if (frame[1] == 1U) {
+        login = MESH_NODE_LOGIN_ADMIN;
+    } else if (frame[1] == 2U) {
+        login = MESH_NODE_LOGIN_GUEST;
+    }
+    const uint32_t asked = meshcore->request_node;
+    if (!mesh_meshcore_request_answered(meshcore, frame + 2, MESH_MESHCORE_CMD_SEND_LOGIN,
+                                        login == MESH_NODE_LOGIN_ADMIN
+                                            ? MESH_MESHCORE_ANSWER_ADMIN
+                                            : MESH_MESHCORE_ANSWER_GUEST)) {
+        return;
+    }
+    /* The notice was just written, and is the newest in the log too. */
+    meshcore->notice.login = login;
+    meshcore->notice_log[(meshcore->notices - 1U) % MESH_MESHCORE_NOTICES_KEPT].login = login;
+    struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, asked, false);
+    if (node != NULL) {
+        node->login = login;
+        node->login_time = mesh_meshcore_clock_now(meshcore);
+    }
+}
+
 static uint32_t mesh_meshcore_u32_at(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8U) | ((uint32_t)p[2] << 16U) |
            ((uint32_t)p[3] << 24U);
@@ -1471,12 +1508,8 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
         }
         break;
     case MESH_MESHCORE_PUSH_LOGIN_SUCCESS:
-        /* Whether it took us as its admin, then the node's key prefix; a newer firmware
-           follows with its clock, our ACL permissions and its firmware level. */
         if (len >= 2U + MESH_MESHCORE_PREFIX_LEN) {
-            mesh_meshcore_request_answered(meshcore, frame + 2, MESH_MESHCORE_CMD_SEND_LOGIN,
-                                           frame[1] != 0U ? MESH_MESHCORE_ANSWER_ADMIN
-                                                          : MESH_MESHCORE_ANSWER_GUEST);
+            mesh_meshcore_note_login(meshcore, frame, len);
         }
         break;
     case MESH_MESHCORE_PUSH_LOGIN_FAIL:

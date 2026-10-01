@@ -31,6 +31,7 @@
 #include "mesh/transport/serial_usb.h"
 #include "mesh/transport/tcp.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/protocols.h"
 #include "mesh/ui/route.h"
@@ -2261,10 +2262,10 @@ static void mesh_app_report_meshcore_notice(struct mesh_app *app,
     inkcell_str_id what;
     switch (notice->answer) {
     case MESH_MESHCORE_ANSWER_GUEST:
-        what = MESH_STR_TOAST_LOGGED_IN;
-        break;
     case MESH_MESHCORE_ANSWER_ADMIN:
-        what = MESH_STR_TOAST_LOGGED_IN_ADMIN;
+        /* As what, where the server said. */
+        what = notice->login > MESH_NODE_LOGIN_IN ? MESH_STR_TOAST_LOGGED_IN_AS
+                                                  : MESH_STR_TOAST_LOGGED_IN;
         break;
     case MESH_MESHCORE_ANSWER_REFUSED:
         what = MESH_STR_TOAST_LOGIN_REFUSED;
@@ -2300,7 +2301,8 @@ static void mesh_app_report_meshcore_notice(struct mesh_app *app,
     mesh_app_format_peer_name(mesh_session_handshake(&app->session), notice->node_id, name,
                               sizeof name);
     char toast[MESH_UI_NAV_TOAST_MAX];
-    inkcell_str_format(toast, sizeof toast, what, name);
+    inkcell_str_format(toast, sizeof toast, what, name,
+                       inkcell_str(mesh_ui_node_login_name(notice->login)));
     mesh_ui_store_post_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
 }
 
@@ -3118,6 +3120,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             dst->relay_ambiguous = mesh_app_relay_byte_is_ambiguous(status, src->relay_node);
             dst->next_hop_ambiguous = mesh_app_relay_byte_is_ambiguous(status, src->next_hop);
             mesh_app_copy_path(status, src, dst);
+            dst->login = src->login;
+            dst->login_time = src->login_time;
             snprintf(dst->user_id, sizeof(dst->user_id), "%s", src->user_id);
             dst->has_user = src->has_user;
             dst->in_nodedb = src->in_nodedb;
