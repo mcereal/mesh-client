@@ -14,6 +14,7 @@
 
 #include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/reach.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
@@ -714,5 +715,62 @@ MESH_TEST_CASE(ui_status_trend_closes_when_the_history_empties, unit) {
 cleanup:
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The Reach card's sums: four disjoint buckets, our own node and the broker's nodes outside them,
+ * and the strongest and weakest link taken from direct neighbours only.
+ *
+ * The case that matters is the far node with the best SNR on the roster. Its figure is the last
+ * relay's link rather than its own, and a card that called it the strongest neighbour would be
+ * naming a node that is three hops away as the one we hear best.
+ */
+MESH_TEST_CASE(ui_status_reach_counts_hops_and_direct_links, unit) {
+    static struct mesh_ui_handshake_state hs;
+    memset(&hs, 0, sizeof hs);
+    hs.has_my_info = true;
+    hs.my_info.node_num = 0x100U;
+
+    struct {
+        uint32_t id;
+        bool has_hops;
+        uint8_t hops;
+        bool mqtt;
+        float snr;
+    } const k_nodes[] = {
+        {0x100U, true, 0U, false, 12.0f},  /* ourselves: counted nowhere */
+        {0x101U, true, 0U, false, 6.5f},   /* direct, strongest */
+        {0x102U, true, 0U, false, -9.25f}, /* direct, weakest */
+        {0x103U, true, 1U, false, 0.0f},   {0x104U, true, 2U, false, 0.0f},
+        {0x105U, true, 5U, false, 20.0f}, /* far, with a relay's loud link: not the strongest */
+        {0x106U, false, 0U, false, 0.0f}, /* no hop count: in no bucket */
+        {0x107U, true, 0U, true, 0.0f},   /* the broker's: not a distance */
+    };
+    for (size_t i = 0U; i < sizeof k_nodes / sizeof k_nodes[0]; ++i) {
+        struct mesh_ui_node_summary *node = &hs.nodes[hs.node_count++];
+        node->node_id = k_nodes[i].id;
+        node->has_hops_away = k_nodes[i].has_hops;
+        node->hops_away = k_nodes[i].hops;
+        node->via_mqtt = k_nodes[i].mqtt;
+        node->snr = k_nodes[i].snr;
+        node->snr_time = k_nodes[i].snr != 0.0f ? 1000U : 0U;
+    }
+
+    struct mesh_ui_reach reach;
+    mesh_ui_reach_of(&hs, &reach);
+    MESH_TEST_FAIL_IF(reach.hops[MESH_UI_REACH_DIRECT] != 2U, "two direct neighbours, not us");
+    MESH_TEST_FAIL_IF(reach.hops[MESH_UI_REACH_ONE] != 1U || reach.hops[MESH_UI_REACH_TWO] != 1U,
+                      "one node at each of one and two hops");
+    MESH_TEST_FAIL_IF(reach.hops[MESH_UI_REACH_MORE] != 1U, "five hops is in the last bucket");
+    MESH_TEST_FAIL_IF(reach.counted != 5U, "the buckets add up to the nodes with a hop count");
+    MESH_TEST_FAIL_IF(reach.via_broker != 1U, "the broker's node is counted apart");
+    MESH_TEST_FAIL_IF(reach.strongest != 1, "the strongest is the loudest direct neighbour");
+    MESH_TEST_FAIL_IF(reach.weakest != 2, "and the weakest the quietest one");
+
+    memset(&hs, 0, sizeof hs);
+    mesh_ui_reach_of(&hs, &reach);
+    MESH_TEST_FAIL_IF(reach.counted != 0U || reach.strongest != -1 || reach.weakest != -1,
+                      "an empty roster is a reach of nothing");
     record_success(test_name);
 }

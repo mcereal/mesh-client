@@ -393,5 +393,10 @@ void fb_render_firmware(struct inkcell_draw_state *state, const struct mesh_ui_s
 /* The radio's airtime, over the Status cards that offered it. */
 void fb_render_trend(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
                      struct inkcell_fb_layout *layout);
+/* The same airtime chart in a box someone else framed - the Status board's Mesh tile - with
+   the whole ring on it and no span picker. Draws nothing without two readings or without room
+   for a chart. */
+void fb_render_airtime_in(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                          struct inkcell_fb_layout *layout, struct inkcell_box box);
 
 #endif /* MESH_UI_BACKENDS_FB_SCREENS_INTERNAL_H */

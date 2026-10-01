@@ -174,17 +174,18 @@ struct fb_chart_screen {
  * narrowed contains only part of the ring, and the older readings have to be left out rather than
  * stacked on the left-hand edge. See layout.h.
  */
-static void fb_render_chart(struct inkcell_draw_state *state,
-                            const struct mesh_ui_snapshot *snapshot,
-                            struct inkcell_fb_layout *layout,
-                            const struct fb_chart_screen *screen) {
-    fb_draw_app_bar(state, layout, &screen->bar);
-
-    const uint8_t span_choice = snapshot->nav.trend_span;
-    /* The whole width the frame has, rather than the reading column: a chart is not text. */
-    const struct inkcell_box full = inkcell_fb_full_box(state, layout);
-    const int left = full.x;
-    const int body_w = full.w;
+/*
+ * The chart itself, into `plot_rect`: the screen's whole body, or a box somebody else framed.
+ *
+ * `picker` is whether the span strip is drawn - and with it the readings face, which is reached
+ * from the strip's screen and nowhere else. A chart drawn into a tile has no strip: there is
+ * nothing on a board for Left and Right to move, and a picker drawn focused that the keys cannot
+ * reach is the frame disagreeing with them. It shows the span it was handed instead.
+ */
+static void fb_chart_draw(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                          struct inkcell_fb_layout *layout, const struct fb_chart_screen *screen,
+                          struct inkcell_fb_rect plot_rect, uint8_t span_choice, bool picker) {
+    const int body_w = plot_rect.w;
     struct inkcell_trend frame;
     memset(&frame, 0, sizeof frame);
     struct mesh_ui_trend_airtime binned;
@@ -255,11 +256,6 @@ static void fb_render_chart(struct inkcell_draw_state *state,
     spans.active = (size_t)span_choice < spans.count ? (size_t)span_choice : spans.count - 1U;
     spans.value = spans.labels[spans.active];
 
-    const struct inkcell_fb_rect plot_rect = {.x = left,
-                                              .y = layout->body_y,
-                                              .w = body_w,
-                                              .h = layout->footer_y - inkcell_fb_gutter(state) -
-                                                   layout->body_y};
     struct inkcell_fb_chart chart = {
         .rect = plot_rect,
         .count = screen->count,
@@ -270,7 +266,7 @@ static void fb_render_chart(struct inkcell_draw_state *state,
         .span = span[0] != '\0' ? span : NULL,
         .band = screen->band,
         .scale = scale,
-        .spans = &spans,
+        .spans = picker ? &spans : NULL,
         /* Reachable now that the span can be narrowed past the last two readings, and the one
            thing a plot with nothing in it must not look like is a frame that failed to draw. */
         .empty = MESH_STR_TREND_EMPTY,
@@ -328,7 +324,7 @@ static void fb_render_chart(struct inkcell_draw_state *state,
     char whens[INKCELL_SERIES_MAX][24];
     char figures[INKCELL_SERIES_MAX][24];
     struct inkcell_fb_chart_reading rows[INKCELL_SERIES_MAX];
-    if (snapshot->nav.trend_table && screen->airtime == NULL && screen->count == 1U &&
+    if (picker && snapshot->nav.trend_table && screen->airtime == NULL && screen->count == 1U &&
         screen->series[0] != NULL) {
         const uint32_t room = inkcell_fb_chart_reading_rows(state, layout, &plot_rect,
                                                             chart.spans != NULL ? &spans : NULL);
@@ -371,6 +367,21 @@ static void fb_render_chart(struct inkcell_draw_state *state,
     inkcell_fb_draw_chart(state, layout, &chart);
 }
 
+static void fb_render_chart(struct inkcell_draw_state *state,
+                            const struct mesh_ui_snapshot *snapshot,
+                            struct inkcell_fb_layout *layout,
+                            const struct fb_chart_screen *screen) {
+    fb_draw_app_bar(state, layout, &screen->bar);
+    /* The whole width the frame has, rather than the reading column: a chart is not text. */
+    const struct inkcell_box full = inkcell_fb_full_box(state, layout);
+    const struct inkcell_fb_rect plot_rect = {.x = full.x,
+                                              .y = layout->body_y,
+                                              .w = full.w,
+                                              .h = layout->footer_y - inkcell_fb_gutter(state) -
+                                                   layout->body_y};
+    fb_chart_draw(state, snapshot, layout, screen, plot_rect, snapshot->nav.trend_span, true);
+}
+
 /*
  * The airtime trend, over the Status cards that offered it.
  *
@@ -379,8 +390,7 @@ static void fb_render_chart(struct inkcell_draw_state *state,
  * inside the channel's total, so a column and the line above it are two readings of one stretch
  * of air and can be compared by looking.
  */
-void fb_render_trend(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
-                     struct inkcell_fb_layout *layout) {
+static struct fb_chart_screen fb_airtime_screen(const struct mesh_ui_snapshot *snapshot) {
     const struct fb_chart_screen screen = {
         /* No trail. The navigation bar above is already saying Status, and an overline says only
            what nothing else on the frame says. */
@@ -396,7 +406,31 @@ void fb_render_trend(struct inkcell_draw_state *state, const struct mesh_ui_snap
         .axis = FB_CHART_AXIS_PERMILLE,
         .airtime = &snapshot->history,
     };
+    return screen;
+}
+
+void fb_render_trend(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                     struct inkcell_fb_layout *layout) {
+    const struct fb_chart_screen screen = fb_airtime_screen(snapshot);
     fb_render_chart(state, snapshot, layout, &screen);
+}
+
+/*
+ * The same chart drawn into a box rather than as the screen: the Status board's Mesh tile, under
+ * its rows. The whole of the ring, with no picker - see fb_chart_draw() - so the tile is what the
+ * radio has reported since it was attached, and the trend verb on the same card opens the screen
+ * where the span can be narrowed.
+ */
+void fb_render_airtime_in(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
+                          struct inkcell_fb_layout *layout, struct inkcell_box box) {
+    if (!mesh_ui_history_has_airtime(&snapshot->history) ||
+        box.h < inkcell_fb_chart_min_height(state, layout)) {
+        return;
+    }
+    const struct fb_chart_screen screen = fb_airtime_screen(snapshot);
+    fb_chart_draw(state, snapshot, layout, &screen,
+                  (struct inkcell_fb_rect){box.x, box.y, box.w, box.h},
+                  (uint8_t)INKCELL_TREND_SPAN_ALL, false);
 }
 
 /*

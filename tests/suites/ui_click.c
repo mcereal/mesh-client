@@ -1369,70 +1369,77 @@ MESH_TEST_CASE(ui_click_a_list_heading_offers_no_row_verbs, unit) {
     click_close(&store, capture);
 }
 
-/*
- * A window as wide as the one the list-detail tabs split at stands the Status cards in two
- * columns rather than one ribbon down the middle - and a verb in the second column is still a
- * box a click lands on. The Brick keeps its one column.
- */
-MESH_TEST_CASE(ui_click_a_wide_window_stands_the_status_cards_in_two_columns, unit) {
-    struct mesh_ui_store store;
-    struct inkcell_capture *capture = NULL;
-    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
-    mesh_test_nav_populate(&store);
-    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
-                              mesh_ui_store_shutdown(&store), "capture failed to open");
-    struct mesh_ui_action action;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_RADIO,
-                  &action) ||
-            store.nav.screen != MESH_UI_SCREEN_RADIO,
-        click_close(&store, capture), "a click on the tab should open the cards");
-    click_settle(&store);
-
-    const struct inkcell_focus_map *map = click_render(&store, capture);
-    uint32_t leading = 0U, trailing = 0U, trailing_id = 0U;
+/* How many of the Status verbs the frame drew a box for, and the last of them. */
+static uint32_t click_status_verbs(const struct inkcell_focus_map *map, uint32_t *last_id,
+                                   struct inkcell_focus_rect *first,
+                                   struct inkcell_focus_rect *last) {
+    uint32_t drawn = 0U;
     for (uint32_t i = 0U; i < MESH_UI_STATUS_ACTIONS_MAX; ++i) {
         struct inkcell_focus_rect verb;
         if (!inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + i, &verb)) {
             continue;
         }
-        if (verb.x + verb.w <= 1920 / 2) {
-            ++leading;
-        } else if (verb.x >= 1920 / 2) {
-            ++trailing;
-            trailing_id = (uint32_t)MESH_UI_FOCUS_ROWS + i;
+        if (drawn == 0U && first != NULL) {
+            *first = verb;
         }
+        if (last != NULL) {
+            *last = verb;
+        }
+        *last_id = (uint32_t)MESH_UI_FOCUS_ROWS + i;
+        ++drawn;
     }
-    MESH_TEST_FAIL_IF_CLEANUP(leading == 0U || trailing == 0U, click_close(&store, capture),
-                              "the cards' verbs should stand on both sides of the window");
-    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, trailing_id, &action),
-                              click_close(&store, capture),
-                              "a verb in the second column should be a box a click lands on");
-    click_close(&store, capture);
+    return drawn;
+}
 
+/*
+ * A window wide enough for a board lays the Status cards out on one - and loses none of their
+ * verbs doing it. The board draws the column's cards in boxes of its own choosing, so the thing
+ * that could go wrong is a box too small for a card's heading, which is where its verbs are: the
+ * cursor would then walk onto a button that is not on the frame. So the wide window has to draw
+ * exactly as many verb boxes as the Brick does, spread across the window rather than stacked down
+ * it, and the last of them has to be a box a click lands on. The Brick keeps its one column.
+ */
+MESH_TEST_CASE(ui_click_a_wide_window_keeps_every_status_verb_on_the_board, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    struct mesh_ui_action action;
+
+    /* The Brick first, for the count to hold the board to. */
     MESH_TEST_FAIL_IF(click_open(&store, &capture) != 0, "store or capture failed to open");
     MESH_TEST_FAIL_IF_CLEANUP(
         !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_RADIO,
                   &action),
         click_close(&store, capture), "the strip drew no box for Radio");
     click_settle(&store);
-    map = click_render(&store, capture);
-    struct inkcell_focus_rect first, previous;
-    bool have = false;
-    for (uint32_t i = 0U; i < MESH_UI_STATUS_ACTIONS_MAX; ++i) {
-        struct inkcell_focus_rect verb;
-        if (!inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_ROWS + i, &verb)) {
-            continue;
-        }
-        if (!have) {
-            first = verb;
-            have = true;
-        }
-        previous = verb;
-    }
-    MESH_TEST_FAIL_IF_CLEANUP(!have || previous.y <= first.y, click_close(&store, capture),
+    uint32_t last_id = 0U;
+    struct inkcell_focus_rect first, last;
+    const uint32_t brick =
+        click_status_verbs(click_render(&store, capture), &last_id, &first, &last);
+    MESH_TEST_FAIL_IF_CLEANUP(brick == 0U || last.y <= first.y, click_close(&store, capture),
                               "the Brick should keep the cards in one column, top to bottom");
     click_close(&store, capture);
+
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_RADIO,
+                  &action) ||
+            store.nav.screen != MESH_UI_SCREEN_RADIO,
+        click_close(&store, capture), "a click on the tab should open the cards");
+    click_settle(&store);
+    const uint32_t wide =
+        click_status_verbs(click_render(&store, capture), &last_id, &first, &last);
+    MESH_TEST_FAIL_IF_CLEANUP(wide != brick, click_close(&store, capture),
+                              "the board should draw every verb the column does");
+    MESH_TEST_FAIL_IF_CLEANUP(last.x <= first.x + first.w, click_close(&store, capture),
+                              "the verbs should stand across the window, not down a ribbon");
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, last_id, &action),
+                              click_close(&store, capture),
+                              "a verb on the board should be a box a click lands on");
+    click_close(&store, capture);
+    record_success(test_name);
 }
 
 /*
