@@ -314,11 +314,13 @@ void fb_render_node_detail(struct inkcell_draw_state *state,
         &snapshot->history, mesh_ui_units_imperial(snapshot->settings.units), built,
         MESH_UI_NODE_ITEMS_MAX);
     /*
-     * With a pointer the row that opens the verbs is the heading's overflow button instead
-     * (fb_heading_begin()), so the detail opens on the node. Only the drawing skips it: the nav
-     * still counts it, and the cursor the keys move is a row on in what is drawn here.
+     * With a pointer in hand the row that opens the verbs is the heading's overflow button
+     * instead (fb_heading_begin()), so the detail opens on the node. Only the drawing skips it -
+     * the nav still counts it - so only while the reader is on the pointer: a window read with
+     * the keys walks the rows the Brick does, and a cursor on a row nobody can see would put the
+     * ring on one card while A opened the verbs.
      */
-    const uint32_t skipped = state->pointer && total > 0U &&
+    const uint32_t skipped = state->pointer && !inkcell_fb_cursor_shown(state) && total > 0U &&
                                      built[0].kind == MESH_UI_NODE_ROW_ACTION &&
                                      built[0].action == MESH_UI_NODE_ACTION_OPEN_ACTIONS
                                  ? 1U

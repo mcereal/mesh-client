@@ -355,7 +355,10 @@ static void fb_heading_begin(struct fb_heading *heading, const struct inkcell_dr
         return;
     }
     memset(heading, 0, sizeof *heading);
-    if (!state->pointer || fb_layer_up(nav) || !fb_route_headed(nav)) {
+    /* With no heading to keep - the first frame after the caches were dropped, a resize under the
+       open menu - one is built from what is on offer now, which still ends in the overflow button
+       the menu hangs from (see below). */
+    if (!state->pointer || (fb_layer_up(nav) && !node_menu) || !fb_route_headed(nav)) {
         return;
     }
     struct mesh_ui_heading_action verbs[MESH_UI_HEADING_ACTIONS_MAX];

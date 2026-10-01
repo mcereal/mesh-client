@@ -1654,8 +1654,24 @@ MESH_TEST_CASE(ui_click_a_node_s_verbs_are_the_heading_s_overflow_menu, unit) {
             store.nav.node_actions_open || !store.nav.node_detail_open,
         click_close(&store, capture), "a click off the menu should put it down, and only it");
 
-    /* The first verb is message: the sheet's row and A, which leaves for the thread. */
+    /* A window resized under the open menu starts its caches over, and the heading the menu
+       hangs from is built again rather than lost with them - or the menu has nowhere to hang
+       and nothing a pointer can put it down by. */
     (void)click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_NODE_ACTIONS, &action);
+    inkcell_capture_close(capture);
+    capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1600U, 1000U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to reopen");
+    inkcell_capture_state(capture)->pointer = true;
+    map = click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !store.nav.node_actions_open ||
+            !inkcell_focus_has(map, (uint32_t)MESH_UI_FOCUS_NODE_ACTIONS) ||
+            !inkcell_focus_has(map, (uint32_t)MESH_UI_FOCUS_MENU_DISMISS),
+        click_close(&store, capture),
+        "a fresh frame under the open menu should rebuild what it hangs from");
+
+    /* The first verb is message: the sheet's row and A, which leaves for the thread. */
     MESH_TEST_FAIL_IF_CLEANUP(
         !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS, &action) ||
             store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.thread_open,
