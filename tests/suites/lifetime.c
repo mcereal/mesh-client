@@ -617,9 +617,9 @@ MESH_TEST_CASE(lifetime_holder_lines_survive_an_older_build, unit) {
             fits && key_len < MESH_LIFETIME_FOREIGN_KEY && value_len < MESH_LIFETIME_FOREIGN_VALUE;
     }
     fclose(file);
-    /* Heard straight to us, so the one hearing set all three distance and hop records: three
-       lines each. */
-    MESH_TEST_FAIL_IF(holder_lines != 9U, "a record's holder is three lines");
+    /* Heard straight to us, so the one hearing set all three distance and hop records, and as
+       the node's first hearing on a credible clock the longest known as well: three lines each. */
+    MESH_TEST_FAIL_IF(holder_lines != 12U, "a record's holder is three lines");
     MESH_TEST_FAIL_IF(!fits, "every holder line should fit an older build's foreign key");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
@@ -1731,6 +1731,96 @@ MESH_TEST_CASE(lifetime_a_failed_trait_append_is_retried, unit) {
     MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
     const uint32_t models[] = {meshtastic_HardwareModel_RAK4631, 1U};
     MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_MODEL, models, 1U), "and they are read back");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* Known since the first hearing, measured each time our radio hears the node again. */
+MESH_TEST_CASE(lifetime_longest_acquaintance_runs_from_the_first_hearing, unit) {
+    char dir[64];
+    const uint32_t day0 = 1750000000U;
+    inkwell_time_wall_set_fixed(day0);
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    const enum mesh_lifetime_stat known = MESH_LIFETIME_LONGEST_KNOWN_S;
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    struct mesh_node_summary other = lt_summary(LT_OTHER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "first") != 1U, "the first hearing is written down");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, known) ||
+                          mesh_lifetime_value(&g_lifetime, known) != 0U,
+                      "a node met today has been known for no time at all");
+
+    inkwell_time_wall_set_fixed(day0 + 86400U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &other, false, false, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, known) != 86400U ||
+                          !mesh_lifetime_holder(&g_lifetime, known, &holder, NULL) ||
+                          holder != LT_PEER,
+                      "heard again a day on, it has been known a day");
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "first") != 2U, "and a hearing again writes no day");
+
+    inkwell_time_wall_set_fixed(day0 + 2U * 86400U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, true, false, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_LISTED, &peer, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, known) != 86400U,
+                      "a node bridged or listed is not one our radio still hears");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    inkwell_time_wall_set_fixed(day0 + 3U * 86400U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &other, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, known) != 2U * 86400U ||
+                          !mesh_lifetime_holder(&g_lifetime, known, &holder, NULL) ||
+                          holder != LT_OTHER,
+                      "the first day survives a restart, and the node met second can overtake");
+    inkwell_time_wall_set_fixed(0U);
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* A day nobody wrote down is never made up: no clock then, an older card, or one of our radios. */
+MESH_TEST_CASE(lifetime_acquaintance_needs_a_day_it_was_first_heard, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    char path[128];
+    snprintf(path, sizeof path, "%s/seen.stats", dir);
+    FILE *file = fopen(path, "w");
+    MESH_TEST_FAIL_IF(file == NULL, "could not write the seen file");
+    fputs("heard=00004444\nfirst=00005555:86400\nfirst=00006666:zz\n", file);
+    fclose(file);
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    lt_session(0, 0);
+    const enum mesh_lifetime_stat known = MESH_LIFETIME_LONGEST_KNOWN_S;
+    const unsigned handwritten = lt_seen_lines(dir, "first");
+
+    inkwell_time_wall_set_fixed(86400U); /* a Brick that has never been set */
+    struct mesh_node_summary unset = lt_summary(LT_PEER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &unset, false, false, 0U);
+    inkwell_time_wall_set_fixed(1750000000U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &unset, false, false, 0U);
+    struct mesh_node_summary older = lt_summary(0x4444U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &older, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, known) ||
+                          lt_seen_lines(dir, "first") != handwritten,
+                      "no clock at the first hearing, an older card: neither is a day");
+    struct mesh_node_summary epoch = lt_summary(0x5555U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &epoch, false, false, 0U);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, known) ||
+                          lt_seen_lines(dir, "first") != handwritten + 1U,
+                      "a 1970 day on the card is none, so the node is first heard now");
+
+    /* One of our radios, heard first and only then attached. */
+    struct mesh_node_summary ours = lt_summary(LT_US);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &ours, false, false, 0U);
+    mesh_lifetime_note_radio(&g_lifetime, LT_US);
+    inkwell_time_wall_set_fixed(1760000000U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &ours, false, false, 0U);
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(!mesh_lifetime_holder(&g_lifetime, known, &holder, NULL) || holder != 0x5555U,
+                      "our own radio holds none of it");
+    inkwell_time_wall_set_fixed(0U);
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }

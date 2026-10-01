@@ -80,6 +80,9 @@ enum {
    the trait is learned or changes, and the newest read wins. Beside the facts in a node's `lines`,
    never in its facts - what is known is the trait itself. */
 #define SEEN_LINE_TRAIT(trait) ((uint8_t)(1U << (4U + (unsigned)(trait))))
+/* And the line saying when a node was first heard, which is written once. */
+#define SEEN_LINE_FIRST ((uint8_t)(1U << (4U + MESH_LIFETIME_TRAIT_COUNT)))
+#define LIFETIME_KEY_FIRST "first"
 
 /* The lines learned but not yet on the card: an append that failed. Kept beside the facts rather
    than instead of them, so the count is right now and the next flush writes them down. */
@@ -185,6 +188,9 @@ static uint8_t lifetime_learn(struct mesh_lifetime *lifetime, uint32_t id, uint8
         memmove(&traits[at + 1U], &traits[at], tail * sizeof traits[0]);
         traits[at] = 0U;
     }
+    memmove(&lifetime->first_heard[at + 1U], &lifetime->first_heard[at],
+            tail * sizeof lifetime->first_heard[0]);
+    lifetime->first_heard[at] = 0U;
     lifetime->ids[at] = id;
     lifetime->facts[at] = facts;
     lifetime->id_count++;
@@ -262,6 +268,10 @@ static void lifetime_write_seen(FILE *file, bool resumed, void *context) {
                     lifetime_trait_value((enum mesh_lifetime_trait)trait, held));
         }
     }
+    if ((line->lines & SEEN_LINE_FIRST) != 0U && lifetime->first_heard[at] != 0U) {
+        fprintf(file, "%s=%08" PRIx32 ":%" PRIu32 "\n", LIFETIME_KEY_FIRST, line->id,
+                lifetime->first_heard[at]);
+    }
 }
 
 static int lifetime_append_seen(struct mesh_lifetime *lifetime, uint32_t id, uint8_t lines) {
@@ -296,17 +306,28 @@ static void lifetime_write_down(struct mesh_lifetime *lifetime, uint32_t id, uin
     }
 }
 
-/* Merges `facts` into `id`'s entry, and answers the ones it did not already have. A node that
-   has just become one of our radios leaves the tallies, as it leaves the node counts. */
+/*
+ * Merges `facts` into `id`'s entry, and answers the lines that say something new: the facts it did
+ * not already have, and the day it was first heard when this is that day. A node that has just
+ * become one of our radios leaves the tallies, as it leaves the node counts.
+ */
 static uint8_t lifetime_learn_facts(struct mesh_lifetime *lifetime, uint32_t id, uint8_t facts) {
     if (id == 0U || id == MESH_MESSAGE_BROADCAST_ADDR) {
         return 0U;
     }
-    const uint8_t fresh = lifetime_learn(lifetime, id, facts);
-    if ((fresh & SEEN_RADIO) != 0U) {
+    uint8_t lines = lifetime_learn(lifetime, id, facts);
+    if ((lines & SEEN_RADIO) != 0U) {
         lifetime_recount_traits(lifetime);
     }
-    return fresh;
+    const uint32_t now = inkwell_time_wall_credible_s();
+    if ((lines & SEEN_HEARD) != 0U && now != 0U) {
+        const uint32_t at = lifetime_find(lifetime, id);
+        if (lifetime->first_heard[at] == 0U) {
+            lifetime->first_heard[at] = now;
+            lines |= SEEN_LINE_FIRST;
+        }
+    }
+    return lines;
 }
 
 static void lifetime_record(struct mesh_lifetime *lifetime, uint32_t id, uint8_t facts) {
@@ -402,6 +423,22 @@ static void lifetime_read_trait(struct mesh_lifetime *lifetime, enum mesh_lifeti
     }
 }
 
+/* When a node was first heard. The earliest such line wins, though the client writes one. */
+static void lifetime_read_first(struct mesh_lifetime *lifetime, char *value) {
+    uint32_t id = 0U;
+    uint32_t second = 0U;
+    if (!lifetime_parse_pair(value, &id, &second) || id == MESH_MESSAGE_BROADCAST_ADDR ||
+        second <= INKWELL_TIME_CLOCK_MIN_EPOCH) {
+        return;
+    }
+    (void)lifetime_learn(lifetime, id, 0U);
+    const uint32_t at = lifetime_find(lifetime, id);
+    if (at < lifetime->id_count && lifetime->ids[at] == id &&
+        (lifetime->first_heard[at] == 0U || second < lifetime->first_heard[at])) {
+        lifetime->first_heard[at] = second;
+    }
+}
+
 static void lifetime_read_seen(void *context, const char *key, char *value) {
     struct mesh_lifetime *lifetime = context;
     for (size_t i = 0; i < sizeof k_seen_keys / sizeof k_seen_keys[0]; ++i) {
@@ -419,6 +456,9 @@ static void lifetime_read_seen(void *context, const char *key, char *value) {
             lifetime_read_trait(lifetime, (enum mesh_lifetime_trait)trait, value);
             return;
         }
+    }
+    if (strcmp(key, LIFETIME_KEY_FIRST) == 0) {
+        lifetime_read_first(lifetime, value);
     }
 }
 
@@ -957,6 +997,24 @@ static void lifetime_observe_absence(struct mesh_lifetime *lifetime,
 }
 
 /*
+ * How long this client has known a node our radio has just heard: since the day it was first
+ * heard, which only a node first heard off a credible clock has. Our own radios are left out - a
+ * second radio heard over the air would hold it for as long as it was owned.
+ */
+static void lifetime_observe_acquaintance(struct mesh_lifetime *lifetime, uint32_t id) {
+    const uint32_t at = lifetime_find(lifetime, id);
+    if (at >= lifetime->id_count || lifetime->ids[at] != id || !lifetime_tallied(lifetime, at)) {
+        return;
+    }
+    const uint32_t first = lifetime->first_heard[at];
+    const uint32_t now = inkwell_time_wall_credible_s();
+    if (first == 0U || now < first) {
+        return;
+    }
+    lifetime_raise(lifetime, MESH_LIFETIME_LONGEST_KNOWN_S, (uint64_t)(now - first), id);
+}
+
+/*
  * A trace we asked for, answered: one more traced, and its length as a record held by the node it
  * reached. The length is the relays between us and that node, which is what MOST_HOPS counts
  * too - 0 is a node in range - and the longer of the two ways, since an answer can come back by
@@ -1042,6 +1100,7 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
         return;
     }
     lifetime_observe_absence(lifetime, node, event->previous_heard);
+    lifetime_observe_acquaintance(lifetime, node->node_id);
     uint64_t distance_m = 0U;
     const bool has_distance = lifetime_distance(session, node, &distance_m);
     if (has_distance) {

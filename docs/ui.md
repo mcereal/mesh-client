@@ -224,7 +224,7 @@ never announced as news; MeshCore writes the model through `mesh_session_model_l
 
 | | `totals.stats` | `seen.stats` |
 |---|---|---|
-| What | the counts and the records, and the first credible wall-clock second (`since`) | one line each time a node gains a fact (heard, heard over the air, one of our radios), and one each time its hardware model or role is learned or changes |
+| What | the counts and the records, and the first credible wall-clock second (`since`) | one line each time a node gains a fact (heard, heard over the air, one of our radios), and one each time its hardware model or role is learned or changes, and the day it was first heard |
 | Written | rewritten whole on the cache's two-second window, when changed | appended at once, since a new node is rare |
 | Read | at launch | at launch, into a sorted array of node numbers |
 
@@ -235,6 +235,14 @@ the lines and never removes them, and a node already on the card before them is 
 hardware until it is heard again. Each group lists its most common few
 (`MESH_UI_LIFETIME_TOP`), named by `mesh_radio_hw_model_name()` and `mesh_radio_role_name()`,
 and is left off the page until some node has said what it is.
+
+The day a node was first heard is written once, beside the line that first says it was heard,
+and only off a credible clock - a node first heard with none, or already on a card written before
+the line existed, has no day, and nothing makes one up. It is what **Known longest** is measured
+from: each time our radio hears a node over the air, how long this client has known it, so the
+record is held by the oldest acquaintance that is still heard rather than by whoever was heard on
+the first day. Its key is `longest_known_s`, short enough that an older build carries its holder
+lines through (`MESH_LIFETIME_FOREIGN_KEY`).
 
 Unlike the trend log it does **not** start again on a radio swap: a second radio adds to the
 same numbers, and a radio that has ever been attached is left out of the node counts.

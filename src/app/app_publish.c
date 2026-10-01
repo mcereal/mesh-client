@@ -1211,6 +1211,10 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
         mesh_lifetime_measured(lifetime, MESH_LIFETIME_LONGEST_ABSENCE_S);
     mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_LONGEST_ABSENCE_S,
                             &dst->longest_absence_holder);
+    dst->longest_known_s = mesh_lifetime_value(lifetime, MESH_LIFETIME_LONGEST_KNOWN_S);
+    dst->longest_known_measured = mesh_lifetime_measured(lifetime, MESH_LIFETIME_LONGEST_KNOWN_S);
+    mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_LONGEST_KNOWN_S,
+                            &dst->longest_known_holder);
     dst->traces = mesh_lifetime_value(lifetime, MESH_LIFETIME_TRACES);
     dst->longest_trace_hops = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_LONGEST_TRACE_HOPS);
     dst->longest_trace_measured =

@@ -20,6 +20,7 @@
 
 #include "inkwell/base/array.h"
 #include "inkwell/base/file.h"
+#include "inkwell/base/time.h"
 #include "inkwell/ble/central.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
@@ -3901,8 +3902,10 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     node.role = meshtastic_Config_DeviceConfig_Role_ROUTER;
     const struct mesh_session_event heard_event = {
         .kind = MESH_SESSION_EVENT_NODE_HEARD, .node = &node, .has_hops = true, .hops = 3U};
+    inkwell_time_wall_set_fixed(1790000000U);
     mesh_lifetime_observe(&app.lifetime, &app.session, &heard_event);
     /* The same node straight to us, under the noise, ten minutes after it was last heard. */
+    inkwell_time_wall_set_fixed(1790000600U);
     node.last_heard = 1790000600U;
     const struct mesh_session_event faint_event = {.kind = MESH_SESSION_EVENT_NODE_HEARD,
                                                    .node = &node,
@@ -3980,6 +3983,11 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
         failure = "the page should carry the nodes heard directly and the longest absence";
         goto cleanup;
     }
+    if (!page->longest_known_measured || page->longest_known_s != 600U ||
+        strcmp(page->longest_known_holder.name, "!61000002") != 0) {
+        failure = "the page should carry how long the node heard again has been known";
+        goto cleanup;
+    }
     if (page->traces != 1U || !page->longest_trace_measured || page->longest_trace_hops != 2U ||
         strcmp(page->longest_trace_holder.name, "!61000002") != 0) {
         failure = "the page should carry the traces answered and the longest, with its holder";
@@ -4048,6 +4056,7 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     }
 
 cleanup:
+    inkwell_time_wall_set_fixed(0U);
     if (app_ready) {
         mesh_app_shutdown(&app);
     }

@@ -1721,6 +1721,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_STATS_WEAKEST_RSSI] = "Señal más baja",
     [MESH_STR_STATS_LONGEST_CONNECTION] = "Conexión más larga",
     [MESH_STR_STATS_LONGEST_ABSENCE] = "Ausencia más larga",
+    [MESH_STR_STATS_LONGEST_KNOWN] = "Conocido más tiempo",
     [MESH_STR_STATS_HELD_BY] = "Logrado por",
     [MESH_STR_STATS_HELD_BY_DATE] = "%s, %d-%02d-%02d",
     [MESH_STR_STATS_HEAD_RESET] = "Empezar de nuevo",

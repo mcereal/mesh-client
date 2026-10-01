@@ -3656,6 +3656,12 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     } else {
         item_str(list, MESH_STR_STATS_LONGEST_ABSENCE, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
     }
+    if (stats->longest_known_measured) {
+        stats_duration_row(list, MESH_STR_STATS_LONGEST_KNOWN, stats->longest_known_s);
+        stats_holder_row(list, &stats->longest_known_holder);
+    } else {
+        item_str(list, MESH_STR_STATS_LONGEST_KNOWN, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
+    }
 
     item_heading(list, MESH_STR_STATS_HEAD_RESET);
     item_verb(list, MESH_STR_ACTION_RESET_STATS, MESH_UI_SETTINGS_ACTION_RESET_STATS);

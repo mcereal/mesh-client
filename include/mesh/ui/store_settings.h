@@ -176,6 +176,11 @@ struct mesh_ui_lifetime_stats {
     uint64_t longest_absence_s;
     bool longest_absence_measured;
     struct mesh_ui_lifetime_holder longest_absence_holder;
+    /* The longest this client has known a node our radio still hears, in seconds: from the day
+       it was first heard to the latest hearing. */
+    uint64_t longest_known_s;
+    bool longest_known_measured;
+    struct mesh_ui_lifetime_holder longest_known_holder;
     /* Traces we asked for that came back answered, and the most relays one of them crossed, held
        by the node it reached. */
     uint64_t traces;

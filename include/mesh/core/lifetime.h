@@ -50,6 +50,15 @@
  * already a role. A model is kept in a byte: Meshtastic's own enum ends at PRIVATE_HW (255), and
  * one past it is not a model this build could name.
  *
+ * **When a node was first heard is written down once**, as `first=<node>:<second>` beside the
+ * line that first says it was heard, and only off a credible clock: a node first heard with none
+ * has no day, and nor has a node already on a card written before the line existed - stamping
+ * either with a later day would be a guess. It is what LONGEST_KNOWN_S is measured from:
+ * each time our radio hears a node over the air, how long it has known it, so the record is held
+ * by the node known longest that is *still heard*, rather than by whichever node happened to be
+ * heard on the first day and never again. Our own radios are known as long as they are attached
+ * and hold none of it.
+ *
  * **Our own radios are not nodes we heard.** A radio that has ever been attached is marked as
  * one, and the node counts leave it out - at count time rather than at insert time, so a second
  * radio heard over the air before it was ever plugged in stops counting the day it is.
@@ -199,6 +208,8 @@ struct mesh_lifetime {
     /* Each node's traits, beside it: a model as itself and a role one above itself, so 0 is
        "not known" for both. */
     uint8_t traits[MESH_LIFETIME_TRAIT_COUNT][MESH_LIFETIME_NODES_MAX];
+    /* The credible second each node was first heard, or 0 when that is not known. */
+    uint32_t first_heard[MESH_LIFETIME_NODES_MAX];
     /* How many nodes have each value of each trait, our own radios left out as the node counts
        leave them out. Kept as the traits move rather than counted when asked, so a page that
        reads them on every publish costs a walk of 256 rather than of the set. */

@@ -1424,6 +1424,8 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
         (value = stats_value_of(&store, "Longest absence", &item)) == NULL ||
         strcmp(value, "none yet") != 0 ||
         (value = stats_value_of(&store, "Longest route", &item)) == NULL ||
+        strcmp(value, "none yet") != 0 ||
+        (value = stats_value_of(&store, "Known longest", &item)) == NULL ||
         strcmp(value, "none yet") != 0) {
         failure = "a record nothing has set should say so";
         goto cleanup;
@@ -1439,6 +1441,8 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     stats->nodes_heard_direct = 12U;
     stats->longest_absence_s = 90061U; /* a day, an hour, a minute and a second */
     stats->longest_absence_measured = true;
+    stats->longest_known_s = 400U * 86400U + 3U * 3600U;
+    stats->longest_known_measured = true;
     stats->traces = 9U;
     stats->longest_trace_hops = 4U;
     stats->longest_trace_measured = true;
@@ -1455,6 +1459,11 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
         (value = stats_value_of(&store, "Private direct received", &item)) == NULL ||
         strcmp(value, "4") != 0) {
         failure = "the MQTT and private counts each have a row";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Known longest", &item)) == NULL ||
+        strcmp(value, "400d 3h") != 0) {
+        failure = "the longest known is a duration";
         goto cleanup;
     }
     if ((value = stats_value_of(&store, "Farthest heard", &item)) == NULL ||

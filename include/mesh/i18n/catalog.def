@@ -2636,6 +2636,9 @@ MESH_STR_ENTRY(STATS_LONGEST_CONNECTION,  "Longest connection")
 /* The longest a node went unheard before our radio heard from it again; the value is a duration
    such as "12d 3h". */
 MESH_STR_ENTRY(STATS_LONGEST_ABSENCE,     "Longest absence")
+/* The longest this client has known a node it still hears: from the day the node was first heard
+   to the latest time our radio heard it. The value is a duration such as "400d 3h". */
+MESH_STR_ENTRY(STATS_LONGEST_KNOWN,       "Known longest")
 /* The row under a record: the node that set it. */
 MESH_STR_ENTRY(STATS_HELD_BY,             "Set by")
 /* The same, with the day it was set: the node's name, then year, month and day. Reorder to
