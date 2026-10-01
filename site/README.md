@@ -48,6 +48,9 @@ Builds). One-time setup in the dashboard:
 1. **Workers & Pages → Create → Import a repository**, pick `mcereal/mesh-client`.
 2. **Root directory** `site`, **build command** `npm run build`, **deploy command**
    `npx wrangler deploy`. The Worker's name must match `name` in `wrangler.jsonc`.
+   The root directory is `site` with no leading slash: `/site` fails with "root directory not
+   found". A build keeps the settings it started with, so after changing one, push a commit
+   rather than retrying an old build.
 3. **Build watch paths**: include `site/*` and `.github/resources/screenshots/*`, so a push that
    only touches C sources does not rebuild the site.
 4. Turn on non-production branch builds for a preview URL per pull request.
