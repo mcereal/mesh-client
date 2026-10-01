@@ -1052,13 +1052,16 @@ void mesh_session_model_sync_complete(struct mesh_session *session) {
  * node you are actually talking to sinks down (or off) the UI's list while it is chatting with
  * you. A node the sync never delivered (cache full, or joined later) is added with just its id;
  * the name follows when the radio sends its NodeInfo.
+ *
+ * Answers the node's `last_heard` from before the touch, 0 for a node it added or did not touch,
+ * which is what the announcement after it reports as the start of the node's absence.
  */
-static void mesh_session_touch_node_from_packet(struct mesh_session *session,
-                                                const meshtastic_MeshPacket *packet) {
+static uint32_t mesh_session_touch_node_from_packet(struct mesh_session *session,
+                                                    const meshtastic_MeshPacket *packet) {
     struct mesh_handshake_status *handshake = &session->handshake;
     if (packet->from == 0U || packet->from == MESH_MESSAGE_BROADCAST_ADDR ||
         (handshake->has_my_info && packet->from == handshake->my_info.my_node_num)) {
-        return;
+        return 0U;
     }
 
     uint32_t heard = packet->has_rx_time ? packet->rx_time : 0U;
@@ -1070,8 +1073,9 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
     const bool known = mesh_session_node_known(session, packet->from);
     struct mesh_node_summary *summary = mesh_session_node_slot(session, packet->from);
     if (summary == NULL) {
-        return;
+        return 0U;
     }
+    const uint32_t previous = summary->last_heard;
     if (!known) {
         inkwell_log_info("session", "Node 0x%08x heard before its NodeInfo; added to the cache",
                          packet->from);
@@ -1114,6 +1118,7 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
     summary->has_route = true;
     summary->relay_node = (uint8_t)packet->relay_node;
     summary->next_hop = (uint8_t)packet->next_hop;
+    return previous;
 }
 
 /*
@@ -1124,7 +1129,8 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
  * applies the payload announces after it.
  */
 static void mesh_session_announce_heard(struct mesh_session *session,
-                                        const meshtastic_MeshPacket *packet) {
+                                        const meshtastic_MeshPacket *packet,
+                                        uint32_t previous_heard) {
     const struct mesh_handshake_status *handshake = &session->handshake;
     if (packet->from == 0U || packet->from == MESH_MESSAGE_BROADCAST_ADDR ||
         (handshake->has_my_info && packet->from == handshake->my_info.my_node_num)) {
@@ -1137,6 +1143,7 @@ static void mesh_session_announce_heard(struct mesh_session *session,
     const bool has_hops = packet->hop_start != 0U && packet->hop_start >= packet->hop_limit;
     /* 0.0 is the firmware's "no measurement", as mesh_session_touch_node_from_packet() reads it. */
     const bool has_snr = !packet->via_mqtt && packet->rx_snr != 0.0f;
+    const bool has_rssi = !packet->via_mqtt && packet->has_rx_rssi;
     const struct mesh_session_event event = {
         .kind = MESH_SESSION_EVENT_NODE_HEARD,
         .node = summary,
@@ -1144,7 +1151,10 @@ static void mesh_session_announce_heard(struct mesh_session *session,
         .has_hops = has_hops,
         .hops = has_hops ? (uint8_t)(packet->hop_start - packet->hop_limit) : 0U,
         .has_snr = has_snr,
-        .snr = has_snr ? packet->rx_snr : 0.0f};
+        .snr = has_snr ? packet->rx_snr : 0.0f,
+        .has_rssi = has_rssi,
+        .rssi = has_rssi ? packet->rx_rssi : 0,
+        .previous_heard = previous_heard};
     mesh_session_emit(session, &event);
 }
 
@@ -1338,8 +1348,8 @@ static void mesh_session_handle_store_forward(struct mesh_session *session,
          * node, and the roster is told. For a router this is the whole of what keeps it in the
          * roster at all: a heartbeat is often the only packet one ever sends.
          */
-        mesh_session_touch_node_from_packet(session, packet);
-        mesh_session_announce_heard(session, packet);
+        const uint32_t previous = mesh_session_touch_node_from_packet(session, packet);
+        mesh_session_announce_heard(session, packet, previous);
         return;
     }
     /*
@@ -1827,8 +1837,8 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
            being touched below - so claim it after the touch, not before. */
         if (message.packet.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
             message.packet.decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP) {
-            mesh_session_touch_node_from_packet(session, &message.packet);
-            mesh_session_announce_heard(session, &message.packet);
+            const uint32_t previous = mesh_session_touch_node_from_packet(session, &message.packet);
+            mesh_session_announce_heard(session, &message.packet, previous);
             (void)mesh_session_handle_traceroute(session, &message.packet);
             break;
         }
@@ -1842,9 +1852,9 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
             mesh_session_handle_store_forward(session, &message.packet);
             break;
         }
-        mesh_session_touch_node_from_packet(session, &message.packet);
+        const uint32_t previous = mesh_session_touch_node_from_packet(session, &message.packet);
         mesh_session_apply_packet_details(session, &message.packet);
-        mesh_session_announce_heard(session, &message.packet);
+        mesh_session_announce_heard(session, &message.packet, previous);
         mesh_session_handle_waypoint(session, &message.packet);
         /* 1 is a record appended; the radio echoing one of ours back refreshes the record the
            send made, which was announced then, and adds nothing. */

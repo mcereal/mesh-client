@@ -57,11 +57,22 @@
    -20 dB and saturate in the teens - and is dropped as a malformed packet's. */
 #define LIFETIME_SNR_LIMIT_DB 64.0f
 
+/* The same for RSSI: a LoRa radio stops decoding somewhere under -140 dBm, and nothing a
+   receiver could survive reads far above zero. */
+#define LIFETIME_RSSI_FLOOR_DBM (-200)
+#define LIFETIME_RSSI_CEILING_DBM 30
+
+/* How far past our own clock a hearing may be stamped and still end an absence. A radio's
+   rx_time is its clock, not ours, and one a day fast is a radio that was set by hand; one further
+   out is a clock that is wrong, and the absence it would measure is the error. */
+#define LIFETIME_CLOCK_SLACK_S 86400U
+
 /* What the set knows about a node. Each is one line in the seen file, keyed by its name. */
 enum {
-    SEEN_HEARD = 1U << 0, /* heard at all: over the air, over MQTT, or listed by a radio */
-    SEEN_RF = 1U << 1,    /* heard over the air, by a radio of ours */
-    SEEN_RADIO = 1U << 2, /* one of our own radios */
+    SEEN_HEARD = 1U << 0,  /* heard at all: over the air, over MQTT, or listed by a radio */
+    SEEN_RF = 1U << 1,     /* heard over the air, by a radio of ours */
+    SEEN_RADIO = 1U << 2,  /* one of our own radios */
+    SEEN_DIRECT = 1U << 3, /* heard over the air with no relay between, by a radio of ours */
 };
 
 /* The same facts, learned but not yet on the card: an append that failed. Kept beside the fact
@@ -76,6 +87,7 @@ static const struct {
     {SEEN_HEARD, "heard"},
     {SEEN_RF, "rf"},
     {SEEN_RADIO, "radio"},
+    {SEEN_DIRECT, "direct"},
 };
 
 static const char *const k_stat_keys[MESH_LIFETIME_STAT_COUNT] = {
@@ -745,6 +757,26 @@ static void lifetime_observe_delivery(struct mesh_lifetime *lifetime,
     }
 }
 
+/*
+ * How long a node had gone unheard when our radio heard it again: from the roster's last word on
+ * it, before this packet, to this packet. Both ends have to be wall-clock seconds a clock could
+ * have meant - a node the roster has never heard has no start, and a radio without the time
+ * stamps its packets near 1970 - and the end may not be far past our own clock (see
+ * LIFETIME_CLOCK_SLACK_S).
+ */
+static void lifetime_observe_absence(struct mesh_lifetime *lifetime,
+                                     const struct mesh_node_summary *node, uint32_t previous) {
+    if (previous <= INKWELL_TIME_CLOCK_MIN_EPOCH || node->last_heard <= previous) {
+        return;
+    }
+    const uint32_t now = inkwell_time_wall_credible_s();
+    if (now != 0U && node->last_heard > now && node->last_heard - now > LIFETIME_CLOCK_SLACK_S) {
+        return;
+    }
+    lifetime_raise(lifetime, MESH_LIFETIME_LONGEST_ABSENCE_S,
+                   (uint64_t)(node->last_heard - previous), node->node_id);
+}
+
 void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
                            const struct mesh_session_event *event) {
     struct mesh_lifetime *lifetime = ctx;
@@ -773,14 +805,20 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
     if (node == NULL) {
         return;
     }
-    lifetime_record(lifetime, node->node_id,
-                    (uint8_t)(SEEN_HEARD | (event->via_mqtt ? 0U : SEEN_RF)));
+    /* Direct is a packet we watched arrive with no relay between, so a listing - the radio's
+       last word on a hop count, however old - does not make a node one. */
+    const bool direct = event->kind == MESH_SESSION_EVENT_NODE_HEARD && !event->via_mqtt &&
+                        event->has_hops && event->hops == 0U;
+    lifetime_record(
+        lifetime, node->node_id,
+        (uint8_t)(SEEN_HEARD | (event->via_mqtt ? 0U : SEEN_RF) | (direct ? SEEN_DIRECT : 0U)));
 
     /* The records are about this radio's reach, so they take only what we watched arrive, over
        the air; a listing or a bridged packet says nothing about any of them. */
     if (event->kind != MESH_SESSION_EVENT_NODE_HEARD || event->via_mqtt) {
         return;
     }
+    lifetime_observe_absence(lifetime, node, event->previous_heard);
     uint64_t distance_m = 0U;
     const bool has_distance = lifetime_distance(session, node, &distance_m);
     if (has_distance) {
@@ -803,6 +841,11 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
         const int64_t quarters = (int64_t)(event->snr * 4.0f + (event->snr < 0.0f ? -0.5f : 0.5f));
         lifetime_raise(lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB, (uint64_t)quarters, node->node_id);
     }
+    if (event->has_rssi && event->rssi >= LIFETIME_RSSI_FLOOR_DBM &&
+        event->rssi <= LIFETIME_RSSI_CEILING_DBM) {
+        lifetime_raise(lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM, (uint64_t)(int64_t)event->rssi,
+                       node->node_id);
+    }
 }
 
 uint64_t mesh_lifetime_value(const struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat) {
@@ -819,6 +862,8 @@ uint64_t mesh_lifetime_value(const struct mesh_lifetime *lifetime, enum mesh_lif
         return lifetime_count_nodes(lifetime, SEEN_RF);
     case MESH_LIFETIME_RADIOS:
         return lifetime_count_nodes(lifetime, SEEN_RADIO);
+    case MESH_LIFETIME_NODES_HEARD_DIRECT:
+        return lifetime_count_nodes(lifetime, SEEN_DIRECT);
     default:
         return lifetime->values[stat];
     }

@@ -119,6 +119,8 @@ struct mesh_ui_lifetime_stats {
     uint64_t messages_failed;
     uint32_t nodes_heard;
     uint32_t nodes_heard_rf;
+    /* Of those, the ones a packet has come from straight to our radio, with no relay between. */
+    uint32_t nodes_heard_direct;
     uint32_t radios;
     /* The node set has turned one away, so the three counts above are at least what they say
        rather than exactly it. */
@@ -139,6 +141,10 @@ struct mesh_ui_lifetime_stats {
     struct mesh_ui_lifetime_holder farthest_direct_holder;
     struct mesh_ui_lifetime_holder farthest_heard_holder;
     struct mesh_ui_lifetime_holder weakest_snr_holder;
+    /* The quietest packet decoded, in dBm: how loud rather than how far above the noise. */
+    int32_t weakest_rssi_dbm;
+    bool weakest_rssi_measured;
+    struct mesh_ui_lifetime_holder weakest_rssi_holder;
     /* How many times a link has come up, and the seconds it has been up in all. The total is
        banked a minute at a time, so it can trail a link that is up now by up to that minute. */
     uint64_t connections;
@@ -147,6 +153,10 @@ struct mesh_ui_lifetime_stats {
     uint64_t longest_connection_s;
     bool longest_connection_measured;
     struct mesh_ui_lifetime_holder longest_connection_holder;
+    /* The longest a node went unheard before our radio heard it again, in seconds. */
+    uint64_t longest_absence_s;
+    bool longest_absence_measured;
+    struct mesh_ui_lifetime_holder longest_absence_holder;
     /* The first credible wall-clock second the stats saw; 0 on a device that has never had a
        clock, which is a page that cannot say since when rather than one that started today. */
     uint32_t since;

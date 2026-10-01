@@ -3899,13 +3899,17 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     const struct mesh_session_event heard_event = {
         .kind = MESH_SESSION_EVENT_NODE_HEARD, .node = &node, .has_hops = true, .hops = 3U};
     mesh_lifetime_observe(&app.lifetime, &app.session, &heard_event);
-    /* The same node straight to us, under the noise. */
+    /* The same node straight to us, under the noise, ten minutes after it was last heard. */
+    node.last_heard = 1790000600U;
     const struct mesh_session_event faint_event = {.kind = MESH_SESSION_EVENT_NODE_HEARD,
                                                    .node = &node,
                                                    .has_hops = true,
                                                    .hops = 0U,
                                                    .has_snr = true,
-                                                   .snr = -10.5f};
+                                                   .snr = -10.5f,
+                                                   .has_rssi = true,
+                                                   .rssi = -117,
+                                                   .previous_heard = 1790000000U};
     mesh_lifetime_observe(&app.lifetime, &app.session, &faint_event);
     mesh_lifetime_note_radio(&app.lifetime, 0x61000003U);
 
@@ -3931,6 +3935,17 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     if (!page->weakest_snr_measured || page->weakest_snr_qdb != -42 ||
         strcmp(page->weakest_snr_holder.name, "!61000002") != 0 || page->farthest_heard_measured) {
         failure = "the page should carry the signal record, signed, with its holder";
+        goto cleanup;
+    }
+    if (!page->weakest_rssi_measured || page->weakest_rssi_dbm != -117 ||
+        strcmp(page->weakest_rssi_holder.name, "!61000002") != 0) {
+        failure = "the page should carry the quietest signal, in dBm, with its holder";
+        goto cleanup;
+    }
+    if (page->nodes_heard_direct != 1U || !page->longest_absence_measured ||
+        page->longest_absence_s != 600U ||
+        strcmp(page->longest_absence_holder.name, "!61000002") != 0) {
+        failure = "the page should carry the nodes heard directly and the longest absence";
         goto cleanup;
     }
     struct mesh_node_summary *listed = &app.session.handshake.nodes[0];

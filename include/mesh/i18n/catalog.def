@@ -2545,6 +2545,9 @@ MESH_STR_ENTRY(STATS_HEAD_NODES,          "Nodes")
 MESH_STR_ENTRY(STATS_NODES_HEARD,         "Heard")
 /* Only the nodes our own radio picked up over the air, not through the internet. */
 MESH_STR_ENTRY(STATS_NODES_HEARD_RF,      "Over the air")
+/* Of those, the nodes a packet has come from straight to our radio, with no other radio passing
+   it on: roughly, how many nodes are in range. */
+MESH_STR_ENTRY(STATS_NODES_HEARD_DIRECT,  "Directly")
 /* How many different radios this client has been plugged into or paired with. */
 MESH_STR_ENTRY(STATS_RADIOS,              "Radios used")
 /* The Stats page's heading over how often and how long this client has been attached to a
@@ -2564,8 +2567,14 @@ MESH_STR_ENTRY(STATS_FARTHEST_HEARD,      "Farthest heard")
 /* The faintest packet our radio has still decoded, as a signal-to-noise ratio: below zero is
    under the noise. */
 MESH_STR_ENTRY(STATS_WEAKEST_SNR,         "Weakest signal")
+/* The quietest packet our radio has still decoded, as a received strength in dBm. The row above
+   is how far over the noise a packet was; this is how loud it was. */
+MESH_STR_ENTRY(STATS_WEAKEST_RSSI,        "Quietest signal")
 /* The longest a radio has stayed connected in one go; the value is a duration such as "5h 20m". */
 MESH_STR_ENTRY(STATS_LONGEST_CONNECTION,  "Longest connection")
+/* The longest a node went unheard before our radio heard from it again; the value is a duration
+   such as "12d 3h". */
+MESH_STR_ENTRY(STATS_LONGEST_ABSENCE,     "Longest absence")
 /* The row under a record: the node that set it. */
 MESH_STR_ENTRY(STATS_HELD_BY,             "Set by")
 /* The same, with the day it was set: the node's name, then year, month and day. Reorder to
