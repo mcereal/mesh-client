@@ -30,6 +30,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/backups.h"
 #include "mesh/ui/channel_share.h"
+#include "mesh/ui/delivery.h"
 #include "mesh/ui/duration.h"
 #include "mesh/ui/profiles.h"
 #include "mesh/ui/units.h"
@@ -3485,16 +3486,13 @@ static void stats_since_row(struct item_list *list, uint32_t since) {
  * a rate of nothing is not 0%, and not 100% either.
  */
 static void stats_rate_row(struct item_list *list, uint64_t delivered, uint64_t failed) {
-    const uint64_t settled = delivered + failed;
-    if (settled == 0U || settled < delivered) {
+    unsigned percent = 0U;
+    if (!mesh_ui_delivery_rate(delivered, failed, &percent)) {
         item_str(list, MESH_STR_STATS_DELIVERY_RATE, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
         return;
     }
     char value[MESH_UI_SETTINGS_VALUE_MAX];
-    const unsigned percent = (unsigned)(delivered > UINT64_MAX / 100U ? delivered / (settled / 100U)
-                                                                      : delivered * 100U / settled);
-    inkcell_str_format(value, sizeof value, MESH_STR_STATS_PERCENT,
-                       percent > 100U ? 100U : percent);
+    inkcell_str_format(value, sizeof value, MESH_STR_STATS_PERCENT, percent);
     item_text(list, MESH_STR_STATS_DELIVERY_RATE, INKSTAND_FORM_INFO, value);
 }
 

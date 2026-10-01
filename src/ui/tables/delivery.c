@@ -21,3 +21,14 @@ struct mesh_ui_delivery mesh_ui_delivery_of(uint8_t ack) {
        acknowledge would be the client inventing a delivery it never heard about. */
     return (struct mesh_ui_delivery){.icon = INKCELL_ICON_NONE, .word = INKCELL_STR_NONE};
 }
+
+bool mesh_ui_delivery_rate(uint64_t delivered, uint64_t failed, unsigned *percent) {
+    const uint64_t settled = delivered + failed;
+    if (settled == 0U || settled < delivered || percent == NULL) {
+        return false;
+    }
+    const uint64_t share =
+        delivered > UINT64_MAX / 100U ? delivered / (settled / 100U) : delivered * 100U / settled;
+    *percent = share > 100U ? 100U : (unsigned)share;
+    return true;
+}

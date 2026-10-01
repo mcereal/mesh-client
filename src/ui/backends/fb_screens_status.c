@@ -17,8 +17,10 @@
 #include "fb_screens_internal.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/delivery.h"
 #include "mesh/ui/focus.h"
 #include "mesh/ui/history.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/reach.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/trust.h"
@@ -920,6 +922,17 @@ static void fb_status_build(const struct mesh_ui_snapshot *snapshot, struct fb_s
  * Built only for the board. On the handheld the column has no room for a fifth card and this is
  * the Nodes tab's to answer; on a window it is the card that turns "42 nodes" into a shape.
  */
+/* A neighbour as a row names it: the callsign when it has one, since the row is short, and
+   otherwise the title every other screen falls back through - long name, then "!0a1b2c3d". */
+static void fb_status_reach_name(const struct mesh_ui_node_summary *node, char *out,
+                                 size_t out_len) {
+    if (node->short_name[0] != '\0') {
+        inkwell_str_copy(out, out_len, node->short_name);
+        return;
+    }
+    mesh_ui_node_title(node, node->node_id, out, out_len);
+}
+
 static void fb_status_reach_card(const struct mesh_ui_snapshot *snapshot,
                                  struct inkcell_fb_card *card) {
     struct mesh_ui_reach reach;
@@ -940,16 +953,17 @@ static void fb_status_reach_card(const struct mesh_ui_snapshot *snapshot,
                                    MESH_UI_REACH_BUCKETS);
     }
     const struct mesh_ui_node_summary *nodes = snapshot->handshake.nodes;
+    char name[48];
     if (reach.strongest >= 0) {
+        fb_status_reach_name(&nodes[reach.strongest], name, sizeof name);
         inkcell_fb_card_row(card, INKCELL_TONE_SUCCESS, MESH_STR_BOARD_LABEL_STRONGEST,
-                            MESH_STR_BOARD_SNR, nodes[reach.strongest].short_name,
-                            (double)nodes[reach.strongest].snr);
+                            MESH_STR_BOARD_SNR, name, (double)nodes[reach.strongest].snr);
     }
     /* Only when it is a different node: with one neighbour the two rows are one fact. */
     if (reach.weakest >= 0 && reach.weakest != reach.strongest) {
+        fb_status_reach_name(&nodes[reach.weakest], name, sizeof name);
         inkcell_fb_card_row(card, INKCELL_TONE_NORMAL, MESH_STR_BOARD_LABEL_WEAKEST,
-                            MESH_STR_BOARD_SNR, nodes[reach.weakest].short_name,
-                            (double)nodes[reach.weakest].snr);
+                            MESH_STR_BOARD_SNR, name, (double)nodes[reach.weakest].snr);
     }
     if (reach.via_broker > 0U) {
         inkcell_fb_card_row(card, INKCELL_TONE_DIM, MESH_STR_BOARD_LABEL_VIA_BROKER,
@@ -1042,9 +1056,10 @@ static uint32_t fb_status_tiles(const struct mesh_ui_snapshot *snapshot,
     delivered->value = inkcell_str(MESH_STR_STATS_NONE_YET);
     delivered->tone = INKCELL_TONE_DIM;
     const uint64_t settled = life->messages_delivered + life->messages_failed;
-    if (settled > 0U) {
-        snprintf(words[3][0], sizeof words[3][0], "%u%%",
-                 (unsigned)((life->messages_delivered * 100U + settled / 2U) / settled));
+    unsigned percent = 0U;
+    if (mesh_ui_delivery_rate(life->messages_delivered, life->messages_failed, &percent)) {
+        /* Rounded down by the Stats page's own arithmetic, so one failure keeps it under 100. */
+        snprintf(words[3][0], sizeof words[3][0], "%u%%", percent);
         delivered->value = words[3][0];
         delivered->tone = INKCELL_TONE_NORMAL;
         inkcell_str_format(words[3][1], sizeof words[3][1], MESH_STR_BOARD_DELIVERED_OF,
