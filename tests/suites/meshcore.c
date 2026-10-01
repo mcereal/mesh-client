@@ -1927,6 +1927,22 @@ MESH_TEST_CASE(meshcore_path_discovery_is_the_traceroute, unit) {
     MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_TRACE, alice) != 1U,
                       "an answered discovery is announced, so the stats count it");
 
+    /* Ten relays out and none back: the trace keeps the first eight stops to draw, and still
+       says ten were crossed, which is the length the stats record. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_discover_path(&g_meshcore, alice) != 0, "traced far");
+    feed(&protocol, k_sent, sizeof k_sent);
+    uint8_t far[2U + 6U + 1U + 10U + 1U] = {
+        MESH_MESHCORE_PUSH_PATH_DISCOVERY_RESPONSE, 0, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 10U};
+    memset(far + 9, 0xEE, 10U);
+    far[19] = 0U;
+    feed(&protocol, far, sizeof far);
+    MESH_TEST_FAIL_IF(trace->state != MESH_TRACEROUTE_DONE || trace->route_count != 8U ||
+                          trace->hops_out != 10U || trace->hops_back != 0U,
+                      "a route past the stops kept is still counted whole");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_TRACE, alice) != 2U ||
+                          record.events[record.count - 1U].trace_out != 10U,
+                      "and announced at its whole length");
+
     /* A width the firmware reserves is unreadable, and ends the trace rather than guessing. */
     MESH_TEST_FAIL_IF(mesh_meshcore_discover_path(&g_meshcore, alice) != 0, "traced again");
     feed(&protocol, k_sent, sizeof k_sent);
@@ -1947,7 +1963,7 @@ MESH_TEST_CASE(meshcore_path_discovery_is_the_traceroute, unit) {
     feed(&protocol, k_reserved, sizeof k_reserved);
     MESH_TEST_FAIL_IF(trace->state != MESH_TRACEROUTE_TIMEOUT || g_meshcore.request_cmd != 0U,
                       "a reserved width is not read");
-    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_TRACE, 0U) != 1U,
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_TRACE, 0U) != 2U,
                       "and an answer that could not be read is not announced");
 
     /* Silence is a trace that timed out. */
@@ -1957,7 +1973,7 @@ MESH_TEST_CASE(meshcore_path_discovery_is_the_traceroute, unit) {
     MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_SILENT ||
                           trace->state != MESH_TRACEROUTE_TIMEOUT,
                       "nothing by the deadline times the trace out");
-    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_TRACE, 0U) != 1U,
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_TRACE, 0U) != 2U,
                       "nor is a trace that timed out");
     record_success(test_name);
 }

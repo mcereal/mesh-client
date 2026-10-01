@@ -578,6 +578,10 @@ enum mesh_traceroute_state {
  * name alone is 0 in `route` with its bytes in `route_hash`, `hash_size` long (and the same for
  * the way back).
  *
+ * `hops_out` and `hops_back` are the relays each way as the answer counted them, which a long
+ * MeshCore route can take past what `route` keeps - MeshCore reports up to 63 hops a path, and
+ * the stops past the first MESH_TRACEROUTE_MAX_HOPS are not drawn, but they were still crossed.
+ *
  * One trace at a time, and the result is kept after it completes so the node detail can show
  * the last known route without re-running it - the firmware rate-limits traceroutes, and a
  * screen that re-traced on every repaint would be refused and would flood the mesh.
@@ -600,6 +604,8 @@ struct mesh_traceroute {
     uint8_t route_hash[MESH_TRACEROUTE_MAX_HOPS][MESH_TRACEROUTE_HASH_MAX];
     uint8_t back_hash_size; /* each way is its own packet, and names its hops its own width */
     uint8_t back_hash[MESH_TRACEROUTE_MAX_HOPS][MESH_TRACEROUTE_HASH_MAX];
+    uint8_t hops_out; /* the relays each way, kept or not */
+    uint8_t hops_back;
 };
 
 struct mesh_channel_summary {

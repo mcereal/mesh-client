@@ -1222,8 +1222,8 @@ static void lt_traced(uint32_t target, uint8_t out, uint8_t back) {
     memset(&trace, 0, sizeof trace);
     trace.state = MESH_TRACEROUTE_DONE;
     trace.target = target;
-    trace.route_count = out;
-    trace.back_count = back;
+    trace.hops_out = out;
+    trace.hops_back = back;
     const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_TRACE, .trace = &trace};
     mesh_lifetime_observe(&g_lifetime, &g_session, &event);
 }

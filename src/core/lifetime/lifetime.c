@@ -781,14 +781,14 @@ static void lifetime_observe_absence(struct mesh_lifetime *lifetime,
  * A trace we asked for, answered: one more traced, and its length as a record held by the node it
  * reached. The length is the relays between us and that node, which is what MOST_HOPS counts
  * too - 0 is a node in range - and the longer of the two ways, since an answer can come back by
- * another route than the one the request took. A trace that timed out is never announced, so
- * one that went unanswered counts for neither.
+ * another route than the one the request took. It is the count the answer gave rather than the
+ * stops the trace keeps to draw, which a long MeshCore route outruns. A trace that timed out is
+ * never announced, so one that went unanswered counts for neither.
  */
 static void lifetime_observe_trace(struct mesh_lifetime *lifetime,
                                    const struct mesh_traceroute *trace) {
     lifetime_bump(lifetime, MESH_LIFETIME_TRACES);
-    const uint8_t hops =
-        trace->route_count > trace->back_count ? trace->route_count : trace->back_count;
+    const uint8_t hops = trace->hops_out > trace->hops_back ? trace->hops_out : trace->hops_back;
     lifetime_raise(lifetime, MESH_LIFETIME_LONGEST_TRACE_HOPS, hops, trace->target);
 }
 

@@ -49,7 +49,7 @@ struct mesh_test_event {
     uint8_t previous_ack;    /* DELIVERY */
     uint32_t previous_heard; /* NODE_HEARD: the node's last_heard before the packet */
     uint32_t last_heard;     /* NODE_*: the record's, as announced */
-    uint8_t trace_out;       /* TRACE: the hops between us and the target, each way */
+    uint8_t trace_out;       /* TRACE: the relays between us and the target, each way */
     uint8_t trace_back;
 };
 

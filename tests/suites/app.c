@@ -3916,8 +3916,8 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     memset(&trace, 0, sizeof trace);
     trace.state = MESH_TRACEROUTE_DONE;
     trace.target = node.node_id;
-    trace.route_count = 2U;
-    trace.back_count = 1U;
+    trace.hops_out = 2U;
+    trace.hops_back = 1U;
     const struct mesh_session_event trace_event = {.kind = MESH_SESSION_EVENT_TRACE,
                                                    .trace = &trace};
     mesh_lifetime_observe(&app.lifetime, &app.session, &trace_event);

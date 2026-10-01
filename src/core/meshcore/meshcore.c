@@ -711,7 +711,8 @@ static uint32_t mesh_meshcore_find_hash(const struct mesh_meshcore *meshcore, co
  */
 static bool mesh_meshcore_read_path(const struct mesh_meshcore *meshcore, const uint8_t *frame,
                                     size_t len, size_t *at, uint32_t *route, uint8_t *count,
-                                    uint8_t hashes[][MESH_TRACEROUTE_HASH_MAX], uint8_t *size) {
+                                    uint8_t hashes[][MESH_TRACEROUTE_HASH_MAX], uint8_t *size,
+                                    uint8_t *hops_out) {
     if (*at >= len) {
         return false;
     }
@@ -724,6 +725,7 @@ static bool mesh_meshcore_read_path(const struct mesh_meshcore *meshcore, const 
     }
     *size = width;
     *count = 0U;
+    *hops_out = hops;
     for (uint8_t hop = 0; hop < hops; ++hop) {
         const uint8_t *hash = frame + *at + (size_t)hop * width;
         if (*count < MESH_TRACEROUTE_MAX_HOPS) {
@@ -1427,6 +1429,8 @@ static bool mesh_meshcore_store_trace(struct mesh_meshcore *meshcore, uint32_t t
     mesh_meshcore_trace_leg(meshcore, data, (uint8_t)(each + 1U), each, (uint8_t)(each + 1U),
                             trace->route_back, &trace->back_count, trace->back_hash,
                             &trace->back_hash_size, trace->snr_back, &trace->snr_back_count);
+    trace->hops_out = each;
+    trace->hops_back = each;
     trace->state = MESH_TRACEROUTE_DONE;
     trace->completed = mesh_meshcore_clock_now(meshcore);
     inkwell_log_info("meshcore", "Trace to 0x%08x: %u hops each way", target, (unsigned)each);
@@ -1556,12 +1560,13 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
                 memset(trace, 0, sizeof *trace);
                 trace->target = target;
                 size_t at = 2U + MESH_MESHCORE_PREFIX_LEN;
-                const bool read = mesh_meshcore_read_path(meshcore, frame, len, &at, trace->route,
-                                                          &trace->route_count, trace->route_hash,
-                                                          &trace->hash_size) &&
-                                  mesh_meshcore_read_path(meshcore, frame, len, &at,
-                                                          trace->route_back, &trace->back_count,
-                                                          trace->back_hash, &trace->back_hash_size);
+                const bool read =
+                    mesh_meshcore_read_path(meshcore, frame, len, &at, trace->route,
+                                            &trace->route_count, trace->route_hash,
+                                            &trace->hash_size, &trace->hops_out) &&
+                    mesh_meshcore_read_path(meshcore, frame, len, &at, trace->route_back,
+                                            &trace->back_count, trace->back_hash,
+                                            &trace->back_hash_size, &trace->hops_back);
                 if (read) {
                     trace->state = MESH_TRACEROUTE_DONE;
                     trace->completed = mesh_meshcore_clock_now(meshcore);
