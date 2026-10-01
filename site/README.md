@@ -14,6 +14,20 @@ npm run preview   # build, then serve dist/ the way Cloudflare will (wrangler de
 
 Node 22.12 or later.
 
+## Where the pages are
+
+- `src/pages/` holds the home page, the download page and the 404, which are plain Astro pages
+  in `src/layouts/Base.astro`.
+- `src/content/docs/guide/` holds the user guide at `/guide/`, one Markdown file per page. It is
+  [Starlight](https://starlight.astro.build), which supplies the sidebar, the search (Pagefind,
+  built at build time) and the light/dark switch. The sidebar order is the `sidebar` list in
+  `astro.config.mjs`, so a new page goes there as well as in the folder.
+
+The guide is written for people using the client, not working on it; `docs/` in the repository
+root is the developer reference. A guide page names the labels the client draws, such as
+**Show my contact code**, so a change to one in `include/mesh/i18n/catalog.def` is a change to
+check against the guide.
+
 ## What it reads from the rest of the repository
 
 - **Screenshots** are imported from `../.github/resources/screenshots/`, the files the README
@@ -34,6 +48,9 @@ Builds). One-time setup in the dashboard:
 1. **Workers & Pages → Create → Import a repository**, pick `mcereal/mesh-client`.
 2. **Root directory** `site`, **build command** `npm run build`, **deploy command**
    `npx wrangler deploy`. The Worker's name must match `name` in `wrangler.jsonc`.
+   The root directory is `site` with no leading slash: `/site` fails with "root directory not
+   found". A build keeps the settings it started with, so after changing one, push a commit
+   rather than retrying an old build.
 3. **Build watch paths**: include `site/*` and `.github/resources/screenshots/*`, so a push that
    only touches C sources does not rebuild the site.
 4. Turn on non-production branch builds for a preview URL per pull request.
