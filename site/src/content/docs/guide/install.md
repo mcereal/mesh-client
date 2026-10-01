@@ -1,6 +1,6 @@
 ---
 title: Installing
-description: Install MeshClient on a TrimUI Brick, a Mac, a Windows PC or Linux, and keep it up to date.
+description: Install MeshClient on a TrimUI Brick, a Miyoo Mini Plus, a Mac, a Windows PC or Linux, and keep it up to date.
 ---
 
 The [download page](/download/) has a direct link to each file. This page covers the details
@@ -31,6 +31,32 @@ unzip MeshClient.pak.zip -d /Volumes/SDCARD/Tools/tg5040/MeshClient.pak
 If you unzip without creating the folder first, you end up with
 `MeshClient.pak/MeshClient.pak/launch.sh`, and the launcher won't run that.
 :::
+
+## Miyoo Mini Plus
+
+:::note[Experimental]
+The Miyoo build is new, and tested on a Mini Plus running [Onion OS](https://onionui.github.io).
+:::
+
+**It connects to radios over the network only.** The Miyoo has no Bluetooth, and its USB port
+can't host a radio. It works with an ESP32 radio that has Wi-Fi turned on, including a MeshCore
+Wi-Fi companion, or with `meshtasticd`. See [Network](../connecting/#network).
+
+1. Download `MeshClient-miyoomini.zip` and unzip it at the root of the SD card. It holds
+   `App/MeshClient/`:
+
+   ```bash
+   unzip MeshClient-miyoomini.zip -d /Volumes/SDCARD
+   ```
+
+2. In Onion, turn on network time under **Apps → Tweaks → Network**. Without it, the clock
+   starts at 1970 and every download fails with *this device's clock is wrong*.
+3. Start it from **Apps → MeshClient**, go to **Radio → devices**, and type the radio's address
+   on the last row.
+
+The address can also go in `App/MeshClient/env.sh`, one line,
+`export MESHCLIENT_TCP_HOST=192.168.1.50:5000`. Unzipping a newer release doesn't replace that
+file.
 
 ## macOS
 
@@ -92,3 +118,5 @@ It's safe to do this while the client is running, because nothing changes until 
 - **On the Brick, the updater replaces only the binary.** The pak's launch script is not part
   of a self-update. Updating through the Pak Store, or unzipping a new `MeshClient.pak.zip`
   over the old one, replaces the whole pak.
+- **On the Miyoo, the same.** Unzipping a new `MeshClient-miyoomini.zip` replaces the whole app
+  and keeps your `env.sh`.

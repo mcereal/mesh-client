@@ -8,6 +8,8 @@ description: Fixes for the most common connection, pairing and update problems, 
 When something goes wrong, the log usually says why.
 
 - **On the Brick:** `/.userdata/tg5040/logs/MeshClient.txt` on the SD card.
+- **On the Miyoo:** `App/MeshClient/MeshClient.txt` on the SD card. Add
+  `export MESHCLIENT_LOG_LEVEL=debug` to `App/MeshClient/env.sh` for more.
 - **On the command line:** the log goes to the terminal. Add `--log-level debug` for more.
 
 The client's own data, such as settings, the node list and messages, lives in
@@ -49,6 +51,11 @@ own.
 **Check for updates says there's nothing new, but there is.**
 A build you made yourself reports a `-dev` version and is never offered updates. Install a
 release build from the [download page](/download/).
+
+**It says "this device's clock is wrong".**
+The device's clock is earlier than the date the server's certificate became valid, so the client
+can't trust it. On a Miyoo Mini Plus, turn on network time in Onion under
+**Apps → Tweaks → Network**, then try again.
 
 **On a Mac, the update fails.**
 Move MeshClient into **Applications** first. Run from the disk image or from Downloads, macOS

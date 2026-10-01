@@ -48,6 +48,30 @@ The app then appears under **Tools** in the NextUI Launcher. Logs go to
 `/.userdata/tg5040/logs/MeshClient.txt`. Once it is installed, Settings → About updates it in
 place.
 
+## Install on a Miyoo Mini Plus
+
+> **Experimental, and network only.** The Miyoo has no Bluetooth, and its USB port does not
+> host a radio, so it reaches a radio over Wi-Fi: an ESP32 radio with Wi-Fi turned on, or
+> `meshtasticd`. Tested on a Mini Plus running [Onion OS](https://onionui.github.io).
+
+Download `MeshClient-miyoomini.zip` from the
+[latest release](https://github.com/mcereal/mesh-client/releases/latest) and unzip it at the
+root of the SD card. It holds `App/MeshClient/`, so it lands in the right place:
+
+```bash
+unzip MeshClient-miyoomini.zip -d /Volumes/SDCARD
+```
+
+Start it from **Apps → MeshClient**. Then:
+
+- **Turn on network time** (**Apps → Tweaks → Network**). The Miyoo's clock starts at 1970
+  without it, and the map downloads and update checks fail with *this device's clock is wrong*.
+- **Give it the radio's address** in **Radio → devices**, on the last row. A Meshtastic radio
+  listens on port 4403 and a MeshCore Wi-Fi companion on 5000 (`192.168.1.50:5000`). Or set
+  `MESHCLIENT_TCP_HOST` in `App/MeshClient/env.sh`, which unzipping a new release never touches.
+
+The log is `App/MeshClient/MeshClient.txt`. Settings → About updates it in place.
+
 ## Install on a Mac or a Windows PC
 
 > **Experimental.** The Brick is the target; the desktop builds are newer and less tested.

@@ -8,13 +8,13 @@ is on the mesh and change your radio's settings from a TrimUI Brick, without a p
 with [Meshtastic](https://meshtastic.org) radios and also with [MeshCore](meshcore/)
 companion radios.
 
-The Brick is the main target. Builds for macOS, Windows and a Linux command line also exist,
-running the same client.
+The Brick is the main target. Builds for the Miyoo Mini Plus, macOS, Windows and a Linux
+command line also exist, running the same client.
 
 ## What you need
 
-- **Something to run it on.** A TrimUI Brick running NextUI, a Mac or Windows PC, or a Linux
-  machine for the command line. See [Installing](install/).
+- **Something to run it on.** A TrimUI Brick running NextUI, a Miyoo Mini Plus running Onion
+  (network radios only), a Mac or Windows PC, or a Linux machine for the command line. See [Installing](install/).
 - **A radio.** A Meshtastic or MeshCore node, such as a Heltec, a RAK or a T-Echo. The client
   reaches it over Bluetooth LE, a USB cable, or the network. See
   [Connecting a radio](connecting/).
