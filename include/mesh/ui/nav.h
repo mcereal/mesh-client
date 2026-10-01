@@ -1314,6 +1314,14 @@ bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_stor
                               uint32_t target, struct mesh_ui_action *out_action);
 
 /*
+ * Whether a click on `target` would be answered now, without making it: a tab while nothing
+ * modal is up, the Nodes list's chips while the list is the screen. Only those two - what a
+ * menu item may name (mesh/ui/menu.h) - and false for every other target, which a menu does
+ * not reach.
+ */
+bool mesh_ui_nav_click_offered(const struct mesh_ui_nav *nav, uint32_t target);
+
+/*
  * A secondary click on `target` at (`x`, `y`): on a row of the screen's own list, the cursor goes
  * to it and the row's menu opens there. Anywhere else it puts an open menu down. Returns true
  * when the visible state changed; it never raises an action, since opening a menu does nothing.

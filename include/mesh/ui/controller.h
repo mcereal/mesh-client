@@ -88,9 +88,13 @@ void mesh_ui_controller_handle_command(struct mesh_ui_controller *controller,
                                        enum mesh_ui_command_id command,
                                        enum mesh_ui_command_direction direction);
 
-/* Desktop primary-modifier shortcut, as a lowercase letter from the window backend.
-   The command dispatcher still checks whether the last frame offers that operation. */
-void mesh_ui_controller_handle_shortcut(struct mesh_ui_controller *controller, char letter);
+/*
+ * A menu bar item, or its chord: `item` is a number from mesh/ui/menu.h - a command, or a click
+ * target. Offered is asked of the last frame presented, as the command and the click paths each
+ * ask it, and running an item not on offer does nothing.
+ */
+bool mesh_ui_controller_menu_offered(const struct mesh_ui_controller *controller, uint32_t item);
+void mesh_ui_controller_handle_menu(struct mesh_ui_controller *controller, uint32_t item);
 
 /*
  * Resolve a clicked legacy action hint through the last frame's semantic command set.
