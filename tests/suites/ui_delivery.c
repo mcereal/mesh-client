@@ -83,3 +83,22 @@ MESH_TEST_CASE(ui_delivery_refuses_a_state_it_does_not_know, unit) {
     MESH_TEST_FAIL_IF(inkcell_str(mark.word)[0] != '\0', "an unknown state should say nothing");
     record_success(test_name);
 }
+
+/*
+ * The delivery rate the Stats page and the Status board both show: rounded down so a failure is
+ * never reported as a perfect score, and nothing at all before anything has settled.
+ */
+MESH_TEST_CASE(ui_delivery_rate_never_rounds_a_failure_up_to_all, unit) {
+    unsigned percent = 0U;
+    MESH_TEST_FAIL_IF(mesh_ui_delivery_rate(0U, 0U, &percent), "nothing settled says nothing");
+    MESH_TEST_FAIL_IF(!mesh_ui_delivery_rate(199U, 1U, &percent) || percent != 99U,
+                      "199 of 200 is 99%, not a rounded-up 100%");
+    MESH_TEST_FAIL_IF(!mesh_ui_delivery_rate(50U, 0U, &percent) || percent != 100U,
+                      "every one confirmed is 100%");
+    MESH_TEST_FAIL_IF(!mesh_ui_delivery_rate(0U, 4U, &percent) || percent != 0U,
+                      "none confirmed is 0%");
+    MESH_TEST_FAIL_IF(!mesh_ui_delivery_rate(UINT64_MAX / 2U, UINT64_MAX / 2U, &percent) ||
+                          percent != 50U,
+                      "counts too large to multiply by a hundred still come out right");
+    record_success(test_name);
+}

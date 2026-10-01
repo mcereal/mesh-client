@@ -5,6 +5,9 @@
 
 #include "mesh/i18n/strings.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -52,6 +55,17 @@ struct mesh_ui_delivery {
  * nothing: a firmware that grows a fourth state must not put a stray glyph on every bubble.
  */
 struct mesh_ui_delivery mesh_ui_delivery_of(uint8_t ack);
+
+/*
+ * The share of direct messages the mesh confirmed, as a whole percent: false when none has been
+ * settled either way, and nothing should be said.
+ *
+ * Rounded *down*, so a single failure keeps the figure under 100: 199 delivered and 1 failed is
+ * 99%, never a perfect score the record does not support. And done without overflowing at any
+ * count the lifetime stats can hold. One function because two screens say it - the Stats page and
+ * the Status board's tile - and two roundings of one record would be two answers to one question.
+ */
+bool mesh_ui_delivery_rate(uint64_t delivered, uint64_t failed, unsigned *percent);
 
 #ifdef __cplusplus
 }

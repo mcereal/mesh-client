@@ -182,6 +182,7 @@ add_library(meshclient_core
     src/ui/nav/route.c
     src/ui/tables/status.c
     src/ui/views/node_detail.c
+    src/ui/views/reach.c
     src/ui/tables/devices.c
     src/ui/tables/nodes.c
     src/ui/tables/protocols.c

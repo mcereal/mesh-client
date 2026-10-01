@@ -809,6 +809,40 @@ MESH_STR_ENTRY(STATUS_BROKER_DISABLED,    "The radio is asking for a broker and 
    than a line inside either sentence. */
 MESH_STR_ENTRY(STATUS_BROKER_UNHANDLED,   "%u not taken")
 
+/* ---- the Status board ------------------------------------------------------------------------
+   What a wide window draws in place of the column of cards: a row of tiles, each a large figure
+   with a short question over it, then the cards themselves. A tile label is read across a row of
+   four and sits over a figure two sizes up, so one or two words. */
+MESH_STR_ENTRY(BOARD_TILE_ONLINE,         "Online")
+/* Under the online count: how many nodes the radio's database holds in all. */
+MESH_STR_ENTRY(BOARD_ONLINE_OF,           "of %u in NodeDB")
+MESH_STR_ENTRY(BOARD_TILE_CHANNEL,        "Channel use")
+/* Under the channel's busy percentage: how much of it is this radio's own transmitting. %s is
+   a percentage already formatted ("4.0%"). */
+MESH_STR_ENTRY(BOARD_CHANNEL_OURS,        "%s ours")
+MESH_STR_ENTRY(BOARD_TILE_BATTERY,        "Battery")
+/* Under the battery figure: how long the radio has been running. %s is a duration ("9d 8h"). */
+MESH_STR_ENTRY(BOARD_UPTIME,              "up %s")
+/* The share of this client's direct messages the mesh confirmed, over its whole life. */
+MESH_STR_ENTRY(BOARD_TILE_DELIVERED,      "Delivered")
+MESH_STR_ENTRY(BOARD_DELIVERED_OF,        "%llu of %llu direct")
+/* A card of how far away the roster's nodes are: how many hops, and the best and worst link
+   heard straight off the air. */
+MESH_STR_ENTRY(BOARD_CARD_REACH,          "Reach")
+MESH_STR_ENTRY(BOARD_LABEL_HOPS,          "Hops")
+/* The four counts in the order the bar under them is drawn: heard directly, one hop away, two
+   hops, three or more. */
+MESH_STR_ENTRY(BOARD_HOPS,                "%u direct, %u one, %u two, %u more")
+/* Nodes this client knows of only through the MQTT broker, not over the air. */
+MESH_STR_ENTRY(BOARD_LABEL_VIA_BROKER,    "Via broker")
+MESH_STR_ENTRY(BOARD_VIA_BROKER,          "%u nodes")
+MESH_STR_ENTRY(BOARD_LABEL_STRONGEST,     "Strongest")
+MESH_STR_ENTRY(BOARD_LABEL_WEAKEST,       "Weakest")
+/* A node's short name and the signal-to-noise ratio it was last heard at. */
+MESH_STR_ENTRY(BOARD_SNR,                 "%s, %+.1f dB")
+/* The Reach card before any node has reported how far away it is. */
+MESH_STR_ENTRY(BOARD_REACH_NONE,          "no hop counts yet")
+
 /* ---- the trend screen ------------------------------------------------------------------------ */
 
 /*

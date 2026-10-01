@@ -369,6 +369,23 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_STATUS_BROKER_DISABLED] = "La radio pide un broker y este cliente no mantiene "
                                         "ninguno: MESHCLIENT_MQTT_PROXY lo desactivó aquí.",
     [MESH_STR_STATUS_BROKER_UNHANDLED] = "%u sin recoger",
+    [MESH_STR_BOARD_TILE_ONLINE] = "En línea",
+    [MESH_STR_BOARD_ONLINE_OF] = "de %u en NodeDB",
+    [MESH_STR_BOARD_TILE_CHANNEL] = "Uso del canal",
+    [MESH_STR_BOARD_CHANNEL_OURS] = "%s nuestro",
+    [MESH_STR_BOARD_TILE_BATTERY] = "Batería",
+    [MESH_STR_BOARD_UPTIME] = "activo %s",
+    [MESH_STR_BOARD_TILE_DELIVERED] = "Entregados",
+    [MESH_STR_BOARD_DELIVERED_OF] = "%llu de %llu directos",
+    [MESH_STR_BOARD_CARD_REACH] = "Alcance",
+    [MESH_STR_BOARD_LABEL_HOPS] = "Saltos",
+    [MESH_STR_BOARD_HOPS] = "%u directos, %u a uno, %u a dos, %u más",
+    [MESH_STR_BOARD_LABEL_VIA_BROKER] = "Por broker",
+    [MESH_STR_BOARD_VIA_BROKER] = "%u nodos",
+    [MESH_STR_BOARD_LABEL_STRONGEST] = "Más fuerte",
+    [MESH_STR_BOARD_LABEL_WEAKEST] = "Más débil",
+    [MESH_STR_BOARD_SNR] = "%s, %+.1f dB",
+    [MESH_STR_BOARD_REACH_NONE] = "sin saltos todavía",
 
     /* The trend chart. The two series names are in the order the legend draws them, which is the
        order of the palette rather than of the sentence: swapping them here names the wrong
