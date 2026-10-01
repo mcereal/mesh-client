@@ -72,7 +72,8 @@
  * each time our radio hears a node over the air, how long it has known it, so the record is held
  * by the node known longest that is *still heard*, rather than by whichever node happened to be
  * heard on the first day and never again. Our own radios are known as long as they are attached
- * and hold none of it.
+ * and hold none of it: one that set the record before it was attached gives it back, to "none
+ * yet", since without a node's latest hearing there is no runner-up to hand it to.
  *
  * **Our own radios are not nodes we heard.** A radio that has ever been attached is marked as
  * one, and the node counts leave it out - at count time rather than at insert time, so a second

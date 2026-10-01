@@ -3066,3 +3066,61 @@ MESH_TEST_CASE(ui_stats_page_lists_what_the_nodes_heard_are, unit) {
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }
+
+/*
+ * The page is one item list, capped, and the reset is its last row: with every group drawn at its
+ * fullest - every record set with a holder, both tallies full, a most messaged - the reset has
+ * to still be there, or a client that has seen the most is the one that cannot start again.
+ */
+MESH_TEST_CASE(ui_stats_page_keeps_its_reset_when_everything_is_set, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    struct mesh_ui_settings settings = store.settings;
+    struct mesh_ui_lifetime_stats *stats = &settings.client.lifetime;
+    stats->since = 1767225600U;
+    snprintf(stats->most_messaged, sizeof stats->most_messaged, "%s", "BRAV");
+    for (uint32_t i = 0; i < MESH_UI_LIFETIME_TOP; ++i) {
+        stats->models[i] = (struct mesh_ui_lifetime_share){.value = 1U + i, .count = 9U - i};
+        stats->roles[i] = (struct mesh_ui_lifetime_share){.value = i, .count = 9U - i};
+    }
+    stats->model_count = MESH_UI_LIFETIME_TOP;
+    stats->role_count = MESH_UI_LIFETIME_TOP;
+    struct mesh_ui_lifetime_holder *holders[] = {
+        &stats->most_hops_holder,       &stats->farthest_direct_holder,
+        &stats->farthest_heard_holder,  &stats->weakest_snr_holder,
+        &stats->weakest_rssi_holder,    &stats->longest_connection_holder,
+        &stats->longest_absence_holder, &stats->longest_trace_holder,
+        &stats->longest_known_holder,
+    };
+    for (size_t i = 0; i < sizeof holders / sizeof holders[0]; ++i) {
+        snprintf(holders[i]->name, sizeof holders[i]->name, "%s", "BRAV");
+        holders[i]->at = 1767225600U;
+    }
+    stats->most_hops_measured = true;
+    stats->farthest_direct_measured = true;
+    stats->farthest_heard_measured = true;
+    stats->weakest_snr_measured = true;
+    stats->weakest_rssi_measured = true;
+    stats->longest_connection_measured = true;
+    stats->longest_absence_measured = true;
+    stats->longest_trace_measured = true;
+    stats->longest_known_measured = true;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_settings_item item;
+    unsigned holder_rows = 0U;
+    uint32_t rows = 0U;
+    bool reset_last = false;
+    while (mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                                 MESH_UI_SETTINGS_STATS, MESH_UI_SETTINGS_NO_CHANNEL, rows,
+                                 &item)) {
+        holder_rows += strcmp(item.label, "Set by") == 0 ? 1U : 0U;
+        reset_last = strcmp(item.label, "Reset stats") == 0;
+        rows++;
+    }
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(holder_rows != sizeof holders / sizeof holders[0],
+                      "every record is drawn with its holder, or this proves nothing");
+    MESH_TEST_FAIL_IF(!reset_last, "the reset is still the last row of the fullest page");
+    record_success(test_name);
+}

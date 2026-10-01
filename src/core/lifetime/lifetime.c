@@ -310,6 +310,30 @@ static void lifetime_write_down(struct mesh_lifetime *lifetime, uint32_t id, uin
 }
 
 /*
+ * The longest known is never one of our radios. A node that set it and is only then attached
+ * gives it up: there is no runner-up to hand it to, since a node's latest hearing is not kept, so
+ * it goes back to "none yet" and the next node heard over the air sets it again. Also run on a
+ * card read back, whose holder may have become a radio under a build that did not do this.
+ */
+static void lifetime_drop_radio_records(struct mesh_lifetime *lifetime) {
+    const enum mesh_lifetime_stat known = MESH_LIFETIME_LONGEST_KNOWN_S;
+    const uint32_t holder = lifetime->holders[known];
+    if (!lifetime->measured[known] || holder == 0U) {
+        return;
+    }
+    const uint32_t at = lifetime_find(lifetime, holder);
+    if (at >= lifetime->id_count || lifetime->ids[at] != holder || lifetime_tallied(lifetime, at)) {
+        return;
+    }
+    lifetime->values[known] = 0U;
+    lifetime->measured[known] = false;
+    lifetime->holders[known] = 0U;
+    lifetime->held_at[known] = 0U;
+    lifetime->dirty = true;
+    lifetime_changed(lifetime);
+}
+
+/*
  * Merges `facts` into `id`'s entry, and answers the lines that say something new: the facts it did
  * not already have, and the day it was first heard when this is that day. A node that has just
  * become one of our radios leaves the tallies, as it leaves the node counts.
@@ -321,6 +345,7 @@ static uint8_t lifetime_learn_facts(struct mesh_lifetime *lifetime, uint32_t id,
     uint8_t lines = lifetime_learn(lifetime, id, facts);
     if ((lines & SEEN_RADIO) != 0U) {
         lifetime_recount_traits(lifetime);
+        lifetime_drop_radio_records(lifetime);
     }
     const uint32_t now = inkwell_time_wall_credible_s();
     if ((lines & SEEN_HEARD) != 0U && now != 0U) {
@@ -858,6 +883,7 @@ int mesh_lifetime_init(struct mesh_lifetime *lifetime, const char *dir) {
         inkwell_log_warn("lifetime", "Could not read the seen file: %d", result);
     }
     lifetime_recount_traits(lifetime);
+    lifetime_drop_radio_records(lifetime);
     result = inkstand_journal_read(&lifetime->journal, LIFETIME_CONTACTS, line, sizeof line,
                                    lifetime_read_contacts, lifetime);
     if (result < 0 && result != -ENOENT) {

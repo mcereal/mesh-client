@@ -106,9 +106,11 @@ struct mesh_ui_lifetime_holder {
  * A trait's most common values among the nodes heard (mesh_lifetime_top()), most first: the raw
  * value, which the page names, and how many nodes have it. As many as MESH_UI_LIFETIME_TOP - the
  * page lists the head of a tally rather than all of it, since a city mesh's hardware is a long
- * tail of models one node each.
+ * tail of models one node each. Three, because the page is one item list of
+ * MESH_UI_SETTINGS_ITEMS_MAX rows and its last is the reset: with every record set and both
+ * tallies full it has to still fit (ui_stats_page_keeps_its_reset_when_everything_is_set).
  */
-#define MESH_UI_LIFETIME_TOP 5U
+#define MESH_UI_LIFETIME_TOP 3U
 
 struct mesh_ui_lifetime_share {
     uint32_t value;

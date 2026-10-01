@@ -1921,3 +1921,48 @@ MESH_TEST_CASE(lifetime_reads_contacts_back, unit) {
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }
+
+/* A node that set the longest known and is then attached as one of our radios gives it up. */
+MESH_TEST_CASE(lifetime_a_radio_gives_up_the_longest_known, unit) {
+    char dir[64];
+    const uint32_t day0 = 1750000000U;
+    inkwell_time_wall_set_fixed(day0);
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    const enum mesh_lifetime_stat known = MESH_LIFETIME_LONGEST_KNOWN_S;
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    struct mesh_node_summary other = lt_summary(LT_OTHER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    inkwell_time_wall_set_fixed(day0 + 86400U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &other, false, false, 0U);
+    inkwell_time_wall_set_fixed(day0 + 2U * 86400U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(!mesh_lifetime_holder(&g_lifetime, known, &holder, NULL) || holder != LT_PEER,
+                      "the node met first holds it");
+
+    mesh_lifetime_note_radio(&g_lifetime, LT_PEER);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, known),
+                      "attached, it gives the record back rather than keeping it");
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &other, false, false, 0U);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_holder(&g_lifetime, known, &holder, NULL) ||
+                          holder != LT_OTHER || mesh_lifetime_value(&g_lifetime, known) != 86400U,
+                      "and the next node heard over the air sets it again");
+
+    /* A card whose holder is a radio, written by a build that let one keep it. */
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    char path[128];
+    snprintf(path, sizeof path, "%s/totals.stats", dir);
+    FILE *file = fopen(path, "w");
+    MESH_TEST_FAIL_IF(file == NULL, "could not write the totals");
+    fputs("longest_known_s=172800\nlongest_known_s.measured=1\nlongest_known_s.holder=00002222\n"
+          "longest_known_s.held_value=172800\nlongest_known_s.held_at=1750172800\n",
+          file);
+    fclose(file);
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, known),
+                      "a radio holding it on the card gives it back when read");
+    inkwell_time_wall_set_fixed(0U);
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
