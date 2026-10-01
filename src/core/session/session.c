@@ -1668,7 +1668,7 @@ static void mesh_session_handle_queue_status(struct mesh_session *session,
 
 static void mesh_session_handle_channel(struct mesh_session *session,
                                         const meshtastic_Channel *channel) {
-    if (channel->index < 0 || (size_t)channel->index >= MESH_SESSION_MAX_CHANNELS) {
+    if (channel->index < 0 || (size_t)channel->index >= MESH_MESHTASTIC_CHANNELS) {
         inkwell_log_debug("session", "Ignoring channel with index %d", (int)channel->index);
         return;
     }

@@ -48,7 +48,7 @@ void mesh_test_backup_radio(struct mesh_radio_settings *settings,
     metadata.hw_model = meshtastic_HardwareModel_HELTEC_V3;
     mesh_radio_settings_apply_metadata(settings, &metadata);
 
-    for (int8_t slot = 0; slot < (int8_t)MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
+    for (int8_t slot = 0; slot < (int8_t)MESH_MESHTASTIC_CHANNELS; ++slot) {
         meshtastic_Channel channel = meshtastic_Channel_init_zero;
         channel.index = slot;
         /* A slot switched off comes with empty settings, as a Heltec V3 on 2.7.26 sends it. */

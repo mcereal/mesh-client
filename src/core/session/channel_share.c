@@ -59,7 +59,7 @@ static bool table_settled(const struct mesh_radio_settings *settings) {
     if (!settings->has_lora) {
         return false;
     }
-    for (size_t slot = 0; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
+    for (size_t slot = 0; slot < MESH_MESHTASTIC_CHANNELS; ++slot) {
         if (!settings->has_channel[slot]) {
             return false;
         }
@@ -119,7 +119,7 @@ size_t mesh_channel_share_build(const struct mesh_radio_settings *settings,
     out->settings[out->settings_count++] = settings->channels[0].settings;
 
     const pb_size_t room = (pb_size_t)(sizeof out->settings / sizeof out->settings[0]);
-    for (size_t i = 1U; i < MESH_RADIO_SETTINGS_MAX_CHANNELS && out->settings_count < room; ++i) {
+    for (size_t i = 1U; i < MESH_MESHTASTIC_CHANNELS && out->settings_count < room; ++i) {
         if (settings->has_channel[i] && settings->channels[i].has_settings &&
             settings->channels[i].role == meshtastic_Channel_Role_SECONDARY) {
             out->settings[out->settings_count++] = settings->channels[i].settings;
@@ -156,7 +156,7 @@ size_t mesh_channel_share_url(const struct mesh_radio_settings *settings, char *
 static int import_walk(const struct mesh_radio_settings *settings, const meshtastic_ChannelSet *set,
                        bool add, struct mesh_channel_import_plan *plan,
                        struct mesh_radio_settings *queue) {
-    struct mesh_admin_request writes[MESH_RADIO_SETTINGS_MAX_CHANNELS + 1U];
+    struct mesh_admin_request writes[MESH_MESHTASTIC_CHANNELS + 1U];
     size_t count = 0U;
 
     memset(plan, 0, sizeof *plan);
@@ -171,7 +171,7 @@ static int import_walk(const struct mesh_radio_settings *settings, const meshtas
          */
         for (size_t i = 0; i < set->settings_count; ++i) {
             bool held = false;
-            for (size_t slot = 0; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS && !held; ++slot) {
+            for (size_t slot = 0; slot < MESH_MESHTASTIC_CHANNELS && !held; ++slot) {
                 held = settings->has_channel[slot] &&
                        (channel_matches(&settings->channels[slot], &set->settings[i],
                                         meshtastic_Channel_Role_SECONDARY) ||
@@ -181,8 +181,8 @@ static int import_walk(const struct mesh_radio_settings *settings, const meshtas
             if (held) {
                 continue;
             }
-            size_t target = MESH_RADIO_SETTINGS_MAX_CHANNELS;
-            for (size_t slot = 1U; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
+            size_t target = MESH_MESHTASTIC_CHANNELS;
+            for (size_t slot = 1U; slot < MESH_MESHTASTIC_CHANNELS; ++slot) {
                 bool taken = false;
                 for (size_t j = 0; j < count && !taken; ++j) {
                     taken = writes[j].type == (uint32_t)slot;
@@ -192,7 +192,7 @@ static int import_walk(const struct mesh_radio_settings *settings, const meshtas
                     break;
                 }
             }
-            if (target == MESH_RADIO_SETTINGS_MAX_CHANNELS) {
+            if (target == MESH_MESHTASTIC_CHANNELS) {
                 plan->full = true; /* the table is full; the rest of the link has nowhere to go */
                 break;
             }
@@ -209,7 +209,7 @@ static int import_walk(const struct mesh_radio_settings *settings, const meshtas
     } else {
         /* The set replaces the table: its first channel is the primary, the rest follow in
            order, and any slot past them that is in use is switched off. */
-        for (size_t slot = 0; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
+        for (size_t slot = 0; slot < MESH_MESHTASTIC_CHANNELS; ++slot) {
             meshtastic_Channel_Role role = meshtastic_Channel_Role_DISABLED;
             const meshtastic_ChannelSettings *want = NULL;
             if (slot < set->settings_count) {
@@ -240,7 +240,7 @@ static int import_walk(const struct mesh_radio_settings *settings, const meshtas
                 }
             }
         }
-        if (set->settings_count > MESH_RADIO_SETTINGS_MAX_CHANNELS) {
+        if (set->settings_count > MESH_MESHTASTIC_CHANNELS) {
             plan->full = true;
         }
     }

@@ -741,7 +741,7 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         admin.set_module_config = request->payload.module_config;
         break;
     case MESH_ADMIN_GET_CHANNEL:
-        if (request->type >= MESH_RADIO_SETTINGS_MAX_CHANNELS) {
+        if (request->type >= MESH_MESHTASTIC_CHANNELS) {
             return -EINVAL;
         }
         /* One-based on the wire so a request for slot 0 is never an absent field. */
@@ -1150,7 +1150,7 @@ int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
         readback = MESH_ADMIN_GET_MODULE_CONFIG;
         break;
     case MESH_ADMIN_SET_CHANNEL:
-        if (write->type >= MESH_RADIO_SETTINGS_MAX_CHANNELS ||
+        if (write->type >= MESH_MESHTASTIC_CHANNELS ||
             write->payload.channel.index != (int8_t)write->type) {
             return -EINVAL;
         }
@@ -1221,7 +1221,7 @@ static bool mesh_radio_settings_transaction_write_ok(const struct mesh_admin_req
     case MESH_ADMIN_SET_MODULE_CONFIG:
         return write->payload.module_config.which_payload_variant != 0U;
     case MESH_ADMIN_SET_CHANNEL:
-        return write->type < MESH_RADIO_SETTINGS_MAX_CHANNELS &&
+        return write->type < MESH_MESHTASTIC_CHANNELS &&
                write->payload.channel.index == (int8_t)write->type;
     case MESH_ADMIN_SET_FIXED_POSITION:
         return write->type == (uint32_t)meshtastic_AdminMessage_ConfigType_POSITION_CONFIG;
@@ -1687,7 +1687,7 @@ size_t mesh_radio_settings_queue_all(struct mesh_radio_settings *settings) {
                                          MESH_ADMIN_GET_CANNED_MESSAGES, 0U);
     added +=
         mesh_radio_settings_enqueue(settings, settings->admin_dest, MESH_ADMIN_GET_RINGTONE, 0U);
-    for (uint32_t slot = 0; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
+    for (uint32_t slot = 0; slot < MESH_MESHTASTIC_CHANNELS; ++slot) {
         added += mesh_radio_settings_enqueue(settings, settings->admin_dest, MESH_ADMIN_GET_CHANNEL,
                                              slot);
     }

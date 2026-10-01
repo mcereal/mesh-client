@@ -344,7 +344,7 @@ MESH_TEST_CASE(radio_settings_fetch_queue, unit) {
                             + 8U                                /* Config sections */
                             + mesh_radio_module_count()         /* one per module, from the table */
                             + MESH_RADIO_SETTINGS_EXTRA_FETCHES /* the four with a verb each */
-                            + MESH_RADIO_SETTINGS_MAX_CHANNELS;
+                            + MESH_MESHTASTIC_CHANNELS;
     MESH_TEST_FAIL_IF(mesh_radio_settings_queue_all(&settings) != expected ||
                           settings.queue_len != expected,
                       "queue_all should add one request per section and channel");

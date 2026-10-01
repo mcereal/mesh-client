@@ -234,7 +234,12 @@ bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind);
    and the ringtone. Named so the queue and the test that holds it to the cap count the same
    things, the way the module table already makes them count modules the same way. */
 #define MESH_RADIO_SETTINGS_EXTRA_FETCHES 4U
-#define MESH_RADIO_SETTINGS_MAX_CHANNELS 8U
+/* Meshtastic's channel file: eight slots, and an admin index past that is not a slot. Every
+   AdminMessage, channel link and backup is bounded by this, not by the table below. */
+#define MESH_MESHTASTIC_CHANNELS 8U
+/* The table's size: a MeshCore companion keeps up to 40 slots and reads them into the same
+   records, so the table holds the larger protocol and Meshtastic fills the first eight. */
+#define MESH_RADIO_SETTINGS_MAX_CHANNELS 40U
 /* A reply that has not arrived after this long is given up on and the queue moves on. Five
    seconds is a *local* round trip: the request never leaves the radio and the answer comes
    back over the same GATT characteristic it went out on. */

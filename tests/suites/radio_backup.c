@@ -577,7 +577,7 @@ MESH_TEST_CASE(radio_backup_meshtastic_round_trips_through_the_card, unit) {
     /* Every setting, but not the metadata: that describes the firmware rather than a choice
        anybody made, and it goes into the header instead. */
     bool channels = true;
-    for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++i) {
+    for (size_t i = 0; i < MESH_MESHTASTIC_CHANNELS; ++i) {
         channels = channels && g_restored.has_channel[i];
     }
     MESH_TEST_FAIL_IF(
@@ -862,7 +862,7 @@ MESH_TEST_CASE(radio_backup_meshtastic_keeps_a_module_no_screen_edits, unit) {
 MESH_TEST_CASE(radio_backup_meshtastic_diff_counts_past_what_it_keeps, unit) {
     mesh_test_backup_radio(&g_settings, &g_status);
     mesh_radio_backup_meshtastic_capture(&g_settings, &g_status, &g_backup);
-    for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++i) {
+    for (size_t i = 0; i < MESH_MESHTASTIC_CHANNELS; ++i) {
         g_settings.channels[i].role = meshtastic_Channel_Role_SECONDARY;
         g_settings.channels[i].has_settings = true;
         snprintf(g_settings.channels[i].settings.name, sizeof g_settings.channels[i].settings.name,
@@ -995,7 +995,7 @@ MESH_TEST_CASE(radio_backup_meshtastic_plan_for_a_reset_radio_fits_one_transacti
     memset(&reset->security, 0, sizeof reset->security);
     reset->security.private_key = keys.private_key;
     reset->security.public_key = keys.public_key;
-    for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++i) {
+    for (size_t i = 0; i < MESH_MESHTASTIC_CHANNELS; ++i) {
         memset(&reset->channels[i], 0, sizeof reset->channels[i]);
         reset->channels[i].index = (int8_t)i;
         reset->channels[i].has_settings = true;

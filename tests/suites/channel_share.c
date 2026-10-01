@@ -305,7 +305,7 @@ static void set_slot(struct mesh_radio_settings *settings, size_t slot, const ch
  */
 static void seed_radio(struct mesh_radio_settings *settings) {
     mesh_radio_settings_reset(settings);
-    for (size_t slot = 0; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
+    for (size_t slot = 0; slot < MESH_MESHTASTIC_CHANNELS; ++slot) {
         set_slot(settings, slot, "", 0U, meshtastic_Channel_Role_DISABLED);
     }
     set_slot(settings, 0U, "LongFast", 1U, meshtastic_Channel_Role_PRIMARY);
@@ -422,7 +422,7 @@ MESH_TEST_CASE(channel_import_add_keeps_what_is_there, unit) {
        quietly. */
     struct mesh_radio_settings full;
     seed_radio(&full);
-    for (size_t slot = 1U; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
+    for (size_t slot = 1U; slot < MESH_MESHTASTIC_CHANNELS; ++slot) {
         set_slot(&full, slot, "Busy", (uint8_t)slot, meshtastic_Channel_Role_SECONDARY);
     }
     MESH_TEST_FAIL_IF(!mesh_channel_import_plan(&full, &set, true, &plan), "the plan refused");

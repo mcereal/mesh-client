@@ -139,7 +139,10 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   given up on; two in a row is `silent()`.
 - **Connecting** walks `DEVICE_QUERY` (asking for version 3, which puts an SNR on messages),
   `APP_START`, `SET_DEVICE_TIME` when the clock is credible, `GET_CONTACTS`, then `GET_CHANNEL`
-  for each slot up to the lesser of the radio's count and `MESH_SESSION_MAX_CHANNELS`. Then the
+  for each slot up to the lesser of the radio's count and `MESH_SESSION_MAX_CHANNELS` - 40,
+  the most any companion build keeps. The tables are sized for MeshCore and Meshtastic fills
+  the first eight: its admin requests, channel links and backups stop at
+  `MESH_MESHTASTIC_CHANNELS`. Then the
   model's sync completes and `SYNC_NEXT_MESSAGE` drains the radio's queue - again on every
   `PUSH_CODE_MSG_WAITING`. A queue can also hold the pre-V3 shapes, so both decode.
 - **The model is the session.** What MeshCore learns goes into `struct mesh_session` through

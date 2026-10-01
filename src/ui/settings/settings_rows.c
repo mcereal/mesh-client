@@ -2571,9 +2571,14 @@ int mesh_ui_settings_channel_at_row(const struct mesh_ui_settings *settings,
         return -1;
     }
     /* The two sharing rows at the foot of the list are ACTION rows too, and carry an
-       enum mesh_ui_settings_action rather than a slot. A slot is 0 to 7 and nothing else, which
-       is the invariant that keeps one kind of row from being read as the other. */
-    return item.number < MESH_UI_MAX_CHANNELS ? (int)item.number : -1;
+       enum mesh_ui_settings_action rather than a slot - and with MeshCore's 40 slots the two
+       ranges overlap, so a number cannot tell them apart. Position does: build_channels() lists
+       every present slot first, one row each, and the sharing rows after them. */
+    uint32_t slots = 0U;
+    for (uint32_t i = 0; i < MESH_UI_MAX_CHANNELS; ++i) {
+        slots += settings->channels[i].present ? 1U : 0U;
+    }
+    return row < slots && item.number < MESH_UI_MAX_CHANNELS ? (int)item.number : -1;
 }
 
 static void build_security(const struct mesh_ui_settings *s, struct item_list *list) {

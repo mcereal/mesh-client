@@ -19,7 +19,8 @@
 extern "C" {
 #endif
 
-#define MESH_UI_MAX_CHANNELS 8U
+/* As many as the session holds: MeshCore's 40. */
+#define MESH_UI_MAX_CHANNELS 40U
 /* Room for MeshCore's 31-byte names; a Meshtastic one is at most 11. */
 #define MESH_UI_CHANNEL_NAME_MAX 32U
 

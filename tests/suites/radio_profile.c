@@ -527,7 +527,7 @@ MESH_TEST_CASE(radio_profile_cfg_channel_link_is_the_whole_table, unit) {
     MESH_TEST_FAIL_IF(read.channels[0].role != meshtastic_Channel_Role_PRIMARY ||
                           strcmp(read.channels[0].settings.name, "Hikers") != 0,
                       "the link's channel is not the primary");
-    for (size_t i = 1; i < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++i) {
+    for (size_t i = 1; i < MESH_MESHTASTIC_CHANNELS; ++i) {
         MESH_TEST_FAIL_IF(!read.has_channel[i] ||
                               read.channels[i].role != meshtastic_Channel_Role_DISABLED,
                           "a slot past the link's channels was not switched off");

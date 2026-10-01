@@ -67,7 +67,7 @@ bool mesh_radio_backup_meshtastic_ready(const struct mesh_radio_settings *settin
             return false;
         }
     }
-    for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++i) {
+    for (size_t i = 0; i < MESH_MESHTASTIC_CHANNELS; ++i) {
         if (!settings->has_channel[i]) {
             return false;
         }
@@ -130,8 +130,7 @@ static void mt_header(const struct mesh_radio_settings *settings,
         header->coding_rate = (uint8_t)lora->coding_rate;
     }
 
-    for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS && i < MESH_RADIO_BACKUP_CHANNELS;
-         ++i) {
+    for (size_t i = 0; i < MESH_MESHTASTIC_CHANNELS && i < MESH_RADIO_BACKUP_CHANNELS; ++i) {
         const meshtastic_Channel *channel = &settings->channels[i];
         if (channel->role == meshtastic_Channel_Role_DISABLED) {
             continue;
@@ -198,7 +197,7 @@ int mesh_radio_backup_meshtastic_capture(const struct mesh_radio_settings *setti
                             &module);
         }
     }
-    for (size_t i = 0; result == 0 && i < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++i) {
+    for (size_t i = 0; result == 0 && i < MESH_MESHTASTIC_CHANNELS; ++i) {
         result = mt_add(backup, MESH_RADIO_BACKUP_MT_CHANNEL, meshtastic_Channel_fields,
                         &settings->channels[i]);
     }
@@ -303,7 +302,7 @@ int mesh_radio_backup_meshtastic_read(const struct mesh_radio_backup *backup,
         case MESH_RADIO_BACKUP_MT_CHANNEL: {
             meshtastic_Channel channel = meshtastic_Channel_init_zero;
             ok = mt_decode(data, section->len, meshtastic_Channel_fields, &channel) &&
-                 channel.index >= 0 && (size_t)channel.index < MESH_RADIO_SETTINGS_MAX_CHANNELS;
+                 channel.index >= 0 && (size_t)channel.index < MESH_MESHTASTIC_CHANNELS;
             if (ok) {
                 mesh_radio_settings_apply_channel(settings, &channel);
             }
