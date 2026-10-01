@@ -1162,6 +1162,13 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
     dst->received_mqtt = mesh_lifetime_value(lifetime, MESH_LIFETIME_RECEIVED_MQTT);
     dst->direct_received_private =
         mesh_lifetime_value(lifetime, MESH_LIFETIME_DIRECT_RECEIVED_PRIVATE);
+    struct mesh_lifetime_contact contact;
+    if (mesh_lifetime_most_messaged(lifetime, &contact)) {
+        mesh_app_format_peer_name(status, contact.node, dst->most_messaged,
+                                  sizeof dst->most_messaged);
+        dst->most_messaged_sent = contact.sent;
+        dst->most_messaged_received = contact.received;
+    }
     dst->messages_delivered = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_DELIVERED);
     dst->messages_failed = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_FAILED);
     dst->nodes_heard = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_NODES_HEARD);

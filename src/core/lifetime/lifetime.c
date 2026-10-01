@@ -17,6 +17,9 @@
 #define LIFETIME_SUFFIX ".stats"
 #define LIFETIME_TOTALS "totals"
 #define LIFETIME_SEEN "seen"
+#define LIFETIME_CONTACTS "contacts"
+#define LIFETIME_KEY_CONTACT "dm"
+#define LIFETIME_KEY_TOP_CONTACT "top"
 #define LIFETIME_KEY_SINCE "since"
 /* Written once the set has turned a node away, and never cleared but by a reset. The seen file
    cannot say it: a set that is full holds exactly MESH_LIFETIME_NODES_MAX nodes either way, and
@@ -708,6 +711,130 @@ static void lifetime_write_totals(FILE *file, void *context) {
     }
 }
 
+/* --------------------------------------------------------------------------- the contacts */
+
+static uint64_t lifetime_contact_total(const struct mesh_lifetime_contact *contact) {
+    return (uint64_t)contact->sent + contact->received;
+}
+
+static struct mesh_lifetime_contact *lifetime_contact(struct mesh_lifetime *lifetime,
+                                                      uint32_t node) {
+    for (uint32_t i = 0; i < lifetime->contact_count; ++i) {
+        if (lifetime->contacts[i].node == node) {
+            return &lifetime->contacts[i];
+        }
+    }
+    return NULL;
+}
+
+/* A slot for a contact not in the table: a free one, or the least messaged - never the most
+   messaged, which a table of ties would otherwise give up first. The new contact starts from 0. */
+static struct mesh_lifetime_contact *lifetime_contact_slot(struct mesh_lifetime *lifetime,
+                                                           uint32_t node) {
+    struct mesh_lifetime_contact *slot = NULL;
+    if (lifetime->contact_count < MESH_LIFETIME_CONTACTS_MAX) {
+        slot = &lifetime->contacts[lifetime->contact_count++];
+    } else {
+        for (uint32_t i = 0; i < lifetime->contact_count; ++i) {
+            struct mesh_lifetime_contact *candidate = &lifetime->contacts[i];
+            if (candidate->node != lifetime->top_contact &&
+                (slot == NULL ||
+                 lifetime_contact_total(candidate) < lifetime_contact_total(slot))) {
+                slot = candidate;
+            }
+        }
+    }
+    if (slot != NULL) {
+        *slot = (struct mesh_lifetime_contact){.node = node};
+    }
+    return slot;
+}
+
+/* The most messaged, from the table alone: the first of the largest, which is the order the
+   table is in on the card. For a card whose `top` line is missing or names nobody it holds. */
+static void lifetime_settle_top_contact(struct mesh_lifetime *lifetime) {
+    if (lifetime->top_contact != 0U && lifetime_contact(lifetime, lifetime->top_contact) != NULL) {
+        return;
+    }
+    lifetime->top_contact = 0U;
+    uint64_t best = 0U;
+    for (uint32_t i = 0; i < lifetime->contact_count; ++i) {
+        const uint64_t total = lifetime_contact_total(&lifetime->contacts[i]);
+        if (total > best) {
+            best = total;
+            lifetime->top_contact = lifetime->contacts[i].node;
+        }
+    }
+}
+
+/* One direct message exchanged with `node`, either way. */
+static void lifetime_note_contact(struct mesh_lifetime *lifetime, uint32_t node, bool outbound) {
+    if (node == 0U || node == MESH_MESSAGE_BROADCAST_ADDR) {
+        return;
+    }
+    struct mesh_lifetime_contact *contact = lifetime_contact(lifetime, node);
+    if (contact == NULL) {
+        contact = lifetime_contact_slot(lifetime, node);
+    }
+    if (contact == NULL) {
+        return;
+    }
+    uint32_t *const count = outbound ? &contact->sent : &contact->received;
+    if (*count < UINT32_MAX) {
+        (*count)++;
+    }
+    struct mesh_lifetime_contact *const top = lifetime_contact(lifetime, lifetime->top_contact);
+    if (top == NULL || lifetime_contact_total(contact) > lifetime_contact_total(top)) {
+        lifetime->top_contact = node;
+    }
+    lifetime->contacts_dirty = true;
+    lifetime->dirty = true;
+    lifetime_changed(lifetime);
+}
+
+static void lifetime_write_contacts(FILE *file, void *context) {
+    const struct mesh_lifetime *lifetime = context;
+    if (lifetime->top_contact != 0U) {
+        fprintf(file, "%s=%08" PRIx32 "\n", LIFETIME_KEY_TOP_CONTACT, lifetime->top_contact);
+    }
+    for (uint32_t i = 0; i < lifetime->contact_count; ++i) {
+        const struct mesh_lifetime_contact *contact = &lifetime->contacts[i];
+        fprintf(file, "%s=%08" PRIx32 ":%" PRIu32 ":%" PRIu32 "\n", LIFETIME_KEY_CONTACT,
+                contact->node, contact->sent, contact->received);
+    }
+}
+
+/* "<node hex>:<sent>:<received>" into a contact; a node already read keeps its first line. */
+static void lifetime_read_contacts(void *context, const char *key, char *value) {
+    struct mesh_lifetime *lifetime = context;
+    if (strcmp(key, LIFETIME_KEY_TOP_CONTACT) == 0) {
+        uint64_t node = 0U;
+        if (lifetime_parse_number(value, 16, UINT32_MAX, &node)) {
+            lifetime->top_contact = (uint32_t)node;
+        }
+        return;
+    }
+    if (strcmp(key, LIFETIME_KEY_CONTACT) != 0 ||
+        lifetime->contact_count >= MESH_LIFETIME_CONTACTS_MAX) {
+        return;
+    }
+    char *const second = strrchr(value, ':');
+    if (second == NULL) {
+        return;
+    }
+    *second = '\0';
+    uint32_t node = 0U;
+    uint32_t sent = 0U;
+    uint64_t received = 0U;
+    if (!lifetime_parse_pair(value, &node, &sent) ||
+        !lifetime_parse_number(second + 1, 10, UINT32_MAX, &received) ||
+        node == MESH_MESSAGE_BROADCAST_ADDR || lifetime_contact(lifetime, node) != NULL) {
+        return;
+    }
+    lifetime->contacts[lifetime->contact_count++] =
+        (struct mesh_lifetime_contact){.node = node, .sent = sent, .received = (uint32_t)received};
+}
+
 /* ------------------------------------------------------------------------------- the API */
 
 int mesh_lifetime_init(struct mesh_lifetime *lifetime, const char *dir) {
@@ -731,6 +858,12 @@ int mesh_lifetime_init(struct mesh_lifetime *lifetime, const char *dir) {
         inkwell_log_warn("lifetime", "Could not read the seen file: %d", result);
     }
     lifetime_recount_traits(lifetime);
+    result = inkstand_journal_read(&lifetime->journal, LIFETIME_CONTACTS, line, sizeof line,
+                                   lifetime_read_contacts, lifetime);
+    if (result < 0 && result != -ENOENT) {
+        inkwell_log_warn("lifetime", "Could not read the contacts: %d", result);
+    }
+    lifetime_settle_top_contact(lifetime);
     lifetime_note_since(lifetime);
     return opened;
 }
@@ -857,6 +990,7 @@ static void lifetime_observe_message(struct mesh_lifetime *lifetime,
     if (direct) {
         lifetime_bump(lifetime,
                       outbound ? MESH_LIFETIME_DIRECT_SENT : MESH_LIFETIME_DIRECT_RECEIVED);
+        lifetime_note_contact(lifetime, outbound ? message->to : message->from, outbound);
     }
     if (outbound) {
         return;
@@ -1213,6 +1347,22 @@ size_t mesh_lifetime_top(const struct mesh_lifetime *lifetime, enum mesh_lifetim
     return filled;
 }
 
+bool mesh_lifetime_most_messaged(const struct mesh_lifetime *lifetime,
+                                 struct mesh_lifetime_contact *out) {
+    if (lifetime == NULL || lifetime->top_contact == 0U) {
+        return false;
+    }
+    for (uint32_t i = 0; i < lifetime->contact_count; ++i) {
+        if (lifetime->contacts[i].node == lifetime->top_contact) {
+            if (out != NULL) {
+                *out = lifetime->contacts[i];
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 bool mesh_lifetime_complete(const struct mesh_lifetime *lifetime) {
     return lifetime != NULL && !lifetime->full;
 }
@@ -1229,12 +1379,23 @@ int mesh_lifetime_flush(struct mesh_lifetime *lifetime) {
         return 0;
     }
     const int seen = lifetime_retry_seen(lifetime);
+    int contacts = 0;
+    if (lifetime->contacts_dirty) {
+        contacts = inkstand_journal_replace(&lifetime->journal, LIFETIME_CONTACTS,
+                                            lifetime_write_contacts, lifetime);
+        if (contacts == 0) {
+            lifetime->contacts_dirty = false;
+        }
+    }
     const int result = inkstand_journal_replace(&lifetime->journal, LIFETIME_TOTALS,
                                                 lifetime_write_totals, lifetime);
-    if (result == 0 && seen == 0) {
+    if (result == 0 && seen == 0 && contacts == 0) {
         lifetime->dirty = false;
     }
-    return result < 0 ? result : seen;
+    if (result < 0) {
+        return result;
+    }
+    return seen < 0 ? seen : contacts;
 }
 
 int mesh_lifetime_reset(struct mesh_lifetime *lifetime) {

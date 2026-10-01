@@ -2558,6 +2558,11 @@ MESH_STR_ENTRY(STATS_MESSAGES_RECEIVED,   "Received")
 /* Messages to or from one node rather than to a whole channel. */
 MESH_STR_ENTRY(STATS_DIRECT_SENT,         "Direct sent")
 MESH_STR_ENTRY(STATS_DIRECT_RECEIVED,     "Direct received")
+/* The node this client has exchanged the most direct messages with. */
+MESH_STR_ENTRY(STATS_MOST_MESSAGED,       "Most messaged")
+/* Its value: the node's name, then how many direct messages went between us, both ways together.
+   Reorder to suit; keep the name and the number. */
+MESH_STR_ENTRY(STATS_MOST_MESSAGED_VALUE, "%s, %llu")
 /* Tapbacks: an emoji sent in answer to one message. */
 MESH_STR_ENTRY(STATS_REACTIONS_SENT,      "Reactions sent")
 MESH_STR_ENTRY(STATS_REACTIONS_RECEIVED,  "Reactions received")

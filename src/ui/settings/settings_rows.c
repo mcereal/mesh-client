@@ -3490,6 +3490,21 @@ static void stats_tally_rows(struct item_list *list, inkcell_str_id heading,
     }
 }
 
+/* Who this client has messaged most, and how many direct messages that was both ways together -
+   one number, since the rows above already split sent from received. */
+static void stats_most_messaged_row(struct item_list *list,
+                                    const struct mesh_ui_lifetime_stats *stats) {
+    if (stats->most_messaged[0] == '\0') {
+        item_str(list, MESH_STR_STATS_MOST_MESSAGED, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
+        return;
+    }
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    inkcell_str_format(
+        value, sizeof value, MESH_STR_STATS_MOST_MESSAGED_VALUE, stats->most_messaged,
+        (unsigned long long)(stats->most_messaged_sent + stats->most_messaged_received));
+    item_text(list, MESH_STR_STATS_MOST_MESSAGED, INKSTAND_FORM_INFO, value);
+}
+
 /* The day the stats started counting, or that they cannot say: a device that has never had a
    clock counts exactly the same and has no day to name. A calendar day and no time - to the
    minute it is only the moment a clock first became credible, which nobody asked. */
@@ -3560,6 +3575,7 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     stats_count_row(list, MESH_STR_STATS_MESSAGES_RECEIVED, stats->messages_received);
     stats_count_row(list, MESH_STR_STATS_DIRECT_SENT, stats->direct_sent);
     stats_count_row(list, MESH_STR_STATS_DIRECT_RECEIVED, stats->direct_received);
+    stats_most_messaged_row(list, stats);
     stats_count_row(list, MESH_STR_STATS_REACTIONS_SENT, stats->reactions_sent);
     stats_count_row(list, MESH_STR_STATS_REACTIONS_RECEIVED, stats->reactions_received);
     stats_count_row(list, MESH_STR_STATS_RECEIVED_MQTT, stats->received_mqtt);
