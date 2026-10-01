@@ -89,6 +89,9 @@ enum mesh_meshcore_cmd {
        mesh_meshcore_req_type. Answered by a BINARY_RESPONSE carrying the tag SENT named. */
     MESH_MESHCORE_CMD_SEND_BINARY_REQ = 50,
     MESH_MESHCORE_CMD_SEND_PATH_DISCOVERY_REQ = 52,
+    /* The radio's own counters, one kind at a time (enum mesh_meshcore_stats_type); older
+       firmware than companion v8 refuses it. */
+    MESH_MESHCORE_CMD_GET_STATS = 56,
     /* Which heard nodes the radio adds by itself (1.12 on; older firmware refuses both). */
     MESH_MESHCORE_CMD_SET_AUTOADD_CONFIG = 58,
     MESH_MESHCORE_CMD_GET_AUTOADD_CONFIG = 59,
@@ -113,8 +116,23 @@ enum mesh_meshcore_resp {
     MESH_MESHCORE_RESP_CONTACT_MSG_RECV_V3 = 16,
     MESH_MESHCORE_RESP_CHANNEL_MSG_RECV_V3 = 17,
     MESH_MESHCORE_RESP_CHANNEL_INFO = 18,
+    MESH_MESHCORE_RESP_STATS = 24,
     MESH_MESHCORE_RESP_AUTOADD_CONFIG = 25,
     MESH_MESHCORE_RESP_CHANNEL_DATA_RECV = 27,
+};
+
+/*
+ * GET_STATS' second byte, echoed as STATS' second byte. Everything after it is little-endian:
+ *   CORE     battery mV u16, uptime s u32, error flags u16, transmit queue u8
+ *   RADIO    noise floor dBm i16, last RSSI i8, last SNR x4 i8, transmit s u32, receive s u32
+ *   PACKETS  received, sent, sent flood, sent direct, received flood, received direct u32, and
+ *            receive errors u32 on a firmware that counts them
+ * Both airtimes count from boot, as the uptime does.
+ */
+enum mesh_meshcore_stats_type {
+    MESH_MESHCORE_STATS_CORE = 0,
+    MESH_MESHCORE_STATS_RADIO = 1,
+    MESH_MESHCORE_STATS_PACKETS = 2,
 };
 
 enum mesh_meshcore_push {
@@ -487,6 +505,13 @@ uint32_t mesh_meshcore_node_id(const uint8_t *key, size_t key_len);
 #define MESH_MESHCORE_COMMAND_LATE_MS 60000U
 /* How many times a direct message is tried before it is marked failed; the last goes flooded. */
 #define MESH_MESHCORE_SEND_ATTEMPTS 3U
+/* How often the radio is asked for its battery and counters once synced. It never volunteers
+   them, as a Meshtastic radio does LocalStats. */
+#define MESH_MESHCORE_STATS_INTERVAL_MS 60000U
+/* Airtime readings kept to work out a share from: the counters are whole seconds since boot,
+   so a share over one minute moves in steps of almost two percent, and over ten it reads as
+   Meshtastic's does. One more than the intervals it spans. */
+#define MESH_MESHCORE_AIRTIME_READINGS 11U
 
 enum mesh_meshcore_phase {
     MESH_MESHCORE_IDLE = 0,
@@ -639,6 +664,33 @@ struct mesh_meshcore {
     struct mesh_meshcore_notice notice_log[MESH_MESHCORE_NOTICES_KEPT];
     bool battery_valid;
     uint16_t battery_mv;
+    /*
+     * GET_STATS, asked with the battery every MESH_MESHCORE_STATS_INTERVAL_MS from `stats_due_ms`
+     * (0 until the sync is through), and never again on this connection once refused. A poll's
+     * answers are staged in `stats_poll` - `parts` a bit per kind answered - and reach the model's
+     * `stats` together when PACKETS completes them: the store takes a chart sample each time a
+     * valid record changes, and a record changed a reply at a time is three samples, two of them
+     * half one reading and half the last. `airtime` is the readings the shares are worked out
+     * over, oldest first.
+     */
+    bool stats_refused;
+    uint64_t stats_due_ms;
+    struct {
+        uint8_t parts;
+        uint32_t uptime_secs;
+        int16_t noise_floor;
+        uint32_t tx_secs;
+        uint32_t rx_secs;
+        bool has_storage;
+        uint32_t storage_used_kb;
+        uint32_t storage_total_kb;
+    } stats_poll;
+    struct mesh_meshcore_airtime {
+        uint32_t uptime_secs;
+        uint32_t tx_secs;
+        uint32_t rx_secs;
+    } airtime[MESH_MESHCORE_AIRTIME_READINGS];
+    size_t airtime_count;
     /*
      * GET_AUTOADD_CONFIG, read once the handshake is through: which kinds of heard node the
      * radio adds while `manual_add_contacts` is set (MESH_MESHCORE_AUTOADD_*), whether it

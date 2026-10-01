@@ -693,6 +693,7 @@ MESH_STR_ENTRY(STATUS_LABEL_PACKETS,      "Packets")
 MESH_STR_ENTRY(STATUS_LABEL_SENT,         "Sent")
 MESH_STR_ENTRY(STATUS_LABEL_HEARD,        "Heard")
 MESH_STR_ENTRY(STATUS_LABEL_HEAP,         "Heap")
+MESH_STR_ENTRY(STATUS_LABEL_STORAGE,      "Storage")
 MESH_STR_ENTRY(STATUS_LABEL_TX_QUEUE,     "TX queue")
 MESH_STR_ENTRY(STATUS_LABEL_RADIO_SAID,   "Radio said")
 MESH_STR_ENTRY(STATUS_LABEL_REBOOTS,      "Reboots")
@@ -744,6 +745,8 @@ MESH_STR_ENTRY(STATUS_PERCENT,            "%.1f%%")
 MESH_STR_ENTRY(STATUS_BATTERY_USB,        "plugged in")
 MESH_STR_ENTRY(STATUS_BATTERY_PERCENT,    "%u%%")
 MESH_STR_ENTRY(STATUS_BATTERY_UNKNOWN,    "unknown")
+/* A radio that reports its battery only as a voltage, as a MeshCore one does. */
+MESH_STR_ENTRY(STATUS_BATTERY_VOLTS,      "%.2f V")
 MESH_STR_ENTRY(STATUS_UPTIME_SUFFIX,      ", up %s")
 /* The transmit side, whole: everything we put on the air, how much of it was a relay for
    somebody else, and how much the radio could not send because its queue was full. No bar
@@ -756,6 +759,13 @@ MESH_STR_ENTRY(STATUS_SENT,               "%u tx, %u relayed, %u dropped")
    their sum and the length of that bar, which is why it is not a fourth number here. */
 MESH_STR_ENTRY(STATUS_HEARD,              "%u new, %u dupe, %u bad")
 MESH_STR_ENTRY(STATUS_HEAP,               "%u KB free of %u KB")
+/* A MeshCore radio's two rows in place of the pair above: its totals, and how many of them
+   went flooded or along a known route. It keeps no relayed, dropped or duplicate counts,
+   and what it received is more than the packets it routed, so no bar either. */
+MESH_STR_ENTRY(STATUS_SENT_ROUTES,        "%u (%u flood, %u direct)")
+MESH_STR_ENTRY(STATUS_HEARD_ROUTES,       "%u (%u flood, %u direct), %u bad")
+/* A MeshCore radio's filesystem, where its contacts and channels live. */
+MESH_STR_ENTRY(STATUS_STORAGE,            "%u KB used of %u KB")
 MESH_STR_ENTRY(STATUS_MESH_NO_REPORT,     "no report yet")
 /* The same, on the Radio card: every row there appears only when the radio has said
    something about itself, so a radio that has said nothing leaves it empty. The card

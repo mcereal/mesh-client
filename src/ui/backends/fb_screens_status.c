@@ -605,64 +605,80 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
          * card's TX queue row goes to the error family the moment the radio is refusing sends
          * *now*, which is the alarm. This is the tally, and a tally's job is proportion.
          */
-        inkcell_fb_card_row(&card,
-                            (uint64_t)stats->num_tx_dropped * 100U > stats->num_packets_tx
-                                ? INKCELL_TONE_WARNING
-                                : INKCELL_TONE_NORMAL,
-                            MESH_STR_STATUS_LABEL_SENT, MESH_STR_STATUS_SENT, stats->num_packets_tx,
-                            stats->num_tx_relay, stats->num_tx_dropped);
-        /*
-         * And the receive side, which is a partition and so gets the picture.
-         *
-         * Upstream's own comment on the duplicate counter is "if this number is high, there are
-         * nodes in the mesh relaying packets when it's unnecessary", and high is a property of a
-         * *share*: 4,812 duplicates is a busy mesh or a broken one depending entirely on what
-         * the other number is. Three lengths beside each other answer that without arithmetic,
-         * which is the airtime bar's argument on a whole with more than one part in it.
-         *
-         * The received total is not a fourth number on the row. It is the sum of the three, and
-         * it is the length of the bar underneath - so stating it as well would be the row saying
-         * one thing twice, which is what the row this replaced was doing three rows up.
-         *
-         * The tone is read off the share, for the same reason the bar exists at all. It was an
-         * absolute count on the Dropped row: twelve malformed packets in six thousand lit a
-         * warning that then stayed lit for the life of the connection. A mesh where most of what
-         * arrives is not new is the thing worth colouring, and that is a ratio. Half is the
-         * threshold because it is the one a reader can check against the bar with no arithmetic
-         * at all - the first slice is shorter than the rest of the track.
-         *
-         * And the partition is checked rather than assumed. Two counters off the air have no
-         * promise of agreeing with a third: a firmware that counted duplicates outside its
-         * received total, or a report that arrived across a counter reset, would leave the
-         * remainder negative - and clamped to zero it would draw a bar claiming every packet the
-         * radio heard was bad. The row and its bar are skipped instead, which leaves the Sent
-         * row above saying what it always said.
-         */
-        /*
-         * Both share tests are done 64 bits wide, and so is the sum feeding this one. These are
-         * `uint32_t` off the air multiplied by a constant, so a share written at the counters'
-         * own width wraps at a total the wire can perfectly well carry - `dropped * 100` at 43
-         * million and `not_new * 2` at two billion - and a wrapped product does not fail loudly.
-         * It compares small, so the row goes back to its resting colour at exactly the totals
-         * that earned the warning. The widening is the cheapest thing on this screen and it is
-         * the difference between a tone that is wrong and a tone that is quietly wrong.
-         *
-         * The sum is the same argument one step earlier: `rx_bad + rx_dupe` at 32 bits can wrap
-         * to a *small* number, which then passes the partition check below and draws a bar with
-         * a remainder computed from a total that never happened.
-         */
-        const uint32_t heard = stats->num_packets_rx;
-        const uint64_t not_new = (uint64_t)stats->num_packets_rx_bad + stats->num_rx_dupe;
-        if (heard > 0U && not_new <= heard) {
-            const uint32_t parts[] = {heard - (uint32_t)not_new, stats->num_rx_dupe,
-                                      stats->num_packets_rx_bad};
-            inkcell_fb_card_row(
-                &card, not_new * 2U > heard ? INKCELL_TONE_WARNING : INKCELL_TONE_NORMAL,
-                MESH_STR_STATUS_LABEL_HEARD, MESH_STR_STATUS_HEARD, parts[0], parts[1], parts[2]);
-            /* No label: the row it sits under names all three parts, in this order, and that
-               correspondence is the only legend a bar in a row's height has room for. */
-            inkcell_fb_card_proportion(&card, INKCELL_TONE_NORMAL, INKCELL_STR_NONE, parts,
-                                       (uint32_t)(sizeof parts / sizeof parts[0]));
+        if (stats->has_routes) {
+            /* A MeshCore radio's pair: totals and routing, with no partition to draw. Only the
+               bad share is coloured, on the threshold the Heard row below uses. */
+            inkcell_fb_card_row(&card, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_SENT,
+                                MESH_STR_STATUS_SENT_ROUTES, stats->num_packets_tx,
+                                stats->sent_flood, stats->sent_direct);
+            inkcell_fb_card_row(&card,
+                                (uint64_t)stats->num_packets_rx_bad * 2U > stats->num_packets_rx
+                                    ? INKCELL_TONE_WARNING
+                                    : INKCELL_TONE_NORMAL,
+                                MESH_STR_STATUS_LABEL_HEARD, MESH_STR_STATUS_HEARD_ROUTES,
+                                stats->num_packets_rx, stats->recv_flood, stats->recv_direct,
+                                stats->num_packets_rx_bad);
+        } else {
+            inkcell_fb_card_row(&card,
+                                (uint64_t)stats->num_tx_dropped * 100U > stats->num_packets_tx
+                                    ? INKCELL_TONE_WARNING
+                                    : INKCELL_TONE_NORMAL,
+                                MESH_STR_STATUS_LABEL_SENT, MESH_STR_STATUS_SENT,
+                                stats->num_packets_tx, stats->num_tx_relay, stats->num_tx_dropped);
+            /*
+             * And the receive side, which is a partition and so gets the picture.
+             *
+             * Upstream's own comment on the duplicate counter is "if this number is high, there are
+             * nodes in the mesh relaying packets when it's unnecessary", and high is a property of
+             * a *share*: 4,812 duplicates is a busy mesh or a broken one depending entirely on what
+             * the other number is. Three lengths beside each other answer that without arithmetic,
+             * which is the airtime bar's argument on a whole with more than one part in it.
+             *
+             * The received total is not a fourth number on the row. It is the sum of the three, and
+             * it is the length of the bar underneath - so stating it as well would be the row
+             * saying one thing twice, which is what the row this replaced was doing three rows up.
+             *
+             * The tone is read off the share, for the same reason the bar exists at all. It was an
+             * absolute count on the Dropped row: twelve malformed packets in six thousand lit a
+             * warning that then stayed lit for the life of the connection. A mesh where most of
+             * what arrives is not new is the thing worth colouring, and that is a ratio. Half is
+             * the threshold because it is the one a reader can check against the bar with no
+             * arithmetic at all - the first slice is shorter than the rest of the track.
+             *
+             * And the partition is checked rather than assumed. Two counters off the air have no
+             * promise of agreeing with a third: a firmware that counted duplicates outside its
+             * received total, or a report that arrived across a counter reset, would leave the
+             * remainder negative - and clamped to zero it would draw a bar claiming every packet
+             * the radio heard was bad. The row and its bar are skipped instead, which leaves the
+             * Sent row above saying what it always said.
+             */
+            /*
+             * Both share tests are done 64 bits wide, and so is the sum feeding this one. These are
+             * `uint32_t` off the air multiplied by a constant, so a share written at the counters'
+             * own width wraps at a total the wire can perfectly well carry - `dropped * 100` at 43
+             * million and `not_new * 2` at two billion - and a wrapped product does not fail
+             * loudly. It compares small, so the row goes back to its resting colour at exactly the
+             * totals that earned the warning. The widening is the cheapest thing on this screen and
+             * it is the difference between a tone that is wrong and a tone that is quietly wrong.
+             *
+             * The sum is the same argument one step earlier: `rx_bad + rx_dupe` at 32 bits can wrap
+             * to a *small* number, which then passes the partition check below and draws a bar with
+             * a remainder computed from a total that never happened.
+             */
+            const uint32_t heard = stats->num_packets_rx;
+            const uint64_t not_new = (uint64_t)stats->num_packets_rx_bad + stats->num_rx_dupe;
+            if (heard > 0U && not_new <= heard) {
+                const uint32_t parts[] = {heard - (uint32_t)not_new, stats->num_rx_dupe,
+                                          stats->num_packets_rx_bad};
+                inkcell_fb_card_row(
+                    &card, not_new * 2U > heard ? INKCELL_TONE_WARNING : INKCELL_TONE_NORMAL,
+                    MESH_STR_STATUS_LABEL_HEARD, MESH_STR_STATUS_HEARD, parts[0], parts[1],
+                    parts[2]);
+                /* No label: the row it sits under names all three parts, in this order, and that
+                   correspondence is the only legend a bar in a row's height has room for. */
+                inkcell_fb_card_proportion(&card, INKCELL_TONE_NORMAL, INKCELL_STR_NONE, parts,
+                                           (uint32_t)(sizeof parts / sizeof parts[0]));
+            }
         }
     } else if (snapshot->handshake_valid) {
         /* Standing in for the two rows above, so it carries their label rather than one naming
@@ -696,6 +712,9 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
        reason - and without this the row vanishes entirely when LocalStats has arrived but our
        node has not broadcast DeviceMetrics yet. Battery really does have only the one source. */
     const bool have_battery = metrics != NULL && metrics->has_battery;
+    /* A MeshCore radio gives a voltage and no percentage, and no curve to read one off: a board
+       on USB with no cell reads whatever its divider floats at. So the volts, uncoloured. */
+    const bool have_volts = !have_battery && metrics != NULL && metrics->has_voltage;
     const bool have_uptime = stats->valid || (metrics != NULL && metrics->has_uptime);
     const uint32_t uptime_value = stats->valid        ? stats->uptime_seconds
                                   : (metrics != NULL) ? metrics->uptime_seconds
@@ -761,9 +780,12 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
                           radio_tone == INKCELL_TONE_PRIMARY ? INKCELL_FB_CARD_OUTLINED
                                                              : INKCELL_FB_CARD_ELEVATED,
                           INKCELL_ICON_RADIO, MESH_STR_STATUS_CARD_RADIO, radio_tone);
-    if (have_battery || have_uptime) {
+    if (have_battery || have_volts || have_uptime) {
         buffer[0] = '\0';
-        if (have_battery) {
+        if (have_volts) {
+            inkcell_str_format(buffer, sizeof buffer, MESH_STR_STATUS_BATTERY_VOLTS,
+                               (double)metrics->voltage);
+        } else if (have_battery) {
             /* 101 is upstream's "running off USB", not a 101% battery. */
             if (metrics->battery_level > 100U) {
                 inkwell_str_copy(buffer, sizeof buffer, inkcell_str(MESH_STR_STATUS_BATTERY_USB));
@@ -830,6 +852,16 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
         inkcell_fb_card_row(&radio, low_heap ? INKCELL_TONE_WARNING : INKCELL_TONE_DIM,
                             MESH_STR_STATUS_LABEL_HEAP, MESH_STR_STATUS_HEAP,
                             stats->heap_free_bytes / 1024U, stats->heap_total_bytes / 1024U);
+    }
+    if (stats->has_storage && stats->storage_total_kb > 0U) {
+        /* Coloured from nine tenths, while there is still room to clear. */
+        inkcell_fb_card_row(&radio,
+                            (uint64_t)stats->storage_used_kb * 10U >
+                                    (uint64_t)stats->storage_total_kb * 9U
+                                ? INKCELL_TONE_WARNING
+                                : INKCELL_TONE_DIM,
+                            MESH_STR_STATUS_LABEL_STORAGE, MESH_STR_STATUS_STORAGE,
+                            stats->storage_used_kb, stats->storage_total_kb);
     }
     /*
      * A radio that has told us nothing about itself, said out loud.

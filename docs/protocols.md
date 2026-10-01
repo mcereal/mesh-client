@@ -262,6 +262,16 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   last advert it kept for that contact again, zero-hop, so the nodes in earshot can add a node
   they never heard. A contact added from a link has no advert kept, and the radio's refusal is
   said as a toast naming it (`share_refusals`). Meshtastic lacks `NODE_SHARE`.
+- **The radio's own counters** are `GET_STATS`, asked with `GET_BATT_AND_STORAGE` once the
+  sync is through and every minute after (`MESH_MESHCORE_STATS_INTERVAL_MS`) - a MeshCore radio
+  volunteers nothing like LocalStats. The three kinds land on the model's `stats` where
+  LocalStats does, so the Radio tab reads them unchanged: uptime, noise floor, packets. The
+  airtime counters are whole seconds since boot, so the shares are worked out over the last ten
+  minutes of readings, and "busy" is only what the radio sent and heard. It keeps no relayed,
+  dropped or duplicate counts; `has_routes` swaps those rows for its flood and direct split. The
+  battery is a voltage on our own node, shown as volts - there is no percentage to trust on a
+  board whose divider floats on USB - and the filesystem is a Storage row. A firmware older than
+  companion v8 refuses `GET_STATS` once and is then asked for the battery alone.
 - **A path discovery** is `SEND_PATH_DISCOVERY_REQ` by the whole key, flooded, answered by
   `PATH_DISCOVERY_RESPONSE`: the path our flood took out and the path the answer took back, each
   a length byte (hop count in the low six bits, bytes per hop less one in the top two) and the

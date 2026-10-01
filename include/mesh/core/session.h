@@ -375,6 +375,18 @@ struct mesh_radio_stats {
     uint32_t heap_free_bytes;
     bool has_noise_floor;
     int32_t noise_floor; /* dBm */
+    /* A MeshCore radio's split of its traffic by how it was routed, in place of Meshtastic's
+       relayed and dropped counts, which it does not keep. */
+    bool has_routes;
+    uint32_t sent_flood;
+    uint32_t sent_direct;
+    uint32_t recv_flood;
+    uint32_t recv_direct;
+    /* The radio's filesystem, where a MeshCore radio keeps its contacts and channels. Set apart
+       from `valid`: a firmware too old for its counters still answers this. */
+    bool has_storage;
+    uint32_t storage_used_kb;
+    uint32_t storage_total_kb;
 };
 
 struct mesh_node_summary {
