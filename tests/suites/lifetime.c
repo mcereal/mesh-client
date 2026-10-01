@@ -617,9 +617,9 @@ MESH_TEST_CASE(lifetime_holder_lines_survive_an_older_build, unit) {
             fits && key_len < MESH_LIFETIME_FOREIGN_KEY && value_len < MESH_LIFETIME_FOREIGN_VALUE;
     }
     fclose(file);
-    /* Heard straight to us, so the one hearing set all three distance and hop records: three
-       lines each. */
-    MESH_TEST_FAIL_IF(holder_lines != 9U, "a record's holder is three lines");
+    /* Heard straight to us, so the one hearing set all three distance and hop records, and as
+       the node's first hearing on a credible clock the longest known as well: three lines each. */
+    MESH_TEST_FAIL_IF(holder_lines != 12U, "a record's holder is three lines");
     MESH_TEST_FAIL_IF(!fits, "every holder line should fit an older build's foreign key");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
@@ -1579,6 +1579,381 @@ MESH_TEST_CASE(lifetime_a_late_radio_names_the_record_its_link_set, unit) {
     MESH_TEST_FAIL_IF(
         mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S, NULL, NULL),
         "a link that only tied the record does not take it");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* A node as it introduces itself: the hardware it runs on and the role it was given. */
+static struct mesh_node_summary lt_introduced(uint32_t id, uint32_t model, uint32_t role) {
+    struct mesh_node_summary node = lt_summary(id);
+    node.has_user = true;
+    node.hw_model = model;
+    node.role = role;
+    return node;
+}
+
+/* The tally's first `n` rows are these (value, count) pairs, in order, and there are no more. */
+static bool lt_top_is(enum mesh_lifetime_trait trait, const uint32_t *pairs, size_t n) {
+    struct mesh_lifetime_share top[8];
+    const size_t got = mesh_lifetime_top(&g_lifetime, trait, top, 8U);
+    if (got != n) {
+        return false;
+    }
+    for (size_t i = 0; i < n; ++i) {
+        if (top[i].value != pairs[i * 2U] || top[i].count != pairs[i * 2U + 1U]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+MESH_TEST_CASE(lifetime_tallies_what_the_nodes_heard_are, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    const uint32_t heltec = meshtastic_HardwareModel_HELTEC_V3;
+    const uint32_t tbeam = meshtastic_HardwareModel_TBEAM;
+    const uint32_t router = meshtastic_Config_DeviceConfig_Role_ROUTER;
+    const uint32_t client = meshtastic_Config_DeviceConfig_Role_CLIENT;
+
+    struct mesh_node_summary a = lt_introduced(0x2001U, tbeam, client);
+    struct mesh_node_summary b = lt_introduced(0x2002U, heltec, router);
+    struct mesh_node_summary c = lt_introduced(0x2003U, heltec, client);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &a, false, false, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &b, true, false, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_LISTED, &c, false, false, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &c, false, false, 0U);
+    const uint32_t models[] = {heltec, 2U, tbeam, 1U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_MODEL, models, 2U),
+                      "two of one model and one of the other, however each was heard");
+    const uint32_t roles[] = {client, 2U, router, 1U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_ROLE, roles, 2U), "and the roles likewise");
+
+    /* A node that has not introduced itself has a role of 0 that is only a default. */
+    struct mesh_node_summary stranger = lt_summary(0x2004U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &stranger, false, false, 0U);
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_ROLE, roles, 2U),
+                      "a node with no User is no client");
+
+    /* A role changed moves the node rather than counting it twice. */
+    b.role = client;
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &b, false, false, 0U);
+    const uint32_t moved[] = {client, 3U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_ROLE, moved, 1U),
+                      "the router became a client");
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "role") != 4U, "a role line each time one was learned");
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &b, false, false, 0U);
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "role") != 4U, "and none for one heard again unchanged");
+
+    /* Our own radio is no node we heard, whatever it runs on. */
+    struct mesh_node_summary ours = lt_introduced(LT_US, tbeam, client);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &ours, false, false, 0U);
+    mesh_lifetime_note_radio(&g_lifetime, LT_US);
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_MODEL, models, 2U),
+                      "our radio leaves the tally once it is known to be ours");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_MODEL, models, 2U) ||
+                          !lt_top_is(MESH_LIFETIME_TRAIT_ROLE, moved, 1U),
+                      "the tallies survive a restart, with the newest role");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(lifetime_a_tally_is_cut_to_its_most_common, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    /* Models 1 to 5, model n on n nodes - and model 6 on as many as model 5, which it ties. */
+    uint32_t id = 0x3000U;
+    for (uint32_t model = 1U; model <= 6U; ++model) {
+        for (uint32_t n = 0; n < (model == 6U ? 5U : model); ++n) {
+            struct mesh_node_summary node = lt_introduced(++id, model, 0U);
+            lt_node(MESH_SESSION_EVENT_NODE_HEARD, &node, false, false, 0U);
+        }
+    }
+    struct mesh_lifetime_share top[3];
+    MESH_TEST_FAIL_IF(mesh_lifetime_top(&g_lifetime, MESH_LIFETIME_TRAIT_MODEL, top, 3U) != 3U,
+                      "three asked for, three answered");
+    MESH_TEST_FAIL_IF(top[0].value != 5U || top[0].count != 5U || top[1].value != 6U ||
+                          top[1].count != 5U || top[2].value != 4U || top[2].count != 4U,
+                      "most first, a tie to the lower value");
+    MESH_TEST_FAIL_IF(mesh_lifetime_top(&g_lifetime, MESH_LIFETIME_TRAIT_MODEL, top, 0U) != 0U,
+                      "nothing asked for, nothing written");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* The newest line wins, a malformed one is skipped, and a trait is not a hearing. */
+MESH_TEST_CASE(lifetime_reads_trait_lines_back, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    char path[128];
+    snprintf(path, sizeof path, "%s/seen.stats", dir);
+    FILE *file = fopen(path, "w");
+    MESH_TEST_FAIL_IF(file == NULL, "could not write the seen file");
+    fputs("heard=00002222\nmodel=00002222:43\nrole=00002222:2\nmodel=00002222:4\n"
+          "model=zz:4\nmodel=00002222:\nmodel=00002222:0\nmodel=00002222:256\nrole=00002222:-1\n"
+          "role=00003333:0\nmodel=0000",
+          file);
+    fclose(file);
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    const uint32_t models[] = {4U, 1U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_MODEL, models, 1U), "the later model wins");
+    const uint32_t roles[] = {0U, 1U, 2U, 1U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_ROLE, roles, 2U),
+                      "a role of 0 is a role once it is written down");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 1U,
+                      "a node known only by its trait is not a node heard");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(lifetime_a_failed_trait_append_is_retried, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "could not take the directory away");
+
+    peer = lt_introduced(LT_PEER, meshtastic_HardwareModel_RAK4631, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    MESH_TEST_FAIL_IF(g_lifetime.pending != 1U || !mesh_lifetime_dirty(&g_lifetime),
+                      "the trait waits for a flush that can write it");
+    MESH_TEST_FAIL_IF(mkdir(dir, 0700) != 0, "could not restore the directory");
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0 || g_lifetime.pending != 0U,
+                      "the next flush writes it");
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "model") != 1U || lt_seen_lines(dir, "role") != 1U ||
+                          lt_seen_lines(dir, "heard") != 0U,
+                      "the traits alone, since the hearing was written before the card went");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    const uint32_t models[] = {meshtastic_HardwareModel_RAK4631, 1U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_MODEL, models, 1U), "and they are read back");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* Known since the first hearing, measured each time our radio hears the node again. */
+MESH_TEST_CASE(lifetime_longest_acquaintance_runs_from_the_first_hearing, unit) {
+    char dir[64];
+    const uint32_t day0 = 1750000000U;
+    inkwell_time_wall_set_fixed(day0);
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    const enum mesh_lifetime_stat known = MESH_LIFETIME_LONGEST_KNOWN_S;
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    struct mesh_node_summary other = lt_summary(LT_OTHER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "first") != 1U, "the first hearing is written down");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, known) ||
+                          mesh_lifetime_value(&g_lifetime, known) != 0U,
+                      "a node met today has been known for no time at all");
+
+    inkwell_time_wall_set_fixed(day0 + 86400U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &other, false, false, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, known) != 86400U ||
+                          !mesh_lifetime_holder(&g_lifetime, known, &holder, NULL) ||
+                          holder != LT_PEER,
+                      "heard again a day on, it has been known a day");
+    MESH_TEST_FAIL_IF(lt_seen_lines(dir, "first") != 2U, "and a hearing again writes no day");
+
+    inkwell_time_wall_set_fixed(day0 + 2U * 86400U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, true, false, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_LISTED, &peer, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, known) != 86400U,
+                      "a node bridged or listed is not one our radio still hears");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    inkwell_time_wall_set_fixed(day0 + 3U * 86400U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &other, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, known) != 2U * 86400U ||
+                          !mesh_lifetime_holder(&g_lifetime, known, &holder, NULL) ||
+                          holder != LT_OTHER,
+                      "the first day survives a restart, and the node met second can overtake");
+    inkwell_time_wall_set_fixed(0U);
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* A day nobody wrote down is never made up: no clock then, an older card, or one of our radios. */
+MESH_TEST_CASE(lifetime_acquaintance_needs_a_day_it_was_first_heard, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    char path[128];
+    snprintf(path, sizeof path, "%s/seen.stats", dir);
+    FILE *file = fopen(path, "w");
+    MESH_TEST_FAIL_IF(file == NULL, "could not write the seen file");
+    fputs("heard=00004444\nfirst=00005555:86400\nfirst=00006666:zz\n", file);
+    fclose(file);
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    lt_session(0, 0);
+    const enum mesh_lifetime_stat known = MESH_LIFETIME_LONGEST_KNOWN_S;
+    const unsigned handwritten = lt_seen_lines(dir, "first");
+
+    inkwell_time_wall_set_fixed(86400U); /* a Brick that has never been set */
+    struct mesh_node_summary unset = lt_summary(LT_PEER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &unset, false, false, 0U);
+    inkwell_time_wall_set_fixed(1750000000U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &unset, false, false, 0U);
+    struct mesh_node_summary older = lt_summary(0x4444U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &older, false, false, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, known) ||
+                          lt_seen_lines(dir, "first") != handwritten,
+                      "no clock at the first hearing, an older card: neither is a day");
+    struct mesh_node_summary epoch = lt_summary(0x5555U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &epoch, false, false, 0U);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, known) ||
+                          lt_seen_lines(dir, "first") != handwritten + 1U,
+                      "a 1970 day on the card is none, so the node is first heard now");
+
+    /* One of our radios, heard first and only then attached. */
+    struct mesh_node_summary ours = lt_summary(LT_US);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &ours, false, false, 0U);
+    mesh_lifetime_note_radio(&g_lifetime, LT_US);
+    inkwell_time_wall_set_fixed(1760000000U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &ours, false, false, 0U);
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(!mesh_lifetime_holder(&g_lifetime, known, &holder, NULL) || holder != 0x5555U,
+                      "our own radio holds none of it");
+    inkwell_time_wall_set_fixed(0U);
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* Who this client has messaged most, as direct messages both ways - and only those. */
+MESH_TEST_CASE(lifetime_most_messaged_counts_direct_messages_both_ways, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    MESH_TEST_FAIL_IF(mesh_lifetime_most_messaged(&g_lifetime, NULL), "nobody messaged yet");
+
+    lt_message(LT_US, LT_PEER, MESH_MESSAGE_OUTBOUND, false);
+    lt_message(LT_US, LT_PEER, MESH_MESSAGE_OUTBOUND, false);
+    lt_message(LT_OTHER, LT_US, MESH_MESSAGE_INBOUND, false);
+    lt_message(LT_US, MESH_MESSAGE_BROADCAST_ADDR, MESH_MESSAGE_OUTBOUND, false);
+    lt_message(LT_OTHER, LT_US, MESH_MESSAGE_INBOUND, true);
+    struct mesh_lifetime_contact top;
+    MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != LT_PEER ||
+                          top.count != 2U,
+                      "two sent beats one received; a broadcast and a reaction are neither");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 0U,
+                      "a node messaged is not thereby a node heard");
+
+    lt_message(LT_OTHER, LT_US, MESH_MESSAGE_INBOUND, false);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != LT_PEER,
+                      "a tie keeps the contact that reached it first");
+    lt_message(LT_US, LT_OTHER, MESH_MESSAGE_OUTBOUND, false);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != LT_OTHER ||
+                          top.count != 3U,
+                      "and gives it up when overtaken, counting both ways");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0 || mesh_lifetime_dirty(&g_lifetime),
+                      "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != LT_OTHER ||
+                          top.count != 3U,
+                      "the counts survive a restart");
+    lt_session(0, 0);
+    lt_message(LT_PEER, LT_US, MESH_MESSAGE_INBOUND, false);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != LT_OTHER,
+                      "and so does who reached the tie first");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_reset(&g_lifetime) != 0, "the reset failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_most_messaged(&g_lifetime, NULL), "a reset forgets them");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* However many contacts there have been, each keeps its whole count: one met again among
+   hundreds of one-off contacts is still the most messaged. */
+MESH_TEST_CASE(lifetime_most_messaged_is_exact_among_many_contacts, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    for (uint32_t i = 0; i < 1000U; ++i) {
+        lt_message(LT_US, 0x10000U + i, MESH_MESSAGE_OUTBOUND, false);
+    }
+    struct mesh_lifetime_contact top;
+    MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != 0x10000U,
+                      "a thousand ties: the first holds it");
+    lt_message(0x10001U, LT_US, MESH_MESSAGE_INBOUND, false);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != 0x10001U ||
+                          top.count != 2U,
+                      "the second contact, heard from again, has two and leads");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* The contacts file read back: a malformed line skipped, a lost top found again. */
+MESH_TEST_CASE(lifetime_reads_contacts_back, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    char path[128];
+    snprintf(path, sizeof path, "%s/contacts.stats", dir);
+    FILE *file = fopen(path, "w");
+    MESH_TEST_FAIL_IF(file == NULL, "could not write the contacts");
+    fputs("top=00009999\ndm=00002222:2\ndm=00003333:4\ndm=00004444\ndm=zz:9\n"
+          "dm=00005555:-1\ndm=ffffffff:9\ndm=0000",
+          file);
+    fclose(file);
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    struct mesh_lifetime_contact top;
+    MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != 0x3333U ||
+                          top.count != 4U,
+                      "a top naming nobody counted is found again: the largest");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 0U,
+                      "and nobody messaged is a node heard");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* A node that set the longest known and is then attached as one of our radios gives it up. */
+MESH_TEST_CASE(lifetime_a_radio_gives_up_the_longest_known, unit) {
+    char dir[64];
+    const uint32_t day0 = 1750000000U;
+    inkwell_time_wall_set_fixed(day0);
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    const enum mesh_lifetime_stat known = MESH_LIFETIME_LONGEST_KNOWN_S;
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    struct mesh_node_summary other = lt_summary(LT_OTHER);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    inkwell_time_wall_set_fixed(day0 + 86400U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &other, false, false, 0U);
+    inkwell_time_wall_set_fixed(day0 + 2U * 86400U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(!mesh_lifetime_holder(&g_lifetime, known, &holder, NULL) || holder != LT_PEER,
+                      "the node met first holds it");
+
+    mesh_lifetime_note_radio(&g_lifetime, LT_PEER);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, known),
+                      "attached, it gives the record back rather than keeping it");
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &other, false, false, 0U);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_holder(&g_lifetime, known, &holder, NULL) ||
+                          holder != LT_OTHER || mesh_lifetime_value(&g_lifetime, known) != 86400U,
+                      "and the next node heard over the air sets it again");
+
+    /* A card whose holder is a radio, written by a build that let one keep it. */
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    char path[128];
+    snprintf(path, sizeof path, "%s/totals.stats", dir);
+    FILE *file = fopen(path, "w");
+    MESH_TEST_FAIL_IF(file == NULL, "could not write the totals");
+    fputs("longest_known_s=172800\nlongest_known_s.measured=1\nlongest_known_s.holder=00002222\n"
+          "longest_known_s.held_value=172800\nlongest_known_s.held_at=1750172800\n",
+          file);
+    fclose(file);
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, known),
+                      "a radio holding it on the card gives it back when read");
+    inkwell_time_wall_set_fixed(0U);
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }

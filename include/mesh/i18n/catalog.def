@@ -2558,6 +2558,11 @@ MESH_STR_ENTRY(STATS_MESSAGES_RECEIVED,   "Received")
 /* Messages to or from one node rather than to a whole channel. */
 MESH_STR_ENTRY(STATS_DIRECT_SENT,         "Direct sent")
 MESH_STR_ENTRY(STATS_DIRECT_RECEIVED,     "Direct received")
+/* The node this client has exchanged the most direct messages with. */
+MESH_STR_ENTRY(STATS_MOST_MESSAGED,       "Most messaged")
+/* Its value: the node's name, then how many direct messages went between us, both ways together.
+   Reorder to suit; keep the name and the number. */
+MESH_STR_ENTRY(STATS_MOST_MESSAGED_VALUE, "%s, %llu")
 /* Tapbacks: an emoji sent in answer to one message. */
 MESH_STR_ENTRY(STATS_REACTIONS_SENT,      "Reactions sent")
 MESH_STR_ENTRY(STATS_REACTIONS_RECEIVED,  "Reactions received")
@@ -2591,6 +2596,11 @@ MESH_STR_ENTRY(STATS_RADIOS,              "Radios used")
 MESH_STR_ENTRY(STATS_TRACES,              "Routes traced")
 /* How many nodes' keys this client has confirmed by comparing codes with their owner. */
 MESH_STR_ENTRY(STATS_KEYS_VERIFIED,       "Keys verified")
+/* The Stats page's heading over the hardware the nodes heard run on: each row under it is a
+   model's name and how many of the nodes heard are that model, most common first. */
+MESH_STR_ENTRY(STATS_HEAD_HARDWARE,       "Hardware heard")
+/* The same for what the nodes heard are set up to do - client, router, repeater. */
+MESH_STR_ENTRY(STATS_HEAD_ROLES,          "Roles heard")
 /* The Stats page's heading over the places, contacts and channels passed between this client
    and other people. */
 MESH_STR_ENTRY(STATS_HEAD_SHARING,        "Sharing")
@@ -2631,6 +2641,9 @@ MESH_STR_ENTRY(STATS_LONGEST_CONNECTION,  "Longest connection")
 /* The longest a node went unheard before our radio heard from it again; the value is a duration
    such as "12d 3h". */
 MESH_STR_ENTRY(STATS_LONGEST_ABSENCE,     "Longest absence")
+/* The longest this client has known a node it still hears: from the day the node was first heard
+   to the latest time our radio heard it. The value is a duration such as "400d 3h". */
+MESH_STR_ENTRY(STATS_LONGEST_KNOWN,       "Known longest")
 /* The row under a record: the node that set it. */
 MESH_STR_ENTRY(STATS_HELD_BY,             "Set by")
 /* The same, with the day it was set: the node's name, then year, month and day. Reorder to

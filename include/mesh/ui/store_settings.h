@@ -102,6 +102,21 @@ struct mesh_ui_lifetime_holder {
     uint32_t at;
 };
 
+/*
+ * A trait's most common values among the nodes heard (mesh_lifetime_top()), most first: the raw
+ * value, which the page names, and how many nodes have it. As many as MESH_UI_LIFETIME_TOP - the
+ * page lists the head of a tally rather than all of it, since a city mesh's hardware is a long
+ * tail of models one node each. Three, because the page is one item list of
+ * MESH_UI_SETTINGS_ITEMS_MAX rows and its last is the reset: with every record set and both
+ * tallies full it has to still fit (ui_stats_page_keeps_its_reset_when_everything_is_set).
+ */
+#define MESH_UI_LIFETIME_TOP 3U
+
+struct mesh_ui_lifetime_share {
+    uint32_t value;
+    uint32_t count;
+};
+
 struct mesh_ui_lifetime_stats {
     uint64_t messages_sent;
     uint64_t messages_received;
@@ -113,6 +128,10 @@ struct mesh_ui_lifetime_stats {
        of the direct ones, those encrypted with our key rather than a channel's. */
     uint64_t received_mqtt;
     uint64_t direct_received_private;
+    /* The node this client has exchanged the most direct messages with, named as a record's
+       holder is, and how many went between them, both ways. An empty name while there is none. */
+    char most_messaged[MESH_UI_LIFETIME_HOLDER_NAME_MAX];
+    uint64_t most_messaged_count;
     /* Of the direct messages sent, how many were confirmed and how many failed. One still waiting
        is in neither, so the two need not add up to anything else on the page. */
     uint64_t messages_delivered;
@@ -125,6 +144,12 @@ struct mesh_ui_lifetime_stats {
     /* The node set has turned one away, so the three counts above are at least what they say
        rather than exactly it. */
     bool nodes_floor;
+    /* The hardware models and the roles the nodes heard most often have, our own radios left
+       out; a node not yet introduced is in neither. */
+    struct mesh_ui_lifetime_share models[MESH_UI_LIFETIME_TOP];
+    uint8_t model_count;
+    struct mesh_ui_lifetime_share roles[MESH_UI_LIFETIME_TOP];
+    uint8_t role_count;
     /* The records, and whether anything has set each: 0 is a real record for all of them - a
        node only ever heard straight to us, two radios at one spot, a packet decoded exactly at
        the noise - so the value cannot say "none yet" by itself (mesh_lifetime_measured()). */
@@ -157,6 +182,11 @@ struct mesh_ui_lifetime_stats {
     uint64_t longest_absence_s;
     bool longest_absence_measured;
     struct mesh_ui_lifetime_holder longest_absence_holder;
+    /* The longest this client has known a node our radio still hears, in seconds: from the day
+       it was first heard to the latest hearing. */
+    uint64_t longest_known_s;
+    bool longest_known_measured;
+    struct mesh_ui_lifetime_holder longest_known_holder;
     /* Traces we asked for that came back answered, and the most relays one of them crossed, held
        by the node it reached. */
     uint64_t traces;

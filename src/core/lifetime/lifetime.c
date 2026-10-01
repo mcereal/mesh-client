@@ -17,6 +17,9 @@
 #define LIFETIME_SUFFIX ".stats"
 #define LIFETIME_TOTALS "totals"
 #define LIFETIME_SEEN "seen"
+#define LIFETIME_CONTACTS "contacts"
+#define LIFETIME_KEY_CONTACT "dm"
+#define LIFETIME_KEY_TOP_CONTACT "top"
 #define LIFETIME_KEY_SINCE "since"
 /* Written once the set has turned a node away, and never cleared but by a reset. The seen file
    cannot say it: a set that is full holds exactly MESH_LIFETIME_NODES_MAX nodes either way, and
@@ -73,11 +76,20 @@ enum {
     SEEN_RF = 1U << 1,     /* heard over the air, by a radio of ours */
     SEEN_RADIO = 1U << 2,  /* one of our own radios */
     SEEN_DIRECT = 1U << 3, /* heard over the air with no relay between, by a radio of ours */
+    SEEN_FACTS = SEEN_HEARD | SEEN_RF | SEEN_RADIO | SEEN_DIRECT,
 };
 
-/* The same facts, learned but not yet on the card: an append that failed. Kept beside the fact
-   rather than instead of it, so the count is right now and the next flush writes it down. */
-#define SEEN_PENDING_SHIFT 4U
+/* The lines about a node that are not facts but what it is now, one per trait: written whenever
+   the trait is learned or changes, and the newest read wins. Beside the facts in a node's `lines`,
+   never in its facts - what is known is the trait itself. */
+#define SEEN_LINE_TRAIT(trait) ((uint8_t)(1U << (4U + (unsigned)(trait))))
+/* And the line saying when a node was first heard, which is written once. */
+#define SEEN_LINE_FIRST ((uint8_t)(1U << (4U + MESH_LIFETIME_TRAIT_COUNT)))
+#define LIFETIME_KEY_FIRST "first"
+
+/* The lines learned but not yet on the card: an append that failed. Kept beside the facts rather
+   than instead of them, so the count is right now and the next flush writes them down. */
+#define SEEN_PENDING_SHIFT 8U
 #define SEEN_PENDING(facts) ((uint8_t)((facts) >> SEEN_PENDING_SHIFT))
 
 static const struct {
@@ -88,6 +100,12 @@ static const struct {
     {SEEN_RF, "rf"},
     {SEEN_RADIO, "radio"},
     {SEEN_DIRECT, "direct"},
+};
+
+/* A trait's key in the seen file: "<key>=<node hex>:<value>". */
+static const char *const k_trait_keys[MESH_LIFETIME_TRAIT_COUNT] = {
+    [MESH_LIFETIME_TRAIT_MODEL] = "model",
+    [MESH_LIFETIME_TRAIT_ROLE] = "role",
 };
 
 static const char *const k_stat_keys[MESH_LIFETIME_STAT_COUNT] = {
@@ -152,7 +170,7 @@ static uint32_t lifetime_find(const struct mesh_lifetime *lifetime, uint32_t id)
 static uint8_t lifetime_learn(struct mesh_lifetime *lifetime, uint32_t id, uint8_t facts) {
     const uint32_t at = lifetime_find(lifetime, id);
     if (at < lifetime->id_count && lifetime->ids[at] == id) {
-        const uint8_t fresh = (uint8_t)(facts & ~lifetime->facts[at]);
+        const uint8_t fresh = (uint8_t)(facts & ~lifetime->facts[at] & SEEN_FACTS);
         lifetime->facts[at] |= fresh;
         return fresh;
     }
@@ -168,64 +186,212 @@ static uint8_t lifetime_learn(struct mesh_lifetime *lifetime, uint32_t id, uint8
     const size_t tail = (size_t)(lifetime->id_count - at);
     memmove(&lifetime->ids[at + 1U], &lifetime->ids[at], tail * sizeof lifetime->ids[0]);
     memmove(&lifetime->facts[at + 1U], &lifetime->facts[at], tail * sizeof lifetime->facts[0]);
+    for (size_t trait = 0; trait < MESH_LIFETIME_TRAIT_COUNT; ++trait) {
+        uint8_t *const traits = lifetime->traits[trait];
+        memmove(&traits[at + 1U], &traits[at], tail * sizeof traits[0]);
+        traits[at] = 0U;
+    }
+    memmove(&lifetime->first_heard[at + 1U], &lifetime->first_heard[at],
+            tail * sizeof lifetime->first_heard[0]);
+    lifetime->first_heard[at] = 0U;
+    memmove(&lifetime->messaged[at + 1U], &lifetime->messaged[at],
+            tail * sizeof lifetime->messaged[0]);
+    lifetime->messaged[at] = 0U;
     lifetime->ids[at] = id;
     lifetime->facts[at] = facts;
     lifetime->id_count++;
     return facts;
 }
 
+/* A trait as the set holds it: a model as itself, a role one above itself, 0 for "not known". */
+static uint8_t lifetime_trait_held(enum mesh_lifetime_trait trait, uint32_t value) {
+    return (uint8_t)(trait == MESH_LIFETIME_TRAIT_ROLE ? value + 1U : value);
+}
+
+static uint32_t lifetime_trait_value(enum mesh_lifetime_trait trait, uint8_t held) {
+    return trait == MESH_LIFETIME_TRAIT_ROLE ? (uint32_t)held - 1U : held;
+}
+
+/* Our own radios are in no tally, as they are in no node count. */
+static bool lifetime_tallied(const struct mesh_lifetime *lifetime, uint32_t at) {
+    return (lifetime->facts[at] & SEEN_RADIO) == 0U;
+}
+
+/* Moves the node at `at` out of its trait's tally and, when `held` is a value, into that one. */
+static void lifetime_set_trait(struct mesh_lifetime *lifetime, uint32_t at,
+                               enum mesh_lifetime_trait trait, uint8_t held) {
+    uint8_t *const slot = &lifetime->traits[trait][at];
+    uint32_t *const counts = lifetime->trait_counts[trait];
+    if (lifetime_tallied(lifetime, at) && *slot != 0U && counts[*slot] > 0U) {
+        counts[*slot]--;
+    }
+    *slot = held;
+    if (lifetime_tallied(lifetime, at) && held != 0U) {
+        counts[held]++;
+    }
+}
+
+/* Every tally from the set as it stands: once a card has been read, which sets the traits without
+   them. */
+static void lifetime_recount_traits(struct mesh_lifetime *lifetime) {
+    memset(lifetime->trait_counts, 0, sizeof lifetime->trait_counts);
+    for (uint32_t i = 0; i < lifetime->id_count; ++i) {
+        if (!lifetime_tallied(lifetime, i)) {
+            continue;
+        }
+        for (size_t trait = 0; trait < MESH_LIFETIME_TRAIT_COUNT; ++trait) {
+            const uint8_t held = lifetime->traits[trait][i];
+            if (held != 0U) {
+                lifetime->trait_counts[trait][held]++;
+            }
+        }
+    }
+}
+
 struct lifetime_seen_line {
+    const struct mesh_lifetime *lifetime;
     uint32_t id;
-    uint8_t facts;
+    uint8_t lines;
 };
 
 static void lifetime_write_seen(FILE *file, bool resumed, void *context) {
     (void)resumed;
     const struct lifetime_seen_line *line = context;
     for (size_t i = 0; i < sizeof k_seen_keys / sizeof k_seen_keys[0]; ++i) {
-        if ((line->facts & k_seen_keys[i].fact) != 0U) {
+        if ((line->lines & k_seen_keys[i].fact) != 0U) {
             fprintf(file, "%s=%08" PRIx32 "\n", k_seen_keys[i].key, line->id);
         }
     }
+    const struct mesh_lifetime *lifetime = line->lifetime;
+    const uint32_t at = lifetime_find(lifetime, line->id);
+    if (at >= lifetime->id_count || lifetime->ids[at] != line->id) {
+        return;
+    }
+    for (size_t trait = 0; trait < MESH_LIFETIME_TRAIT_COUNT; ++trait) {
+        const uint8_t held = lifetime->traits[trait][at];
+        if ((line->lines & SEEN_LINE_TRAIT(trait)) != 0U && held != 0U) {
+            fprintf(file, "%s=%08" PRIx32 ":%" PRIu32 "\n", k_trait_keys[trait], line->id,
+                    lifetime_trait_value((enum mesh_lifetime_trait)trait, held));
+        }
+    }
+    if ((line->lines & SEEN_LINE_FIRST) != 0U && lifetime->first_heard[at] != 0U) {
+        fprintf(file, "%s=%08" PRIx32 ":%" PRIu32 "\n", LIFETIME_KEY_FIRST, line->id,
+                lifetime->first_heard[at]);
+    }
 }
 
-static int lifetime_append_seen(struct mesh_lifetime *lifetime, uint32_t id, uint8_t facts) {
-    struct lifetime_seen_line line = {.id = id, .facts = facts};
+static int lifetime_append_seen(struct mesh_lifetime *lifetime, uint32_t id, uint8_t lines) {
+    struct lifetime_seen_line line = {.lifetime = lifetime, .id = id, .lines = lines};
     return inkstand_journal_append(&lifetime->journal, LIFETIME_SEEN, lifetime_write_seen, &line,
                                    NULL);
 }
 
 /*
- * Learns and, when that taught the set anything, writes it down at once: a new node is rare, and
- * one that reached the card only at the next flush would be lost to a SIGKILL.
+ * Writes down what was just learned about `id`, at once: a new node is rare, and one that reached
+ * the card only at the next flush would be lost to a SIGKILL.
  *
- * An append that fails leaves the fact pending rather than forgotten. The set already holds it,
- * so the next hearing of the node would find nothing fresh and never write it - and the SET
- * values are not in the totals, so a fact that never reached the seen file is lost at the next
+ * An append that fails leaves the lines pending rather than forgotten. The set already holds what
+ * they say, so the next hearing of the node would find nothing fresh and never write it - and the
+ * SET values are not in the totals, so a fact that never reached the seen file is lost at the next
  * launch. The flush retries it, and marking the stats dirty is what gets a flush scheduled.
  */
-static void lifetime_record(struct mesh_lifetime *lifetime, uint32_t id, uint8_t facts) {
-    if (id == 0U || id == MESH_MESSAGE_BROADCAST_ADDR) {
-        return;
-    }
-    const uint8_t fresh = lifetime_learn(lifetime, id, facts);
-    if (fresh == 0U) {
+static void lifetime_write_down(struct mesh_lifetime *lifetime, uint32_t id, uint8_t lines) {
+    if (lines == 0U) {
         return;
     }
     lifetime_changed(lifetime);
-    const int result = lifetime_append_seen(lifetime, id, fresh);
+    const int result = lifetime_append_seen(lifetime, id, lines);
     if (result < 0) {
         inkwell_log_debug("lifetime", "Could not write a node to the seen file: %d", result);
         const uint32_t at = lifetime_find(lifetime, id);
         if (SEEN_PENDING(lifetime->facts[at]) == 0U) {
             lifetime->pending++;
         }
-        lifetime->facts[at] |= (uint8_t)(fresh << SEEN_PENDING_SHIFT);
+        lifetime->facts[at] |= (uint16_t)((unsigned)lines << SEEN_PENDING_SHIFT);
         lifetime->dirty = true;
     }
 }
 
-/* Writes every pending fact down. 0, or the first failure; what failed stays pending. */
+/*
+ * The longest known is never one of our radios. A node that set it and is only then attached
+ * gives it up: there is no runner-up to hand it to, since a node's latest hearing is not kept, so
+ * it goes back to "none yet" and the next node heard over the air sets it again. Also run on a
+ * card read back, whose holder may have become a radio under a build that did not do this.
+ */
+static void lifetime_drop_radio_records(struct mesh_lifetime *lifetime) {
+    const enum mesh_lifetime_stat known = MESH_LIFETIME_LONGEST_KNOWN_S;
+    const uint32_t holder = lifetime->holders[known];
+    if (!lifetime->measured[known] || holder == 0U) {
+        return;
+    }
+    const uint32_t at = lifetime_find(lifetime, holder);
+    if (at >= lifetime->id_count || lifetime->ids[at] != holder || lifetime_tallied(lifetime, at)) {
+        return;
+    }
+    lifetime->values[known] = 0U;
+    lifetime->measured[known] = false;
+    lifetime->holders[known] = 0U;
+    lifetime->held_at[known] = 0U;
+    lifetime->dirty = true;
+    lifetime_changed(lifetime);
+}
+
+/*
+ * Merges `facts` into `id`'s entry, and answers the lines that say something new: the facts it did
+ * not already have, and the day it was first heard when this is that day. A node that has just
+ * become one of our radios leaves the tallies, as it leaves the node counts.
+ */
+static uint8_t lifetime_learn_facts(struct mesh_lifetime *lifetime, uint32_t id, uint8_t facts) {
+    if (id == 0U || id == MESH_MESSAGE_BROADCAST_ADDR) {
+        return 0U;
+    }
+    uint8_t lines = lifetime_learn(lifetime, id, facts);
+    if ((lines & SEEN_RADIO) != 0U) {
+        lifetime_recount_traits(lifetime);
+        lifetime_drop_radio_records(lifetime);
+    }
+    const uint32_t now = inkwell_time_wall_credible_s();
+    if ((lines & SEEN_HEARD) != 0U && now != 0U) {
+        const uint32_t at = lifetime_find(lifetime, id);
+        if (lifetime->first_heard[at] == 0U) {
+            lifetime->first_heard[at] = now;
+            lines |= SEEN_LINE_FIRST;
+        }
+    }
+    return lines;
+}
+
+static void lifetime_record(struct mesh_lifetime *lifetime, uint32_t id, uint8_t facts) {
+    lifetime_write_down(lifetime, id, lifetime_learn_facts(lifetime, id, facts));
+}
+
+/* What `node` is, as far as its summary says, into the set: the lines that changed. Nothing for a
+   node the set does not hold, which is a node a full set turned away. */
+static uint8_t lifetime_learn_traits(struct mesh_lifetime *lifetime,
+                                     const struct mesh_node_summary *node) {
+    const uint32_t at = lifetime_find(lifetime, node->node_id);
+    if (at >= lifetime->id_count || lifetime->ids[at] != node->node_id) {
+        return 0U;
+    }
+    uint8_t held[MESH_LIFETIME_TRAIT_COUNT] = {0};
+    if (node->hw_model != 0U && node->hw_model <= UINT8_MAX) {
+        held[MESH_LIFETIME_TRAIT_MODEL] =
+            lifetime_trait_held(MESH_LIFETIME_TRAIT_MODEL, node->hw_model);
+    }
+    if (node->has_user && node->role < UINT8_MAX) {
+        held[MESH_LIFETIME_TRAIT_ROLE] = lifetime_trait_held(MESH_LIFETIME_TRAIT_ROLE, node->role);
+    }
+    uint8_t lines = 0U;
+    for (size_t trait = 0; trait < MESH_LIFETIME_TRAIT_COUNT; ++trait) {
+        if (held[trait] != 0U && held[trait] != lifetime->traits[trait][at]) {
+            lifetime_set_trait(lifetime, at, (enum mesh_lifetime_trait)trait, held[trait]);
+            lines |= SEEN_LINE_TRAIT(trait);
+        }
+    }
+    return lines;
+}
+
+/* Writes every pending line down. 0, or the first failure; what failed stays pending. */
 static int lifetime_retry_seen(struct mesh_lifetime *lifetime) {
     int first_error = 0;
     for (uint32_t i = 0; i < lifetime->id_count && lifetime->pending > 0U; ++i) {
@@ -240,10 +406,68 @@ static int lifetime_retry_seen(struct mesh_lifetime *lifetime) {
             }
             continue;
         }
-        lifetime->facts[i] &= (uint8_t)((1U << SEEN_PENDING_SHIFT) - 1U);
+        lifetime->facts[i] &= (uint16_t)((1U << SEEN_PENDING_SHIFT) - 1U);
         lifetime->pending--;
     }
     return first_error;
+}
+
+/* "<node hex>:<decimal>", whole, into its two halves. */
+static bool lifetime_parse_pair(char *text, uint32_t *out_id, uint32_t *out_value) {
+    char *const colon = strchr(text, ':');
+    if (colon == NULL) {
+        return false;
+    }
+    *colon = '\0';
+    char *end = NULL;
+    const unsigned long id = strtoul(text, &end, 16);
+    if (end == text || *end != '\0' || id == 0UL || id > UINT32_MAX) {
+        return false;
+    }
+    const char *const digits = colon + 1;
+    const unsigned long value = strtoul(digits, &end, 10);
+    if (end == digits || *end != '\0' || digits[0] == '-' || value > UINT32_MAX) {
+        return false;
+    }
+    *out_id = (uint32_t)id;
+    *out_value = (uint32_t)value;
+    return true;
+}
+
+/* A trait line. Its node is taken into the set if the facts have not put it there yet - a fact
+   whose append failed is written after the trait that followed it - and the tallies are counted
+   once the whole file is in. */
+static void lifetime_read_trait(struct mesh_lifetime *lifetime, enum mesh_lifetime_trait trait,
+                                char *value) {
+    uint32_t id = 0U;
+    uint32_t raw = 0U;
+    if (!lifetime_parse_pair(value, &id, &raw) || id == MESH_MESSAGE_BROADCAST_ADDR) {
+        return;
+    }
+    if (trait == MESH_LIFETIME_TRAIT_MODEL ? (raw == 0U || raw > UINT8_MAX) : raw >= UINT8_MAX) {
+        return;
+    }
+    (void)lifetime_learn(lifetime, id, 0U);
+    const uint32_t at = lifetime_find(lifetime, id);
+    if (at < lifetime->id_count && lifetime->ids[at] == id) {
+        lifetime->traits[trait][at] = lifetime_trait_held(trait, raw);
+    }
+}
+
+/* When a node was first heard. The earliest such line wins, though the client writes one. */
+static void lifetime_read_first(struct mesh_lifetime *lifetime, char *value) {
+    uint32_t id = 0U;
+    uint32_t second = 0U;
+    if (!lifetime_parse_pair(value, &id, &second) || id == MESH_MESSAGE_BROADCAST_ADDR ||
+        second <= INKWELL_TIME_CLOCK_MIN_EPOCH) {
+        return;
+    }
+    (void)lifetime_learn(lifetime, id, 0U);
+    const uint32_t at = lifetime_find(lifetime, id);
+    if (at < lifetime->id_count && lifetime->ids[at] == id &&
+        (lifetime->first_heard[at] == 0U || second < lifetime->first_heard[at])) {
+        lifetime->first_heard[at] = second;
+    }
 }
 
 static void lifetime_read_seen(void *context, const char *key, char *value) {
@@ -258,12 +482,21 @@ static void lifetime_read_seen(void *context, const char *key, char *value) {
             return;
         }
     }
+    for (size_t trait = 0; trait < MESH_LIFETIME_TRAIT_COUNT; ++trait) {
+        if (strcmp(key, k_trait_keys[trait]) == 0) {
+            lifetime_read_trait(lifetime, (enum mesh_lifetime_trait)trait, value);
+            return;
+        }
+    }
+    if (strcmp(key, LIFETIME_KEY_FIRST) == 0) {
+        lifetime_read_first(lifetime, value);
+    }
 }
 
 static uint64_t lifetime_count_nodes(const struct mesh_lifetime *lifetime, uint8_t fact) {
     uint64_t count = 0U;
     for (uint32_t i = 0; i < lifetime->id_count; ++i) {
-        const uint8_t facts = lifetime->facts[i];
+        const uint8_t facts = (uint8_t)(lifetime->facts[i] & SEEN_FACTS);
         if ((facts & fact) != 0U && (fact == SEEN_RADIO || (facts & SEEN_RADIO) == 0U)) {
             count++;
         }
@@ -506,6 +739,90 @@ static void lifetime_write_totals(FILE *file, void *context) {
     }
 }
 
+/* --------------------------------------------------------------------------- the contacts */
+
+/* Where `node` is in the set, or id_count when it is not there. */
+static uint32_t lifetime_held(const struct mesh_lifetime *lifetime, uint32_t node) {
+    const uint32_t at = lifetime_find(lifetime, node);
+    return at < lifetime->id_count && lifetime->ids[at] == node ? at : lifetime->id_count;
+}
+
+/* The most messaged, from the counts alone: the largest, the lower node on a tie. For a card
+   whose `top` line is missing or names a node with no count. */
+static void lifetime_settle_top_contact(struct mesh_lifetime *lifetime) {
+    const uint32_t top = lifetime_held(lifetime, lifetime->top_contact);
+    if (lifetime->top_contact != 0U && top < lifetime->id_count && lifetime->messaged[top] > 0U) {
+        return;
+    }
+    lifetime->top_contact = 0U;
+    uint32_t best = 0U;
+    for (uint32_t i = 0; i < lifetime->id_count; ++i) {
+        if (lifetime->messaged[i] > best) {
+            best = lifetime->messaged[i];
+            lifetime->top_contact = lifetime->ids[i];
+        }
+    }
+}
+
+/* One direct message exchanged with `node`, either way. A node not heard yet is taken into the
+   set with no facts, so it has a count to keep; one a full set turns away is not counted. */
+static void lifetime_note_contact(struct mesh_lifetime *lifetime, uint32_t node) {
+    if (node == 0U || node == MESH_MESSAGE_BROADCAST_ADDR) {
+        return;
+    }
+    (void)lifetime_learn(lifetime, node, 0U);
+    const uint32_t at = lifetime_held(lifetime, node);
+    if (at >= lifetime->id_count) {
+        return;
+    }
+    if (lifetime->messaged[at] < UINT32_MAX) {
+        lifetime->messaged[at]++;
+    }
+    const uint32_t top = lifetime_held(lifetime, lifetime->top_contact);
+    if (top >= lifetime->id_count || lifetime->messaged[at] > lifetime->messaged[top]) {
+        lifetime->top_contact = node;
+    }
+    lifetime->contacts_dirty = true;
+    lifetime->dirty = true;
+    lifetime_changed(lifetime);
+}
+
+static void lifetime_write_contacts(FILE *file, void *context) {
+    const struct mesh_lifetime *lifetime = context;
+    if (lifetime->top_contact != 0U) {
+        fprintf(file, "%s=%08" PRIx32 "\n", LIFETIME_KEY_TOP_CONTACT, lifetime->top_contact);
+    }
+    for (uint32_t i = 0; i < lifetime->id_count; ++i) {
+        if (lifetime->messaged[i] > 0U) {
+            fprintf(file, "%s=%08" PRIx32 ":%" PRIu32 "\n", LIFETIME_KEY_CONTACT, lifetime->ids[i],
+                    lifetime->messaged[i]);
+        }
+    }
+}
+
+/* "<node hex>:<count>" into the node's count, taking the node into the set as a message would. */
+static void lifetime_read_contacts(void *context, const char *key, char *value) {
+    struct mesh_lifetime *lifetime = context;
+    if (strcmp(key, LIFETIME_KEY_TOP_CONTACT) == 0) {
+        uint64_t node = 0U;
+        if (lifetime_parse_number(value, 16, UINT32_MAX, &node)) {
+            lifetime->top_contact = (uint32_t)node;
+        }
+        return;
+    }
+    uint32_t node = 0U;
+    uint32_t count = 0U;
+    if (strcmp(key, LIFETIME_KEY_CONTACT) != 0 || !lifetime_parse_pair(value, &node, &count) ||
+        node == MESH_MESSAGE_BROADCAST_ADDR) {
+        return;
+    }
+    (void)lifetime_learn(lifetime, node, 0U);
+    const uint32_t at = lifetime_held(lifetime, node);
+    if (at < lifetime->id_count) {
+        lifetime->messaged[at] = count;
+    }
+}
+
 /* ------------------------------------------------------------------------------- the API */
 
 int mesh_lifetime_init(struct mesh_lifetime *lifetime, const char *dir) {
@@ -528,6 +845,14 @@ int mesh_lifetime_init(struct mesh_lifetime *lifetime, const char *dir) {
     if (result < 0 && result != -ENOENT) {
         inkwell_log_warn("lifetime", "Could not read the seen file: %d", result);
     }
+    lifetime_recount_traits(lifetime);
+    lifetime_drop_radio_records(lifetime);
+    result = inkstand_journal_read(&lifetime->journal, LIFETIME_CONTACTS, line, sizeof line,
+                                   lifetime_read_contacts, lifetime);
+    if (result < 0 && result != -ENOENT) {
+        inkwell_log_warn("lifetime", "Could not read the contacts: %d", result);
+    }
+    lifetime_settle_top_contact(lifetime);
     lifetime_note_since(lifetime);
     return opened;
 }
@@ -654,6 +979,7 @@ static void lifetime_observe_message(struct mesh_lifetime *lifetime,
     if (direct) {
         lifetime_bump(lifetime,
                       outbound ? MESH_LIFETIME_DIRECT_SENT : MESH_LIFETIME_DIRECT_RECEIVED);
+        lifetime_note_contact(lifetime, outbound ? message->to : message->from);
     }
     if (outbound) {
         return;
@@ -794,6 +1120,24 @@ static void lifetime_observe_absence(struct mesh_lifetime *lifetime,
 }
 
 /*
+ * How long this client has known a node our radio has just heard: since the day it was first
+ * heard, which only a node first heard off a credible clock has. Our own radios are left out - a
+ * second radio heard over the air would hold it for as long as it was owned.
+ */
+static void lifetime_observe_acquaintance(struct mesh_lifetime *lifetime, uint32_t id) {
+    const uint32_t at = lifetime_find(lifetime, id);
+    if (at >= lifetime->id_count || lifetime->ids[at] != id || !lifetime_tallied(lifetime, at)) {
+        return;
+    }
+    const uint32_t first = lifetime->first_heard[at];
+    const uint32_t now = inkwell_time_wall_credible_s();
+    if (first == 0U || now < first) {
+        return;
+    }
+    lifetime_raise(lifetime, MESH_LIFETIME_LONGEST_KNOWN_S, (uint64_t)(now - first), id);
+}
+
+/*
  * A trace we asked for, answered: one more traced, and its length as a record held by the node it
  * reached. The length is the relays between us and that node, which is what MOST_HOPS counts
  * too - 0 is a node in range - and the longer of the two ways, since an answer can come back by
@@ -866,9 +1210,12 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
        last word on a hop count, however old - does not make a node one. */
     const bool direct = event->kind == MESH_SESSION_EVENT_NODE_HEARD && !event->via_mqtt &&
                         event->has_hops && event->hops == 0U;
-    lifetime_record(
+    /* One append for all of it: a node first heard with its NodeInfo is one write, not three. */
+    uint8_t lines = lifetime_learn_facts(
         lifetime, node->node_id,
         (uint8_t)(SEEN_HEARD | (event->via_mqtt ? 0U : SEEN_RF) | (direct ? SEEN_DIRECT : 0U)));
+    lines |= lifetime_learn_traits(lifetime, node);
+    lifetime_write_down(lifetime, node->node_id, lines);
 
     /* The records are about this radio's reach, so they take only what we watched arrive, over
        the air; a listing or a bridged packet says nothing about any of them. */
@@ -876,6 +1223,7 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
         return;
     }
     lifetime_observe_absence(lifetime, node, event->previous_heard);
+    lifetime_observe_acquaintance(lifetime, node->node_id);
     uint64_t distance_m = 0U;
     const bool has_distance = lifetime_distance(session, node, &distance_m);
     if (has_distance) {
@@ -956,6 +1304,54 @@ bool mesh_lifetime_holder(const struct mesh_lifetime *lifetime, enum mesh_lifeti
     return true;
 }
 
+size_t mesh_lifetime_top(const struct mesh_lifetime *lifetime, enum mesh_lifetime_trait trait,
+                         struct mesh_lifetime_share *out, size_t cap) {
+    if (lifetime == NULL || (unsigned)trait >= MESH_LIFETIME_TRAIT_COUNT || out == NULL) {
+        return 0U;
+    }
+    size_t filled = 0U;
+    const uint32_t *const counts = lifetime->trait_counts[trait];
+    /* Walked upwards and placed only ahead of a smaller count, so a tie keeps the lower value
+       ahead of it. */
+    for (uint32_t held = 1U; held < MESH_LIFETIME_TRAIT_VALUES; ++held) {
+        const uint32_t count = counts[held];
+        if (count == 0U) {
+            continue;
+        }
+        size_t at = filled;
+        while (at > 0U && out[at - 1U].count < count) {
+            at--;
+        }
+        if (at >= cap) {
+            continue;
+        }
+        const size_t kept = filled < cap ? filled : cap - 1U;
+        memmove(&out[at + 1U], &out[at], (kept - at) * sizeof out[0]);
+        out[at].value = lifetime_trait_value(trait, (uint8_t)held);
+        out[at].count = count;
+        if (filled < cap) {
+            filled++;
+        }
+    }
+    return filled;
+}
+
+bool mesh_lifetime_most_messaged(const struct mesh_lifetime *lifetime,
+                                 struct mesh_lifetime_contact *out) {
+    if (lifetime == NULL || lifetime->top_contact == 0U) {
+        return false;
+    }
+    const uint32_t at = lifetime_held(lifetime, lifetime->top_contact);
+    if (at >= lifetime->id_count || lifetime->messaged[at] == 0U) {
+        return false;
+    }
+    if (out != NULL) {
+        out->node = lifetime->top_contact;
+        out->count = lifetime->messaged[at];
+    }
+    return true;
+}
+
 bool mesh_lifetime_complete(const struct mesh_lifetime *lifetime) {
     return lifetime != NULL && !lifetime->full;
 }
@@ -972,12 +1368,23 @@ int mesh_lifetime_flush(struct mesh_lifetime *lifetime) {
         return 0;
     }
     const int seen = lifetime_retry_seen(lifetime);
+    int contacts = 0;
+    if (lifetime->contacts_dirty) {
+        contacts = inkstand_journal_replace(&lifetime->journal, LIFETIME_CONTACTS,
+                                            lifetime_write_contacts, lifetime);
+        if (contacts == 0) {
+            lifetime->contacts_dirty = false;
+        }
+    }
     const int result = inkstand_journal_replace(&lifetime->journal, LIFETIME_TOTALS,
                                                 lifetime_write_totals, lifetime);
-    if (result == 0 && seen == 0) {
+    if (result == 0 && seen == 0 && contacts == 0) {
         lifetime->dirty = false;
     }
-    return result < 0 ? result : seen;
+    if (result < 0) {
+        return result;
+    }
+    return seen < 0 ? seen : contacts;
 }
 
 int mesh_lifetime_reset(struct mesh_lifetime *lifetime) {

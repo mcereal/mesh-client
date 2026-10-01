@@ -82,9 +82,9 @@ struct item_list {
 };
 
 /*
- * Rows name their label with a catalog id; item_add_named() is the exception, for the two
- * labels that come off the wire rather than out of the catalog - a channel's own name and a
- * module's section title.
+ * Rows name their label with a catalog id; item_add_named() is the exception, for the labels
+ * that come off the wire rather than out of the catalog - a channel's own name, a module's
+ * section title, and the hardware model or role a tally on the Stats page counts.
  */
 static struct mesh_ui_settings_item *item_add_named(struct item_list *list, const char *label,
                                                     enum inkstand_form_kind kind) {
@@ -3464,6 +3464,46 @@ static void stats_nodes_row(struct item_list *list, inkcell_str_id label, uint32
     item_text(list, label, INKSTAND_FORM_INFO, value);
 }
 
+/*
+ * The head of a tally on the Stats page: the value as the label, since the row is *about* that
+ * model or that role, and how many nodes have it as the value. Nothing at all - not even the
+ * heading - while no node has introduced itself, since an empty group says nothing a missing one
+ * does not.
+ */
+static void stats_tally_rows(struct item_list *list, inkcell_str_id heading,
+                             const struct mesh_ui_lifetime_share *shares, uint8_t count,
+                             bool models) {
+    if (count == 0U) {
+        return;
+    }
+    item_heading(list, heading);
+    for (uint8_t i = 0; i < count && i < MESH_UI_LIFETIME_TOP; ++i) {
+        char fallback[MESH_UI_SETTINGS_LABEL_MAX];
+        const char *name =
+            models ? mesh_radio_hw_model_name(shares[i].value, fallback, sizeof fallback)
+                   : mesh_radio_role_name(shares[i].value);
+        struct mesh_ui_settings_item *item = item_add_named(list, name, INKSTAND_FORM_INFO);
+        if (item != NULL) {
+            inkcell_str_format(item->value, sizeof item->value, MESH_STR_STATS_COUNT,
+                               (unsigned long long)shares[i].count);
+        }
+    }
+}
+
+/* Who this client has messaged most, and how many direct messages that was both ways together -
+   one number, since the rows above already split sent from received. */
+static void stats_most_messaged_row(struct item_list *list,
+                                    const struct mesh_ui_lifetime_stats *stats) {
+    if (stats->most_messaged[0] == '\0') {
+        item_str(list, MESH_STR_STATS_MOST_MESSAGED, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
+        return;
+    }
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    inkcell_str_format(value, sizeof value, MESH_STR_STATS_MOST_MESSAGED_VALUE,
+                       stats->most_messaged, (unsigned long long)stats->most_messaged_count);
+    item_text(list, MESH_STR_STATS_MOST_MESSAGED, INKSTAND_FORM_INFO, value);
+}
+
 /* The day the stats started counting, or that they cannot say: a device that has never had a
    clock counts exactly the same and has no day to name. A calendar day and no time - to the
    minute it is only the moment a clock first became credible, which nobody asked. */
@@ -3534,6 +3574,7 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     stats_count_row(list, MESH_STR_STATS_MESSAGES_RECEIVED, stats->messages_received);
     stats_count_row(list, MESH_STR_STATS_DIRECT_SENT, stats->direct_sent);
     stats_count_row(list, MESH_STR_STATS_DIRECT_RECEIVED, stats->direct_received);
+    stats_most_messaged_row(list, stats);
     stats_count_row(list, MESH_STR_STATS_REACTIONS_SENT, stats->reactions_sent);
     stats_count_row(list, MESH_STR_STATS_REACTIONS_RECEIVED, stats->reactions_received);
     stats_count_row(list, MESH_STR_STATS_RECEIVED_MQTT, stats->received_mqtt);
@@ -3553,6 +3594,9 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     stats_nodes_row(list, MESH_STR_STATS_RADIOS, stats->radios, stats->nodes_floor);
     stats_count_row(list, MESH_STR_STATS_TRACES, stats->traces);
     stats_count_row(list, MESH_STR_STATS_KEYS_VERIFIED, stats->keys_verified);
+
+    stats_tally_rows(list, MESH_STR_STATS_HEAD_HARDWARE, stats->models, stats->model_count, true);
+    stats_tally_rows(list, MESH_STR_STATS_HEAD_ROLES, stats->roles, stats->role_count, false);
 
     item_heading(list, MESH_STR_STATS_HEAD_SHARING);
     stats_count_row(list, MESH_STR_STATS_WAYPOINTS_SENT, stats->waypoints_sent);
@@ -3626,6 +3670,12 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
         stats_holder_row(list, &stats->longest_absence_holder);
     } else {
         item_str(list, MESH_STR_STATS_LONGEST_ABSENCE, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
+    }
+    if (stats->longest_known_measured) {
+        stats_duration_row(list, MESH_STR_STATS_LONGEST_KNOWN, stats->longest_known_s);
+        stats_holder_row(list, &stats->longest_known_holder);
+    } else {
+        item_str(list, MESH_STR_STATS_LONGEST_KNOWN, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
     }
 
     item_heading(list, MESH_STR_STATS_HEAD_RESET);

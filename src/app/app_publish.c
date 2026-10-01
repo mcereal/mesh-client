@@ -1135,6 +1135,19 @@ static void mesh_app_flatten_holder(const struct mesh_lifetime *lifetime,
     dst->at = at;
 }
 
+/* The head of a trait's tally, as many rows as the page lists. */
+static uint8_t mesh_app_flatten_top(const struct mesh_lifetime *lifetime,
+                                    enum mesh_lifetime_trait trait,
+                                    struct mesh_ui_lifetime_share *dst) {
+    struct mesh_lifetime_share top[MESH_UI_LIFETIME_TOP];
+    const size_t count = mesh_lifetime_top(lifetime, trait, top, MESH_UI_LIFETIME_TOP);
+    for (size_t i = 0; i < count; ++i) {
+        dst[i].value = top[i].value;
+        dst[i].count = top[i].count;
+    }
+    return (uint8_t)count;
+}
+
 /* The lifetime stats for the Stats page, by name. The MAXes are small by nature - a hop count
    is a byte - so the narrowing is the clamp's, stated rather than assumed. */
 static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
@@ -1149,6 +1162,12 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
     dst->received_mqtt = mesh_lifetime_value(lifetime, MESH_LIFETIME_RECEIVED_MQTT);
     dst->direct_received_private =
         mesh_lifetime_value(lifetime, MESH_LIFETIME_DIRECT_RECEIVED_PRIVATE);
+    struct mesh_lifetime_contact contact;
+    if (mesh_lifetime_most_messaged(lifetime, &contact)) {
+        mesh_app_format_peer_name(status, contact.node, dst->most_messaged,
+                                  sizeof dst->most_messaged);
+        dst->most_messaged_count = contact.count;
+    }
     dst->messages_delivered = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_DELIVERED);
     dst->messages_failed = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_FAILED);
     dst->nodes_heard = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_NODES_HEARD);
@@ -1156,6 +1175,8 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
     dst->nodes_heard_direct = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_NODES_HEARD_DIRECT);
     dst->radios = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_RADIOS);
     dst->nodes_floor = !mesh_lifetime_complete(lifetime);
+    dst->model_count = mesh_app_flatten_top(lifetime, MESH_LIFETIME_TRAIT_MODEL, dst->models);
+    dst->role_count = mesh_app_flatten_top(lifetime, MESH_LIFETIME_TRAIT_ROLE, dst->roles);
     dst->most_hops = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_MOST_HOPS);
     dst->most_hops_measured = mesh_lifetime_measured(lifetime, MESH_LIFETIME_MOST_HOPS);
     dst->farthest_direct_m = mesh_lifetime_value(lifetime, MESH_LIFETIME_FARTHEST_DIRECT_M);
@@ -1196,6 +1217,10 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
         mesh_lifetime_measured(lifetime, MESH_LIFETIME_LONGEST_ABSENCE_S);
     mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_LONGEST_ABSENCE_S,
                             &dst->longest_absence_holder);
+    dst->longest_known_s = mesh_lifetime_value(lifetime, MESH_LIFETIME_LONGEST_KNOWN_S);
+    dst->longest_known_measured = mesh_lifetime_measured(lifetime, MESH_LIFETIME_LONGEST_KNOWN_S);
+    mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_LONGEST_KNOWN_S,
+                            &dst->longest_known_holder);
     dst->traces = mesh_lifetime_value(lifetime, MESH_LIFETIME_TRACES);
     dst->longest_trace_hops = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_LONGEST_TRACE_HOPS);
     dst->longest_trace_measured =

@@ -1424,6 +1424,10 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
         (value = stats_value_of(&store, "Longest absence", &item)) == NULL ||
         strcmp(value, "none yet") != 0 ||
         (value = stats_value_of(&store, "Longest route", &item)) == NULL ||
+        strcmp(value, "none yet") != 0 ||
+        (value = stats_value_of(&store, "Known longest", &item)) == NULL ||
+        strcmp(value, "none yet") != 0 ||
+        (value = stats_value_of(&store, "Most messaged", &item)) == NULL ||
         strcmp(value, "none yet") != 0) {
         failure = "a record nothing has set should say so";
         goto cleanup;
@@ -1439,6 +1443,10 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     stats->nodes_heard_direct = 12U;
     stats->longest_absence_s = 90061U; /* a day, an hour, a minute and a second */
     stats->longest_absence_measured = true;
+    stats->longest_known_s = 400U * 86400U + 3U * 3600U;
+    stats->longest_known_measured = true;
+    snprintf(stats->most_messaged, sizeof stats->most_messaged, "%s", "BRAV");
+    stats->most_messaged_count = 42U;
     stats->traces = 9U;
     stats->longest_trace_hops = 4U;
     stats->longest_trace_measured = true;
@@ -1455,6 +1463,16 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
         (value = stats_value_of(&store, "Private direct received", &item)) == NULL ||
         strcmp(value, "4") != 0) {
         failure = "the MQTT and private counts each have a row";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Most messaged", &item)) == NULL ||
+        strcmp(value, "BRAV, 42") != 0) {
+        failure = "the most messaged is a name and the messages both ways";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Known longest", &item)) == NULL ||
+        strcmp(value, "400d 3h") != 0) {
+        failure = "the longest known is a duration";
         goto cleanup;
     }
     if ((value = stats_value_of(&store, "Farthest heard", &item)) == NULL ||
@@ -3003,5 +3021,105 @@ MESH_TEST_CASE(ui_nav_settings_maps_a_download_is_the_only_offer, unit) {
     MESH_TEST_FAIL_IF(!stop, "the way to stop the download comes first");
     MESH_TEST_FAIL_IF(!bar, "then its bar, with how far it has got");
     MESH_TEST_FAIL_IF(offered, "and no second download is offered");
+    record_success(test_name);
+}
+
+/*
+ * The Stats page's tallies: a group per trait, headed and in the tally's order, the row named by
+ * the value it counts - and no group at all while no node has said what it is.
+ */
+MESH_TEST_CASE(ui_stats_page_lists_what_the_nodes_heard_are, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    struct mesh_ui_settings_item item;
+    MESH_TEST_FAIL_IF(stats_value_of(&store, "Hardware heard", &item) != NULL ||
+                          stats_value_of(&store, "Roles heard", &item) != NULL,
+                      "an empty tally has no heading");
+
+    struct mesh_ui_settings settings = store.settings;
+    struct mesh_ui_lifetime_stats *stats = &settings.client.lifetime;
+    /* meshtastic_HardwareModel_HELTEC_V3 and _RAK4631; meshtastic_Config_DeviceConfig_Role_ROUTER
+       and _CLIENT. */
+    stats->models[0] = (struct mesh_ui_lifetime_share){.value = 43U, .count = 12U};
+    stats->models[1] = (struct mesh_ui_lifetime_share){.value = 9U, .count = 4U};
+    stats->model_count = 2U;
+    stats->roles[0] = (struct mesh_ui_lifetime_share){.value = 0U, .count = 15U};
+    stats->roles[1] = (struct mesh_ui_lifetime_share){.value = 2U, .count = 1U};
+    stats->role_count = 2U;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    const char *value = NULL;
+    MESH_TEST_FAIL_IF(stats_value_of(&store, "Hardware heard", &item) == NULL ||
+                          item.kind != INKSTAND_FORM_HEADING,
+                      "the hardware group is headed");
+    MESH_TEST_FAIL_IF((value = stats_value_of(&store, "Heltec V3", &item)) == NULL ||
+                          strcmp(value, "12") != 0 || item.kind != INKSTAND_FORM_INFO,
+                      "a model is a row of its own, named, with its count");
+    MESH_TEST_FAIL_IF((value = stats_value_of(&store, "RAK4631", &item)) == NULL ||
+                          strcmp(value, "4") != 0,
+                      "and so is the next");
+    MESH_TEST_FAIL_IF(
+        (value = stats_value_of(&store, "Client", &item)) == NULL || strcmp(value, "15") != 0 ||
+            (value = stats_value_of(&store, "Router", &item)) == NULL || strcmp(value, "1") != 0,
+        "the roles likewise");
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * The page is one item list, capped, and the reset is its last row: with every group drawn at its
+ * fullest - every record set with a holder, both tallies full, a most messaged - the reset has
+ * to still be there, or a client that has seen the most is the one that cannot start again.
+ */
+MESH_TEST_CASE(ui_stats_page_keeps_its_reset_when_everything_is_set, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    struct mesh_ui_settings settings = store.settings;
+    struct mesh_ui_lifetime_stats *stats = &settings.client.lifetime;
+    stats->since = 1767225600U;
+    snprintf(stats->most_messaged, sizeof stats->most_messaged, "%s", "BRAV");
+    for (uint32_t i = 0; i < MESH_UI_LIFETIME_TOP; ++i) {
+        stats->models[i] = (struct mesh_ui_lifetime_share){.value = 1U + i, .count = 9U - i};
+        stats->roles[i] = (struct mesh_ui_lifetime_share){.value = i, .count = 9U - i};
+    }
+    stats->model_count = MESH_UI_LIFETIME_TOP;
+    stats->role_count = MESH_UI_LIFETIME_TOP;
+    struct mesh_ui_lifetime_holder *holders[] = {
+        &stats->most_hops_holder,       &stats->farthest_direct_holder,
+        &stats->farthest_heard_holder,  &stats->weakest_snr_holder,
+        &stats->weakest_rssi_holder,    &stats->longest_connection_holder,
+        &stats->longest_absence_holder, &stats->longest_trace_holder,
+        &stats->longest_known_holder,
+    };
+    for (size_t i = 0; i < sizeof holders / sizeof holders[0]; ++i) {
+        snprintf(holders[i]->name, sizeof holders[i]->name, "%s", "BRAV");
+        holders[i]->at = 1767225600U;
+    }
+    stats->most_hops_measured = true;
+    stats->farthest_direct_measured = true;
+    stats->farthest_heard_measured = true;
+    stats->weakest_snr_measured = true;
+    stats->weakest_rssi_measured = true;
+    stats->longest_connection_measured = true;
+    stats->longest_absence_measured = true;
+    stats->longest_trace_measured = true;
+    stats->longest_known_measured = true;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_settings_item item;
+    unsigned holder_rows = 0U;
+    uint32_t rows = 0U;
+    bool reset_last = false;
+    while (mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                                 MESH_UI_SETTINGS_STATS, MESH_UI_SETTINGS_NO_CHANNEL, rows,
+                                 &item)) {
+        holder_rows += strcmp(item.label, "Set by") == 0 ? 1U : 0U;
+        reset_last = strcmp(item.label, "Reset stats") == 0;
+        rows++;
+    }
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(holder_rows != sizeof holders / sizeof holders[0],
+                      "every record is drawn with its holder, or this proves nothing");
+    MESH_TEST_FAIL_IF(!reset_last, "the reset is still the last row of the fullest page");
     record_success(test_name);
 }

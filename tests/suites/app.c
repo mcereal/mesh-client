@@ -20,6 +20,7 @@
 
 #include "inkwell/base/array.h"
 #include "inkwell/base/file.h"
+#include "inkwell/base/time.h"
 #include "inkwell/ble/central.h"
 #include "mesh/app/app.h"
 #include "mesh/core/config.h"
@@ -3896,10 +3897,15 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     struct mesh_node_summary node;
     memset(&node, 0, sizeof node);
     node.node_id = 0x61000002U;
+    node.has_user = true;
+    node.hw_model = meshtastic_HardwareModel_HELTEC_V3;
+    node.role = meshtastic_Config_DeviceConfig_Role_ROUTER;
     const struct mesh_session_event heard_event = {
         .kind = MESH_SESSION_EVENT_NODE_HEARD, .node = &node, .has_hops = true, .hops = 3U};
+    inkwell_time_wall_set_fixed(1790000000U);
     mesh_lifetime_observe(&app.lifetime, &app.session, &heard_event);
     /* The same node straight to us, under the noise, ten minutes after it was last heard. */
+    inkwell_time_wall_set_fixed(1790000600U);
     node.last_heard = 1790000600U;
     const struct mesh_session_event faint_event = {.kind = MESH_SESSION_EVENT_NODE_HEARD,
                                                    .node = &node,
@@ -3948,6 +3954,16 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
         failure = "the page should carry the node counts and the records";
         goto cleanup;
     }
+    if (page->most_messaged_count != 1U || strcmp(page->most_messaged, "!61000001") != 0) {
+        failure = "the page should carry who was messaged most, by name";
+        goto cleanup;
+    }
+    if (page->model_count != 1U || page->models[0].value != meshtastic_HardwareModel_HELTEC_V3 ||
+        page->models[0].count != 1U || page->role_count != 1U ||
+        page->roles[0].value != meshtastic_Config_DeviceConfig_Role_ROUTER) {
+        failure = "the page should carry what the nodes heard run on and are for";
+        goto cleanup;
+    }
     /* The record's holder by name, out of the roster at publish time: a node the roster has
        not met is its id, and one it learns later is renamed on the next publish. */
     if (strcmp(page->most_hops_holder.name, "!61000002") != 0 ||
@@ -3969,6 +3985,11 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
         page->longest_absence_s != 600U ||
         strcmp(page->longest_absence_holder.name, "!61000002") != 0) {
         failure = "the page should carry the nodes heard directly and the longest absence";
+        goto cleanup;
+    }
+    if (!page->longest_known_measured || page->longest_known_s != 600U ||
+        strcmp(page->longest_known_holder.name, "!61000002") != 0) {
+        failure = "the page should carry how long the node heard again has been known";
         goto cleanup;
     }
     if (page->traces != 1U || !page->longest_trace_measured || page->longest_trace_hops != 2U ||
@@ -4009,7 +4030,8 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     page = &app.ui_store.settings.client.lifetime;
     if (page->messages_sent != 0U || page->direct_sent != 0U || page->nodes_heard != 0U ||
         page->most_hops_measured || page->traces != 0U || page->longest_trace_measured ||
-        page->keys_verified != 0U || page->waypoints_sent != 0U || page->channels_imported != 0U) {
+        page->keys_verified != 0U || page->waypoints_sent != 0U || page->channels_imported != 0U ||
+        page->most_messaged[0] != '\0' || page->model_count != 0U || page->longest_known_measured) {
         failure = "the reset should publish a page of zeros on the press that asked for it";
         goto cleanup;
     }
@@ -4039,6 +4061,7 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     }
 
 cleanup:
+    inkwell_time_wall_set_fixed(0U);
     if (app_ready) {
         mesh_app_shutdown(&app);
     }
