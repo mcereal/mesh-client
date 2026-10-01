@@ -1479,3 +1479,25 @@ MESH_TEST_CASE(ui_protocol_meshcore_autoadd_rows_follow_the_radio, unit) {
                       "with auto-add off the kinds are live");
     record_success(test_name);
 }
+
+/*
+ * A MeshCore hashtag channel is named with its '#' - the key is the hash of the name as typed,
+ * '#' included - and the conversation list puts a '#' in front of every channel. One is drawn.
+ */
+MESH_TEST_CASE(ui_protocol_hashtag_channel_is_drawn_with_one_hash, unit) {
+    static struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.channel_count = 2U;
+    handshake.channels[0].index = 0U;
+    handshake.channels[0].role = 1U;
+    snprintf(handshake.channels[0].name, sizeof handshake.channels[0].name, "Public");
+    handshake.channels[1].index = 1U;
+    handshake.channels[1].role = 2U;
+    snprintf(handshake.channels[1].name, sizeof handshake.channels[1].name, "#bayarea");
+    char name[64];
+    mesh_ui_channel_name(&handshake, 0U, name, sizeof name);
+    MESH_TEST_FAIL_IF(strcmp(name, "#Public") != 0, "a plain name gains its '#'");
+    mesh_ui_channel_name(&handshake, 1U, name, sizeof name);
+    MESH_TEST_FAIL_IF(strcmp(name, "#bayarea") != 0, "a hashtag name keeps the one it has");
+    record_success(test_name);
+}

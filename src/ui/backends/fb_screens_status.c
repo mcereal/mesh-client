@@ -288,7 +288,8 @@ static void fb_status_build(const struct mesh_ui_snapshot *snapshot, struct fb_s
         }
         if (hs->primary_channel[0] != '\0') {
             inkcell_fb_card_row(&out->link, INKCELL_TONE_NORMAL, MESH_STR_STATUS_LABEL_CHANNEL,
-                                MESH_STR_STATUS_CHANNEL_NAME, hs->primary_channel);
+                                MESH_STR_STATUS_CHANNEL_NAME,
+                                hs->primary_channel + (hs->primary_channel[0] == '#' ? 1 : 0));
         }
     } else {
         inkcell_fb_card_row_text(&out->link, INKCELL_TONE_DIM, MESH_STR_STATUS_LABEL_SYNC,
