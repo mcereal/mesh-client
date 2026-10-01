@@ -7,6 +7,15 @@
         "directory": "./dist",
         "not_found_handling": "404-page"
     },
+    // A pull request's build deploys with `wrangler preview`, which refuses to run without this
+    // block. Empty is enough: the assets above are what a preview serves too.
+    "previews": {},
+    // Both as the dashboard has them, so a deploy does not quietly reset them: the per-version
+    // preview URLs stay on, and there is no Worker code whose logs would be worth keeping.
+    "preview_urls": true,
+    "observability": {
+        "enabled": false
+    },
     // The deploy attaches the domain and creates its DNS record and certificate. The zone has
     // to be active on this Cloudflare account first.
     "routes": [
