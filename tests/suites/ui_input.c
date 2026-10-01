@@ -782,6 +782,24 @@ MESH_TEST_CASE(ui_menu_items_are_the_clicks_they_name, unit) {
     const uint32_t nodes_tab = (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_NODES;
     const uint32_t messages_tab = (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_MESSAGES;
     const uint32_t find = (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)MESH_UI_NODES_CHIP_FIND;
+
+    /* A row's menu takes the next press and only puts itself down, so it greys out the bar. */
+    mesh_ui_controller_handle_context(&controller, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, 40, 40);
+    inkwell_loop_run(&loop, 0);
+    if (!backend.last_snapshot.nav.context_open ||
+        mesh_ui_controller_menu_offered(&controller, MESH_UI_COMMAND_NEW) ||
+        mesh_ui_controller_menu_offered(&controller, nodes_tab)) {
+        failure = "nothing under an open row menu should be offered";
+        goto cleanup;
+    }
+    mesh_ui_controller_handle_context(&controller, INKCELL_FOCUS_NONE, 0, 0);
+    inkwell_loop_run(&loop, 0);
+    if (backend.last_snapshot.nav.context_open ||
+        !mesh_ui_controller_menu_offered(&controller, MESH_UI_COMMAND_NEW)) {
+        failure = "putting the row menu down should offer the bar again";
+        goto cleanup;
+    }
+
     if (!mesh_ui_controller_menu_offered(&controller, nodes_tab) ||
         mesh_ui_controller_menu_offered(&controller, find)) {
         failure = "on Messages a tab item should be offered and Find should not";

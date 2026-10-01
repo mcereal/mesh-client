@@ -204,6 +204,11 @@ bool mesh_ui_controller_menu_offered(const struct mesh_ui_controller *controller
         !inkstand_frame_scheduler_presented(&controller->frames)) {
         return false;
     }
+    /* A pop-up drawn in the frame - a row's menu, a choice's values - takes the next key or
+       click first and only puts itself down, so nothing under it is on offer until it is gone. */
+    if (controller->snapshot.nav.context_open || controller->snapshot.nav.choice_open) {
+        return false;
+    }
     if (item < (uint32_t)MESH_UI_COMMAND_COUNT) {
         struct mesh_ui_command_set offered;
         mesh_ui_commands_for(&controller->snapshot, &offered);
