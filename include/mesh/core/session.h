@@ -33,9 +33,11 @@ extern "C" {
    for a full NodeDB sync, since a node the sync drops cannot be messaged by name. */
 #define MESH_SESSION_MAX_NODES 256U
 
-/* The radio's channel table: 8 slots, PRIMARY plus SECONDARYs; DISABLED slots are kept so the
-   index stays meaningful (MeshPacket.channel is this index for broadcasts). */
-#define MESH_SESSION_MAX_CHANNELS 8U
+/* The radio's channel table, PRIMARY plus SECONDARYs; DISABLED slots are kept so the index stays
+   meaningful (MeshPacket.channel is this index for broadcasts). Meshtastic has 8 slots and a
+   MeshCore companion up to 40, and a slot the table cannot hold is a channel whose messages
+   have no conversation to land in. */
+#define MESH_SESSION_MAX_CHANNELS 40U
 
 /* RouteDiscovery's arrays are capped at 8 upstream (proto/meshtastic/mesh.options), so a
    trace can cross at most that many intermediate nodes in each direction. */

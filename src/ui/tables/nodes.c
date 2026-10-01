@@ -556,7 +556,9 @@ void mesh_ui_channel_name(const struct mesh_ui_handshake_state *handshake, uint8
         }
     }
     if (channel != NULL && channel->name[0] != '\0') {
-        snprintf(out, out_len, "#%s", channel->name);
+        /* A MeshCore hashtag channel's name carries its own '#', which is what its key is
+           derived from; one is drawn, not two. */
+        snprintf(out, out_len, "#%s", channel->name + (channel->name[0] == '#' ? 1 : 0));
     } else if (index == 0U) {
         /* An unnamed slot 0 is the default primary channel; the firmware shows the modem
            preset name there, which we do not track. */

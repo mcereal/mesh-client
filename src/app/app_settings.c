@@ -1126,7 +1126,7 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
                the edit loop to apply. */
             return 0;
         case MESH_UI_SETTINGS_CHANNELS:
-            if (action->channel >= MESH_RADIO_SETTINGS_MAX_CHANNELS ||
+            if (action->channel >= MESH_MESHTASTIC_CHANNELS ||
                 !radio->has_channel[action->channel]) {
                 return -ENOENT;
             }

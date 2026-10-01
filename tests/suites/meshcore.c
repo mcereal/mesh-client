@@ -314,6 +314,71 @@ MESH_TEST_CASE(meshcore_handshake_ignores_a_repeated_device_and_self_info, unit)
 }
 
 /*
+ * Most companion builds keep 40 channel slots, and a hashtag channel is one line to join, so
+ * a radio past slot 7 is ordinary. Every slot it reports is read, and one far down the table is
+ * a channel like any other: in the roster, in the settings the editor opens on, and the
+ * conversation its messages land in.
+ */
+MESH_TEST_CASE(meshcore_reads_every_slot_of_a_forty_channel_radio, unit) {
+    struct mesh_protocol protocol;
+    static struct mesh_test_meshcore_wire wire;
+    mesh_session_init(&g_model);
+    mesh_meshcore_init(&g_meshcore, &g_model);
+    protocol = mesh_meshcore_protocol(&g_meshcore);
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, mesh_test_meshcore_wire_send, &wire);
+    MESH_TEST_FAIL_IF(mesh_protocol_begin(&protocol) != 0, "the handshake starts");
+    uint8_t device[sizeof mesh_test_meshcore_device_info];
+    memcpy(device, mesh_test_meshcore_device_info, sizeof device);
+    device[3] = 40U;
+    feed(&protocol, device, sizeof device);
+    feed(&protocol, mesh_test_meshcore_self_info, sizeof mesh_test_meshcore_self_info);
+    if (mesh_test_meshcore_wire_last(&wire) == MESH_MESHCORE_CMD_SET_DEVICE_TIME) {
+        feed_code(&protocol, MESH_MESHCORE_RESP_OK);
+    }
+    uint8_t end[5] = {MESH_MESHCORE_RESP_END_OF_CONTACTS};
+    feed(&protocol, end, sizeof end);
+    for (uint8_t slot = 0U; slot < 40U; ++slot) {
+        MESH_TEST_FAIL_IF(mesh_test_meshcore_wire_last(&wire) != MESH_MESHCORE_CMD_GET_CHANNEL ||
+                              wire.frames[wire.count - 1U][1] != slot,
+                          "each slot the radio has is asked for in turn");
+        /* The wire holds 32 frames; only the newest matters to the walk. */
+        wire.count = 0U;
+        uint8_t channel[2 + 32 + 16] = {MESH_MESHCORE_RESP_CHANNEL_INFO, slot};
+        if (slot == 0U) {
+            memcpy(channel + 2, "Public", 6U);
+            channel[34] = 0x8b;
+        } else if (slot == 25U) {
+            memcpy(channel + 2, "#bayarea", 8U);
+            channel[34] = 0x25;
+        }
+        feed(&protocol, channel, sizeof channel);
+    }
+    MESH_TEST_FAIL_IF(!mesh_meshcore_ready(&g_meshcore), "the walk ends after the fortieth slot");
+
+    const struct mesh_handshake_status *status = &g_model.handshake;
+    MESH_TEST_FAIL_IF(status->channel_count != 40U ||
+                          strcmp(status->channels[25].name, "#bayarea") != 0 ||
+                          status->channels[25].role != 2U || status->channels[24].role != 0U,
+                      "slot 25 is a channel in the roster, and the empty ones around it are not");
+    const struct mesh_radio_settings *settings = mesh_session_model_settings(&g_model);
+    MESH_TEST_FAIL_IF(settings == NULL || !settings->has_channel[25] ||
+                          settings->channels[25].settings.psk.size != 16U ||
+                          settings->channels[25].settings.psk.bytes[0] != 0x25,
+                      "and its secret is in the settings the channel editor starts from");
+
+    feed_code(&protocol, MESH_MESHCORE_PUSH_MSG_WAITING);
+    const uint8_t heard[] = {17, 0, 0, 0, 25, 1, 0, 0, 0, 0, 0, 'B', 'o', 'b', ':', ' ', 'x'};
+    feed(&protocol, heard, sizeof heard);
+    const struct mesh_message *message = newest_message();
+    MESH_TEST_FAIL_IF(message == NULL || message->channel != 25U ||
+                          strcmp(message->text, "Bob: x") != 0,
+                      "a message on slot 25 is that channel's");
+    mesh_protocol_detach(&protocol);
+    record_success(test_name);
+}
+
+/*
  * A push that a message is waiting starts the drain, and the drain runs until the radio says
  * there is no more - a direct message resolves to the contact whose key it starts with, and a
  * channel message's "Name: " becomes its sender when a node goes by that name.

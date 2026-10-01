@@ -493,7 +493,7 @@ uint32_t mesh_meshcore_node_id(const uint8_t *key, size_t key_len);
  */
 #define MESH_MESHCORE_CONTACTS_MAX 512U
 /* Channel slots kept whole: as many as the session shows, which the walk never goes past. */
-#define MESH_MESHCORE_CHANNELS_KEPT 8U
+#define MESH_MESHCORE_CHANNELS_KEPT 40U
 #define MESH_MESHCORE_PENDING_SENDS 8U
 #define MESH_MESHCORE_HEARD_ADVERTS 16U
 /* A command the radio has not answered in this long is given up on, and two in a row is a link
