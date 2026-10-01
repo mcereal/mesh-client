@@ -1622,6 +1622,10 @@ MESH_TEST_CASE(meshcore_login_is_answered_and_shares_the_lock, unit) {
                           g_meshcore.notice.cmd != MESH_MESHCORE_CMD_SEND_LOGIN ||
                           g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_ADMIN,
                       "hers says she took us as her admin");
+    const struct mesh_node_summary *node = mesh_session_model_node(&g_model, alice, false);
+    MESH_TEST_FAIL_IF(g_meshcore.notice.login != MESH_NODE_LOGIN_ADMIN ||
+                          node->login != MESH_NODE_LOGIN_ADMIN || node->login_time == 0U,
+                      "read off her access list, and kept on her record with when");
     MESH_TEST_FAIL_IF(g_meshcore.request_until_ms != 0U, "and frees the radio");
     feed(&protocol, k_admin, sizeof k_admin);
     MESH_TEST_FAIL_IF(g_meshcore.notices != notices + 1U, "a request ends once");
@@ -1633,13 +1637,49 @@ MESH_TEST_CASE(meshcore_login_is_answered_and_shares_the_lock, unit) {
     static const uint8_t k_guest[] = {
         MESH_MESHCORE_PUSH_LOGIN_SUCCESS, 0, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45};
     feed(&protocol, k_guest, sizeof k_guest);
-    MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_GUEST, "is a guest");
+    MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_GUEST ||
+                          g_meshcore.notice.login != MESH_NODE_LOGIN_IN ||
+                          node->login != MESH_NODE_LOGIN_IN,
+                      "is a guest, as what the oldest answer does not say");
+    /* The byte is not "is admin": a room server's 2 is a visitor with no rights. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "") != 0, "a room's visitor");
+    feed(&protocol, k_sent, sizeof k_sent);
+    static const uint8_t k_visitor[] = {
+        MESH_MESHCORE_PUSH_LOGIN_SUCCESS, 2, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45};
+    feed(&protocol, k_visitor, sizeof k_visitor);
+    MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_GUEST ||
+                          node->login != MESH_NODE_LOGIN_GUEST,
+                      "a 2 is a guest, never an admin");
+    /* And where the ACL came, it is the answer whatever the byte says. */
+    MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "room") != 0, "a member");
+    feed(&protocol, k_sent, sizeof k_sent);
+    static const uint8_t k_member[] = {MESH_MESHCORE_PUSH_LOGIN_SUCCESS,
+                                       0,
+                                       0x40,
+                                       0x41,
+                                       0x42,
+                                       0x43,
+                                       0x44,
+                                       0x45,
+                                       0,
+                                       0,
+                                       0,
+                                       0,
+                                       0x82,
+                                       1};
+    feed(&protocol, k_member, sizeof k_member);
+    MESH_TEST_FAIL_IF(g_meshcore.notice.login != MESH_NODE_LOGIN_READ_WRITE ||
+                          node->login != MESH_NODE_LOGIN_READ_WRITE,
+                      "the ACL's low bits are the role");
     MESH_TEST_FAIL_IF(mesh_meshcore_login(&g_meshcore, alice, "wrong") != 0, "a wrong password");
     feed(&protocol, k_sent, sizeof k_sent);
     static const uint8_t k_fail[] = {
         MESH_MESHCORE_PUSH_LOGIN_FAIL, 0, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45};
     feed(&protocol, k_fail, sizeof k_fail);
-    MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_REFUSED, "is refused");
+    MESH_TEST_FAIL_IF(g_meshcore.notice.answer != MESH_MESHCORE_ANSWER_REFUSED ||
+                          g_meshcore.notice.login != MESH_NODE_LOGIN_NONE ||
+                          node->login != MESH_NODE_LOGIN_READ_WRITE,
+                      "is refused, which leaves what the list last said: it is the server's");
     MESH_TEST_FAIL_IF(mesh_meshcore_request_telemetry(&g_meshcore, alice) != 0, "readings");
     feed(&protocol, k_sent, sizeof k_sent);
     const uint32_t before_silence = g_meshcore.notices;

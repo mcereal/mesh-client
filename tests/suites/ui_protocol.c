@@ -21,8 +21,10 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/proto/meshcore_url.h"
 #include "mesh/ui/commands.h"
+#include "mesh/ui/duration.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/nodes.h"
 #include "mesh/ui/protocols.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
@@ -552,6 +554,44 @@ cleanup:
  * route says it floods. Its sheet offers to forget the route beside the trace, only while there
  * is one and never on Meshtastic, and the press names the contact.
  */
+/* What a server's access list said of us at login sits with who the node is, with its age: the
+   server never says when it changes. */
+MESH_TEST_CASE(ui_protocol_meshcore_login_role_is_shown_with_its_age, unit) {
+    static struct mesh_ui_handshake_state roster;
+    memset(&roster, 0, sizeof roster);
+    roster.node_count = 1U;
+    struct mesh_ui_node_summary *room = &roster.nodes[0];
+    room->node_id = 0x40414243U;
+    room->role = 12U;
+    room->in_nodedb = true;
+    static struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const char *label = inkcell_str(MESH_STR_NODE_LOGIN);
+    uint32_t count = mesh_ui_node_detail_build(room, false, 1750000000U, NULL, &roster, NULL, false,
+                                               items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        MESH_TEST_FAIL_IF(strcmp(items[i].label, label) == 0, "no row before a login");
+    }
+    room->login = MESH_NODE_LOGIN_READ_ONLY;
+    room->login_time = 1750000000U - 300U;
+    count = mesh_ui_node_detail_build(room, false, 1750000000U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    char want[64];
+    char age[24];
+    mesh_ui_format_age(room->login_time, 1750000000U, age, sizeof age);
+    inkcell_str_format(want, sizeof want, MESH_STR_NODE_VAL_LOGIN,
+                       inkcell_str(MESH_STR_NODE_LOGIN_READ_ONLY), age);
+    bool shown = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        shown = shown || (strcmp(items[i].label, label) == 0 && strcmp(items[i].value, want) == 0);
+    }
+    MESH_TEST_FAIL_IF(!shown, "the role, and how long ago it was said");
+    MESH_TEST_FAIL_IF(mesh_ui_node_login_name(MESH_NODE_LOGIN_NONE) != INKCELL_STR_NONE ||
+                          mesh_ui_node_login_name(MESH_NODE_LOGIN_ADMIN) !=
+                              MESH_STR_NODE_LOGIN_ADMIN,
+                      "every role has a word, and no login none");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_protocol_meshcore_route_is_shown_and_forgotten, unit) {
     static const struct mesh_protocol_ops k_meshcore = {.name = "meshcore"};
     static int meshcore_self;

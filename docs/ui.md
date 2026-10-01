@@ -1427,6 +1427,7 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `signal NAME SNR [RSSI]` | one packet heard straight off the air: dB, dBm, and the clock moved half-way to now |
 | `nofix` | take our own radio's fix away |
 | `verified NAME`, `verify waiting\|show\|enter\|compare\|off NAME` | the key-verification bit, and the sheet |
+| `login NAME unsaid\|guest\|read-only\|read-write\|admin` | a MeshCore server's last login answer for that node, five minutes old |
 | `pin NAME` | pin that node |
 
 Most of those verbs exist because **no press can reach the state**: a Routing reply arrives after

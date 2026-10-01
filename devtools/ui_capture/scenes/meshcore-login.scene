@@ -1,0 +1,18 @@
+# What a MeshCore room server or repeater said we are on its access list, on the node's Identity
+# card beside what the node is. The age is part of the answer: the server keeps its list and
+# never says when it drops us, so "read-only, 5m ago" is a report, not a session.
+
+scene demo
+clock 2026-01-15 12:00
+login ECHO read-only
+tab nodes
+# Echo Repeater is seeds[5], so row 6 under the chip bar.
+key down 6
+key a
+hold 1200
+# Through Signal and both legs of its route to Identity.
+key right
+key right
+key right
+key right
+hold 1600

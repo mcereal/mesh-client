@@ -1083,6 +1083,15 @@ MESH_STR_ENTRY(NODE_ACT_ADMIN,            "Configure by radio")
    else. The keyboard's heading names the node; a blank password is a guest's. */
 MESH_STR_ENTRY(NODE_ACT_LOGIN,            "Log in")
 MESH_STR_ENTRY(LOGIN_PROMPT,              "Password for %.20s")
+/* Our place on a MeshCore server's access list as its last login answer put it, then how long
+   ago: the server can drop us since and never say, so the age is part of the answer. */
+MESH_STR_ENTRY(NODE_LOGIN,                "Logged in as")
+MESH_STR_ENTRY(NODE_VAL_LOGIN,            "%s, %s")
+MESH_STR_ENTRY(NODE_LOGIN_UNSAID,         "role not said")
+MESH_STR_ENTRY(NODE_LOGIN_GUEST,          "guest")
+MESH_STR_ENTRY(NODE_LOGIN_READ_ONLY,      "read-only")
+MESH_STR_ENTRY(NODE_LOGIN_READ_WRITE,     "read-write")
+MESH_STR_ENTRY(NODE_LOGIN_ADMIN,          "admin")
 MESH_STR_ENTRY(NODE_ACT_REQUEST_STATUS,   "Ask for status")
 /* Asking a MeshCore repeater which nodes it hears directly. The answer fills the node's
    Neighbours group. Under MESH_UI_NODE_LABEL_MAX, which is 20 bytes and cuts silently. */
@@ -3100,7 +3109,8 @@ MESH_STR_ENTRY(TOAST_SHARING_NEARBY,      "Sending %.20s's advert to nodes nearb
 MESH_STR_ENTRY(TOAST_SHARE_NO_ADVERT,     "The radio has no advert from %.20s to share")
 /* How a request to a MeshCore node ended, when its answer - or the lack of one - arrives. */
 MESH_STR_ENTRY(TOAST_LOGGED_IN,           "Logged in to %.20s")
-MESH_STR_ENTRY(TOAST_LOGGED_IN_ADMIN,     "Logged in to %.20s as admin")
+/* The node, then one of the NODE_LOGIN_* roles. */
+MESH_STR_ENTRY(TOAST_LOGGED_IN_AS,        "Logged in to %.20s as %s")
 MESH_STR_ENTRY(TOAST_LOGIN_REFUSED,       "%.20s refused the password")
 MESH_STR_ENTRY(TOAST_NO_ANSWER,           "%.20s did not answer")
 /* A repeater answers a status request only from a client logged in to it. */

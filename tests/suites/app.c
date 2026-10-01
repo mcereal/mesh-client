@@ -6002,6 +6002,20 @@ MESH_TEST_CASE(app_meshcore_other_params_save, unit) {
         goto cleanup;
     }
 
+    /* A login says what the server took us as, not only that it did. */
+    struct mesh_meshcore_notice *login =
+        &app.meshcore.notice_log[app.meshcore.notices % MESH_MESHCORE_NOTICES_KEPT];
+    login->node_id = 0x40414243U;
+    login->cmd = MESH_MESHCORE_CMD_SEND_LOGIN;
+    login->answer = MESH_MESHCORE_ANSWER_GUEST;
+    login->login = MESH_NODE_LOGIN_READ_ONLY;
+    app.meshcore.notices += 1U;
+    mesh_app_publish_ui_state(&app);
+    if (strstr(app.ui_store.nav.toast.text, "as read-only") == NULL) {
+        failure = "a login names the role the server gave";
+        goto cleanup;
+    }
+
 cleanup:
     if (app_ready) {
         mesh_protocol_detach(&protocol);

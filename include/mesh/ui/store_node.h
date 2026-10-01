@@ -224,6 +224,9 @@ struct mesh_ui_node_summary {
     uint8_t path_width;
     uint8_t path[MESH_UI_NODE_PATH_BYTES];
     uint32_t path_node[MESH_UI_NODE_PATH_HOPS];
+    /* What a MeshCore server said we are on its access list at our last login, and when. */
+    uint8_t login; /* enum mesh_node_login */
+    uint32_t login_time;
     /*
      * Whether more than one node ends in that byte, answered at publish over the *whole*
      * session roster rather than here.

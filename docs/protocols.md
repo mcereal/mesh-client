@@ -213,8 +213,16 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   battery, and a sensor's temperature, humidity, pressure, light, current and GPS fill the node's
   environment and position. A node answers only if its telemetry settings let this radio ask.
 - **A login** to a repeater or room server contact is `SEND_LOGIN`: the whole key, then the
-  password (at most 15 characters, blank for a guest), answered by `LOGIN_SUCCESS` - with
-  whether it took us as its admin - or `LOGIN_FAIL`. It is typed each time; nothing keeps it.
+  password (at most 15 characters, blank for a guest), answered by `LOGIN_SUCCESS` or
+  `LOGIN_FAIL`. The password is typed each time; nothing keeps it. A newer server's success
+  carries our ACL permissions, whose low two bits are the role - guest, read-only, read-write,
+  admin - and that is the answer; an older one's has only the byte before the key prefix, which
+  is not "is admin": a room server sends 2 there for a visitor with no rights. The role is kept
+  on the node (`mesh_node_summary.login`) with when it was said, and shown on its Identity group
+  with that age: the server's access list outlives the login, and nothing tells the client when
+  it drops us. `HAS_CONNECTION` and `LOGOUT` are not used - they track the radio's keep-alive
+  connection, which current servers never ask for (their login answer's keep-alive is 0), so
+  against them one always says no and the other does nothing.
 - **A status** is `SEND_STATUS_REQ` by the whole key, answered by `STATUS_RESPONSE`: the node's
   stats struct as it lies in memory (`mesh_meshcore_decode_status()`). The first 48 bytes are
   shared; a repeater follows them with its receive airtime and errors, a room server with its

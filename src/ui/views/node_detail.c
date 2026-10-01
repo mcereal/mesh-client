@@ -477,7 +477,8 @@ static void node_key_fingerprint(char *key) {
             NODE_KEY_END_CHARS + 1U);
 }
 
-static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node_summary *node) {
+static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                               uint32_t now) {
     rows_heading(rows, MESH_STR_NODE_HEAD_IDENTITY, INKCELL_ICON_USER);
 
     if (node->long_name[0] != '\0') {
@@ -513,6 +514,14 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
            set and the one thing on this card that changes how every other card should be read.
            The hardware beside it is a model name the node chose, so it stays words. */
         rows_state(rows, MESH_STR_NODE_ROLE, mesh_radio_role_name(node->role), INKCELL_TONE_NORMAL);
+    }
+    /* Who we are to it, beside what it is: a room's visitor can read and not post, which is the
+       answer to a post that went nowhere. With its age, since the server never says it changed. */
+    if (node->login != MESH_NODE_LOGIN_NONE) {
+        char age[24];
+        mesh_ui_format_age(node->login_time, now, age, sizeof age);
+        rows_info(rows, MESH_STR_NODE_LOGIN, MESH_STR_NODE_VAL_LOGIN,
+                  inkcell_str(mesh_ui_node_login_name(node->login)), age);
     }
     if (node->hw_model != 0U) {
         char fallback[MESH_UI_NODE_VALUE_MAX];
@@ -1742,7 +1751,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         node_rows_route_path(&rows, node, trace, now);
     }
     node_rows_position(&rows, node, now);
-    node_rows_identity(&rows, node);
+    node_rows_identity(&rows, node, now);
     node_rows_environment(&rows, node, now);
     node_rows_power_metrics(&rows, node, now);
     node_rows_air_quality(&rows, node, now);
