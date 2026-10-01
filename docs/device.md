@@ -255,5 +255,9 @@ device's older glibc is never asked for anything - and the folder is copied onto
 - **Turn on network time.** The clock starts at 1970 until Onion sets it (Apps > Tweaks >
   Network), and until then every HTTPS fetch is refused with *this device's clock is wrong*.
 - **Getting on it.** Onion's SSH (Tweaks > Network) logs `root` in with an empty password. The
-  log is `App/MeshClient/MeshClient.txt`, and opens with the panel, input devices and serial ports
-  the run found.
+  log is `App/MeshClient/MeshClient.txt`, cut back at startup like the Brick's, and opens with the
+  panel, input devices and serial ports the run found. `MESHCLIENT_LOG_LEVEL=debug` in `env.sh`
+  logs every button's code.
+- **No self-update yet.** The build names its own release asset, `meshclient-miyoomini-armhf`,
+  which no release publishes, so a check says there is nothing to install rather than fetching
+  the Brick's aarch64 binary.

@@ -25,6 +25,9 @@ export MESHCLIENT_UI_BACKEND=fb
 export MESHCLIENT_FB_ROTATE=180
 export MESHCLIENT_INPUT_PROFILE=miyoo
 export MESHCLIENT_DISABLE_BLE=1
+# The client cuts its log back at startup, but finds it through the Brick's .userdata layout;
+# this one is beside the app, so say where.
+export MESHCLIENT_LOG_FILE="$LOG_FILE"
 # Per-device settings that are not the pak's to decide - MESHCLIENT_TCP_HOST, MESHCLIENT_PROTOCOL,
 # MESHCLIENT_LOG_LEVEL - go in env.sh beside this file. `set -a` exports every assignment in it,
 # so a plain `MESHCLIENT_TCP_HOST=radio:5000` reaches the client as well as an `export` does.
@@ -35,7 +38,7 @@ if [ -f "$APP_DIR/env.sh" ]; then
 fi
 
 cd "$APP_DIR"
-"$APP_DIR/meshclient" --foreground --log-level "${MESHCLIENT_LOG_LEVEL:-debug}" >>"$LOG_FILE" 2>&1
+"$APP_DIR/meshclient" --foreground --log-level "${MESHCLIENT_LOG_LEVEL:-info}" >>"$LOG_FILE" 2>&1
 STATUS=$?
 printf '[%s] MeshClient exited with status %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$STATUS" >>"$LOG_FILE"
 # The client's status, not printf's: Onion and a hand-run launch both read this one.

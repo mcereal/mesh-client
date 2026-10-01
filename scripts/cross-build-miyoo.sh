@@ -20,6 +20,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/cmake-tree.sh"
 mesh_reset_stale_tree "$BUILD_DIR"
 
 # The SSD202D is a dual Cortex-A7 with NEON.
+# MESHCLIENT_UPDATE_ASSET names this build's own release asset. Left unset, the updater's default
+# is the Brick's aarch64 binary, which it would install over this one - and the next launch would
+# fail on the format. No release carries an armhf asset yet, so a check reports "No usable release
+# asset" and installs nothing until one does.
 PKG_CONFIG_LIBDIR= cmake -S . -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="${CROSS}gcc" \
@@ -29,6 +33,7 @@ PKG_CONFIG_LIBDIR= cmake -S . -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_C_FLAGS="-Os -fno-omit-frame-pointer -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard" \
     -DPython3_EXECUTABLE="$(command -v python3)" \
     -DINKCELL_WITH_SDL=OFF \
+    -DMESHCLIENT_UPDATE_ASSET=meshclient-miyoomini-armhf \
     "$@"
 cmake --build "$BUILD_DIR"
 
