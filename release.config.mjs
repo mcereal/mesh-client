@@ -140,6 +140,25 @@ export default {
           // release cut somewhere else publishes the pak and the device binary as usual and
           // logs this one as unreadable, which is the right trade for an extra convenience
           // asset. See scripts/linux-cli-build.sh.
+          // The Miyoo Mini (Onion OS): the binary its updater fetches, by the name
+          // scripts/cross-build-miyoo.sh compiles in, and the App folder for a fresh install.
+          // Built non-fatally, like the CLI below - a missing one is logged and skipped.
+          {
+            path: "dist/meshclient-miyoomini-armhf",
+            label: "meshclient-miyoomini-armhf",
+          },
+          {
+            path: "dist/meshclient-miyoomini-armhf.sha256",
+            label: "meshclient-miyoomini-armhf.sha256",
+          },
+          {
+            path: "dist/MeshClient-miyoomini.zip",
+            label: "MeshClient-miyoomini.zip",
+          },
+          {
+            path: "dist/MeshClient-miyoomini.zip.sha256",
+            label: "MeshClient-miyoomini.zip.sha256",
+          },
           {
             path: "dist/meshclient-linux-x86_64",
             label: "meshclient-linux-x86_64",
