@@ -8,7 +8,7 @@ const release = await latestRelease();
 const published = release?.published.toLocaleDateString("en", { year: "numeric", month: "long", day: "numeric" });
 ---
 
-<Base title="Download" description="Download MeshClient for the TrimUI Brick, macOS, Windows or Linux.">
+<Base title="Download" description="Download MeshClient for the TrimUI Brick, the Miyoo Mini Plus, macOS, Windows or Linux.">
     <div class="wrap page">
         <h1>Download</h1>
         {
@@ -38,6 +38,20 @@ unzip MeshClient.pak.zip -d /Volumes/SDCARD/Tools/tg5040/MeshClient.pak</code></
             <p class="muted">
                 The zip holds the pak's contents, not the pak folder. Unzipping it without making that folder first
                 gives you <code>MeshClient.pak/MeshClient.pak/launch.sh</code>, which the launcher will not run.
+            </p>
+        </section>
+
+        <section class="card">
+            <h2>Miyoo Mini Plus</h2>
+            <p>
+                Onion OS. <strong>Experimental, and network only:</strong> the Miyoo has no Bluetooth, so it talks to
+                a radio with Wi-Fi turned on, or to <code>meshtasticd</code>.
+            </p>
+            <p><a class="button" href={asset("MeshClient-miyoomini.zip")}>MeshClient-miyoomini.zip</a></p>
+            <pre><code>unzip MeshClient-miyoomini.zip -d /Volumes/SDCARD</code></pre>
+            <p class="muted">
+                It unzips into <code>App/MeshClient/</code> and starts from <strong>Apps → MeshClient</strong>. Turn on
+                network time in Onion first; see <a href="/guide/install/#miyoo-mini-plus">Installing</a>.
             </p>
         </section>
 

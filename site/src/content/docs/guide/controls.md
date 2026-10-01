@@ -7,8 +7,9 @@ MeshClient is built around the d-pad and face buttons. The bar at the bottom of 
 always shows the buttons that do something right now, so you rarely need this page. It's here
 for when you want to know everything a button can do.
 
-The keys below are the ones **printed on the Brick**. On a desktop, the same keys map to a
-keyboard or a game controller.
+The keys below are the ones **printed on the Brick**. A Miyoo Mini Plus has the same buttons,
+and they do the same things. On a desktop, the same keys map to a keyboard or a game
+controller.
 
 ## Everywhere
 

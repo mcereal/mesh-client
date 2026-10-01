@@ -8,13 +8,13 @@ is on the mesh and change your radio's settings from a TrimUI Brick, without a p
 with [Meshtastic](https://meshtastic.org) radios and also with [MeshCore](meshcore/)
 companion radios.
 
-The Brick is the main target. Builds for macOS, Windows and a Linux command line also exist,
-running the same client.
+The Brick is the main target. Builds for the Miyoo Mini Plus, macOS, Windows and a Linux
+command line also exist, running the same client.
 
 ## What you need
 
-- **Something to run it on.** A TrimUI Brick running NextUI, a Mac or Windows PC, or a Linux
-  machine for the command line. See [Installing](install/).
+- **Something to run it on.** A TrimUI Brick running NextUI, a Miyoo Mini Plus running Onion
+  (network radios only), a Mac or Windows PC, or a Linux machine for the command line. See [Installing](install/).
 - **A radio.** A Meshtastic or MeshCore node, such as a Heltec, a RAK or a T-Echo. The client
   reaches it over Bluetooth LE, a USB cable, or the network. See
   [Connecting a radio](connecting/).
@@ -32,6 +32,19 @@ choose your channels from the client.
 4. Go to **Settings → LoRa** and check that the **region** is set for your country. A radio
    that has never been set up transmits nothing until it has one.
 5. Open **Messages**, choose a channel and press **Y** to write a message.
+
+### On a Miyoo Mini Plus
+
+The Miyoo has no Bluetooth or USB radio support, so the start is different:
+
+1. [Install](install/#miyoo-mini-plus) the app from the zip, and turn on network time in Onion
+   under **Apps → Tweaks → Network**.
+2. Turn on Wi-Fi on your radio: Meshtastic's network setting, or MeshCore's Wi-Fi companion
+   firmware.
+3. Open MeshClient from **Apps → MeshClient**, go to the **Radio** tab, press **A** on
+   **devices**, and type the radio's address on the last row, such as `192.168.1.50` or, for
+   MeshCore, `192.168.1.50:5000`.
+4. Carry on from step 4 above: check the region, then send a message.
 
 :::tip
 Press **SELECT** on any screen for help with what's on it. For a settings section, help opens

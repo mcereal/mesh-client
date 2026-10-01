@@ -53,7 +53,9 @@ itself on every connect.
 ## Network
 
 A network connection works with an ESP32 radio that has Wi-Fi enabled, or with `meshtasticd`
-running on a Linux machine. Both listen on port **4403**.
+running on a Linux machine. Both listen on port **4403**. A MeshCore radio needs its Wi-Fi
+companion firmware, which listens on port **5000**. On a Miyoo Mini Plus, which has no
+Bluetooth, the network is the only way to reach a radio.
 
 You can't scan for a network radio, so the last row of the device list holds its address:
 
