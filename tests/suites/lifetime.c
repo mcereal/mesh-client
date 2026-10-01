@@ -1215,6 +1215,63 @@ MESH_TEST_CASE(lifetime_longest_absence_is_the_gap_before_a_node_came_back, unit
     record_success(test_name);
 }
 
+/* A trace we asked for, answered by `target` with `out` relays on the way there and `back` on
+   the way home, as the session announces one. */
+static void lt_traced(uint32_t target, uint8_t out, uint8_t back) {
+    struct mesh_traceroute trace;
+    memset(&trace, 0, sizeof trace);
+    trace.state = MESH_TRACEROUTE_DONE;
+    trace.target = target;
+    trace.route_count = out;
+    trace.back_count = back;
+    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_TRACE, .trace = &trace};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+}
+
+/*
+ * A trace counts when it is answered, and the longest is the most relays either way: an answer
+ * can come home by another route than the request took, and the longer of the two is how far the
+ * mesh carried us. A trace to a node in range is a real record of 0, and one that ties the
+ * record leaves it with the node that set it first.
+ */
+MESH_TEST_CASE(lifetime_counts_answered_traces_and_the_longest, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_LONGEST_TRACE_HOPS),
+                      "nothing traced is no record");
+
+    lt_traced(LT_PEER, 0U, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_TRACES) != 1U ||
+                          !mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_LONGEST_TRACE_HOPS) ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_LONGEST_TRACE_HOPS) != 0U,
+                      "a trace to a node in range counts, and is a record of 0");
+
+    lt_traced(LT_OTHER, 1U, 3U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_LONGEST_TRACE_HOPS) != 3U,
+                      "the way back was the longer, so it is the length");
+    lt_traced(LT_PEER, 3U, 2U);
+    lt_traced(LT_PEER, 2U, 2U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_TRACES) != 4U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_LONGEST_TRACE_HOPS) != 3U,
+                      "every answer counts; a tie and a shorter one move no record");
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_TRACE_HOPS, &holder, NULL) ||
+            holder != LT_OTHER,
+        "the record is held by the node the trace reached first");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_TRACES) != 4U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_LONGEST_TRACE_HOPS) != 3U,
+                      "both survive a restart");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 0U,
+                      "and a trace is not a hearing: the session announces those itself");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
 /* A link sampled at `now`, and - as the session does once per handshake - the radio on it
    announced, when `radio` is not 0. */
 static void lt_link(bool up, uint32_t radio, uint64_t now) {

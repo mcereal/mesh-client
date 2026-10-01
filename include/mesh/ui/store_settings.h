@@ -157,6 +157,12 @@ struct mesh_ui_lifetime_stats {
     uint64_t longest_absence_s;
     bool longest_absence_measured;
     struct mesh_ui_lifetime_holder longest_absence_holder;
+    /* Traces we asked for that came back answered, and the most relays one of them crossed, held
+       by the node it reached. */
+    uint64_t traces;
+    uint32_t longest_trace_hops;
+    bool longest_trace_measured;
+    struct mesh_ui_lifetime_holder longest_trace_holder;
     /* The first credible wall-clock second the stats saw; 0 on a device that has never had a
        clock, which is a page that cannot say since when rather than one that started today. */
     uint32_t since;

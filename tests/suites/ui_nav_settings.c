@@ -1422,6 +1422,8 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
         (value = stats_value_of(&store, "Quietest signal", &item)) == NULL ||
         strcmp(value, "none yet") != 0 ||
         (value = stats_value_of(&store, "Longest absence", &item)) == NULL ||
+        strcmp(value, "none yet") != 0 ||
+        (value = stats_value_of(&store, "Longest route", &item)) == NULL ||
         strcmp(value, "none yet") != 0) {
         failure = "a record nothing has set should say so";
         goto cleanup;
@@ -1437,6 +1439,9 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     stats->nodes_heard_direct = 12U;
     stats->longest_absence_s = 90061U; /* a day, an hour, a minute and a second */
     stats->longest_absence_measured = true;
+    stats->traces = 9U;
+    stats->longest_trace_hops = 4U;
+    stats->longest_trace_measured = true;
     mesh_ui_store_set_settings(&store, &settings);
     if ((value = stats_value_of(&store, "Received over MQTT", &item)) == NULL ||
         strcmp(value, "3") != 0 ||
@@ -1468,6 +1473,13 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     if ((value = stats_value_of(&store, "Longest absence", &item)) == NULL ||
         strcmp(value, "1d 1h") != 0) {
         failure = "the longest absence should be drawn as a duration";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Routes traced", &item)) == NULL ||
+        strcmp(value, "9") != 0 ||
+        (value = stats_value_of(&store, "Longest route", &item)) == NULL ||
+        strcmp(value, "4") != 0) {
+        failure = "the traces answered are a count, and the longest a number of hops";
         goto cleanup;
     }
     if ((value = stats_value_of(&store, "Heard", &item)) == NULL ||

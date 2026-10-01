@@ -1430,6 +1430,7 @@ static bool mesh_meshcore_store_trace(struct mesh_meshcore *meshcore, uint32_t t
     trace->state = MESH_TRACEROUTE_DONE;
     trace->completed = mesh_meshcore_clock_now(meshcore);
     inkwell_log_info("meshcore", "Trace to 0x%08x: %u hops each way", target, (unsigned)each);
+    mesh_session_model_note_trace(meshcore->model);
     return true;
 }
 
@@ -1566,6 +1567,7 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
                     trace->completed = mesh_meshcore_clock_now(meshcore);
                     inkwell_log_info("meshcore", "Route to 0x%08x: %u out, %u back", target,
                                      (unsigned)trace->route_count, (unsigned)trace->back_count);
+                    mesh_session_model_note_trace(meshcore->model);
                 } else {
                     trace->state = MESH_TRACEROUTE_TIMEOUT;
                     inkwell_log_warn("meshcore", "Unreadable route from 0x%08x", target);

@@ -993,6 +993,15 @@ void mesh_session_model_note_node(struct mesh_session *session,
     mesh_session_emit(session, event);
 }
 
+void mesh_session_model_note_trace(struct mesh_session *session) {
+    if (session == NULL || session->traceroute.state != MESH_TRACEROUTE_DONE) {
+        return;
+    }
+    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_TRACE,
+                                             .trace = &session->traceroute};
+    mesh_session_emit(session, &event);
+}
+
 int mesh_session_model_drop_node(struct mesh_session *session, uint32_t node_id) {
     if (session == NULL) {
         return -EINVAL;
@@ -1435,6 +1444,7 @@ static bool mesh_session_handle_traceroute(struct mesh_session *session,
     trace->state = MESH_TRACEROUTE_DONE;
     inkwell_log_info("session", "Traceroute to 0x%08x: %u hops out, %u back", trace->target,
                      (unsigned)trace->route_count, (unsigned)trace->back_count);
+    mesh_session_model_note_trace(session);
     return true;
 }
 
