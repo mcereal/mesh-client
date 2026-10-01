@@ -491,12 +491,14 @@ static void mesh_meshcore_store_contact(struct mesh_meshcore *meshcore,
 }
 
 /* A packet from `node` arrived just now, over the air: MeshCore has no MQTT leg. `snr` is the
-   radio's reading of it, NULL when the frame carried none. */
+   radio's reading of it, NULL when the frame carried none; `previous_heard` the node's
+   last_heard before this packet moved it. */
 static void mesh_meshcore_note_heard(struct mesh_meshcore *meshcore,
-                                     const struct mesh_node_summary *node, bool has_hops,
-                                     uint8_t hops, const float *snr) {
+                                     const struct mesh_node_summary *node, uint32_t previous_heard,
+                                     bool has_hops, uint8_t hops, const float *snr) {
     const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_NODE_HEARD,
                                              .node = node,
+                                             .previous_heard = previous_heard,
                                              .has_hops = has_hops,
                                              .hops = hops,
                                              .has_snr = snr != NULL,
@@ -828,6 +830,7 @@ static void mesh_meshcore_store_message(struct mesh_meshcore *meshcore,
         message.from = from;
         struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, from, false);
         if (node != NULL) {
+            const uint32_t previous = node->last_heard;
             const uint32_t now = inkwell_time_wall_credible_s();
             if (now > node->last_heard) {
                 node->last_heard = now;
@@ -836,8 +839,8 @@ static void mesh_meshcore_store_message(struct mesh_meshcore *meshcore,
                 node->snr = message.rx_snr;
                 node->snr_time = now;
             }
-            mesh_meshcore_note_heard(meshcore, node, message.has_hops_away, message.hops_away,
-                                     decoded->has_snr ? &message.rx_snr : NULL);
+            mesh_meshcore_note_heard(meshcore, node, previous, message.has_hops_away,
+                                     message.hops_away, decoded->has_snr ? &message.rx_snr : NULL);
         }
     }
     snprintf(message.text, sizeof message.text, "%s", body);
@@ -1067,6 +1070,7 @@ mesh_meshcore_roster_node(const struct mesh_meshcore *meshcore, uint32_t node_id
 static void mesh_meshcore_store_telemetry(struct mesh_meshcore *meshcore,
                                           struct mesh_node_summary *node,
                                           const struct mesh_meshcore_telemetry *telemetry) {
+    const uint32_t previous = node->last_heard;
     const uint32_t now = mesh_meshcore_clock_now(meshcore);
     /* An answer is a packet from the node, so it was heard now. */
     if (now > node->last_heard) {
@@ -1122,7 +1126,7 @@ static void mesh_meshcore_store_telemetry(struct mesh_meshcore *meshcore,
         node->position.received = now;
     }
     /* Announced last, so a listener reads the fix this answer carried. */
-    mesh_meshcore_note_heard(meshcore, node, false, 0U, NULL);
+    mesh_meshcore_note_heard(meshcore, node, previous, false, 0U, NULL);
 }
 
 /* A repeater's or room server's status: its counters on `relay`, its battery where every
@@ -1130,6 +1134,7 @@ static void mesh_meshcore_store_telemetry(struct mesh_meshcore *meshcore,
 static void mesh_meshcore_store_status(struct mesh_meshcore *meshcore,
                                        struct mesh_node_summary *node,
                                        const struct mesh_meshcore_status *status) {
+    const uint32_t previous = node->last_heard;
     const uint32_t now = mesh_meshcore_clock_now(meshcore);
     if (now > node->last_heard) {
         node->last_heard = now;
@@ -1166,7 +1171,7 @@ static void mesh_meshcore_store_status(struct mesh_meshcore *meshcore,
     relay->has_posts = status->has_posts;
     relay->posted = status->posted;
     relay->post_pushes = status->post_pushes;
-    mesh_meshcore_note_heard(meshcore, node, false, 0U, NULL);
+    mesh_meshcore_note_heard(meshcore, node, previous, false, 0U, NULL);
 }
 
 /*
@@ -1181,6 +1186,7 @@ static void mesh_meshcore_store_neighbours(struct mesh_meshcore *meshcore,
                                            const struct mesh_meshcore_neighbours *neighbours) {
     _Static_assert(MESH_MESHCORE_NEIGHBOURS_MAX <= MESH_NODE_MAX_NEIGHBORS,
                    "a neighbours answer fits the node's record");
+    const uint32_t previous = node->last_heard;
     const uint32_t now = mesh_meshcore_clock_now(meshcore);
     if (now > node->last_heard) {
         node->last_heard = now;
@@ -1196,7 +1202,7 @@ static void mesh_meshcore_store_neighbours(struct mesh_meshcore *meshcore,
         record->entries[record->count].snr = (float)entry->snr_q4 / 4.0f;
         record->count += 1U;
     }
-    mesh_meshcore_note_heard(meshcore, node, false, 0U, NULL);
+    mesh_meshcore_note_heard(meshcore, node, previous, false, 0U, NULL);
 }
 
 /* ---------------------------------------------------------------------------- receiving */
@@ -1470,15 +1476,20 @@ static void mesh_meshcore_on_push(struct mesh_meshcore *meshcore, const uint8_t 
         struct mesh_meshcore_contact contact;
         if (mesh_meshcore_decode_contact(frame, len, &contact) == 0) {
             mesh_meshcore_keep_advert(meshcore, &contact);
-            mesh_meshcore_store_contact(meshcore, &contact, false, false);
+            /* The entry the contact is about to land on, read before it does: the same call
+               mesh_meshcore_store_contact() makes for an advert, so asking first adds nothing. */
             const uint32_t id = mesh_meshcore_node_id(contact.public_key, MESH_MESHCORE_PUBKEY_LEN);
+            const struct mesh_node_summary *before =
+                mesh_session_model_node(meshcore->model, id, false);
+            const uint32_t previous = before != NULL ? before->last_heard : 0U;
+            mesh_meshcore_store_contact(meshcore, &contact, false, false);
             struct mesh_node_summary *node = mesh_session_model_node(meshcore->model, id, false);
             if (node != NULL) {
                 node->in_nodedb = false;
                 mesh_meshcore_drop_path(node);
                 const bool has_hops = contact.out_path_len != MESH_MESHCORE_PATH_NONE;
                 mesh_meshcore_note_heard(
-                    meshcore, node, has_hops,
+                    meshcore, node, previous, has_hops,
                     has_hops ? (uint8_t)MESH_MESHCORE_PATH_HOPS(contact.out_path_len) : 0U, NULL);
             }
         }

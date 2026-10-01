@@ -717,6 +717,9 @@ struct mesh_session_event {
        SNR above. Its own flag, because 0 dBm is a reading some radios really make. */
     bool has_rssi;
     int32_t rssi;
+    /* NODE_HEARD: the node's `last_heard` before this packet touched it, 0 when the roster had
+       never heard it. `node` is the record after, so this is the one way to the gap between. */
+    uint32_t previous_heard;
     /* RADIO: the attached radio's node number. */
     uint32_t radio;
 };

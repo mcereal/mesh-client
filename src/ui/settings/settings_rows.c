@@ -3549,6 +3549,8 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     item_heading(list, MESH_STR_STATS_HEAD_NODES);
     stats_nodes_row(list, MESH_STR_STATS_NODES_HEARD, stats->nodes_heard, stats->nodes_floor);
     stats_nodes_row(list, MESH_STR_STATS_NODES_HEARD_RF, stats->nodes_heard_rf, stats->nodes_floor);
+    stats_nodes_row(list, MESH_STR_STATS_NODES_HEARD_DIRECT, stats->nodes_heard_direct,
+                    stats->nodes_floor);
     stats_nodes_row(list, MESH_STR_STATS_RADIOS, stats->radios, stats->nodes_floor);
 
     item_heading(list, MESH_STR_STATS_HEAD_CONNECTION);
@@ -3602,6 +3604,12 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     } else {
         item_str(list, MESH_STR_STATS_LONGEST_CONNECTION, INKSTAND_FORM_INFO,
                  MESH_STR_STATS_NONE_YET);
+    }
+    if (stats->longest_absence_measured) {
+        stats_duration_row(list, MESH_STR_STATS_LONGEST_ABSENCE, stats->longest_absence_s);
+        stats_holder_row(list, &stats->longest_absence_holder);
+    } else {
+        item_str(list, MESH_STR_STATS_LONGEST_ABSENCE, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
     }
 
     item_heading(list, MESH_STR_STATS_HEAD_RESET);

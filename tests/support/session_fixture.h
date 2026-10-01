@@ -43,10 +43,12 @@ struct mesh_test_event {
     bool via_mqtt;
     bool has_hops;
     uint8_t hops;
-    bool has_position;    /* NODE_*: the record held a fix when it was announced */
-    uint32_t radio;       /* RADIO */
-    uint8_t ack;          /* MESSAGE, DELIVERY: the record's enum mesh_message_ack */
-    uint8_t previous_ack; /* DELIVERY */
+    bool has_position;       /* NODE_*: the record held a fix when it was announced */
+    uint32_t radio;          /* RADIO */
+    uint8_t ack;             /* MESSAGE, DELIVERY: the record's enum mesh_message_ack */
+    uint8_t previous_ack;    /* DELIVERY */
+    uint32_t previous_heard; /* NODE_HEARD: the node's last_heard before the packet */
+    uint32_t last_heard;     /* NODE_*: the record's, as announced */
 };
 
 struct mesh_test_event_record {

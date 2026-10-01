@@ -1014,6 +1014,8 @@ MESH_TEST_CASE(lifetime_counts_what_the_session_announces, unit) {
     bridged.packet.via_mqtt = true;
     bridged.packet.rx_snr = -19.0f;
     bridged.packet.has_rx_rssi = true;
+    bridged.packet.has_rx_time = true;
+    bridged.packet.rx_time = 1790000000U;
     bridged.packet.rx_rssi = -131;
     bridged.packet.hop_start = 3U;
     bridged.packet.hop_limit = 3U;
@@ -1034,11 +1036,18 @@ MESH_TEST_CASE(lifetime_counts_what_the_session_announces, unit) {
     faint.packet.via_mqtt = false;
     faint.packet.rx_snr = -12.5f;
     faint.packet.rx_rssi = -118;
+    faint.packet.rx_time = 1790007200U;
+    inkwell_time_wall_set_fixed(1790007200U);
     MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&g_session, &faint), "encode failed");
     MESH_TEST_FAIL_IF(mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB) != -50,
                       "a direct packet's SNR is the record");
     MESH_TEST_FAIL_IF(mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM) != -118,
                       "and so is its RSSI");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_DIRECT) != 1U,
+                      "it came with no relay, so its node was heard directly");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_LONGEST_ABSENCE_S) != 7200U,
+                      "two hours after it was last heard, over MQTT, is an absence");
+    inkwell_time_wall_set_fixed(0U);
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_RECEIVED_MQTT) != 1U,
                       "and the one over the air is not MQTT's");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
@@ -1096,6 +1105,112 @@ MESH_TEST_CASE(lifetime_quietest_signal_is_the_lowest_rssi_heard_direct, unit) {
             !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM, &holder, NULL) ||
             holder != LT_OTHER,
         "the record comes back with its sign and its holder");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/*
+ * A node heard directly is one a packet came from straight to our radio: no relay, not over
+ * MQTT, and watched arriving rather than listed, since a listing's hop count is the radio's last
+ * word on it, however old. It is a fact like "over the air", so it is one line, once.
+ */
+MESH_TEST_CASE(lifetime_counts_nodes_heard_directly_once, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    const struct mesh_node_summary peer = lt_summary(LT_PEER);
+    const struct mesh_node_summary other = lt_summary(LT_OTHER);
+
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, true, 2U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, true, true, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, false, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_LISTED, &peer, false, true, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_DIRECT) != 0U ||
+                          lt_seen_lines(dir, "direct") != 0U,
+                      "a relay, MQTT, an unknown path and a listing are not direct");
+
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, true, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &peer, false, true, 0U);
+    lt_node(MESH_SESSION_EVENT_NODE_HEARD, &other, false, true, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_DIRECT) != 2U ||
+                          lt_seen_lines(dir, "direct") != 2U,
+                      "two nodes heard directly, one line each however often");
+
+    mesh_lifetime_note_radio(&g_lifetime, LT_OTHER);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_DIRECT) != 1U,
+                      "a node that turns out to be our radio leaves the count");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD_DIRECT) != 1U,
+                      "and the count comes back off the seen file");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/* A node heard over the air with no relay, `previous` being its last_heard before the packet. */
+static void lt_heard_after(const struct mesh_node_summary *node, bool via_mqtt, uint32_t previous) {
+    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_NODE_HEARD,
+                                             .node = node,
+                                             .via_mqtt = via_mqtt,
+                                             .has_hops = true,
+                                             .hops = 3U,
+                                             .previous_heard = previous};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+}
+
+/*
+ * The longest absence: how long a node went unheard before our radio heard it again, from the
+ * roster's last_heard before the packet to the one after. Any hop count will do - an absence is
+ * the node's, not a link's - but not MQTT, which is not our radio hearing it, and only between
+ * two seconds a clock could have meant.
+ */
+MESH_TEST_CASE(lifetime_longest_absence_is_the_gap_before_a_node_came_back, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    const uint32_t now = 1790000000U;
+    inkwell_time_wall_set_fixed(now);
+    struct mesh_node_summary peer = lt_summary(LT_PEER);
+    struct mesh_node_summary other = lt_summary(LT_OTHER);
+    peer.last_heard = now;
+    other.last_heard = now;
+
+    lt_heard_after(&peer, false, 0U);
+    lt_heard_after(&peer, false, 1000U);
+    lt_heard_after(&peer, false, now);
+    lt_heard_after(&peer, false, now + 60U);
+    lt_heard_after(&peer, true, now - 86400U);
+    lt_node(MESH_SESSION_EVENT_NODE_LISTED, &peer, false, true, 0U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_LONGEST_ABSENCE_S),
+                      "never heard, a 1970 clock, no gap, a clock gone back and MQTT end nothing");
+
+    struct mesh_node_summary fast = lt_summary(LT_PEER);
+    fast.last_heard = now + 3U * 86400U;
+    lt_heard_after(&fast, false, now - 3600U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_LONGEST_ABSENCE_S),
+                      "a hearing stamped days past our clock is a wrong clock, not an absence");
+
+    lt_heard_after(&peer, false, now - 3600U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_LONGEST_ABSENCE_S) != 3600U,
+                      "an hour unheard is the first record");
+    lt_heard_after(&other, false, now - 2U * 86400U);
+    lt_heard_after(&peer, false, now - 600U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_LONGEST_ABSENCE_S) !=
+                          2U * 86400U,
+                      "a longer absence raises it, a shorter one does not");
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_LONGEST_ABSENCE_S, &holder, NULL) ||
+            holder != LT_OTHER,
+        "and it is held by the node that came back");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_LONGEST_ABSENCE_S) !=
+                          2U * 86400U,
+                      "the record survives a restart");
+    inkwell_time_wall_set_fixed(0U);
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }

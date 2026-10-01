@@ -1097,6 +1097,14 @@ MESH_TEST_CASE(meshcore_announces_what_it_writes_into_the_model, unit) {
     MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_NODE_HEARD, 0x90919293U) !=
                           1U,
                       "an advert is a hearing");
+    MESH_TEST_FAIL_IF(record.events[record.count - 1U].previous_heard != 0U,
+                      "of a node the roster had never heard, so no absence ends");
+    feed(&protocol, frame,
+         mesh_test_meshcore_contact(frame, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x90U, "Node",
+                                    MESH_MESHCORE_ADV_CHAT, 0U, 1700002000U));
+    MESH_TEST_FAIL_IF(record.events[record.count - 1U].previous_heard != 1700001000U ||
+                          record.events[record.count - 1U].last_heard != 1700002000U,
+                      "and its next advert ends the absence the first one began");
 
     feed_code(&protocol, MESH_MESHCORE_PUSH_MSG_WAITING);
     const uint8_t direct[] = {16,   0x14, 0, 0, 0x40, 0x41, 0x42, 0x43, 0x44,
@@ -1105,6 +1113,16 @@ MESH_TEST_CASE(meshcore_announces_what_it_writes_into_the_model, unit) {
     MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_NODE_HEARD, 0x40414243U) !=
                           1U,
                       "a direct message is a hearing of its sender");
+    const struct mesh_test_event *alice = NULL;
+    for (size_t i = 0; i < record.count; ++i) {
+        if (record.events[i].kind == MESH_SESSION_EVENT_NODE_HEARD &&
+            record.events[i].node_id == 0x40414243U) {
+            alice = &record.events[i];
+        }
+    }
+    MESH_TEST_FAIL_IF(alice == NULL || alice->previous_heard != 1700000000U ||
+                          alice->last_heard <= alice->previous_heard,
+                      "which ends the absence the listing's stamp began");
     MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_MESSAGE, 0x40414243U) != 1U,
                       "and a message");
     feed_code(&protocol, MESH_MESHCORE_RESP_NO_MORE_MESSAGES);

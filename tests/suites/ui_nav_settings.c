@@ -1420,6 +1420,8 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
         (value = stats_value_of(&store, "Weakest signal", &item)) == NULL ||
         strcmp(value, "none yet") != 0 ||
         (value = stats_value_of(&store, "Quietest signal", &item)) == NULL ||
+        strcmp(value, "none yet") != 0 ||
+        (value = stats_value_of(&store, "Longest absence", &item)) == NULL ||
         strcmp(value, "none yet") != 0) {
         failure = "a record nothing has set should say so";
         goto cleanup;
@@ -1432,6 +1434,9 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     stats->weakest_snr_measured = true;
     stats->weakest_rssi_dbm = -126;
     stats->weakest_rssi_measured = true;
+    stats->nodes_heard_direct = 12U;
+    stats->longest_absence_s = 90061U; /* a day, an hour, a minute and a second */
+    stats->longest_absence_measured = true;
     mesh_ui_store_set_settings(&store, &settings);
     if ((value = stats_value_of(&store, "Received over MQTT", &item)) == NULL ||
         strcmp(value, "3") != 0 ||
@@ -1453,6 +1458,16 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     if ((value = stats_value_of(&store, "Quietest signal", &item)) == NULL ||
         strcmp(value, "-126 dBm") != 0) {
         failure = "the quietest signal should be drawn in dBm, with its sign";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Directly", &item)) == NULL ||
+        strcmp(value, "at least 12") != 0) {
+        failure = "the nodes heard directly are a node count, and a floor with the others";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Longest absence", &item)) == NULL ||
+        strcmp(value, "1d 1h") != 0) {
+        failure = "the longest absence should be drawn as a duration";
         goto cleanup;
     }
     if ((value = stats_value_of(&store, "Heard", &item)) == NULL ||
