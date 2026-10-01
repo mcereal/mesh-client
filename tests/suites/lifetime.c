@@ -1839,23 +1839,25 @@ MESH_TEST_CASE(lifetime_most_messaged_counts_direct_messages_both_ways, unit) {
     lt_message(LT_OTHER, LT_US, MESH_MESSAGE_INBOUND, true);
     struct mesh_lifetime_contact top;
     MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != LT_PEER ||
-                          top.sent != 2U || top.received != 0U,
+                          top.count != 2U,
                       "two sent beats one received; a broadcast and a reaction are neither");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 0U,
+                      "a node messaged is not thereby a node heard");
 
     lt_message(LT_OTHER, LT_US, MESH_MESSAGE_INBOUND, false);
     MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != LT_PEER,
                       "a tie keeps the contact that reached it first");
     lt_message(LT_US, LT_OTHER, MESH_MESSAGE_OUTBOUND, false);
     MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != LT_OTHER ||
-                          top.sent != 1U || top.received != 2U,
+                          top.count != 3U,
                       "and gives it up when overtaken, counting both ways");
 
     MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0 || mesh_lifetime_dirty(&g_lifetime),
                       "the flush failed");
     MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
     MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != LT_OTHER ||
-                          top.sent != 1U || top.received != 2U,
-                      "the contacts survive a restart");
+                          top.count != 3U,
+                      "the counts survive a restart");
     lt_session(0, 0);
     lt_message(LT_PEER, LT_US, MESH_MESSAGE_INBOUND, false);
     MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != LT_OTHER,
@@ -1868,39 +1870,27 @@ MESH_TEST_CASE(lifetime_most_messaged_counts_direct_messages_both_ways, unit) {
     record_success(test_name);
 }
 
-/* Past its size the table gives up the least messaged contact, and never the most. */
-MESH_TEST_CASE(lifetime_a_full_contact_table_gives_up_the_least_messaged, unit) {
+/* However many contacts there have been, each keeps its whole count: one met again among
+   hundreds of one-off contacts is still the most messaged. */
+MESH_TEST_CASE(lifetime_most_messaged_is_exact_among_many_contacts, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
     lt_session(0, 0);
-    /* Every slot one message, so every contact ties and the first holds it. */
-    for (uint32_t i = 0; i < MESH_LIFETIME_CONTACTS_MAX; ++i) {
+    for (uint32_t i = 0; i < 1000U; ++i) {
         lt_message(LT_US, 0x10000U + i, MESH_MESSAGE_OUTBOUND, false);
     }
-    lt_message(LT_US, 0x20000U, MESH_MESSAGE_OUTBOUND, false);
     struct mesh_lifetime_contact top;
-    MESH_TEST_FAIL_IF(g_lifetime.contact_count != MESH_LIFETIME_CONTACTS_MAX,
-                      "the table stays its size");
     MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != 0x10000U,
-                      "a table of ties gives up somebody other than the most messaged");
-
-    /* One contact messaged twice more: it is the most, and the newcomer takes a slot of a 1. */
-    lt_message(LT_US, 0x10005U, MESH_MESSAGE_OUTBOUND, false);
-    lt_message(LT_US, 0x10005U, MESH_MESSAGE_OUTBOUND, false);
-    lt_message(LT_US, 0x20001U, MESH_MESSAGE_OUTBOUND, false);
-    MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != 0x10005U ||
-                          top.sent != 3U,
-                      "the most messaged keeps its count through the churn");
-    bool newcomer = false;
-    for (uint32_t i = 0; i < g_lifetime.contact_count; ++i) {
-        newcomer = newcomer || g_lifetime.contacts[i].node == 0x20001U;
-    }
-    MESH_TEST_FAIL_IF(!newcomer, "the newcomer is in the table");
+                      "a thousand ties: the first holds it");
+    lt_message(0x10001U, LT_US, MESH_MESSAGE_INBOUND, false);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != 0x10001U ||
+                          top.count != 2U,
+                      "the second contact, heard from again, has two and leads");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }
 
-/* The contacts file read back: a malformed line skipped, a repeat ignored, a lost top found. */
+/* The contacts file read back: a malformed line skipped, a lost top found again. */
 MESH_TEST_CASE(lifetime_reads_contacts_back, unit) {
     char dir[64];
     MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
@@ -1908,16 +1898,17 @@ MESH_TEST_CASE(lifetime_reads_contacts_back, unit) {
     snprintf(path, sizeof path, "%s/contacts.stats", dir);
     FILE *file = fopen(path, "w");
     MESH_TEST_FAIL_IF(file == NULL, "could not write the contacts");
-    fputs("top=00009999\ndm=00002222:1:1\ndm=00003333:4:0\ndm=00003333:9:9\ndm=00004444:5\n"
-          "dm=zz:1:1\ndm=00005555:1:-1\ndm=00006666:2:2\ndm=0000",
+    fputs("top=00009999\ndm=00002222:2\ndm=00003333:4\ndm=00004444\ndm=zz:9\n"
+          "dm=00005555:-1\ndm=ffffffff:9\ndm=0000",
           file);
     fclose(file);
     MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
     struct mesh_lifetime_contact top;
-    MESH_TEST_FAIL_IF(g_lifetime.contact_count != 3U, "three whole contacts, each once");
     MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &top) || top.node != 0x3333U ||
-                          top.sent != 4U || top.received != 0U,
-                      "a top naming nobody held is found again: the first of the largest");
+                          top.count != 4U,
+                      "a top naming nobody counted is found again: the largest");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 0U,
+                      "and nobody messaged is a node heard");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }

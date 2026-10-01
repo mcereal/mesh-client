@@ -224,9 +224,9 @@ never announced as news; MeshCore writes the model through `mesh_session_model_l
 
 | | `totals.stats` | `seen.stats` | `contacts.stats` |
 |---|---|---|---|
-| What | the counts and the records, and the first credible wall-clock second (`since`) | one line each time a node gains a fact (heard, heard over the air, one of our radios), and one each time its hardware model or role is learned or changes, and the day it was first heard | the direct messages exchanged with each node both ways, and which is the most messaged |
+| What | the counts and the records, and the first credible wall-clock second (`since`) | one line each time a node gains a fact (heard, heard over the air, one of our radios), and one each time its hardware model or role is learned or changes, and the day it was first heard | the direct messages exchanged with each node, both ways together, and which is the most messaged |
 | Written | rewritten whole on the cache's two-second window, when changed | appended at once, since a new node is rare | rewritten whole beside `totals`, when changed |
-| Read | at launch | at launch, into a sorted array of node numbers | at launch, into a table of `MESH_LIFETIME_CONTACTS_MAX` |
+| Read | at launch | at launch, into a sorted array of node numbers | at launch, into a count beside each node in the set |
 
 The hardware and role lines are what the page's **Hardware heard** and **Roles heard** groups
 tally: the newest each node reported, so a node that changes role moves rather than counting
@@ -239,9 +239,10 @@ and is left off the page until some node has said what it is.
 The **Most messaged** row is the one count kept per node, so it has a file of its own: a line per
 message in `seen` would break "appended rarely", and lines in `totals` would be dropped by an older
 build, which carries only `MESH_LIFETIME_FOREIGN_MAX` keys it does not know. It counts what
-`direct_sent` and `direct_received` count, a reaction left out, for a table of the few nodes a
-client actually messages; past its size a new contact takes the place of the least messaged, never
-the most. A tie keeps the contact that reached it first.
+`direct_sent` and `direct_received` count, a reaction left out, as a count beside every node in the
+set - not a short table of the few a client messages, which would have to give up a contact to
+make room and start it again from nothing when it came back. A node messaged before it is heard
+is taken into the set with no facts. A tie keeps the contact that reached it first.
 
 The day a node was first heard is written once, beside the line that first says it was heard,
 and only off a credible clock - a node first heard with none, or already on a card written before

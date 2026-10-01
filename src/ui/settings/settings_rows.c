@@ -3499,9 +3499,8 @@ static void stats_most_messaged_row(struct item_list *list,
         return;
     }
     char value[MESH_UI_SETTINGS_VALUE_MAX];
-    inkcell_str_format(
-        value, sizeof value, MESH_STR_STATS_MOST_MESSAGED_VALUE, stats->most_messaged,
-        (unsigned long long)(stats->most_messaged_sent + stats->most_messaged_received));
+    inkcell_str_format(value, sizeof value, MESH_STR_STATS_MOST_MESSAGED_VALUE,
+                       stats->most_messaged, (unsigned long long)stats->most_messaged_count);
     item_text(list, MESH_STR_STATS_MOST_MESSAGED, INKSTAND_FORM_INFO, value);
 }
 

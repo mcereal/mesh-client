@@ -34,20 +34,21 @@
  * that fails is retried by the next flush. Read back into a sorted array at launch; a torn last
  * line is skipped, and a line read twice changes nothing.
  *
- *   `contacts` the direct messages exchanged with each node, both ways, and which node is the
- * most messaged. A count per node rather than a fact, so it cannot be a line appended to `seen` -
- * that would be a line per message - and it cannot be lines in `totals` either, since an older
- * build carries only MESH_LIFETIME_FOREIGN_MAX keys it does not know and would drop the rest.
+ *   `contacts` the direct messages exchanged with each node, both ways together, and which node
+ * is the most messaged. A count per node rather than a fact, so it cannot be a line appended to
+ * `seen` - that would be a line per message - and it cannot be lines in `totals` either, since an
+ * older build carries only MESH_LIFETIME_FOREIGN_MAX keys it does not know and would drop the rest.
  * Rewritten whole beside `totals`, on the same window. A build that predates it never reads it,
  * and its reset still removes it, since a reset removes every file in the directory.
  *
- * **The most messaged is a count per contact, kept for the few that are.** A client sends direct
- * messages to a handful of nodes, not to the eight thousand the set holds, so the table is
- * MESH_LIFETIME_CONTACTS_MAX long rather than a column beside the set. Past it, a new contact
- * takes the place of the least messaged, so a churn of one-off contacts displaces only each other
- * and the most messaged is never the one to go. The count is the one DIRECT_SENT and
- * DIRECT_RECEIVED keep, a reaction left out, so the session's "once" holds it as it holds those.
- * A tie keeps the contact that reached it first, as a record keeps its holder.
+ * **The most messaged is a count per node, a column beside the set.** Not a short table of the
+ * few a client messages: a table that gives up its least messaged to make room starts a returning
+ * contact again from nothing, and the most messaged it names is then wrong in a way nothing on the
+ * page can say. As a column the count is exact for every node the set holds, and a node the set
+ * has turned away is the floor the node counts already admit to. A node messaged before it was
+ * heard is taken into the set with no facts. The count is the one DIRECT_SENT and DIRECT_RECEIVED
+ * keep, a reaction left out, so the session's "once" holds it as it holds those. A tie keeps the
+ * node that reached it first, as a record keeps its holder.
  *
  * **A node is its 32-bit number.** Meshtastic takes it from the radio's hardware and MeshCore
  * from the front of a public key, so the two protocols share one set; two nodes landing on one
@@ -199,14 +200,10 @@ struct mesh_lifetime_share {
     uint32_t count;
 };
 
-/* How many contacts the most-messaged table keeps. */
-#define MESH_LIFETIME_CONTACTS_MAX 256U
-
-/* The direct messages exchanged with one node. */
+/* The direct messages exchanged with one node, both ways together. */
 struct mesh_lifetime_contact {
     uint32_t node;
-    uint32_t sent;
-    uint32_t received;
+    uint32_t count;
 };
 
 /* Keys a newer build wrote that this one does not know, carried through a rewrite rather than
@@ -241,10 +238,9 @@ struct mesh_lifetime {
        reads them on every publish costs a walk of 256 rather than of the set. */
     uint32_t trait_counts[MESH_LIFETIME_TRAIT_COUNT][MESH_LIFETIME_TRAIT_VALUES];
     uint32_t id_count;
-    /* The contacts table, in the order they were first messaged, and the most messaged of them
-       (0 while there is none). */
-    struct mesh_lifetime_contact contacts[MESH_LIFETIME_CONTACTS_MAX];
-    uint32_t contact_count;
+    /* The direct messages exchanged with each node, both ways, and the most messaged node (0
+       while there is none). */
+    uint32_t messaged[MESH_LIFETIME_NODES_MAX];
     uint32_t top_contact;
     /* `contacts` differs from the card. */
     bool contacts_dirty;
@@ -354,8 +350,8 @@ size_t mesh_lifetime_top(const struct mesh_lifetime *lifetime, enum mesh_lifetim
                          struct mesh_lifetime_share *out, size_t cap);
 
 /*
- * The node this client has exchanged the most direct messages with, and how many each way. False
- * while it has exchanged none.
+ * The node this client has exchanged the most direct messages with, and how many, both ways
+ * together. False while it has exchanged none.
  */
 bool mesh_lifetime_most_messaged(const struct mesh_lifetime *lifetime,
                                  struct mesh_lifetime_contact *out);

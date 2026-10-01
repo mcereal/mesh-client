@@ -129,11 +129,9 @@ struct mesh_ui_lifetime_stats {
     uint64_t received_mqtt;
     uint64_t direct_received_private;
     /* The node this client has exchanged the most direct messages with, named as a record's
-       holder is, and how many it has sent it and received from it. An empty name while there is
-       none. */
+       holder is, and how many went between them, both ways. An empty name while there is none. */
     char most_messaged[MESH_UI_LIFETIME_HOLDER_NAME_MAX];
-    uint64_t most_messaged_sent;
-    uint64_t most_messaged_received;
+    uint64_t most_messaged_count;
     /* Of the direct messages sent, how many were confirmed and how many failed. One still waiting
        is in neither, so the two need not add up to anything else on the page. */
     uint64_t messages_delivered;

@@ -1166,8 +1166,7 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
     if (mesh_lifetime_most_messaged(lifetime, &contact)) {
         mesh_app_format_peer_name(status, contact.node, dst->most_messaged,
                                   sizeof dst->most_messaged);
-        dst->most_messaged_sent = contact.sent;
-        dst->most_messaged_received = contact.received;
+        dst->most_messaged_count = contact.count;
     }
     dst->messages_delivered = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_DELIVERED);
     dst->messages_failed = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_FAILED);

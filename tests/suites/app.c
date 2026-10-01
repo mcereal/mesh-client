@@ -3954,8 +3954,7 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
         failure = "the page should carry the node counts and the records";
         goto cleanup;
     }
-    if (page->most_messaged_sent != 1U || page->most_messaged_received != 0U ||
-        strcmp(page->most_messaged, "!61000001") != 0) {
+    if (page->most_messaged_count != 1U || strcmp(page->most_messaged, "!61000001") != 0) {
         failure = "the page should carry who was messaged most, by name";
         goto cleanup;
     }

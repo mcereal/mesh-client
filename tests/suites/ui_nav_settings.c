@@ -1446,8 +1446,7 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     stats->longest_known_s = 400U * 86400U + 3U * 3600U;
     stats->longest_known_measured = true;
     snprintf(stats->most_messaged, sizeof stats->most_messaged, "%s", "BRAV");
-    stats->most_messaged_sent = 30U;
-    stats->most_messaged_received = 12U;
+    stats->most_messaged_count = 42U;
     stats->traces = 9U;
     stats->longest_trace_hops = 4U;
     stats->longest_trace_measured = true;
