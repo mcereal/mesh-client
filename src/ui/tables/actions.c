@@ -1351,6 +1351,10 @@ static bool command_is_cursor_row(const struct mesh_ui_nav *nav, const struct me
     case MESH_UI_SCREEN_MESSAGES:
         return id == MESH_UI_COMMAND_DELETE || id == MESH_UI_COMMAND_MUTE ||
                id == MESH_UI_COMMAND_UNMUTE;
+    case MESH_UI_SCREEN_RADIO:
+        /* A status card's verb is a button on that card, so on the heading it would be a second
+           copy of whichever one the d-pad last chose. */
+        return id != MESH_UI_COMMAND_HELP && id != MESH_UI_COMMAND_CONFIRM_DISCONNECT;
     default:
         return false;
     }

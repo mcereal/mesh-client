@@ -307,12 +307,24 @@ void fb_render_node_detail(struct inkcell_draw_state *state,
                                                        .badge = heard[0] != '\0' ? heard : NULL,
                                                        .badge_family = INKCELL_FAMILY_SECONDARY});
 
-    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(
+    struct mesh_ui_node_item built[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t total = mesh_ui_node_detail_build(
         node, is_self, inkwell_time_wall_s(),
         mesh_ui_snapshot_traceroute_view(snapshot, node->node_id), &snapshot->handshake,
-        &snapshot->history, mesh_ui_units_imperial(snapshot->settings.units), items,
+        &snapshot->history, mesh_ui_units_imperial(snapshot->settings.units), built,
         MESH_UI_NODE_ITEMS_MAX);
+    /*
+     * With a pointer the row that opens the verbs is the heading's overflow button instead
+     * (fb_heading_begin()), so the detail opens on the node. Only the drawing skips it: the nav
+     * still counts it, and the cursor the keys move is a row on in what is drawn here.
+     */
+    const uint32_t skipped = state->pointer && total > 0U &&
+                                     built[0].kind == MESH_UI_NODE_ROW_ACTION &&
+                                     built[0].action == MESH_UI_NODE_ACTION_OPEN_ACTIONS
+                                 ? 1U
+                                 : 0U;
+    struct mesh_ui_node_item *const items = built + skipped;
+    const uint32_t count = total - skipped;
     if (count == 0U) {
         inkcell_fb_draw_empty(state, layout, INKCELL_ICON_NODES,
                               inkcell_str(MESH_STR_NODES_DETAIL_EMPTY));
@@ -413,7 +425,9 @@ void fb_render_node_detail(struct inkcell_draw_state *state,
      * kept in view; a card of facts is focused as a whole, a page at a time when it is taller
      * than the panel. See mesh_ui_node_detail_step() for the stops the nav walks.
      */
-    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_NODES];
+    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_NODES] >= skipped
+                                ? nav->cursor[MESH_UI_SCREEN_NODES] - skipped
+                                : 0U;
     /* And the window the nav pages a tall card by on the next press: this one. */
     state->page_rows = layout->rows;
     struct mesh_ui_node_span span = {.first = cursor, .last = cursor, .card = false};
@@ -580,6 +594,84 @@ static void fb_node_detail_row(struct inkcell_draw_state *state, struct inkcell_
  * Settings tab's shape for a level inside a level and says whose verbs these are without
  * spending a row on it.
  */
+bool fb_node_actions_offered(const struct mesh_ui_snapshot *snapshot) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    if (nav->screen != MESH_UI_SCREEN_NODES || !nav->node_detail_open ||
+        nav->node_trend != MESH_UI_HISTORY_NONE) {
+        return false;
+    }
+    const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
+    const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
+    /* With nothing lacked, as the detail asks it: see the Actions row in node_detail.c. */
+    return node != NULL && mesh_ui_node_actions_count(
+                               node, hs->has_my_info && node->node_id == hs->my_info.node_num,
+                               mesh_ui_snapshot_traceroute_view(snapshot, node->node_id), 0U) > 0U;
+}
+
+bool fb_node_actions_menu(const struct mesh_ui_snapshot *snapshot) {
+    return snapshot->nav.screen == MESH_UI_SCREEN_NODES && snapshot->nav.node_detail_open &&
+           snapshot->nav.node_actions_open;
+}
+
+/*
+ * The same verbs for a pointer: a menu hung from the heading's overflow button rather than a
+ * sheet from the panel's foot, which is what a window's toolbar does with more verbs than it has
+ * room for. One row per verb, as the sheet's, under the same targets - a click on one is the
+ * sheet's cursor on it and A - and a switch's state is the menu's check. Drawn over everything
+ * with a target under the whole panel, so a click off it puts it down.
+ */
+static void fb_render_node_actions_menu(struct inkcell_draw_state *state,
+                                        const struct mesh_ui_nav *nav,
+                                        const struct mesh_ui_node_item *items, uint32_t count) {
+    struct inkcell_fb_menu_item rows[MESH_UI_NODE_ACTIONS_MAX];
+    for (uint32_t i = 0U; i < count; ++i) {
+        rows[i] = (struct inkcell_fb_menu_item){
+            .label = items[i].label,
+            .icon = (enum inkcell_icon)items[i].icon,
+            .checked = items[i].toggle && items[i].on,
+            .tone = (enum inkcell_tone)items[i].tone,
+        };
+    }
+    const struct inkcell_fb_menu menu = {
+        .items = rows,
+        .count = count,
+        .cursor = nav->node_actions_cursor,
+        .focus_base = (uint32_t)MESH_UI_FOCUS_SHEET_ROWS,
+    };
+    const struct inkcell_fb_rect panel = {
+        .x = 0, .y = 0, .w = inkcell_fb_panel_width(state), .h = inkcell_fb_panel_height(state)};
+    const struct inkcell_fb_rect box = inkcell_fb_menu_box(state, &menu, panel.w);
+    struct inkcell_focus_rect button = {0, 0, 0, 0};
+    const bool hung =
+        state->focus != NULL &&
+        inkcell_focus_rect_of(state->focus, (uint32_t)MESH_UI_FOCUS_NODE_ACTIONS, &button);
+    struct inkcell_overlay_frame frame;
+    if (!inkcell_fb_overlay_begin(
+            state,
+            &(struct inkcell_overlay){
+                .id = (uint32_t)FB_OVERLAY_NODE_ACTIONS,
+                .up = nav->node_actions_open && hung,
+                .placement = INKCELL_OVERLAY_ANCHOR,
+                .travel = INKCELL_OVERLAY_TRAVEL_NEAR,
+                .w = box.w,
+                .h = box.h,
+                /* Its trailing edge under the button's, as a toolbar's
+                   menu at the window's edge opens back across it. */
+                .anchor = {.x = button.x + button.w - box.w, .y = button.y, .w = 0, .h = button.h},
+                .modal = true,
+                .elevation = INKCELL_ELEVATION_FLOATING,
+                .shape = INKCELL_SHAPE_MD,
+            },
+            &frame)) {
+        return;
+    }
+    if (nav->node_actions_open) {
+        inkcell_fb_target_register(state, (uint32_t)MESH_UI_FOCUS_MENU_DISMISS, &panel);
+    }
+    inkcell_fb_draw_menu(state, frame.box, &menu);
+    inkcell_fb_overlay_end(state, &frame);
+}
+
 void fb_render_node_actions(struct inkcell_draw_state *state,
                             const struct mesh_ui_snapshot *snapshot,
                             struct inkcell_fb_layout *layout) {
@@ -610,6 +702,10 @@ void fb_render_node_actions(struct inkcell_draw_state *state,
         mesh_ui_snapshot_traceroute_view(snapshot, node->node_id), nav->node_remove_armed,
         snapshot->settings.protocol_lacks, items, MESH_UI_NODE_ACTIONS_MAX);
     if (count == 0U) {
+        return;
+    }
+    if (state->pointer) {
+        fb_render_node_actions_menu(state, nav, items, count);
         return;
     }
 

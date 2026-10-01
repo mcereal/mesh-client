@@ -42,6 +42,10 @@ enum mesh_ui_focus_id {
        actions for a pointer. A block of its own rather than the menu's, because the menu's ids
        are only answered while the menu is open and these are answered whenever they are drawn. */
     MESH_UI_FOCUS_BAR = 0x0500,
+    /* A settings choice's pop-up menu, `base + value`: the values of the field it was opened on.
+       A click off them lands on MESH_UI_FOCUS_MENU_DISMISS, which the right-click menu also
+       registers under itself - the two are never up together. */
+    MESH_UI_FOCUS_CHOICE = 0x0600,
     /* A window's thread field while a message is written in it (src/ui/backends/
        fb_screens_messages.c). A click there keeps the field; the dismiss target lies under the
        whole frame, below everything else, so a click on nothing still puts the field down. */
@@ -62,6 +66,10 @@ enum mesh_ui_focus_id {
        what the pane was showing. Its own id rather than that row's, because the row is already
        in the map under its own and a map holds an id once. Pointer only. */
     MESH_UI_FOCUS_PREVIEW = 0x0B02,
+    /* A node detail's verbs, as the heading's overflow button: what the Actions row opens on the
+       Brick. Pointer only, and not a command - the row is how the keys reach the same sheet, so a
+       keycap for it would be a second way of doing a thing the panel already offers. */
+    MESH_UI_FOCUS_NODE_ACTIONS = 0x0B03,
     /* The Nodes list's chip bar, `base + enum mesh_ui_nodes_chip`. Its own block rather than
        row 0 of the rows', because a row is one target and the bar is five. */
     MESH_UI_FOCUS_NODE_CHIPS = 0x0C00,
@@ -79,6 +87,9 @@ enum mesh_ui_focus_id {
        its. A click on one leaves the detail and opens that row - see src/ui/nav/nav_click.c. */
     MESH_UI_FOCUS_PANE_ROWS = 0x3000,
 };
+
+/* How many values a choice's pop-up can name: the ids between it and the thread field. */
+#define MESH_UI_FOCUS_CHOICE_MAX 0x100U
 
 /* How many ids one block holds: a list longer than this registers only its first rows. */
 #define MESH_UI_FOCUS_BLOCK 0x1000U

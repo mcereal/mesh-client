@@ -297,6 +297,9 @@ struct inkcell_fb_render_cache {
     /* Whether this frame docks the keyboard under the thread - fb_keyboard_docks(), asked once
        in fb_render_begin() so every renderer in the frame reads the same answer. */
     bool docked;
+    /* Where the settings row a choice's pop-up hangs from starts its value, this frame - see
+       fb_choice_value_x(). 0 until that row is drawn. */
+    int choice_x;
 };
 
 struct inkcell_box fb_render_content(const struct inkcell_draw_state *state) {
@@ -310,31 +313,49 @@ struct inkcell_box fb_render_content(const struct inkcell_draw_state *state) {
 
 /*
  * Whether something is drawn over the screen that answers for itself - a dialog, a sheet, the
- * tapbacks, a menu. The command set is that layer's then, and its answers are on it; the same
- * verbs in the heading under its scrim would be a second copy of the dialog nobody can press.
+ * tapbacks. The command set is that layer's then, and its answers are on it; the same verbs in
+ * the heading under its scrim would be a second copy of the dialog nobody can press.
+ *
+ * A window's two menus are not in it. Neither changes the command set, and each lays a target
+ * over the whole panel that a click off it lands on, so the heading under one is the heading the
+ * reader just saw rather than verbs on offer - and dropping it would bring the keycap bar back
+ * for as long as a menu is up.
  */
 static bool fb_layer_up(const struct mesh_ui_nav *nav) {
-    return nav->confirm.open || nav->verify_open || nav->reaction_open || nav->context_open ||
-           nav->node_actions_open || nav->node_sort_open || nav->help_open;
+    return nav->confirm.open || nav->verify_open || nav->reaction_open || nav->node_actions_open ||
+           nav->node_sort_open || nav->help_open;
 }
 
 /*
- * Whether the screen under the layers draws an app bar for the verbs to go into. Status is the
- * one that does not - its cards are its heading, and each card carries its own verb - and help
- * draws a large title of its own. A pointer on either keeps the keycap bar, which is the only
- * other place those verbs are said.
+ * Whether the screen under the layers draws an app bar for the verbs to go into. Help is the one
+ * that does not - it draws a large title of its own - and a pointer on it keeps the keycap bar,
+ * which is the only other place its verbs are said. Status draws one only for a pointer (see
+ * fb_render_status()), which is the only time this is asked.
  */
 static bool fb_route_headed(const struct mesh_ui_nav *nav) {
     struct mesh_ui_route body;
     mesh_ui_route_under_layers(nav, &body);
-    return body.level != MESH_UI_ROUTE_HELP &&
-           !(body.level == MESH_UI_ROUTE_LIST && nav->screen == MESH_UI_SCREEN_RADIO);
+    return body.level != MESH_UI_ROUTE_HELP;
 }
 
 static void fb_heading_begin(struct fb_heading *heading, const struct inkcell_draw_state *state,
                              const struct mesh_ui_snapshot *snapshot) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    /*
+     * A node's verbs drawn as a window's menu hang from the heading's overflow button, so the
+     * heading under them is the one the reader opened them from - last frame's, kept rather than
+     * asked of the sheet's command set, which has no button for the menu to hang from. Nothing on
+     * it can be pressed: the menu lays a target over the whole panel.
+     */
+    const bool node_menu = state->pointer && fb_node_actions_menu(snapshot) &&
+                           !(nav->confirm.open || nav->verify_open || nav->help_open);
+    if (node_menu && heading->count > 0U) {
+        heading->claimed = false;
+        heading->pass = 0U;
+        return;
+    }
     memset(heading, 0, sizeof *heading);
-    if (!state->pointer || fb_layer_up(&snapshot->nav) || !fb_route_headed(&snapshot->nav)) {
+    if (!state->pointer || fb_layer_up(nav) || !fb_route_headed(nav)) {
         return;
     }
     struct mesh_ui_heading_action verbs[MESH_UI_HEADING_ACTIONS_MAX];
@@ -351,6 +372,26 @@ static void fb_heading_begin(struct fb_heading *heading, const struct inkcell_dr
             .family = verbs[i].destructive ? INKCELL_FAMILY_ERROR : INKCELL_FAMILY_PRIMARY,
             .focus_id = (uint32_t)MESH_UI_FOCUS_BAR + (uint32_t)verbs[i].id,
         };
+    }
+    /*
+     * A node's verbs behind one overflow button, which is not a command: on the Brick they are the
+     * detail's first row, and a keycap for them would be a second way to the same sheet. With a
+     * pointer that row is not drawn (fb_render_node_detail()) and this is the way in. Before
+     * help, which closes every heading.
+     */
+    if (fb_node_actions_offered(snapshot) && heading->count < MESH_UI_HEADING_ACTIONS_MAX) {
+        size_t at = heading->count;
+        if (at > 0U && heading->actions[at - 1U].icon == INKCELL_ICON_ABOUT) {
+            heading->actions[at] = heading->actions[at - 1U];
+            at -= 1U;
+        }
+        heading->actions[at] = (struct inkcell_fb_bar_action){
+            .icon = INKCELL_ICON_MORE,
+            .label = inkcell_str(MESH_STR_NODE_HEAD_ACTIONS),
+            .family = INKCELL_FAMILY_PRIMARY,
+            .focus_id = (uint32_t)MESH_UI_FOCUS_NODE_ACTIONS,
+        };
+        heading->count += 1U;
     }
     /* The verbs took the foot away, so the link the foot ended in comes up with them. */
     if (heading->count > 0U) {
@@ -380,6 +421,18 @@ struct inkcell_fb_app_bar_fit fb_draw_app_bar(const struct inkcell_draw_state *s
     }
     cache->heading.claimed = true;
     return inkcell_fb_draw_app_bar(state, layout, &drawn);
+}
+
+void fb_choice_value_x_set(struct inkcell_draw_state *state, int x) {
+    struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+    if (cache != NULL) {
+        cache->choice_x = x;
+    }
+}
+
+int fb_choice_value_x(const struct inkcell_draw_state *state) {
+    const struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
+    return cache != NULL ? cache->choice_x : 0;
 }
 
 struct fb_overlay_memo *fb_overlay_memo(struct inkcell_draw_state *state, enum fb_overlay_id id) {
@@ -964,6 +1017,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
     mesh_ui_actions_compact(&actions, back);
     if (cache != NULL) {
         fb_heading_begin(&cache->heading, state, snapshot);
+        cache->choice_x = 0;
     }
     /*
      * And with a pointer, no foot at all: the verbs are the heading's actions, where a pointer
@@ -1220,6 +1274,7 @@ void fb_render_snapshot(struct inkcell_draw_state *state, const struct mesh_ui_s
     inkcell_fb_scaffold_end(state, &frame, footless ? NULL : &bar);
     (void)inkcell_fb_set_measured(state, true);
     fb_render_context(state, snapshot);
+    fb_render_choice(state, snapshot);
 
     /*
      * Last, because it is over the UI rather than in it: a notice that a screen could paint

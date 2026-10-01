@@ -942,6 +942,30 @@ MESH_TEST_CASE(actions_heading_is_what_a_pointer_has_nowhere_else, unit) {
     record_success(test_name);
 }
 
+/* The Radio board's verbs are buttons on its cards, so its heading carries help and nothing
+   else: whichever card verb the d-pad last chose would otherwise be a second, unlabelled copy. */
+MESH_TEST_CASE(actions_heading_leaves_the_radio_board_verbs_on_their_cards, unit) {
+    struct mesh_ui_snapshot snapshot;
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_RADIO;
+    snapshot.nav.devices_open = false;
+    snapshot.device_count = 1U;
+    snapshot.devices[0].connected = true;
+    snapshot.handshake_valid = true;
+    snapshot.handshake.link_up = true;
+    /* Refresh and disconnect both draw a symbol, so either would qualify for a heading. */
+    const uint8_t chosen[] = {(uint8_t)MESH_UI_STATUS_VERB_REFRESH,
+                              (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT};
+    for (size_t i = 0U; i < sizeof chosen / sizeof chosen[0]; ++i) {
+        snapshot.nav.status_verb = chosen[i];
+        struct mesh_ui_heading_action verbs[MESH_UI_HEADING_ACTIONS_MAX];
+        const size_t count = mesh_ui_actions_heading(&snapshot, verbs, MESH_UI_HEADING_ACTIONS_MAX);
+        MESH_TEST_FAIL_IF(count != 1U || verbs[0].id != MESH_UI_COMMAND_HELP,
+                          "the Radio board's heading should offer help alone");
+    }
+    record_success(test_name);
+}
+
 /* The keyboard's delete is Backspace to a pointer reader; on the heading it would be a bin over
    the draft, which says the whole draft goes. Send stays - it is what the screen is for. */
 MESH_TEST_CASE(actions_heading_leaves_the_keyboard_delete_to_backspace, unit) {

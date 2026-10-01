@@ -200,6 +200,17 @@ bool mesh_ui_nav_settings_current(const struct mesh_ui_nav *nav, const struct me
 /* Left/right on a settings row: records or drops an edit. */
 bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                    enum inkcell_key key);
+/* A click on a settings row that is a choice: its pop-up opened on the value in force. False
+   for any other row, which the click then presses A on. */
+bool mesh_ui_nav_choice_open(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
+/* A value picked off the pop-up, as the pending edit of the field it was opened on, and the
+   pop-up put down. */
+bool mesh_ui_nav_choice_pick(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                             uint32_t value);
+/* A key while the pop-up is up: Up and Down walk its values, A picks, anything else puts it
+   down. Every key is the pop-up's. */
+bool mesh_ui_nav_choice_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                            enum inkcell_key key);
 /* Commits the keyboard's draft into the field it was opened for. */
 bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
 /* B out of an open section, or off the section list. False when there is nowhere to go. */

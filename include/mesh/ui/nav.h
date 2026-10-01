@@ -950,6 +950,20 @@ struct mesh_ui_nav {
     bool context_open;
     int32_t context_x;
     int32_t context_y;
+    /*
+     * A window's pop-up menu over a settings choice: every value the row under the section's
+     * cursor offers, hung from that row, with the one in force checked. A click on a choice row
+     * opens it rather than stepping the value - a pointer can name the value it wants, which is
+     * the one thing a d-pad's Left and Right cannot do.
+     *
+     * `choice_field` is the field it was opened on, and a pick lands only while the row under
+     * the cursor is still that field. `choice_cursor` is the value the keys are on, which is
+     * where Up and Down walk and what A picks. Any other key, or a click off its values, puts it
+     * down and changes nothing.
+     */
+    bool choice_open;
+    uint16_t choice_field;
+    uint32_t choice_cursor;
 };
 
 enum mesh_ui_action_type {

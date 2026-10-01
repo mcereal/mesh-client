@@ -1071,6 +1071,19 @@ static uint32_t fb_status_tiles(const struct mesh_ui_snapshot *snapshot,
 }
 
 /*
+ * With a pointer the Radio tab is headed like every other tab: its help verb and the link's
+ * state go up into the heading (fb_draw_app_bar()), and the keycap bar they were said on goes.
+ * On the Brick the cards are the heading, and the keycaps say the rest.
+ */
+static void fb_status_heading(struct inkcell_draw_state *state, struct inkcell_fb_layout *layout) {
+    if (state->pointer) {
+        (void)fb_draw_app_bar(
+            state, layout,
+            &(const struct inkcell_fb_app_bar){.title = inkcell_str(MESH_STR_TAB_RADIO)});
+    }
+}
+
+/*
  * The Status tab as a board, for a window wide enough for one: false when it is not, and the
  * caller draws the columns instead.
  *
@@ -1099,7 +1112,7 @@ static bool fb_status_board(struct inkcell_draw_state *state,
     if (inkcell_fb_width_class(state) == INKCELL_WIDTH_COMPACT) {
         return false;
     }
-    const struct inkcell_box body = inkcell_fb_full_box(state, layout);
+    struct inkcell_box body = inkcell_fb_full_box(state, layout);
     const int gap = inkcell_fb_space(state, INKCELL_SPACE_MD);
     const int adv = inkcell_fb_char_adv(state, state->scale);
     const uint32_t tracks =
@@ -1110,6 +1123,8 @@ static bool fb_status_board(struct inkcell_draw_state *state,
     /* The measure is off for the rest of the frame, as it is for the two columns: a card on a
        board is as wide as its tile. fb_render_snapshot() puts it back once the bar is drawn. */
     (void)inkcell_fb_set_measured(state, false);
+    fb_status_heading(state, layout);
+    body = inkcell_fb_full_box(state, layout);
     const struct inkcell_box whole = inkcell_fb_region(state);
 
     struct inkcell_dash dash;
@@ -1275,6 +1290,7 @@ void fb_render_status(struct inkcell_draw_state *state, const struct mesh_ui_sna
     if (fb_status_board(state, snapshot, layout, &cards)) {
         return;
     }
+    fb_status_heading(state, layout);
     int y = layout->body_y;
     struct inkcell_fb_card *const radio = &cards.radio;
     const enum inkcell_tone radio_tone = cards.radio_tone;

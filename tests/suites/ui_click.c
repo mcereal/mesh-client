@@ -1544,3 +1544,122 @@ MESH_TEST_CASE(ui_click_a_wide_window_docks_the_keyboard_under_the_thread, unit)
     MESH_TEST_FAIL_IF(!typed, "the Brick's grid should type");
     record_success(test_name);
 }
+
+/*
+ * A click on a choice with more values than a segmented control holds opens a pop-up of them,
+ * hung from the row, rather than stepping to the next: a pointer can name the value it wants. A
+ * value on it is the edit, anywhere else puts it down, and the keys walk it as a menu.
+ */
+MESH_TEST_CASE(ui_click_a_choice_opens_its_values_as_a_pop_up, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.use_preset = true;
+    settings.region = 1U;
+    mesh_ui_store_set_settings(&store, &settings);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    click_settle(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_settings_open(&store, MESH_UI_SETTINGS_LORA),
+                              click_close(&store, capture), "LoRa should open");
+
+    /* Region is the section's first row. */
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS, &action) ||
+            !store.nav.choice_open ||
+            store.nav.choice_field != (uint16_t)MESH_UI_FIELD_LORA_REGION ||
+            store.nav.choice_cursor != 1U || store.nav.settings_edit_count != 0U,
+        click_close(&store, capture), "a click on Region should open its values, not step it");
+
+    /* The frame draws every value as a target over the rows; one is the edit. */
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_CHOICE + 3U, &action) ||
+            store.nav.choice_open || store.nav.settings_edit_count != 1U ||
+            store.nav.settings_edits[0].field != (uint16_t)MESH_UI_FIELD_LORA_REGION ||
+            store.nav.settings_edits[0].number != 3U,
+        click_close(&store, capture), "a value on the pop-up should be the row's edit");
+
+    /* Off its values is no answer: the pop-up goes and the edit stands. */
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS, &action) ||
+                                  store.nav.choice_cursor != 3U,
+                              click_close(&store, capture),
+                              "the pop-up should reopen on the value just picked");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_MENU_DISMISS, &action) ||
+            store.nav.choice_open || store.nav.settings_edits[0].number != 3U,
+        click_close(&store, capture), "a click off the values should put the pop-up down");
+
+    /* The keys walk it as a menu: Down moves, B puts it down, A picks. */
+    (void)click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_B, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.choice_open || store.nav.settings_edits[0].number != 3U ||
+                                  store.nav.settings_section != MESH_UI_SETTINGS_LORA,
+                              click_close(&store, capture),
+                              "B should put the pop-up down and leave the section alone");
+    (void)click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.choice_open || store.nav.settings_edits[0].number != 2U,
+                              click_close(&store, capture),
+                              "Up then A should pick the value above");
+    click_close(&store, capture);
+    record_success(test_name);
+}
+
+/*
+ * With a pointer a node's verbs are the heading's overflow button rather than the detail's first
+ * row: the button raises them as a menu hung from it, the heading it hangs from stays drawn, a
+ * verb on it is the sheet's row and A, and a click off it puts it down.
+ */
+MESH_TEST_CASE(ui_click_a_node_s_verbs_are_the_heading_s_overflow_menu, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
+    click_settle(&store);
+    const uint32_t alfa = (uint32_t)MESH_UI_FOCUS_ROWS + MESH_UI_NODES_LEAD_ROWS + 1U;
+    MESH_TEST_FAIL_IF_CLEANUP(!click_on(&store, capture, alfa, &action) ||
+                                  !store.nav.node_detail_open,
+                              click_close(&store, capture), "a click on a node should open it");
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_NODE_ACTIONS, &action) ||
+            !store.nav.node_actions_open || store.nav.node_actions_cursor != 0U,
+        click_close(&store, capture), "the heading's overflow button should raise the verbs");
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(!inkcell_focus_has(map, (uint32_t)MESH_UI_FOCUS_NODE_ACTIONS) ||
+                                  !inkcell_focus_has(map, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS),
+                              click_close(&store, capture),
+                              "the menu should hang from a heading that is still drawn");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        inkcell_focus_hit(map, 1, 1079) != (uint32_t)MESH_UI_FOCUS_MENU_DISMISS,
+        click_close(&store, capture), "everything off the menu should be the one dismiss target");
+
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_MENU_DISMISS, &action) ||
+            store.nav.node_actions_open || !store.nav.node_detail_open,
+        click_close(&store, capture), "a click off the menu should put it down, and only it");
+
+    /* The first verb is message: the sheet's row and A, which leaves for the thread. */
+    (void)click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_NODE_ACTIONS, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS, &action) ||
+            store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.thread_open,
+        click_close(&store, capture), "a verb on the menu should run as the sheet's row");
+    click_close(&store, capture);
+    record_success(test_name);
+}

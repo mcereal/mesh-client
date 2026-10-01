@@ -846,6 +846,10 @@ static void fb_render_settings_pane(struct inkcell_draw_state *state,
                 .trailing = {.kind = INKCELL_FB_TRAILING_ICON,
                              .icon = opens ? INKCELL_ICON_CHEVRON : INKCELL_ICON_NONE},
             };
+            /* The pop-up over this row lines up with its answer, not its question. */
+            if (nav->choice_open && i == view->cursor) {
+                fb_choice_value_x_set(state, inkcell_fb_list_item_value_x(state, &list, i, &row));
+            }
             inkcell_fb_list_item(state, &list, i, &row);
         } else {
             if (mesh_ui_settings_root_is_heading(settings, i)) {
@@ -920,4 +924,114 @@ void fb_render_radio_page(struct inkcell_draw_state *state, const struct mesh_ui
         .roster = false,
     };
     fb_render_settings_pane(state, snapshot, layout, &view);
+}
+
+/*
+ * The pop-up a click on a choice row opens: every value the row offers, the one in force
+ * checked, hung from the row as a menu hangs from its button (INKCELL_OVERLAY_ANCHOR flips it
+ * above when there is no room below).
+ *
+ * The values are the row's as the section builds it, with the edits applied - so a modem
+ * preset's are the region's above it, and a value just picked is the one checked. A value the
+ * row does not allow is not offered: unlike Left and Right, a menu can show the whole set at
+ * once, and an entry that cannot be picked is noise in it. A list taller than the panel is
+ * windowed around the value the keys are on, which is where Up and Down take it.
+ *
+ * Drawn over everything with one target under the whole panel first, as the right-click menu
+ * is, so a click that misses the values lands on that and puts it down.
+ */
+void fb_render_choice(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    const bool radio = nav->screen == MESH_UI_SCREEN_RADIO;
+    const struct settings_view view =
+        radio ? (struct settings_view){.section = mesh_ui_nav_radio_page_section(nav->radio_page),
+                                       .channel = MESH_UI_SETTINGS_NO_CHANNEL,
+                                       .cursor = nav->cursor[MESH_UI_SCREEN_RADIO]}
+              : settings_tab_view(nav, false);
+    struct mesh_ui_settings_item item;
+    const bool row =
+        view.section != MESH_UI_SETTINGS_NO_SECTION &&
+        mesh_ui_settings_item(&snapshot->settings,
+                              snapshot->handshake_valid ? &snapshot->handshake : NULL, view.edits,
+                              view.edit_count, (enum mesh_ui_settings_section)view.section,
+                              view.channel, view.cursor, &item) &&
+        item.kind == INKSTAND_FORM_ENUM &&
+        item.field == (enum mesh_ui_setting_field)nav->choice_field;
+    const uint32_t count = row ? mesh_ui_settings_enum_count(item.field) : 0U;
+
+    struct inkcell_fb_menu_item items[MESH_UI_FOCUS_CHOICE_MAX];
+    uint32_t focus_ids[MESH_UI_FOCUS_CHOICE_MAX];
+    size_t offered = 0U;
+    size_t cursor = 0U;
+    for (uint32_t v = 0U; v < count && v < MESH_UI_FOCUS_CHOICE_MAX; ++v) {
+        if (!mesh_ui_settings_choice_allowed(item.choices, count, v)) {
+            continue;
+        }
+        if (v == nav->choice_cursor) {
+            cursor = offered;
+        }
+        items[offered] = (struct inkcell_fb_menu_item){
+            .label = mesh_ui_settings_enum_name(item.field, v),
+            .checked = v == item.number,
+        };
+        focus_ids[offered] = (uint32_t)MESH_UI_FOCUS_CHOICE + v;
+        offered += 1U;
+    }
+
+    /* As many as the panel holds, in a window that keeps the keys' value in it. */
+    const struct inkcell_fb_rect panel = {
+        .x = 0, .y = 0, .w = inkcell_fb_panel_width(state), .h = inkcell_fb_panel_height(state)};
+    const int room = panel.h - 2 * inkcell_fb_margin(state);
+    size_t first = 0U;
+    size_t shown = offered;
+    struct inkcell_fb_menu menu = {.items = items, .count = shown, .focus_ids = focus_ids};
+    struct inkcell_fb_rect box = inkcell_fb_menu_box(state, &menu, panel.w);
+    while (shown > 1U && box.h > room) {
+        shown -= 1U;
+        menu.count = shown;
+        box = inkcell_fb_menu_box(state, &menu, panel.w);
+    }
+    if (shown < offered) {
+        first = cursor >= shown / 2U ? cursor - shown / 2U : 0U;
+        if (first + shown > offered) {
+            first = offered - shown;
+        }
+    }
+    menu.items = items + first;
+    menu.focus_ids = focus_ids + first;
+    menu.cursor = (uint32_t)(cursor - first);
+
+    /* Hung from the row the click opened it on, which the frame has just registered. */
+    struct inkcell_focus_rect anchor = {0, 0, 0, 0};
+    const bool hung =
+        state->focus != NULL &&
+        inkcell_focus_rect_of(state->focus, (uint32_t)MESH_UI_FOCUS_ROWS + view.cursor, &anchor);
+    const int value_x = fb_choice_value_x(state);
+    struct inkcell_overlay_frame frame;
+    if (!inkcell_fb_overlay_begin(state,
+                                  &(struct inkcell_overlay){
+                                      .id = (uint32_t)FB_OVERLAY_CHOICE,
+                                      .up = nav->choice_open && offered > 0U && hung,
+                                      .placement = INKCELL_OVERLAY_ANCHOR,
+                                      .travel = INKCELL_OVERLAY_TRAVEL_NEAR,
+                                      .w = box.w,
+                                      .h = box.h,
+                                      .anchor = {.x = value_x > anchor.x ? value_x : anchor.x,
+                                                 .y = anchor.y,
+                                                 .w = 0,
+                                                 .h = anchor.h},
+                                      .modal = true,
+                                      .elevation = INKCELL_ELEVATION_FLOATING,
+                                      .shape = INKCELL_SHAPE_MD,
+                                  },
+                                  &frame)) {
+        return;
+    }
+    if (nav->choice_open) {
+        inkcell_fb_target_register(state, (uint32_t)MESH_UI_FOCUS_MENU_DISMISS, &panel);
+    }
+    if (offered > 0U) {
+        inkcell_fb_draw_menu(state, frame.box, &menu);
+    }
+    inkcell_fb_overlay_end(state, &frame);
 }
