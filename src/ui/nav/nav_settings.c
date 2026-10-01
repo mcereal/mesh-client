@@ -314,9 +314,23 @@ bool mesh_ui_nav_choice_open(struct mesh_ui_nav *nav, const struct mesh_ui_store
     if (!mesh_ui_nav_choice_row(nav, store, &item)) {
         return false;
     }
+    /* The keys start on the value in force - unless the row allows it no longer, as a preset a
+       newly edited region refuses: then on the first value it does allow, which is the row the
+       pop-up draws first and the one A would otherwise land nowhere from. */
+    const uint32_t count = mesh_ui_settings_enum_count(item.field);
+    uint32_t cursor = item.number;
+    if (!mesh_ui_settings_choice_allowed(item.choices, count, cursor)) {
+        cursor = 0U;
+        while (cursor < count && !mesh_ui_settings_choice_allowed(item.choices, count, cursor)) {
+            ++cursor;
+        }
+        if (cursor >= count) {
+            return false; /* nothing the row allows: nothing to offer */
+        }
+    }
     nav->choice_open = true;
     nav->choice_field = (uint16_t)item.field;
-    nav->choice_cursor = item.number;
+    nav->choice_cursor = cursor;
     return true;
 }
 
