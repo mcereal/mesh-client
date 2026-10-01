@@ -2573,8 +2573,10 @@ MESH_STR_ENTRY(STATS_DIRECT_PRIVATE,      "Private direct received")
 /* Messages a Store & Forward router on the mesh sent back that this client had missed while it
    was off. */
 MESH_STR_ENTRY(STATS_SF_RECOVERED,        "Recovered by S&F")
-/* Of the direct messages sent, which the recipient or the mesh confirms: how many were. */
-MESH_STR_ENTRY(STATS_HEAD_DELIVERY,       "Delivery")
+/* Of the direct messages sent, which the recipient or the mesh confirms: how many were. Only a
+   direct message asks to be confirmed - a broadcast never does - so the heading says "direct",
+   or the rate under it reads as one over every message sent. */
+MESH_STR_ENTRY(STATS_HEAD_DELIVERY,       "Direct delivery")
 MESH_STR_ENTRY(STATS_DELIVERED,           "Delivered")
 /* A direct message an error came back for instead - or that never left the radio. */
 MESH_STR_ENTRY(STATS_FAILED,              "Not delivered")
