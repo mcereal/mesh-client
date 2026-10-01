@@ -4,8 +4,8 @@
 # Runs inside the `cross-armhf` container (make docker-miyoo), and on an Ubuntu runner with
 # gcc-arm-linux-gnueabihf installed - the CI job and the release both call it.
 #
-# A release passes MESHCLIENT_VERSION_OVERRIDE (and -DMESHCLIENT_RELEASE_BUILD=ON as an argument);
-# then the version is checked into the binary. Besides the folder, it leaves the two release assets:
+# A release sets MESHCLIENT_VERSION_OVERRIDE, which makes this a release build and checks the
+# version into the binary. Besides the folder, it leaves the two release assets:
 #   dist/meshclient-miyoomini-armhf   the bare binary the in-app updater replaces itself with
 #   dist/MeshClient-miyoomini.zip     App/MeshClient/, unzipped at the card's root for a fresh install
 #
@@ -35,9 +35,13 @@ mesh_reset_stale_tree "$BUILD_DIR"
 # PYTHON3 is for the release runner, whose PATH carries the aarch64 toolchain's own python3 first;
 # nanopb's generator runs on the host. -g is split off below, as the Brick's release build does.
 ASSET_NAME=meshclient-miyoomini-armhf
-VERSION_ARGS=()
+#
+# Both ways explicitly, as package-macos.sh does: the tree is reused, and a release's cached
+# version and RELEASE_BUILD=ON would otherwise stamp the next development build as that release.
 if [[ -n "${MESHCLIENT_VERSION_OVERRIDE:-}" ]]; then
-    VERSION_ARGS+=("-DMESHCLIENT_VERSION_OVERRIDE=${MESHCLIENT_VERSION_OVERRIDE}")
+    VERSION_ARGS=("-DMESHCLIENT_VERSION_OVERRIDE=${MESHCLIENT_VERSION_OVERRIDE}" -DMESHCLIENT_RELEASE_BUILD=ON)
+else
+    VERSION_ARGS=(-DMESHCLIENT_VERSION_OVERRIDE= -DMESHCLIENT_RELEASE_BUILD=OFF)
 fi
 PKG_CONFIG_PATH= PKG_CONFIG_LIBDIR= cmake -S . -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \

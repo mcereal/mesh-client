@@ -149,7 +149,7 @@ MESHCLIENT_VERSION_OVERRIDE="${VERSION}" ./scripts/linux-cli-build.sh ||
 # above are the aarch64 build's, and the script names its own.
 ( unset CROSS_COMPILE DBUS_CFLAGS DBUS_LIBS DBUS_LDFLAGS
   MESHCLIENT_VERSION_OVERRIDE="${VERSION}" PYTHON3="${SYSTEM_PYTHON}" \
-      ./scripts/cross-build-miyoo.sh -DMESHCLIENT_RELEASE_BUILD=ON ) ||
+      ./scripts/cross-build-miyoo.sh ) ||
     echo "Could not build the Miyoo Mini binary for ${VERSION}; continuing." >&2
 
 echo "Release ${VERSION} built:"
