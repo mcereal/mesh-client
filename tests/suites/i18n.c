@@ -470,3 +470,86 @@ MESH_TEST_CASE(i18n_net_reason_format_takes_each_entrys_arguments, unit) {
     MESH_TEST_FAIL_IF(strcmp(out, "untouched") != 0, "and leaves the caller's buffer alone");
     record_success(test_name);
 }
+
+/* ---- a window's words ------------------------------------------------------------------ */
+
+/* The swap is the whole feature: the Brick id answers with the window's sentence, in the
+   reader's language, and turning it off gives the Brick's back. */
+MESH_TEST_CASE(i18n_desktop_reads_a_windows_sentence_in_the_brick_ids_place, unit) {
+    MESH_TEST_FAIL_IF(mesh_i18n_desktop(), "the catalog starts as a window's, not the Brick's");
+    const char *before = inkcell_i18n_locale()->id;
+    const char *brick = inkcell_str(MESH_STR_THREAD_EMPTY);
+
+    mesh_i18n_set_desktop(true);
+    const bool swapped =
+        strcmp(inkcell_str(MESH_STR_THREAD_EMPTY), inkcell_str(MESH_STR_THREAD_EMPTY_DESKTOP)) == 0;
+    const bool untouched =
+        strcmp(inkcell_str(MESH_STR_TAB_NODES), "Nodes") == 0 || strcmp(before, "en") != 0;
+    const bool kept = strcmp(inkcell_i18n_locale()->id, before) == 0;
+    (void)inkcell_i18n_set_locale("es");
+    const bool spanish =
+        strcmp(inkcell_str(MESH_STR_THREAD_EMPTY),
+               "Aún no hay nada. Escribe el primer mensaje en el campo de abajo.") == 0;
+    (void)inkcell_i18n_set_locale(before);
+    mesh_i18n_set_desktop(false);
+    const bool back = strcmp(inkcell_str(MESH_STR_THREAD_EMPTY), brick) == 0;
+    const bool kept_back = strcmp(inkcell_i18n_locale()->id, before) == 0;
+
+    MESH_TEST_FAIL_IF(!swapped, "a window did not read the desktop sentence for THREAD_EMPTY");
+    MESH_TEST_FAIL_IF(!untouched, "an id with no desktop reading changed in a window");
+    MESH_TEST_FAIL_IF(!kept || !kept_back, "switching the wording changed the language");
+    MESH_TEST_FAIL_IF(!spanish, "a window in Spanish did not read the Spanish desktop sentence");
+    MESH_TEST_FAIL_IF(!back, "turning the window's wording off did not restore the Brick's");
+    record_success(test_name);
+}
+
+/* A desktop sentence stands in for its Brick id at every call site, so it takes the same
+   arguments - checked the way a translation is, with the Brick's English as the "translation"
+   of the window's. Every shipped locale validates against the window's English too. */
+MESH_TEST_CASE(i18n_desktop_sentences_take_the_brick_ids_arguments, unit) {
+    static const char *brick[MESH_STR_COUNT];
+    for (int id = 0; id < (int)MESH_STR_COUNT; ++id) {
+        brick[id] = inkcell_str_in(inkcell_i18n_locale_english(), (inkcell_str_id)id);
+    }
+    const struct inkcell_i18n_locale as_brick = {
+        .id = "brick", .name = "Brick", .table = brick, .plural_form = NULL};
+
+    mesh_i18n_set_desktop(true);
+    char reason[192] = "";
+    bool ok = inkcell_i18n_validate(&as_brick, reason, sizeof reason);
+    for (size_t i = 0; ok && i < inkcell_i18n_locale_count(); ++i) {
+        ok = inkcell_i18n_validate(inkcell_i18n_locale_at(i), reason, sizeof reason);
+    }
+    mesh_i18n_set_desktop(false);
+    if (!ok) {
+        record_failure(test_name, reason);
+        return;
+    }
+    record_success(test_name);
+}
+
+/* The point of a desktop sentence is that it names nothing on the Brick's case. */
+MESH_TEST_CASE(i18n_desktop_sentences_name_no_brick_button, unit) {
+    static const char *const k_brick_words[] = {"L1",     "R1",    "L2",    "R2",  "START",
+                                                "SELECT", "Brick", "d-pad", "(Y)", "press A",
+                                                " B ",    " Y ",   "pulsa"};
+    for (int id = 0; id < (int)MESH_STR_COUNT; ++id) {
+        const char *name = inkcell_str_id_name((inkcell_str_id)id);
+        if (name == NULL || strstr(name, "_DESKTOP") == NULL) {
+            continue;
+        }
+        for (size_t l = 0; l < inkcell_i18n_locale_count(); ++l) {
+            const char *text = inkcell_str_in(inkcell_i18n_locale_at(l), (inkcell_str_id)id);
+            for (size_t w = 0; w < sizeof k_brick_words / sizeof k_brick_words[0]; ++w) {
+                if (strstr(text, k_brick_words[w]) != NULL) {
+                    char reason[192];
+                    snprintf(reason, sizeof reason, "%s (%s) names \"%s\"", name,
+                             inkcell_i18n_locale_at(l)->id, k_brick_words[w]);
+                    record_failure(test_name, reason);
+                    return;
+                }
+            }
+        }
+    }
+    record_success(test_name);
+}

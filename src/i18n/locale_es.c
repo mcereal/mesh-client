@@ -2312,4 +2312,45 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_DATE_NOV] = "nov",
     [MESH_STR_DATE_DEC] = "dic",
     [MESH_STR_ABOUT_LANGUAGE_ENV] = "Idioma (entorno)",
+    /* ---- desktop wording: what a window says where the Brick names a button ---- */
+    [MESH_STR_COMMON_PRESS_A_DESKTOP] = "clic",
+    [MESH_STR_THREAD_EMPTY_INBOX_DESKTOP] = "Aún no hay mensajes.",
+    [MESH_STR_THREAD_EMPTY_DESKTOP] =
+        "Aún no hay nada. Escribe el primer mensaje en el campo de abajo.",
+    [MESH_STR_WAYPOINT_ACT_DELETE_ARMED_DESKTOP] = "Clic otra vez para borrar",
+    [MESH_STR_NODE_TRACE_TIMEOUT_DESKTOP] = "sin respuesta; clic para reintentar",
+    [MESH_STR_NODE_ACT_REMOVE_ARMED_DESKTOP] = "Clic otra vez para quitar",
+    [MESH_STR_SETTINGS_EMPTY_SECTION_DESKTOP] =
+        "La radio aún no lo ha enviado; recarga para pedirlo",
+    [MESH_STR_LINK_NEEDS_PAIRING_DESKTOP] = "%s requiere vinculación; conéctate en Equipos",
+    [MESH_STR_LINK_DROPPED_DESKTOP] = "%s perdió el enlace; conéctate en Equipos para vincular",
+    [MESH_STR_TOAST_REFRESH_EDITS_DESKTOP_ONE] =
+        "Recargando %d secciones; %u cambio conservado, sin guardar",
+    [MESH_STR_TOAST_REFRESH_EDITS_DESKTOP_OTHER] =
+        "Recargando %d secciones; %u cambios conservados, sin guardar",
+    [MESH_STR_TOAST_SECTION_NOT_LOADED_DESKTOP] = "%s aún sin cargar; recarga para pedirlo",
+    [MESH_STR_TOAST_SAVE_NO_REPLY_DESKTOP] = "Sin respuesta al guardar %s; recarga para comprobar",
+    [MESH_STR_TOAST_NODEDB_RESET_DESKTOP] =
+        "Base de radio restablecida; lista de este cliente conservada (bórrala abajo)",
+    [MESH_STR_CONFIRM_TEXT_RESET_DB_DESKTOP] =
+        "La radio olvida todos los nodos recibidos, salvo los favoritos. Los nombres vuelven "
+        "cuando transmiten de nuevo. La lista de este cliente se conserva; la fila de abajo la "
+        "borra.",
+    [MESH_STR_CONFIRM_TEXT_FORGET_OFF_DESKTOP] =
+        "Quita los nodos que este cliente recuerda y la radio ya no guarda: los marcados como "
+        "\"fuera de radio\" en Nodos. Se conservan los fijados y nuestro nodo.",
+    [MESH_STR_CONFIRM_TEXT_FORGET_ALL_DESKTOP] =
+        "Vacía la lista de nodos de este cliente, salvo nuestro nodo y los fijados. La base de "
+        "datos de la radio no cambia; la lista se llena al conectar de nuevo.",
+    [MESH_STR_CONFIRM_TEXT_FACTORY_DEV_DESKTOP] =
+        "Todos los ajustes y la base de nodos vuelven a sus valores de fábrica. Se borra la "
+        "vinculación Bluetooth: olvida la radio en Equipos y vuelve a vincularla.",
+    [MESH_STR_CONFIRM_TEXT_BLUETOOTH_DESKTOP] =
+        "La radio se reiniciará. Cambiar el modo de vinculación o el PIN invalida el vínculo de "
+        "este ordenador: olvida la radio en Equipos y conecta de nuevo con el nuevo PIN. "
+        "Desactivar Bluetooth desconecta por completo este cliente.",
+    [MESH_STR_CONFIRM_TEXT_FW_BLE_DESKTOP] =
+        "Se descarga la imagen, la radio sale de la malla y se reinicia en su cargador de "
+        "actualización. De ahí solo se sale terminando, lo que tarda unos cuatro minutos. "
+        "Mantén este ordenador cerca de la radio hasta entonces.",
 };

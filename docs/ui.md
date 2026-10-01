@@ -546,6 +546,10 @@ for New, S for Save, and R for Refresh. Each shortcut runs only when the current
 that command; for example, Save on a message list does nothing. Modified keys never also act as
 Brick face buttons, so Control+X cannot accidentally invoke X's current-screen verb.
 
+The words change with the input: help, toasts and empty states that name a Brick button read
+their `_DESKTOP` entry in a window instead - right-click, the heading's buttons, Home and End
+for L2 and R2. See [`i18n.md`](i18n.md#a-windows-wording).
+
 Where the device opens the on-screen keyboard, the window opens a text field and no grid: the
 reader's hands are on a real keyboard, and a picture of one under the field was only something
 to type past. The field takes the room the grid had (up to eight lines). Typing and paste

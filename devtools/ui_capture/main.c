@@ -2986,6 +2986,8 @@ static int verb_detection(struct inkstand_scene *scene, char *rest, void *userda
    derives from where things were drawn - which way a sheet's answers lie - is a scene's too. */
 static bool uicap_drain(void *userdata, void *snapshot) {
     struct uicap *cap = userdata;
+    /* `pointer` draws a window's frame, so it reads a window's words too. */
+    mesh_i18n_set_desktop(inkcell_capture_state(cap->capture)->pointer);
     mesh_ui_store_set_focus_map(&cap->store, inkcell_capture_state(cap->capture)->focus);
     return mesh_ui_store_consume_updates(&cap->store, snapshot);
 }

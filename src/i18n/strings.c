@@ -107,7 +107,140 @@ static const struct inkcell_i18n_catalog k_catalog = {
     .locale_count = MESH_I18N_LOCALE_COUNT,
 };
 
-void mesh_i18n_register(void) { inkcell_i18n_set_catalog(&k_catalog); }
+/* ---- desktop wording ----------------------------------------------------------------------- */
+
+/*
+ * The ids that read differently in a window, each beside the entry it reads as there.
+ *
+ * A pair rather than a naming convention looked up at run time, so a variant whose base was
+ * renamed is a compile error here and not a sentence that silently stops being swapped. A plural
+ * is two rows, one per form, because each form is an id of its own.
+ */
+#define MESH_DESKTOP(id)                                                                           \
+    { MESH_STR_##id, MESH_STR_##id##_DESKTOP }
+
+static const struct {
+    inkcell_str_id brick;
+    inkcell_str_id desktop;
+} k_desktop[] = {
+    MESH_DESKTOP(COMMON_PRESS_A),
+    MESH_DESKTOP(THREAD_EMPTY_INBOX),
+    MESH_DESKTOP(THREAD_EMPTY),
+    MESH_DESKTOP(WAYPOINT_ACT_DELETE_ARMED),
+    MESH_DESKTOP(NODE_TRACE_TIMEOUT),
+    MESH_DESKTOP(NODE_ACT_REMOVE_ARMED),
+    MESH_DESKTOP(SETTINGS_EMPTY_SECTION),
+    MESH_DESKTOP(LINK_NEEDS_PAIRING),
+    MESH_DESKTOP(LINK_DROPPED),
+    {MESH_STR_TOAST_REFRESH_EDITS_ONE, MESH_STR_TOAST_REFRESH_EDITS_DESKTOP_ONE},
+    {MESH_STR_TOAST_REFRESH_EDITS_OTHER, MESH_STR_TOAST_REFRESH_EDITS_DESKTOP_OTHER},
+    MESH_DESKTOP(TOAST_SECTION_NOT_LOADED),
+    MESH_DESKTOP(TOAST_SAVE_NO_REPLY),
+    MESH_DESKTOP(TOAST_NODEDB_RESET),
+    MESH_DESKTOP(CONFIRM_TEXT_RESET_DB),
+    MESH_DESKTOP(CONFIRM_TEXT_FORGET_OFF),
+    MESH_DESKTOP(CONFIRM_TEXT_FORGET_ALL),
+    MESH_DESKTOP(CONFIRM_TEXT_FACTORY_DEV),
+    MESH_DESKTOP(CONFIRM_TEXT_BLUETOOTH),
+    MESH_DESKTOP(CONFIRM_TEXT_FW_BLE),
+    MESH_DESKTOP(SETTINGS_NOTE_DISPLAY),
+    MESH_DESKTOP(SETTINGS_NOTE_DEVICE_TZDEF),
+    MESH_DESKTOP(SETTINGS_NOTE_DISPLAY_UNITS),
+    MESH_DESKTOP(HELP_NOTE_SETTINGS_GROUPS),
+    MESH_DESKTOP(HELP_NOTE_MESSAGES_NEW),
+    MESH_DESKTOP(HELP_NOTE_MESSAGES_DROP),
+    MESH_DESKTOP(HELP_NOTE_MESSAGES_MUTE),
+    MESH_DESKTOP(HELP_NOTE_THREAD_JUMP),
+    MESH_DESKTOP(HELP_NOTE_THREAD_REPLY),
+    MESH_DESKTOP(HELP_NOTE_THREAD_RESEND),
+    MESH_DESKTOP(HELP_NOTE_NODES_FILTER),
+    MESH_DESKTOP(HELP_NOTE_NODES_SORT),
+    MESH_DESKTOP(HELP_NOTE_NODES_PIN),
+    MESH_DESKTOP(HELP_NOTE_NODE_GROUPS),
+    MESH_DESKTOP(HELP_NOTE_NODE_ACTIONS),
+    MESH_DESKTOP(HELP_NOTE_MAP_MOVE),
+    MESH_DESKTOP(HELP_NOTE_MAP_PICK),
+    MESH_DESKTOP(HELP_NOTE_DEVICES),
+    MESH_DESKTOP(HELP_NOTE_DEVICES_FORGET),
+    MESH_DESKTOP(HELP_NOTE_DEVICES_NETWORK),
+    MESH_DESKTOP(HELP_NOTE_TREND_SPAN),
+    MESH_DESKTOP(HELP_NOTE_NODE_CHART_SPAN),
+    MESH_DESKTOP(HELP_NOTE_NODE_CHART_READINGS),
+};
+
+#undef MESH_DESKTOP
+
+#define MESH_DESKTOP_COUNT (sizeof k_desktop / sizeof k_desktop[0])
+
+/*
+ * The catalog a window registers: every table above copied, with each pair's desktop text
+ * written over its Brick text. Built once, the first time it is asked for - the tables are
+ * static, so it is a few kilobytes of pointers and no allocation.
+ *
+ * A locale's desktop entry may be NULL (an untranslated help note). The copy then holds NULL in
+ * the Brick id's slot too, so the lookup falls back to the *desktop* English rather than to a
+ * translated sentence about a button the window does not have.
+ */
+static const char *s_desktop_english[MESH_STR_COUNT];
+static const char *s_desktop_tables[MESH_I18N_LOCALE_COUNT][MESH_STR_COUNT];
+static struct inkcell_i18n_locale s_desktop_locales[MESH_I18N_LOCALE_COUNT];
+static struct inkcell_i18n_catalog s_desktop_catalog;
+static bool s_desktop_built;
+static bool s_desktop;
+
+static void desktop_build(void) {
+    if (s_desktop_built) {
+        return;
+    }
+    for (size_t id = 0; id < (size_t)MESH_STR_COUNT; ++id) {
+        s_desktop_english[id] = k_english[id];
+    }
+    for (size_t i = 0; i < MESH_DESKTOP_COUNT; ++i) {
+        s_desktop_english[k_desktop[i].brick] = k_english[k_desktop[i].desktop];
+    }
+    for (size_t l = 0; l < MESH_I18N_LOCALE_COUNT; ++l) {
+        s_desktop_locales[l] = k_locales[l];
+        const char *const *table = k_locales[l].table;
+        if (table == NULL) {
+            continue;
+        }
+        for (size_t id = 0; id < (size_t)MESH_STR_COUNT; ++id) {
+            s_desktop_tables[l][id] = table[id];
+        }
+        for (size_t i = 0; i < MESH_DESKTOP_COUNT; ++i) {
+            s_desktop_tables[l][k_desktop[i].brick] = table[k_desktop[i].desktop];
+        }
+        s_desktop_locales[l].table = s_desktop_tables[l];
+    }
+    s_desktop_catalog = k_catalog;
+    s_desktop_catalog.english = s_desktop_english;
+    s_desktop_catalog.locales = s_desktop_locales;
+    s_desktop_built = true;
+}
+
+void mesh_i18n_register(void) {
+    if (s_desktop) {
+        desktop_build();
+    }
+    inkcell_i18n_set_catalog(s_desktop ? &s_desktop_catalog : &k_catalog);
+}
+
+void mesh_i18n_set_desktop(bool desktop) {
+    if (desktop == s_desktop) {
+        return;
+    }
+    /* A new catalog drops inkcell back to its first locale, so the reader's language is
+       carried across by id. */
+    const struct inkcell_i18n_locale *current = inkcell_i18n_locale();
+    const char *language = current != NULL ? current->id : NULL;
+    s_desktop = desktop;
+    mesh_i18n_register();
+    if (language != NULL) {
+        (void)inkcell_i18n_set_locale(language);
+    }
+}
+
+bool mesh_i18n_desktop(void) { return s_desktop; }
 
 /* inkcell_i18n_locale_count() and inkcell_i18n_locale_at() are not defined here: they are
    inkcell_i18n_locale_count() and inkcell_i18n_locale_at() under their old names, and once the

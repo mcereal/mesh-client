@@ -708,6 +708,10 @@ static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *ap
         mesh_app_select_cli(app, &backend, &backend_userdata);
     }
 
+    /* A window is read with a mouse and a desk keyboard, and the Brick's sentences name buttons
+       it does not have - see mesh_i18n_set_desktop(). */
+    mesh_i18n_set_desktop(backend == inkcell_backend_sdl());
+
     if (userdata != NULL) {
         *userdata = backend_userdata;
     }
