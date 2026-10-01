@@ -33,6 +33,19 @@ choose your channels from the client.
    that has never been set up transmits nothing until it has one.
 5. Open **Messages**, choose a channel and press **Y** to write a message.
 
+### On a Miyoo Mini Plus
+
+The Miyoo has no Bluetooth or USB radio support, so the start is different:
+
+1. [Install](install/#miyoo-mini-plus) the app from the zip, and turn on network time in Onion
+   under **Apps → Tweaks → Network**.
+2. Turn on Wi-Fi on your radio: Meshtastic's network setting, or MeshCore's Wi-Fi companion
+   firmware.
+3. Open MeshClient from **Apps → MeshClient**, go to the **Radio** tab, press **A** on
+   **devices**, and type the radio's address on the last row, such as `192.168.1.50` or, for
+   MeshCore, `192.168.1.50:5000`.
+4. Carry on from step 4 above: check the region, then send a message.
+
 :::tip
 Press **SELECT** on any screen for help with what's on it. For a settings section, help opens
 at the row your cursor is on.
