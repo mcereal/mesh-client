@@ -491,7 +491,13 @@ static void mesh_meshcore_store_contact(struct mesh_meshcore *meshcore,
 }
 
 /* A packet from `node` arrived just now, over the air: MeshCore has no MQTT leg. `snr` is the
-   radio's reading of it, NULL when the frame carried none. */
+   radio's reading of it, NULL when the frame carried none.
+
+   No `previous_heard`, so no absence ends here. A MeshCore node's last_heard is stamped by
+   whichever clock last had something to say - ours, the radio's lastmod, or, for a contact the
+   radio never modified, the advert's own stamp on the *sender's* clock - and the roster cannot
+   tell afterwards which it was. A gap measured from a sender's clock a day slow would be a day
+   that never happened. */
 static void mesh_meshcore_note_heard(struct mesh_meshcore *meshcore,
                                      const struct mesh_node_summary *node, bool has_hops,
                                      uint8_t hops, const float *snr) {

@@ -29,10 +29,10 @@
  *             cannot tell that from a set that is merely at its size). A few hundred bytes,
  * rewritten whole through a temporary when it has changed, on the app's two-second batching window
  * - so a SIGKILL or a pulled battery costs at most that window. `seen`    the SET: one line each
- * time a node gains a fact (heard at all, heard over the air, is one of our radios). Appended as it
- * happens, since it happens rarely, and never rewritten; an append that fails is retried by the
- * next flush. Read back into a sorted array at launch; a torn last line is skipped, and a line read
- * twice changes nothing.
+ * time a node gains a fact (heard at all, heard over the air, heard with no relay between, is one
+ * of our radios). Appended as it happens, since it happens rarely, and never rewritten; an append
+ * that fails is retried by the next flush. Read back into a sorted array at launch; a torn last
+ * line is skipped, and a line read twice changes nothing.
  *
  * **A node is its 32-bit number.** Meshtastic takes it from the radio's hardware and MeshCore
  * from the front of a public key, so the two protocols share one set; two nodes landing on one
@@ -58,13 +58,24 @@
  *
  * **A record is a MAX or a MIN**, and both are kept the same way: whether one has been set, who
  * set it and when. A MIN is the one kind that is signed - the weakest signal decoded is a
- * signal-to-noise ratio, which is below zero when a packet is decoded from under the noise - so
- * its value is read with mesh_lifetime_signed() and written to the card with its sign.
+ * signal-to-noise ratio, which is below zero when a packet is decoded from under the noise, and
+ * the quietest is a strength in dBm, which nearly always is - so its value is read with
+ * mesh_lifetime_signed() and written to the card with its sign.
  *
  * **A signal belongs to whoever transmitted it**, which for a relayed packet is the last relay
- * rather than the node it is from. So the weakest-signal record takes only packets that came
- * straight to our radio, where the node the record names is the one that was that faint; the
+ * rather than the node it is from. So the two signal records take only packets that came
+ * straight to our radio, where the node a record names is the one that was that faint; the
  * farthest-heard record takes any hop count, since a distance is between the two ends.
+ *
+ * **An absence is measured off the roster**, which is the one place a node's last hearing is
+ * kept: the session hands over the node's `last_heard` from before the packet with the record
+ * after it, and the gap between the two is how long the node went unheard. The roster outlives
+ * a run, so a node heard again after the client was off for a week was absent for that week as
+ * far as this client knows - and a radio whose NodeDB heard it meanwhile says so at the next
+ * listing, which moves `last_heard` on before any packet arrives. Both ends have to be on a
+ * receiver's clock, so only Meshtastic reports one: MeshCore stamps a contact the radio never
+ * modified with the advert's own time, on the sender's clock, and a gap between two clocks is
+ * their difference rather than the node's absence.
  *
  * **Time on a link is the one thing the session does not feed**, because the session does not
  * know it has a link: it is told about frames, not about a transport coming and going. So the

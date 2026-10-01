@@ -1153,6 +1153,7 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
     dst->messages_failed = mesh_lifetime_value(lifetime, MESH_LIFETIME_MESSAGES_FAILED);
     dst->nodes_heard = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_NODES_HEARD);
     dst->nodes_heard_rf = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_NODES_HEARD_RF);
+    dst->nodes_heard_direct = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_NODES_HEARD_DIRECT);
     dst->radios = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_RADIOS);
     dst->nodes_floor = !mesh_lifetime_complete(lifetime);
     dst->most_hops = mesh_app_lifetime_u32(lifetime, MESH_LIFETIME_MOST_HOPS);
@@ -1176,6 +1177,13 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
     dst->weakest_snr_measured = mesh_lifetime_measured(lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB);
     mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_WEAKEST_SNR_QDB,
                             &dst->weakest_snr_holder);
+    const int64_t quietest = mesh_lifetime_signed(lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM);
+    dst->weakest_rssi_dbm = (int32_t)(quietest < INT32_MIN   ? INT32_MIN
+                                      : quietest > INT32_MAX ? INT32_MAX
+                                                             : quietest);
+    dst->weakest_rssi_measured = mesh_lifetime_measured(lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM);
+    mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_WEAKEST_RSSI_DBM,
+                            &dst->weakest_rssi_holder);
     dst->connections = mesh_lifetime_value(lifetime, MESH_LIFETIME_CONNECTIONS);
     dst->connected_s = mesh_lifetime_value(lifetime, MESH_LIFETIME_CONNECTED_S);
     dst->longest_connection_s = mesh_lifetime_value(lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S);
@@ -1183,6 +1191,11 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
         mesh_lifetime_measured(lifetime, MESH_LIFETIME_LONGEST_CONNECTION_S);
     mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_LONGEST_CONNECTION_S,
                             &dst->longest_connection_holder);
+    dst->longest_absence_s = mesh_lifetime_value(lifetime, MESH_LIFETIME_LONGEST_ABSENCE_S);
+    dst->longest_absence_measured =
+        mesh_lifetime_measured(lifetime, MESH_LIFETIME_LONGEST_ABSENCE_S);
+    mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_LONGEST_ABSENCE_S,
+                            &dst->longest_absence_holder);
     dst->since = lifetime->since;
 }
 
