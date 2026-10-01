@@ -214,6 +214,15 @@ bool mesh_ui_controller_menu_offered(const struct mesh_ui_controller *controller
         mesh_ui_commands_for(&controller->snapshot, &offered);
         return mesh_ui_commands_find(&offered, (enum mesh_ui_command_id)item) != NULL;
     }
+    /* The Nodes list's chips are drawn only over a roster: with no radio, or none of its nodes
+       yet, fb_render_node_list() draws the empty state and no chip bar. The nav cannot see the
+       roster, and the frame it would be judged against is this snapshot. */
+    if (item >= (uint32_t)MESH_UI_FOCUS_NODE_CHIPS &&
+        item < (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)MESH_UI_NODES_CHIP_COUNT &&
+        (!controller->snapshot.handshake_valid ||
+         controller->snapshot.handshake.node_count == 0U)) {
+        return false;
+    }
     return mesh_ui_nav_click_offered(&controller->snapshot.nav, item);
 }
 

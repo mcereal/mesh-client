@@ -776,12 +776,22 @@ MESH_TEST_CASE(ui_menu_items_are_the_clicks_they_name, unit) {
         record_failure(test_name, "controller init failed");
         return;
     }
-    mesh_test_nav_populate(&store);
-    inkwell_loop_run(&loop, 0);
-
     const uint32_t nodes_tab = (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_NODES;
     const uint32_t messages_tab = (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_MESSAGES;
     const uint32_t find = (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)MESH_UI_NODES_CHIP_FIND;
+
+    /* No radio: the Nodes tab is its empty state, with no chip bar for Find to name. */
+    inkwell_loop_run(&loop, 0);
+    mesh_ui_controller_handle_menu(&controller, nodes_tab);
+    inkwell_loop_run(&loop, 0);
+    if (backend.last_snapshot.nav.screen != MESH_UI_SCREEN_NODES ||
+        mesh_ui_controller_menu_offered(&controller, find)) {
+        failure = "Find should not be offered over an empty Nodes tab";
+        goto cleanup;
+    }
+    mesh_ui_controller_handle_menu(&controller, messages_tab);
+    mesh_test_nav_populate(&store);
+    inkwell_loop_run(&loop, 0);
 
     /* A row's menu takes the next press and only puts itself down, so it greys out the bar. */
     mesh_ui_controller_handle_context(&controller, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, 40, 40);
