@@ -1688,6 +1688,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_STATS_FARTHEST_DIRECT] = "Directo más lejano",
     [MESH_STR_STATS_FARTHEST_HEARD] = "Oído más lejano",
     [MESH_STR_STATS_WEAKEST_SNR] = "Señal más débil",
+    [MESH_STR_STATS_WEAKEST_RSSI] = "Señal más baja",
     [MESH_STR_STATS_LONGEST_CONNECTION] = "Conexión más larga",
     [MESH_STR_STATS_HELD_BY] = "Logrado por",
     [MESH_STR_STATS_HELD_BY_DATE] = "%s, %d-%02d-%02d",

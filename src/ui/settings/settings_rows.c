@@ -3588,6 +3588,14 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     } else {
         item_str(list, MESH_STR_STATS_WEAKEST_SNR, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
     }
+    if (stats->weakest_rssi_measured) {
+        inkcell_str_format(value, sizeof value, MESH_STR_NODE_VAL_RSSI,
+                           (int)stats->weakest_rssi_dbm);
+        item_text(list, MESH_STR_STATS_WEAKEST_RSSI, INKSTAND_FORM_INFO, value);
+        stats_holder_row(list, &stats->weakest_rssi_holder);
+    } else {
+        item_str(list, MESH_STR_STATS_WEAKEST_RSSI, INKSTAND_FORM_INFO, MESH_STR_STATS_NONE_YET);
+    }
     if (stats->longest_connection_measured) {
         stats_duration_row(list, MESH_STR_STATS_LONGEST_CONNECTION, stats->longest_connection_s);
         stats_holder_row(list, &stats->longest_connection_holder);

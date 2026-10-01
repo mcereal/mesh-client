@@ -3905,7 +3905,9 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
                                                    .has_hops = true,
                                                    .hops = 0U,
                                                    .has_snr = true,
-                                                   .snr = -10.5f};
+                                                   .snr = -10.5f,
+                                                   .has_rssi = true,
+                                                   .rssi = -117};
     mesh_lifetime_observe(&app.lifetime, &app.session, &faint_event);
     mesh_lifetime_note_radio(&app.lifetime, 0x61000003U);
 
@@ -3931,6 +3933,11 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     if (!page->weakest_snr_measured || page->weakest_snr_qdb != -42 ||
         strcmp(page->weakest_snr_holder.name, "!61000002") != 0 || page->farthest_heard_measured) {
         failure = "the page should carry the signal record, signed, with its holder";
+        goto cleanup;
+    }
+    if (!page->weakest_rssi_measured || page->weakest_rssi_dbm != -117 ||
+        strcmp(page->weakest_rssi_holder.name, "!61000002") != 0) {
+        failure = "the page should carry the quietest signal, in dBm, with its holder";
         goto cleanup;
     }
     struct mesh_node_summary *listed = &app.session.handshake.nodes[0];

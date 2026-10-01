@@ -57,6 +57,11 @@
    -20 dB and saturate in the teens - and is dropped as a malformed packet's. */
 #define LIFETIME_SNR_LIMIT_DB 64.0f
 
+/* The same for RSSI: a LoRa radio stops decoding somewhere under -140 dBm, and nothing a
+   receiver could survive reads far above zero. */
+#define LIFETIME_RSSI_FLOOR_DBM (-200)
+#define LIFETIME_RSSI_CEILING_DBM 30
+
 /* What the set knows about a node. Each is one line in the seen file, keyed by its name. */
 enum {
     SEEN_HEARD = 1U << 0, /* heard at all: over the air, over MQTT, or listed by a radio */
@@ -802,6 +807,11 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
         event->snr <= LIFETIME_SNR_LIMIT_DB) {
         const int64_t quarters = (int64_t)(event->snr * 4.0f + (event->snr < 0.0f ? -0.5f : 0.5f));
         lifetime_raise(lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB, (uint64_t)quarters, node->node_id);
+    }
+    if (event->has_rssi && event->rssi >= LIFETIME_RSSI_FLOOR_DBM &&
+        event->rssi <= LIFETIME_RSSI_CEILING_DBM) {
+        lifetime_raise(lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM, (uint64_t)(int64_t)event->rssi,
+                       node->node_id);
     }
 }
 

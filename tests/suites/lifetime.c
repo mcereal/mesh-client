@@ -105,6 +105,19 @@ static void lt_heard_snr(const struct mesh_node_summary *node, bool via_mqtt, bo
     mesh_lifetime_observe(&g_lifetime, &g_session, &event);
 }
 
+/* A node heard over the air at `rssi` dBm. */
+static void lt_heard_rssi(const struct mesh_node_summary *node, bool via_mqtt, bool has_hops,
+                          uint8_t hops, int32_t rssi) {
+    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_NODE_HEARD,
+                                             .node = node,
+                                             .via_mqtt = via_mqtt,
+                                             .has_hops = has_hops,
+                                             .hops = hops,
+                                             .has_rssi = true,
+                                             .rssi = rssi};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+}
+
 static struct mesh_node_summary lt_summary(uint32_t id) {
     struct mesh_node_summary node;
     memset(&node, 0, sizeof node);
@@ -1000,6 +1013,8 @@ MESH_TEST_CASE(lifetime_counts_what_the_session_announces, unit) {
     bridged.packet.id = 0x5151U;
     bridged.packet.via_mqtt = true;
     bridged.packet.rx_snr = -19.0f;
+    bridged.packet.has_rx_rssi = true;
+    bridged.packet.rx_rssi = -131;
     bridged.packet.hop_start = 3U;
     bridged.packet.hop_limit = 3U;
     bridged.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
@@ -1011,16 +1026,76 @@ MESH_TEST_CASE(lifetime_counts_what_the_session_announces, unit) {
                       "a message over MQTT is counted as one");
     MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB),
                       "and its SNR is not our radio's");
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM),
+                      "nor its RSSI");
 
     meshtastic_FromRadio faint = bridged;
     faint.packet.id = 0x5152U;
     faint.packet.via_mqtt = false;
     faint.packet.rx_snr = -12.5f;
+    faint.packet.rx_rssi = -118;
     MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&g_session, &faint), "encode failed");
     MESH_TEST_FAIL_IF(mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB) != -50,
                       "a direct packet's SNR is the record");
+    MESH_TEST_FAIL_IF(mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM) != -118,
+                      "and so is its RSSI");
     MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_RECEIVED_MQTT) != 1U,
                       "and the one over the air is not MQTT's");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/*
+ * The quietest signal decoded: the lowest RSSI of a packet that came straight to our radio, on
+ * the SNR record's terms and for its reasons. It is a record of its own because the two answer
+ * different questions - a loud packet can still be buried in noise, and a quiet one can be clean.
+ */
+MESH_TEST_CASE(lifetime_quietest_signal_is_the_lowest_rssi_heard_direct, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+    const struct mesh_node_summary peer = lt_summary(LT_PEER);
+    const struct mesh_node_summary other = lt_summary(LT_OTHER);
+
+    lt_heard_rssi(&peer, true, true, 0U, -130);
+    lt_heard_rssi(&peer, false, true, 1U, -130);
+    lt_heard_rssi(&peer, false, false, 0U, -130);
+    lt_heard_snr(&peer, false, true, 0U, -10.0f);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM),
+                      "MQTT, a relay, an unknown path and a packet with no RSSI set no record");
+
+    lt_heard_rssi(&peer, false, true, 0U, -32768);
+    lt_heard_rssi(&peer, false, true, 0U, INT32_MIN);
+    lt_heard_rssi(&peer, false, true, 0U, 500);
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM),
+                      "a reading no radio makes is not a record");
+
+    lt_heard_rssi(&peer, false, true, 0U, 0);
+    MESH_TEST_FAIL_IF(!mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM) ||
+                          mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM) != 0,
+                      "0 dBm is a reading, and the first direct one is the record");
+    lt_heard_rssi(&other, false, true, 0U, -121);
+    lt_heard_rssi(&peer, false, true, 0U, -90);
+    lt_heard_rssi(&peer, false, true, 0U, -121);
+    MESH_TEST_FAIL_IF(mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM) != -121,
+                      "the quieter packet lowers it, a louder one does not");
+    uint32_t holder = 0U;
+    MESH_TEST_FAIL_IF(
+        !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM, &holder, NULL) ||
+            holder != LT_OTHER,
+        "and a tie keeps the node that was that quiet first");
+    MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB) &&
+                          mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_SNR_QDB) != -40,
+                      "an RSSI says nothing about the SNR record");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    holder = 0U;
+    MESH_TEST_FAIL_IF(
+        mesh_lifetime_signed(&g_lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM) != -121 ||
+            !mesh_lifetime_holder(&g_lifetime, MESH_LIFETIME_WEAKEST_RSSI_DBM, &holder, NULL) ||
+            holder != LT_OTHER,
+        "the record comes back with its sign and its holder");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }

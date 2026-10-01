@@ -713,6 +713,10 @@ struct mesh_session_event {
        measured one. Never over MQTT, where a reading would be somebody else's antenna. */
     bool has_snr;
     float snr;
+    /* NODE_HEARD: how loud the same packet was at our antenna, in dBm, on the same terms as the
+       SNR above. Its own flag, because 0 dBm is a reading some radios really make. */
+    bool has_rssi;
+    int32_t rssi;
     /* RADIO: the attached radio's node number. */
     uint32_t radio;
 };

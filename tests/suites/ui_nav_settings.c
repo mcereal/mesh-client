@@ -1418,6 +1418,8 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     if ((value = stats_value_of(&store, "Farthest heard", &item)) == NULL ||
         strcmp(value, "none yet") != 0 ||
         (value = stats_value_of(&store, "Weakest signal", &item)) == NULL ||
+        strcmp(value, "none yet") != 0 ||
+        (value = stats_value_of(&store, "Quietest signal", &item)) == NULL ||
         strcmp(value, "none yet") != 0) {
         failure = "a record nothing has set should say so";
         goto cleanup;
@@ -1428,6 +1430,8 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     stats->farthest_heard_measured = true;
     stats->weakest_snr_qdb = -29; /* -7.25 dB: under the noise */
     stats->weakest_snr_measured = true;
+    stats->weakest_rssi_dbm = -126;
+    stats->weakest_rssi_measured = true;
     mesh_ui_store_set_settings(&store, &settings);
     if ((value = stats_value_of(&store, "Received over MQTT", &item)) == NULL ||
         strcmp(value, "3") != 0 ||
@@ -1444,6 +1448,11 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     if ((value = stats_value_of(&store, "Weakest signal", &item)) == NULL ||
         strcmp(value, "-7.25 dB") != 0) {
         failure = "the weakest signal should be drawn in dB, with its sign";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Quietest signal", &item)) == NULL ||
+        strcmp(value, "-126 dBm") != 0) {
+        failure = "the quietest signal should be drawn in dBm, with its sign";
         goto cleanup;
     }
     if ((value = stats_value_of(&store, "Heard", &item)) == NULL ||

@@ -139,6 +139,10 @@ struct mesh_ui_lifetime_stats {
     struct mesh_ui_lifetime_holder farthest_direct_holder;
     struct mesh_ui_lifetime_holder farthest_heard_holder;
     struct mesh_ui_lifetime_holder weakest_snr_holder;
+    /* The quietest packet decoded, in dBm: how loud rather than how far above the noise. */
+    int32_t weakest_rssi_dbm;
+    bool weakest_rssi_measured;
+    struct mesh_ui_lifetime_holder weakest_rssi_holder;
     /* How many times a link has come up, and the seconds it has been up in all. The total is
        banked a minute at a time, so it can trail a link that is up now by up to that minute. */
     uint64_t connections;

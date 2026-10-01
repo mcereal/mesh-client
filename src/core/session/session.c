@@ -1137,6 +1137,7 @@ static void mesh_session_announce_heard(struct mesh_session *session,
     const bool has_hops = packet->hop_start != 0U && packet->hop_start >= packet->hop_limit;
     /* 0.0 is the firmware's "no measurement", as mesh_session_touch_node_from_packet() reads it. */
     const bool has_snr = !packet->via_mqtt && packet->rx_snr != 0.0f;
+    const bool has_rssi = !packet->via_mqtt && packet->has_rx_rssi;
     const struct mesh_session_event event = {
         .kind = MESH_SESSION_EVENT_NODE_HEARD,
         .node = summary,
@@ -1144,7 +1145,9 @@ static void mesh_session_announce_heard(struct mesh_session *session,
         .has_hops = has_hops,
         .hops = has_hops ? (uint8_t)(packet->hop_start - packet->hop_limit) : 0U,
         .has_snr = has_snr,
-        .snr = has_snr ? packet->rx_snr : 0.0f};
+        .snr = has_snr ? packet->rx_snr : 0.0f,
+        .has_rssi = has_rssi,
+        .rssi = has_rssi ? packet->rx_rssi : 0};
     mesh_session_emit(session, &event);
 }
 

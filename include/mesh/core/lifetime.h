@@ -58,12 +58,13 @@
  *
  * **A record is a MAX or a MIN**, and both are kept the same way: whether one has been set, who
  * set it and when. A MIN is the one kind that is signed - the weakest signal decoded is a
- * signal-to-noise ratio, which is below zero when a packet is decoded from under the noise - so
- * its value is read with mesh_lifetime_signed() and written to the card with its sign.
+ * signal-to-noise ratio, which is below zero when a packet is decoded from under the noise, and
+ * the quietest is a strength in dBm, which nearly always is - so its value is read with
+ * mesh_lifetime_signed() and written to the card with its sign.
  *
  * **A signal belongs to whoever transmitted it**, which for a relayed packet is the last relay
- * rather than the node it is from. So the weakest-signal record takes only packets that came
- * straight to our radio, where the node the record names is the one that was that faint; the
+ * rather than the node it is from. So the two signal records take only packets that came
+ * straight to our radio, where the node a record names is the one that was that faint; the
  * farthest-heard record takes any hop count, since a distance is between the two ends.
  *
  * **Time on a link is the one thing the session does not feed**, because the session does not

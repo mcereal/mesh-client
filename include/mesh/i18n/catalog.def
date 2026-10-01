@@ -2564,6 +2564,9 @@ MESH_STR_ENTRY(STATS_FARTHEST_HEARD,      "Farthest heard")
 /* The faintest packet our radio has still decoded, as a signal-to-noise ratio: below zero is
    under the noise. */
 MESH_STR_ENTRY(STATS_WEAKEST_SNR,         "Weakest signal")
+/* The quietest packet our radio has still decoded, as a received strength in dBm. The row above
+   is how far over the noise a packet was; this is how loud it was. */
+MESH_STR_ENTRY(STATS_WEAKEST_RSSI,        "Quietest signal")
 /* The longest a radio has stayed connected in one go; the value is a duration such as "5h 20m". */
 MESH_STR_ENTRY(STATS_LONGEST_CONNECTION,  "Longest connection")
 /* The row under a record: the node that set it. */
