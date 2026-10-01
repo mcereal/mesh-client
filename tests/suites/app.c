@@ -3911,6 +3911,16 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
                                                    .rssi = -117,
                                                    .previous_heard = 1790000000U};
     mesh_lifetime_observe(&app.lifetime, &app.session, &faint_event);
+    /* A trace to it, answered over two relays out and one back. */
+    struct mesh_traceroute trace;
+    memset(&trace, 0, sizeof trace);
+    trace.state = MESH_TRACEROUTE_DONE;
+    trace.target = node.node_id;
+    trace.hops_out = 2U;
+    trace.hops_back = 1U;
+    const struct mesh_session_event trace_event = {.kind = MESH_SESSION_EVENT_TRACE,
+                                                   .trace = &trace};
+    mesh_lifetime_observe(&app.lifetime, &app.session, &trace_event);
     mesh_lifetime_note_radio(&app.lifetime, 0x61000003U);
 
     /* Published with no radio attached: the page is this client's, and so is what is on it. */
@@ -3948,6 +3958,11 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
         failure = "the page should carry the nodes heard directly and the longest absence";
         goto cleanup;
     }
+    if (page->traces != 1U || !page->longest_trace_measured || page->longest_trace_hops != 2U ||
+        strcmp(page->longest_trace_holder.name, "!61000002") != 0) {
+        failure = "the page should carry the traces answered and the longest, with its holder";
+        goto cleanup;
+    }
     struct mesh_node_summary *listed = &app.session.handshake.nodes[0];
     *listed = node;
     snprintf(listed->short_name, sizeof listed->short_name, "%s", "BRAV");
@@ -3975,7 +3990,7 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     mesh_app_on_ui_action(&app, &action);
     page = &app.ui_store.settings.client.lifetime;
     if (page->messages_sent != 0U || page->direct_sent != 0U || page->nodes_heard != 0U ||
-        page->most_hops_measured) {
+        page->most_hops_measured || page->traces != 0U || page->longest_trace_measured) {
         failure = "the reset should publish a page of zeros on the press that asked for it";
         goto cleanup;
     }

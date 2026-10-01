@@ -583,6 +583,9 @@ MESH_TEST_CASE(session_traceroute, unit) {
     struct mesh_test_trace_capture capture;
     memset(&capture, 0, sizeof capture);
     mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+    static struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    mesh_session_set_observer(&session, mesh_test_event_record_fn, &record);
 
     meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
     my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
@@ -653,6 +656,8 @@ MESH_TEST_CASE(session_traceroute, unit) {
     /* And it is not a message, however it is addressed. */
     MESH_TEST_FAIL_IF(mesh_session_messages(&session)->count != 0U,
                       "a RouteDiscovery reached the message log");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_TRACE, 0U) != 0U,
+                      "somebody else's trace was announced as ours");
 
     meshtastic_FromRadio reply = stray;
     reply.packet.decoded.request_id = request_id;
@@ -665,6 +670,22 @@ MESH_TEST_CASE(session_traceroute, unit) {
                           trace->snr[0] != 26 || trace->back_count != 1U ||
                           trace->snr_back_count != 2U,
                       "the reply was not kept");
+    /* Announced once, with the hops the stats count, and only now that it is answered. */
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_TRACE, 0x3333U) != 1U,
+                      "the answered trace was not announced");
+    const struct mesh_test_event *traced = NULL;
+    for (size_t i = 0; i < record.count; ++i) {
+        if (record.events[i].kind == MESH_SESSION_EVENT_TRACE) {
+            traced = &record.events[i];
+        }
+    }
+    MESH_TEST_FAIL_IF(traced == NULL || traced->trace_out != 1U || traced->trace_back != 1U,
+                      "the announced trace carries the wrong route");
+    /* The same answer again changes nothing: the trace is no longer pending. */
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &reply),
+                      "encode repeated traceroute reply failed");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_TRACE, 0U) != 1U,
+                      "a repeated answer was announced twice");
 
     /* The shape the UI draws: us, the relay, the target - with each stop carrying the reading
        of the link that got the packet to it, and the first stop carrying none. */
