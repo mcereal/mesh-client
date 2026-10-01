@@ -2969,6 +2969,9 @@ MESH_STR_ENTRY(LINK_CLOSED,               "%.32s closed the connection")
 /* The second slot is the TLS library's own sentence for what went wrong with the certificate or
    the handshake. Untranslated, in the same category as the C library's word for an errno. */
 MESH_STR_ENTRY(LINK_TLS,                  "%.24s: %.64s")
+/* A certificate refused for not being valid yet: this device's clock is behind - a handheld with
+   no network time boots at 1970 - and every secure server looks wrong until it is set. */
+MESH_STR_ENTRY(LINK_CLOCK,                "%.24s: this device's clock is wrong - set the time")
 
 /* The rest of the network link's, which are its own: a policy, a target only it knows the shape
    of, and a radio that did not finish the handshake once the socket was up. */

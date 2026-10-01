@@ -27,6 +27,9 @@ bool mesh_net_reason_str(enum inkwell_net_reason reason, inkcell_str_id *out) {
     case INKWELL_NET_TLS:
         *out = MESH_STR_LINK_TLS;
         return true;
+    case INKWELL_NET_CLOCK:
+        *out = MESH_STR_LINK_CLOCK;
+        return true;
     /* Named rather than defaulted, so adding a reason to inkwell fails the build here instead
        of silently reaching whichever caller's fallback ran last. */
     case INKWELL_NET_OK:
