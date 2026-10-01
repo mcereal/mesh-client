@@ -414,6 +414,9 @@ MESH_TEST_CASE(contact_import_reaches_this_clients_roster, unit) {
     unsigned sends = 0U;
     mesh_session_init(&session);
     mesh_session_attach(&session, contact_sink, &sends);
+    static struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    mesh_session_set_observer(&session, mesh_test_event_record_fn, &record);
 
     meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
     my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
@@ -462,6 +465,10 @@ MESH_TEST_CASE(contact_import_reaches_this_clients_roster, unit) {
         failure = "a node that has never transmitted was given a last-heard time";
         goto cleanup;
     }
+    if (mesh_test_event_count(&record, MESH_SESSION_EVENT_CONTACT_ADDED, 0x0BADF00DU) != 1U) {
+        failure = "the import was not announced, once, as a contact added";
+        goto cleanup;
+    }
 
     /*
      * And a second import may not overwrite a node we have actually heard. The roster record is
@@ -484,6 +491,10 @@ MESH_TEST_CASE(contact_import_reaches_this_clients_roster, unit) {
     if (known == NULL || strcmp(known->long_name, "Real Name") != 0 ||
         known->public_key[0] != 0xA1U) {
         failure = "a link overwrote the record of a node this radio had heard for itself";
+        goto cleanup;
+    }
+    if (mesh_test_event_count(&record, MESH_SESSION_EVENT_CONTACT_ADDED, 0U) != 1U) {
+        failure = "a link for a node the radio already holds was counted as a contact added";
         goto cleanup;
     }
 

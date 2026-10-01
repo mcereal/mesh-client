@@ -3921,6 +3921,19 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     const struct mesh_session_event trace_event = {.kind = MESH_SESSION_EVENT_TRACE,
                                                    .trace = &trace};
     mesh_lifetime_observe(&app.lifetime, &app.session, &trace_event);
+    /* Its key verified, a place shared with it, and a channel link of two joined. */
+    const struct mesh_session_event verified_event = {.kind = MESH_SESSION_EVENT_KEY_VERIFIED,
+                                                      .peer = node.node_id};
+    mesh_lifetime_observe(&app.lifetime, &app.session, &verified_event);
+    struct mesh_waypoint place;
+    memset(&place, 0, sizeof place);
+    place.id = 5U;
+    const struct mesh_session_event place_event = {
+        .kind = MESH_SESSION_EVENT_WAYPOINT, .waypoint = &place, .outbound = true};
+    mesh_lifetime_observe(&app.lifetime, &app.session, &place_event);
+    const struct mesh_session_event channels_event = {.kind = MESH_SESSION_EVENT_CHANNELS_IMPORTED,
+                                                      .count = 2U};
+    mesh_lifetime_observe(&app.lifetime, &app.session, &channels_event);
     mesh_lifetime_note_radio(&app.lifetime, 0x61000003U);
 
     /* Published with no radio attached: the page is this client's, and so is what is on it. */
@@ -3963,6 +3976,11 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
         failure = "the page should carry the traces answered and the longest, with its holder";
         goto cleanup;
     }
+    if (page->keys_verified != 1U || page->waypoints_sent != 1U || page->waypoints_received != 0U ||
+        page->channels_imported != 2U || page->contacts_added != 0U || page->sf_recovered != 0U) {
+        failure = "the page should carry what was verified and shared";
+        goto cleanup;
+    }
     struct mesh_node_summary *listed = &app.session.handshake.nodes[0];
     *listed = node;
     snprintf(listed->short_name, sizeof listed->short_name, "%s", "BRAV");
@@ -3990,7 +4008,8 @@ MESH_TEST_CASE(app_stats_page_publishes_and_resets_the_lifetime_counts, unit) {
     mesh_app_on_ui_action(&app, &action);
     page = &app.ui_store.settings.client.lifetime;
     if (page->messages_sent != 0U || page->direct_sent != 0U || page->nodes_heard != 0U ||
-        page->most_hops_measured || page->traces != 0U || page->longest_trace_measured) {
+        page->most_hops_measured || page->traces != 0U || page->longest_trace_measured ||
+        page->keys_verified != 0U || page->waypoints_sent != 0U || page->channels_imported != 0U) {
         failure = "the reset should publish a page of zeros on the press that asked for it";
         goto cleanup;
     }

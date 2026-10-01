@@ -2565,6 +2565,9 @@ MESH_STR_ENTRY(STATS_REACTIONS_RECEIVED,  "Reactions received")
 MESH_STR_ENTRY(STATS_RECEIVED_MQTT,       "Received over MQTT")
 /* Direct messages received encrypted with our own key, so no other node could read them. */
 MESH_STR_ENTRY(STATS_DIRECT_PRIVATE,      "Private direct received")
+/* Messages a Store & Forward router on the mesh sent back that this client had missed while it
+   was off. */
+MESH_STR_ENTRY(STATS_SF_RECOVERED,        "Recovered by S&F")
 /* Of the direct messages sent, which the recipient or the mesh confirms: how many were. */
 MESH_STR_ENTRY(STATS_HEAD_DELIVERY,       "Delivery")
 MESH_STR_ENTRY(STATS_DELIVERED,           "Delivered")
@@ -2586,6 +2589,21 @@ MESH_STR_ENTRY(STATS_NODES_HEARD_DIRECT,  "Directly")
 MESH_STR_ENTRY(STATS_RADIOS,              "Radios used")
 /* How many traceroutes this client has sent that came back with the route to the node. */
 MESH_STR_ENTRY(STATS_TRACES,              "Routes traced")
+/* How many nodes' keys this client has confirmed by comparing codes with their owner. */
+MESH_STR_ENTRY(STATS_KEYS_VERIFIED,       "Keys verified")
+/* The Stats page's heading over the places, contacts and channels passed between this client
+   and other people. */
+MESH_STR_ENTRY(STATS_HEAD_SHARING,        "Sharing")
+/* Places (waypoints) this client sent out to the mesh. */
+MESH_STR_ENTRY(STATS_WAYPOINTS_SENT,      "Places shared")
+/* Places other people shared that reached this client. */
+MESH_STR_ENTRY(STATS_WAYPOINTS_RECEIVED,  "Places received")
+/* Contacts this client sent out for nearby nodes to add. */
+MESH_STR_ENTRY(STATS_CONTACTS_SHARED,     "Contacts shared")
+/* Contacts added to the radio from a link somebody gave us. */
+MESH_STR_ENTRY(STATS_CONTACTS_ADDED,      "Contacts added")
+/* Channels a channel link put on the radio. */
+MESH_STR_ENTRY(STATS_CHANNELS_IMPORTED,   "Channels joined")
 /* The Stats page's heading over how often and how long this client has been attached to a
    radio. */
 MESH_STR_ENTRY(STATS_HEAD_CONNECTION,     "Connection")

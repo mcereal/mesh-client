@@ -1272,6 +1272,100 @@ MESH_TEST_CASE(lifetime_counts_answered_traces_and_the_longest, unit) {
     record_success(test_name);
 }
 
+/* Something handed on or taken in, as the session announces it. */
+static void lt_shared(enum mesh_session_event_kind kind, uint32_t peer, uint32_t count) {
+    const struct mesh_session_event event = {.kind = kind, .peer = peer, .count = count};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+}
+
+static void lt_waypoint(uint32_t from, bool outbound) {
+    struct mesh_waypoint waypoint;
+    memset(&waypoint, 0, sizeof waypoint);
+    waypoint.id = 7U;
+    waypoint.from = from;
+    const struct mesh_session_event event = {
+        .kind = MESH_SESSION_EVENT_WAYPOINT, .waypoint = &waypoint, .outbound = outbound};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+}
+
+/*
+ * Each is a COUNT of what the session announced, one apiece - a channel link by the channels it
+ * put on the radio - and none of them is a hearing of the node it names: a contact added from a
+ * link may never have transmitted at all.
+ */
+MESH_TEST_CASE(lifetime_counts_what_was_shared_and_verified, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+
+    lt_waypoint(LT_US, true);
+    lt_waypoint(LT_PEER, true); /* a re-share of somebody else's place is still a share */
+    lt_waypoint(LT_PEER, false);
+    lt_shared(MESH_SESSION_EVENT_KEY_VERIFIED, LT_PEER, 0U);
+    lt_shared(MESH_SESSION_EVENT_CONTACT_SHARED, LT_PEER, 0U);
+    lt_shared(MESH_SESSION_EVENT_CONTACT_ADDED, LT_OTHER, 0U);
+    lt_shared(MESH_SESSION_EVENT_CONTACT_ADDED, LT_PEER, 0U);
+    lt_shared(MESH_SESSION_EVENT_CHANNELS_IMPORTED, 0U, 3U);
+    lt_shared(MESH_SESSION_EVENT_CHANNELS_IMPORTED, 0U, 1U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_WAYPOINTS_SENT) != 2U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_WAYPOINTS_RECEIVED) != 1U,
+                      "a place counts the way it went");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_KEYS_VERIFIED) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONTACTS_SHARED) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONTACTS_ADDED) != 2U,
+                      "a ceremony and a contact count one each");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CHANNELS_IMPORTED) != 4U,
+                      "a channel link counts the channels it imported");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 0U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_RECEIVED) != 0U,
+                      "and none of it is a hearing or a message");
+
+    MESH_TEST_FAIL_IF(mesh_lifetime_flush(&g_lifetime) != 0, "the flush failed");
+    MESH_TEST_FAIL_IF(mesh_lifetime_init(&g_lifetime, dir) != 0, "the stats did not reopen");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_WAYPOINTS_SENT) != 2U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_KEYS_VERIFIED) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CHANNELS_IMPORTED) != 4U,
+                      "they survive a restart");
+    MESH_TEST_FAIL_IF(mesh_lifetime_reset(&g_lifetime) != 0 ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_CONTACTS_ADDED) != 0U,
+                      "and a reset clears them");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/*
+ * A Store & Forward replay is a message received and a message recovered, from the one MESSAGE
+ * the session announces for it; a live message is only received, and a replayed reaction is a
+ * recovery as much as a replayed text.
+ */
+MESH_TEST_CASE(lifetime_counts_store_and_forward_recoveries, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    lt_session(0, 0);
+
+    struct mesh_message message;
+    memset(&message, 0, sizeof message);
+    message.from = LT_PEER;
+    message.to = MESH_MESSAGE_BROADCAST_ADDR;
+    message.direction = (uint8_t)MESH_MESSAGE_INBOUND;
+    const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_MESSAGE,
+                                             .message = &message};
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+    message.replayed = true;
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+    message.to = LT_US;
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+    message.is_reaction = true;
+    mesh_lifetime_observe(&g_lifetime, &g_session, &event);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_RECEIVED) != 3U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_SF_RECOVERED) != 3U,
+                      "a replay is received and recovered; a live message only received");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 0U,
+                      "and a replay is still not a hearing of its author");
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
 /* A link sampled at `now`, and - as the session does once per handshake - the radio on it
    announced, when `radio` is not 0. */
 static void lt_link(bool up, uint32_t radio, uint64_t now) {

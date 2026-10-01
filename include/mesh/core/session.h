@@ -690,6 +690,19 @@ typedef void (*mesh_session_mqtt_fn)(void *ctx, const char *topic, const uint8_t
  *   TRACE        a trace we asked for came back answered: `trace` is the finished record. A
  *                trace that timed out, or an answer that could not be read, is not announced -
  *                and neither is one passing through for somebody else.
+ *   WAYPOINT     a place went out to the mesh or came in from it: `waypoint` is the book's
+ *                record and `outbound` says which way. Out is a share the radio took - a place
+ *                kept with no link to carry it went nowhere. In is a live place from another
+ *                node, new or edited; a withdrawal, a place that arrived already expired and our
+ *                own radio's echo are not announced.
+ *   KEY_VERIFIED a key-verification ceremony ended in a yes the radio was handed: `peer` is the
+ *                node. A no, a stand-down and a ceremony that timed out are not announced.
+ *   CONTACT_SHARED  a contact went out for other nodes to add (`peer`): MeshCore's share to the
+ *                nodes in earshot, once the radio says it sent it. Showing a contact code is not
+ *                a send, so Meshtastic, which has only the code, never announces one.
+ *   CONTACT_ADDED   a contact typed in from a link was handed to the radio (`peer`).
+ *   CHANNELS_IMPORTED  a channel link was handed to the radio: `count` is the channels it puts
+ *                on the radio, leaving out any the radio was already on.
  *
  * A node is announced only once its record holds everything the packet carried: its position,
  * its telemetry, its hop count.
@@ -703,6 +716,11 @@ enum mesh_session_event_kind {
     MESH_SESSION_EVENT_RADIO,
     MESH_SESSION_EVENT_DELIVERY,
     MESH_SESSION_EVENT_TRACE,
+    MESH_SESSION_EVENT_WAYPOINT,
+    MESH_SESSION_EVENT_KEY_VERIFIED,
+    MESH_SESSION_EVENT_CONTACT_SHARED,
+    MESH_SESSION_EVENT_CONTACT_ADDED,
+    MESH_SESSION_EVENT_CHANNELS_IMPORTED,
 };
 
 struct mesh_session_event {
@@ -734,6 +752,13 @@ struct mesh_session_event {
     uint32_t radio;
     /* TRACE: the session's traceroute, finished. Valid only for the call. */
     const struct mesh_traceroute *trace;
+    /* WAYPOINT: the book's record, as stored, and whether we sent it. Valid only for the call. */
+    const struct mesh_waypoint *waypoint;
+    bool outbound;
+    /* KEY_VERIFIED, CONTACT_SHARED, CONTACT_ADDED: the node it was about. */
+    uint32_t peer;
+    /* CHANNELS_IMPORTED: how many channels. */
+    uint32_t count;
 };
 
 struct mesh_session;
@@ -965,6 +990,11 @@ void mesh_session_model_note_node(struct mesh_session *session,
 /* Announces `traceroute` (MESH_SESSION_EVENT_TRACE) once a protocol has filled it with an
    answer; nothing unless its state is MESH_TRACEROUTE_DONE. */
 void mesh_session_model_note_trace(struct mesh_session *session);
+/* Announces a contact shared or added, or channels imported (MESH_SESSION_EVENT_CONTACT_SHARED,
+   _CONTACT_ADDED, _CHANNELS_IMPORTED), for a protocol that queued one itself; `peer` names the
+   contact and `count` the channels. Any other kind, and an import of no channels, is ignored. */
+void mesh_session_model_note_share(struct mesh_session *session, enum mesh_session_event_kind kind,
+                                   uint32_t peer, uint32_t count);
 
 /*
  * Applies a delivery result to the outbound message with `packet_id` and, when that changed its

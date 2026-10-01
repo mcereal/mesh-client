@@ -199,6 +199,16 @@ uint32_t mesh_waypoint_book_prune(struct mesh_waypoint_book *book, uint32_t now)
 int mesh_waypoint_ingest(struct mesh_waypoint_book *book, const meshtastic_MeshPacket *packet,
                          uint32_t my_node_num, uint32_t heard);
 
+/*
+ * mesh_waypoint_ingest(), saying which record a live place went into: `*out_stored` is the
+ * book's entry when the packet stored or refreshed one, and NULL when it withdrew a place,
+ * arrived expired or added nothing. Which is how a caller tells a place that arrived from one
+ * that went, when both change the book.
+ */
+int mesh_waypoint_ingest_stored(struct mesh_waypoint_book *book,
+                                const meshtastic_MeshPacket *packet, uint32_t my_node_num,
+                                uint32_t heard, const struct mesh_waypoint **out_stored);
+
 /* What a send needs that the waypoint itself does not carry. */
 struct mesh_waypoint_request {
     const struct mesh_waypoint *waypoint;

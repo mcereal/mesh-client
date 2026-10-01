@@ -3538,6 +3538,7 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
     stats_count_row(list, MESH_STR_STATS_REACTIONS_RECEIVED, stats->reactions_received);
     stats_count_row(list, MESH_STR_STATS_RECEIVED_MQTT, stats->received_mqtt);
     stats_count_row(list, MESH_STR_STATS_DIRECT_PRIVATE, stats->direct_received_private);
+    stats_count_row(list, MESH_STR_STATS_SF_RECOVERED, stats->sf_recovered);
 
     item_heading(list, MESH_STR_STATS_HEAD_DELIVERY);
     stats_count_row(list, MESH_STR_STATS_DELIVERED, stats->messages_delivered);
@@ -3551,6 +3552,14 @@ static void build_stats(const struct mesh_ui_settings *s, struct item_list *list
                     stats->nodes_floor);
     stats_nodes_row(list, MESH_STR_STATS_RADIOS, stats->radios, stats->nodes_floor);
     stats_count_row(list, MESH_STR_STATS_TRACES, stats->traces);
+    stats_count_row(list, MESH_STR_STATS_KEYS_VERIFIED, stats->keys_verified);
+
+    item_heading(list, MESH_STR_STATS_HEAD_SHARING);
+    stats_count_row(list, MESH_STR_STATS_WAYPOINTS_SENT, stats->waypoints_sent);
+    stats_count_row(list, MESH_STR_STATS_WAYPOINTS_RECEIVED, stats->waypoints_received);
+    stats_count_row(list, MESH_STR_STATS_CONTACTS_SHARED, stats->contacts_shared);
+    stats_count_row(list, MESH_STR_STATS_CONTACTS_ADDED, stats->contacts_added);
+    stats_count_row(list, MESH_STR_STATS_CHANNELS_IMPORTED, stats->channels_imported);
 
     item_heading(list, MESH_STR_STATS_HEAD_CONNECTION);
     stats_count_row(list, MESH_STR_STATS_CONNECTIONS, stats->connections);

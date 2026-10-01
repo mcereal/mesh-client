@@ -1002,6 +1002,22 @@ void mesh_session_model_note_trace(struct mesh_session *session) {
     mesh_session_emit(session, &event);
 }
 
+void mesh_session_model_note_share(struct mesh_session *session, enum mesh_session_event_kind kind,
+                                   uint32_t peer, uint32_t count) {
+    if (session == NULL) {
+        return;
+    }
+    if (kind != MESH_SESSION_EVENT_CONTACT_SHARED && kind != MESH_SESSION_EVENT_CONTACT_ADDED &&
+        kind != MESH_SESSION_EVENT_CHANNELS_IMPORTED) {
+        return;
+    }
+    if (kind == MESH_SESSION_EVENT_CHANNELS_IMPORTED && count == 0U) {
+        return;
+    }
+    const struct mesh_session_event event = {.kind = kind, .peer = peer, .count = count};
+    mesh_session_emit(session, &event);
+}
+
 int mesh_session_model_drop_node(struct mesh_session *session, uint32_t node_id) {
     if (session == NULL) {
         return -EINVAL;
@@ -1323,9 +1339,18 @@ static void mesh_session_handle_waypoint(struct mesh_session *session,
     if (heard == 0U) {
         heard = mesh_session_wall_clock();
     }
-    mesh_waypoint_ingest(
+    const struct mesh_waypoint *stored = NULL;
+    (void)mesh_waypoint_ingest_stored(
         &session->waypoints, packet,
-        session->handshake.has_my_info ? session->handshake.my_info.my_node_num : 0U, heard);
+        session->handshake.has_my_info ? session->handshake.my_info.my_node_num : 0U, heard,
+        &stored);
+    /* A place somebody else shared, new or edited. Our own radio echoing a send is the place we
+       already announced going out, and a withdrawal stores nothing. */
+    if (stored != NULL && !stored->ours) {
+        const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_WAYPOINT,
+                                                 .waypoint = stored};
+        mesh_session_emit(session, &event);
+    }
 }
 
 /*
@@ -2635,10 +2660,18 @@ int mesh_session_import_channels(struct mesh_session *session, const meshtastic_
     if (session->send == NULL || !session->handshake.has_my_info) {
         return -ENOTCONN;
     }
+    /* The plan is the same walk the queue takes, over the same table, so it is the count of
+       what the queue is about to write: a channel the radio is already on is not imported. */
+    struct mesh_channel_import_plan plan;
+    if (!mesh_channel_import_plan(&session->settings, set, add, &plan)) {
+        memset(&plan, 0, sizeof plan);
+    }
     const int queued = mesh_channel_share_queue_import(&session->settings, set, add);
     if (queued > 0) {
         inkwell_log_info("session", "Queued channel import: %u channels (%d requests)",
                          (unsigned)set->settings_count, queued);
+        mesh_session_model_note_share(session, MESH_SESSION_EVENT_CHANNELS_IMPORTED, 0U,
+                                      (uint32_t)plan.imported);
     }
     return queued;
 }
@@ -2732,12 +2765,20 @@ int mesh_session_import_contact(struct mesh_session *session,
     if (contact->node_num == session->handshake.my_info.my_node_num) {
         return -EINVAL;
     }
+    /* A link for a node the radio already holds is a contact refreshed, not one added - as
+       MeshCore's import refuses one outright. */
+    const struct mesh_node_summary *held = mesh_session_find_node(session, contact->node_num);
+    const bool already = held != NULL && held->in_nodedb;
     const int queued = mesh_contact_share_queue_import(&session->settings, contact);
     if (queued > 0) {
         /* The other half: the radio's NodeDB is not the list this client draws from. */
         mesh_session_seed_contact_node(session, contact);
         inkwell_log_info("session", "Queued contact import for 0x%08x (%d requests)",
                          (unsigned)contact->node_num, queued);
+        if (!already) {
+            mesh_session_model_note_share(session, MESH_SESSION_EVENT_CONTACT_ADDED,
+                                          contact->node_num, 0U);
+        }
     }
     return queued;
 }
@@ -3062,6 +3103,13 @@ int mesh_session_verify_key_settle(struct mesh_session *session, bool verified) 
      */
     if (verified && summary != NULL) {
         summary->key_verified = true;
+    }
+    /* A ceremony completed: the user compared the characters, said yes, and the radio has the
+       answer to carry. A yes pressed before the characters arrived compared nothing. */
+    if (verified && done.stage == (uint8_t)MESH_KEY_VERIFICATION_COMPARE) {
+        const struct mesh_session_event event = {.kind = MESH_SESSION_EVENT_KEY_VERIFIED,
+                                                 .peer = done.remote_node};
+        mesh_session_emit(session, &event);
     }
     inkwell_log_info("session", "Key verification with 0x%08x answered %s (%d requests)",
                      done.remote_node, verified ? "yes" : "no", queued);
@@ -3423,6 +3471,15 @@ int mesh_session_send_waypoint(struct mesh_session *session, const struct mesh_w
     }
     inkwell_log_info("session", "Shared waypoint %u \"%s\" on channel %u", outgoing.id,
                      outgoing.name, (unsigned)channel);
+    /* Announced once the radio has the packet: a place kept with no link to carry it is the
+       user's, but it was not shared. A re-share of somebody else's place is a share too. */
+    const struct mesh_session_event event = {
+        .kind = MESH_SESSION_EVENT_WAYPOINT,
+        .waypoint = mesh_waypoint_book_find(&session->waypoints, outgoing.id),
+        .outbound = true};
+    if (event.waypoint != NULL) {
+        mesh_session_emit(session, &event);
+    }
     return 0;
 }
 

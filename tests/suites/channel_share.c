@@ -21,10 +21,12 @@
 #include "inkwell/base/text.h"
 
 #include "framework/mesh_test.h"
+#include "support/session_fixture.h"
 
 #include "inkwell/codec/base64.h"
 #include "inkwell/codec/sha256.h"
 #include "mesh/core/channel_share.h"
+#include "mesh/core/session.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/proto/channel_url.h"
 #include "mesh/proto/meshcore_url.h"
@@ -369,6 +371,8 @@ MESH_TEST_CASE(channel_import_replaces_the_table, unit) {
     MESH_TEST_FAIL_IF(!plan.replaces_primary, "replacing the primary was not reported");
     MESH_TEST_FAIL_IF(!plan.writes_lora, "the LoRa config write was not reported");
     MESH_TEST_FAIL_IF(plan.channels != 1U || plan.full, "the plan miscounted the link");
+    MESH_TEST_FAIL_IF(plan.imported != 1U,
+                      "switching a slot off is a write, but not a channel imported");
 
     const int queued = mesh_channel_share_queue_import(&settings, &set, false);
     MESH_TEST_FAIL_IF(queued <= 0, "the import queued nothing");
@@ -382,7 +386,8 @@ MESH_TEST_CASE(channel_import_replaces_the_table, unit) {
     meshtastic_ChannelSet mine;
     MESH_TEST_FAIL_IF(mesh_channel_share_build(&same, &mine) == 0U, "the set did not build");
     MESH_TEST_FAIL_IF(!mesh_channel_import_plan(&same, &mine, false, &plan), "the plan refused");
-    MESH_TEST_FAIL_IF(plan.writes != 0U, "re-importing this radio's own set planned writes");
+    MESH_TEST_FAIL_IF(plan.writes != 0U || plan.imported != 0U,
+                      "re-importing this radio's own set planned writes");
     MESH_TEST_FAIL_IF(plan.replaces_primary, "re-importing its own set claimed a new primary");
     MESH_TEST_FAIL_IF(plan.writes_lora,
                       "re-importing this radio's own set planned a LoRa write, which is the "
@@ -406,7 +411,8 @@ MESH_TEST_CASE(channel_import_add_keeps_what_is_there, unit) {
 
     struct mesh_channel_import_plan plan;
     MESH_TEST_FAIL_IF(!mesh_channel_import_plan(&settings, &set, true, &plan), "the plan refused");
-    MESH_TEST_FAIL_IF(plan.writes != 1U, "an add wrote something other than the one new channel");
+    MESH_TEST_FAIL_IF(plan.writes != 1U || plan.imported != 1U,
+                      "an add wrote something other than the one new channel");
     MESH_TEST_FAIL_IF(plan.replaces_primary, "an add claimed to replace the primary");
     MESH_TEST_FAIL_IF(plan.writes_lora,
                       "an add took the sender's LoRa config, which would move this radio off "
@@ -422,6 +428,51 @@ MESH_TEST_CASE(channel_import_add_keeps_what_is_there, unit) {
     MESH_TEST_FAIL_IF(!mesh_channel_import_plan(&full, &set, true, &plan), "the plan refused");
     MESH_TEST_FAIL_IF(!plan.full, "a full channel table was not reported");
     MESH_TEST_FAIL_IF(plan.writes != 0U, "a full channel table planned a write anyway");
+    record_success(test_name);
+}
+
+/*
+ * The session announces an import by the channels it puts on the radio, which is what the stats
+ * count: a channel the radio is already on is not one more joined, and a link that changes
+ * nothing announces nothing.
+ */
+MESH_TEST_CASE(channel_import_is_announced_by_its_channels, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+    static struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    mesh_session_set_observer(&session, mesh_test_event_record_fn, &record);
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x1000U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info),
+                      "the radio should introduce itself");
+    seed_radio(&session.settings);
+
+    meshtastic_ChannelSet set = meshtastic_ChannelSet_init_zero;
+    fill_channel(&set.settings[0], "Rally", 9U);
+    fill_channel(&set.settings[1], "Trail", 2U); /* already held */
+    fill_channel(&set.settings[2], "Ops", 5U);
+    set.settings_count = 3U;
+    MESH_TEST_FAIL_IF(mesh_session_import_channels(&session, &set, true) <= 0,
+                      "the import queued nothing");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_CHANNELS_IMPORTED, 0U) !=
+                              1U ||
+                          record.events[record.count - 1U].count != 2U,
+                      "the import was not announced once, by the two channels it added");
+
+    meshtastic_ChannelSet mine;
+    MESH_TEST_FAIL_IF(mesh_channel_share_build(&session.settings, &mine) == 0U,
+                      "the set did not build");
+    MESH_TEST_FAIL_IF(mesh_session_import_channels(&session, &mine, false) != 0,
+                      "re-importing this radio's own set queued something");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_CHANNELS_IMPORTED, 0U) !=
+                          1U,
+                      "a link that changed nothing was announced");
+    mesh_session_detach(&session);
     record_success(test_name);
 }
 
