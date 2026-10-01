@@ -309,24 +309,36 @@ static bool mesh_ui_nav_choice_row(const struct mesh_ui_nav *nav, const struct m
            count <= MESH_UI_FOCUS_CHOICE_MAX;
 }
 
+/*
+ * `wanted` if the row allows it, otherwise the first value it does - which is the row the pop-up
+ * draws first, so the keys stand where the menu shows them. A row can stop allowing a value under
+ * an open menu as well as before one: a preset a newly edited region refuses, or the radio's own
+ * table of presets arriving late. False when the row allows nothing.
+ */
+static bool mesh_ui_nav_choice_resolve(const struct mesh_ui_settings_item *item, uint32_t wanted,
+                                       uint32_t *out) {
+    const uint32_t count = mesh_ui_settings_enum_count(item->field);
+    uint32_t value = wanted;
+    if (!mesh_ui_settings_choice_allowed(item->choices, count, value)) {
+        value = 0U;
+        while (value < count && !mesh_ui_settings_choice_allowed(item->choices, count, value)) {
+            ++value;
+        }
+        if (value >= count) {
+            return false;
+        }
+    }
+    *out = value;
+    return true;
+}
+
 bool mesh_ui_nav_choice_open(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
     struct mesh_ui_settings_item item;
-    if (!mesh_ui_nav_choice_row(nav, store, &item)) {
+    uint32_t cursor = 0U;
+    /* The keys start on the value in force, or where the row says they can. */
+    if (!mesh_ui_nav_choice_row(nav, store, &item) ||
+        !mesh_ui_nav_choice_resolve(&item, item.number, &cursor)) {
         return false;
-    }
-    /* The keys start on the value in force - unless the row allows it no longer, as a preset a
-       newly edited region refuses: then on the first value it does allow, which is the row the
-       pop-up draws first and the one A would otherwise land nowhere from. */
-    const uint32_t count = mesh_ui_settings_enum_count(item.field);
-    uint32_t cursor = item.number;
-    if (!mesh_ui_settings_choice_allowed(item.choices, count, cursor)) {
-        cursor = 0U;
-        while (cursor < count && !mesh_ui_settings_choice_allowed(item.choices, count, cursor)) {
-            ++cursor;
-        }
-        if (cursor >= count) {
-            return false; /* nothing the row allows: nothing to offer */
-        }
     }
     nav->choice_open = true;
     nav->choice_field = (uint16_t)item.field;
@@ -355,7 +367,8 @@ bool mesh_ui_nav_choice_pick(struct mesh_ui_nav *nav, const struct mesh_ui_store
 bool mesh_ui_nav_choice_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum inkcell_key key) {
     struct mesh_ui_settings_item item;
-    if (!mesh_ui_nav_choice_row(nav, store, &item) || item.field != nav->choice_field) {
+    if (!mesh_ui_nav_choice_row(nav, store, &item) || item.field != nav->choice_field ||
+        !mesh_ui_nav_choice_resolve(&item, nav->choice_cursor, &nav->choice_cursor)) {
         nav->choice_open = false;
         return true;
     }

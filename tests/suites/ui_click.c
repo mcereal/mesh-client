@@ -1725,3 +1725,46 @@ MESH_TEST_CASE(ui_click_a_choice_refusing_its_own_value_opens_on_one_it_allows, 
     click_close(&store, capture);
     record_success(test_name);
 }
+
+/* And when the row stops allowing the keys' value under the open pop-up - the radio's table of
+   presets arriving late - they move to where the menu now draws them before A picks. */
+MESH_TEST_CASE(ui_click_a_choice_pop_up_follows_its_row_s_values_changing_under_it, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.use_preset = true;
+    settings.region = 1U;
+    settings.modem_preset = 0U;
+    mesh_ui_store_set_settings(&store, &settings);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1920U, 1080U, INKCELL_SCALE(4)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
+    click_settle(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_settings_open(&store, MESH_UI_SETTINGS_LORA),
+                              click_close(&store, capture), "LoRa should open");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_ROWS + 2U, &action) ||
+            !store.nav.choice_open || store.nav.choice_cursor != 0U,
+        click_close(&store, capture),
+        "with no table every preset is allowed, the one in force too");
+
+    settings.region_presets.loaded = true;
+    settings.region_presets.region[1] =
+        (struct mesh_ui_region_preset){.presets = (1U << 3) | (1U << 5)};
+    mesh_ui_store_set_settings(&store, &settings);
+    (void)click_render(&store, capture);
+    mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.choice_open || store.nav.settings_edit_count != 1U ||
+                                  store.nav.settings_edits[0].number != 3U,
+                              click_close(&store, capture),
+                              "A should pick the value the menu now draws first");
+    click_close(&store, capture);
+    record_success(test_name);
+}
