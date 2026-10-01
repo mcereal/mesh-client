@@ -634,19 +634,21 @@ static void fb_render_node_actions_menu(struct inkcell_draw_state *state,
             .tone = (enum inkcell_tone)items[i].tone,
         };
     }
-    const struct inkcell_fb_menu menu = {
+    struct inkcell_fb_menu menu = {
         .items = rows,
         .count = count,
-        .cursor = nav->node_actions_cursor,
         .focus_base = (uint32_t)MESH_UI_FOCUS_SHEET_ROWS,
     };
     const struct inkcell_fb_rect panel = {
         .x = 0, .y = 0, .w = inkcell_fb_panel_width(state), .h = inkcell_fb_panel_height(state)};
-    const struct inkcell_fb_rect box = inkcell_fb_menu_box(state, &menu, panel.w);
     struct inkcell_focus_rect button = {0, 0, 0, 0};
     const bool hung =
         state->focus != NULL &&
         inkcell_focus_rect_of(state->focus, (uint32_t)MESH_UI_FOCUS_NODE_ACTIONS, &button);
+    /* A node can offer more verbs than a short window holds: windowed on the keys' row. */
+    const struct inkcell_fb_rect box = fb_menu_window(
+        state, &menu, nav->node_actions_cursor < count ? nav->node_actions_cursor : count - 1U,
+        button);
     struct inkcell_overlay_frame frame;
     if (!inkcell_fb_overlay_begin(
             state,

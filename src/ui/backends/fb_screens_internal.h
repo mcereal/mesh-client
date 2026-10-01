@@ -127,6 +127,17 @@ void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_s
 void fb_render_settings_list(struct inkcell_draw_state *state,
                              const struct mesh_ui_snapshot *snapshot,
                              struct inkcell_fb_layout *layout);
+/*
+ * Fits a menu of `menu->count` items to the room beside `anchor`, the box it hangs from - the
+ * larger of the space under it and over it: as many rows as that holds, in a window
+ * that keeps the keys' item (`cursor`, in the whole list) in it, as wide as the widest item of
+ * all. Moves `items`, the focus ids and the cursor to the window, so each row keeps its own
+ * target, and returns the box. A pop-up of a setting's values and a node's verbs can both outgrow
+ * a short window.
+ */
+struct inkcell_fb_rect fb_menu_window(const struct inkcell_draw_state *state,
+                                      struct inkcell_fb_menu *menu, uint32_t cursor,
+                                      struct inkcell_focus_rect anchor);
 /* Where the row a choice's pop-up hangs from starts its value, recorded by the settings renderer
    as it draws that row and read by fb_render_choice() later in the same frame; 0 when no such
    row was drawn. */

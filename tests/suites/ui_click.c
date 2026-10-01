@@ -1768,3 +1768,54 @@ MESH_TEST_CASE(ui_click_a_choice_pop_up_follows_its_row_s_values_changing_under_
     click_close(&store, capture);
     record_success(test_name);
 }
+
+/* A node's verbs in a window too short for all of them: the menu keeps to the panel, every row
+   it draws is a target on it, and the keys walking down bring the last verb into the window. */
+MESH_TEST_CASE(ui_click_a_node_s_verb_menu_keeps_to_a_short_window, unit) {
+    struct mesh_ui_store store;
+    struct inkcell_capture *capture = NULL;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store failed to open");
+    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 1600U, 420U, INKCELL_SCALE(6)) != 0,
+                              mesh_ui_store_shutdown(&store), "capture failed to open");
+    inkcell_capture_state(capture)->pointer = true;
+    struct mesh_ui_action action;
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_NODES);
+    click_settle(&store);
+    store.nav.cursor[MESH_UI_SCREEN_NODES] = MESH_UI_NODES_LEAD_ROWS + 1U;
+    (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.node_detail_open, click_close(&store, capture),
+                              "the node should open");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !click_on(&store, capture, (uint32_t)MESH_UI_FOCUS_NODE_ACTIONS, &action) ||
+            !store.nav.node_actions_open,
+        click_close(&store, capture), "the heading's overflow button should raise the verbs");
+    const struct inkcell_focus_map *map = click_render(&store, capture);
+    uint32_t drawn = 0U;
+    for (uint32_t i = 0U; i < 32U; ++i) {
+        struct inkcell_focus_rect row;
+        if (inkcell_focus_rect_of(map, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS + i, &row)) {
+            MESH_TEST_FAIL_IF_CLEANUP(row.y < 0 || row.y + row.h > 420,
+                                      click_close(&store, capture),
+                                      "every verb drawn should be on the panel");
+            drawn += 1U;
+        }
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(
+        drawn == 0U || inkcell_focus_has(map, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS + drawn),
+        click_close(&store, capture), "a short window should draw a run of the verbs from the top");
+    /* A frame after every press, as a window draws one: a step is answered from the rows the
+       last frame drew. */
+    for (int i = 0; i < 32; ++i) {
+        mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
+        (void)click_render(&store, capture);
+    }
+    const uint32_t last = store.nav.node_actions_cursor;
+    map = click_render(&store, capture);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        last < drawn || !inkcell_focus_has(map, (uint32_t)MESH_UI_FOCUS_SHEET_ROWS + last),
+        click_close(&store, capture),
+        "the keys' verb should be in the window when they walk past it");
+    click_close(&store, capture);
+    record_success(test_name);
+}

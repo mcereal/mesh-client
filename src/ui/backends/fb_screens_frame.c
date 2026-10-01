@@ -426,6 +426,45 @@ struct inkcell_fb_app_bar_fit fb_draw_app_bar(const struct inkcell_draw_state *s
     return inkcell_fb_draw_app_bar(state, layout, &drawn);
 }
 
+struct inkcell_fb_rect fb_menu_window(const struct inkcell_draw_state *state,
+                                      struct inkcell_fb_menu *menu, uint32_t cursor,
+                                      struct inkcell_focus_rect anchor) {
+    const int panel_w = inkcell_fb_panel_width(state);
+    const int panel_h = inkcell_fb_panel_height(state);
+    const int margin = inkcell_fb_margin(state);
+    /* The larger of the two sides of what it hangs from, which is where an anchored layer goes:
+       under it when that has room, over it when not. A margin off each edge and off the anchor. */
+    const int below = panel_h - (anchor.y + anchor.h) - 2 * margin;
+    const int above = anchor.y - 2 * margin;
+    const int room = below > above ? below : above;
+    const size_t offered = menu->count;
+    /* As wide as its widest item, whichever of them end up in the window. */
+    struct inkcell_fb_rect box = inkcell_fb_menu_box(state, menu, panel_w);
+    const int width = box.w;
+    size_t shown = offered;
+    while (shown > 1U && box.h > room) {
+        shown -= 1U;
+        menu->count = shown;
+        box = inkcell_fb_menu_box(state, menu, panel_w);
+    }
+    size_t first = 0U;
+    if (shown < offered) {
+        first = cursor >= shown / 2U ? cursor - shown / 2U : 0U;
+        if (first + shown > offered) {
+            first = offered - shown;
+        }
+    }
+    menu->items += first;
+    if (menu->focus_ids != NULL) {
+        menu->focus_ids += first;
+    } else if (menu->focus_base != INKCELL_FOCUS_NONE) {
+        menu->focus_base += (uint32_t)first;
+    }
+    menu->cursor = cursor >= first ? cursor - (uint32_t)first : UINT32_MAX;
+    box.w = width;
+    return box;
+}
+
 void fb_choice_value_x_set(struct inkcell_draw_state *state, int x) {
     struct inkcell_fb_render_cache *const cache = state != NULL ? state->render_cache : NULL;
     if (cache != NULL) {

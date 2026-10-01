@@ -978,34 +978,15 @@ void fb_render_choice(struct inkcell_draw_state *state, const struct mesh_ui_sna
         offered += 1U;
     }
 
-    /* As many as the panel holds, in a window that keeps the keys' value in it. */
     const struct inkcell_fb_rect panel = {
         .x = 0, .y = 0, .w = inkcell_fb_panel_width(state), .h = inkcell_fb_panel_height(state)};
-    const int room = panel.h - 2 * inkcell_fb_margin(state);
-    size_t first = 0U;
-    size_t shown = offered;
-    struct inkcell_fb_menu menu = {.items = items, .count = shown, .focus_ids = focus_ids};
-    struct inkcell_fb_rect box = inkcell_fb_menu_box(state, &menu, panel.w);
-    while (shown > 1U && box.h > room) {
-        shown -= 1U;
-        menu.count = shown;
-        box = inkcell_fb_menu_box(state, &menu, panel.w);
-    }
-    if (shown < offered) {
-        first = cursor >= shown / 2U ? cursor - shown / 2U : 0U;
-        if (first + shown > offered) {
-            first = offered - shown;
-        }
-    }
-    menu.items = items + first;
-    menu.focus_ids = focus_ids + first;
-    menu.cursor = (uint32_t)(cursor - first);
-
     /* Hung from the row the click opened it on, which the frame has just registered. */
     struct inkcell_focus_rect anchor = {0, 0, 0, 0};
     const bool hung =
         state->focus != NULL &&
         inkcell_focus_rect_of(state->focus, (uint32_t)MESH_UI_FOCUS_ROWS + view.cursor, &anchor);
+    struct inkcell_fb_menu menu = {.items = items, .count = offered, .focus_ids = focus_ids};
+    const struct inkcell_fb_rect box = fb_menu_window(state, &menu, (uint32_t)cursor, anchor);
     const int value_x = fb_choice_value_x(state);
     struct inkcell_overlay_frame frame;
     if (!inkcell_fb_overlay_begin(state,
