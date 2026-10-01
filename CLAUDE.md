@@ -245,6 +245,7 @@ publish and read back when that node's detail screen is opened. Both logs stand 
 | Crash reports | inkwell's `inkwell/runtime/crash.h` writes them; `src/utils/crash.c` is this client's name, issues URL and note labels on one |
 | Shared utils | `src/utils/` - the crash seam is all that is left here; `json`, `sha256`, `base64`, `zip`, `http`, `inflate` and `png` are inkwell's `codec/`, `text`, `time`, `env`, `log`, `array`, `file` and `version` its `base/`, the crash reporter its `runtime/`, and `qr` is inkcell's |
 | Dev tools | `devtools/`, `scripts/` - UI capture, map packs, codegen |
+| Website | `site/` - meshclient.dev, a static Astro site Cloudflare builds from this directory; not part of the C build. See `site/README.md` |
 
 ### The groups inside `src/ui/` and `src/core/`
 

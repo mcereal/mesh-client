@@ -1,0 +1,96 @@
+---
+import "../styles/global.css";
+import { REPO_URL } from "../lib/release";
+
+interface Props {
+    title?: string;
+    description?: string;
+}
+
+const {
+    title,
+    description = "A Meshtastic client for the TrimUI Brick and other NextUI handhelds, with desktop builds for macOS, Windows and Linux.",
+} = Astro.props;
+const fullTitle = title ? `${title} · MeshClient` : "MeshClient";
+const canonical = new URL(Astro.url.pathname, Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{fullTitle}</title>
+        <meta name="description" content={description} />
+        <link rel="canonical" href={canonical} />
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <meta property="og:title" content={fullTitle} />
+        <meta property="og:description" content={description} />
+        <meta property="og:url" content={canonical} />
+        <meta property="og:type" content="website" />
+    </head>
+    <body>
+        <header class="site-header">
+            <nav class="wrap">
+                <a class="brand" href="/">
+                    <img src="/favicon.svg" alt="" width="28" height="28" />
+                    MeshClient
+                </a>
+                <div class="links">
+                    <a href="/download/">Download</a>
+                    <a href={`${REPO_URL}/tree/main/docs`}>Docs</a>
+                    <a href={REPO_URL}>GitHub</a>
+                </div>
+            </nav>
+        </header>
+        <main>
+            <slot />
+        </main>
+        <footer class="site-footer">
+            <div class="wrap muted">
+                MIT licensed · <a href={REPO_URL}>Source</a> · <a href={`${REPO_URL}/issues`}>Report an issue</a>
+                <br />
+                Meshtastic® is a registered trademark of Meshtastic LLC. MeshClient is an independent project.
+            </div>
+        </footer>
+    </body>
+</html>
+
+<style>
+    .site-header {
+        border-bottom: 1px solid var(--border);
+    }
+    .site-header nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        min-height: 60px;
+        flex-wrap: wrap;
+    }
+    .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 700;
+        color: var(--text);
+        text-decoration: none;
+    }
+    .links {
+        display: flex;
+        gap: 1.25rem;
+    }
+    .links a {
+        color: var(--muted);
+        text-decoration: none;
+    }
+    .links a:hover {
+        color: var(--text);
+    }
+    .site-footer {
+        margin-top: 5rem;
+        padding: 2rem 0;
+        border-top: 1px solid var(--border);
+        font-size: 0.875rem;
+    }
+</style>
