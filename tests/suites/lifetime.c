@@ -12,10 +12,13 @@
 
 #include "framework/mesh_test.h"
 #include "support/fs_fixture.h"
+#include "support/meshcore_fixture.h"
 #include "support/session_fixture.h"
 
 #include "mesh/core/lifetime.h"
+#include "mesh/core/meshcore.h"
 #include "mesh/core/message.h"
+#include "mesh/core/protocol.h"
 #include "mesh/core/session.h"
 
 #include "meshtastic/mesh.pb.h"
@@ -1954,6 +1957,95 @@ MESH_TEST_CASE(lifetime_a_radio_gives_up_the_longest_known, unit) {
     MESH_TEST_FAIL_IF(mesh_lifetime_measured(&g_lifetime, known),
                       "a radio holding it on the card gives it back when read");
     inkwell_time_wall_set_fixed(0U);
+    MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
+    record_success(test_name);
+}
+
+/*
+ * MeshCore feeds the same stats Meshtastic does, through the same session observer: a contact
+ * listed, an advert and a direct message are nodes heard, a message is counted once each way, and
+ * a direct send settled by its ack is a delivery - all in the one set, by the node number taken
+ * from the front of a key. Nothing on MeshCore's side calls into the stats; if it stops going
+ * through the session, this is the case that notices.
+ */
+MESH_TEST_CASE(lifetime_meshcore_feeds_the_same_stats, unit) {
+    char dir[64];
+    MESH_TEST_FAIL_IF(!lt_open(dir, sizeof dir), "the stats did not open");
+    static struct mesh_meshcore meshcore;
+    static struct mesh_test_meshcore_wire wire;
+    struct mesh_protocol protocol;
+    mesh_session_init(&g_session);
+    mesh_meshcore_init(&meshcore, &g_session);
+    protocol = mesh_meshcore_protocol(&meshcore);
+    MESH_TEST_FAIL_IF(!mesh_test_meshcore_sync(&meshcore, &protocol, &wire),
+                      "the handshake walks to ready");
+    /* The handshake initialises the model, so the observer goes on after it, and Alice's
+       contact is fed again as a later listing would carry it. */
+    mesh_session_set_observer(&g_session, mesh_lifetime_observe, &g_lifetime);
+    const uint32_t alice = 0x40414243U;
+    uint8_t frame[160];
+    size_t len = mesh_test_meshcore_contact(frame, MESH_MESHCORE_RESP_CONTACT, 0x40, "Alice",
+                                            MESH_MESHCORE_ADV_CHAT, 2U, 1700000000U);
+    mesh_protocol_receive(&protocol, frame, len);
+    len = mesh_test_meshcore_contact(frame, MESH_MESHCORE_PUSH_NEW_ADVERT, 0x90U, "Hill",
+                                     MESH_MESHCORE_ADV_REPEATER, 0U, 1700001000U);
+    mesh_protocol_receive(&protocol, frame, len);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 2U,
+                      "a listed contact and an advert are two nodes heard");
+    const uint32_t roles[] = {meshtastic_Config_DeviceConfig_Role_CLIENT, 1U,
+                              meshtastic_Config_DeviceConfig_Role_REPEATER, 1U};
+    MESH_TEST_FAIL_IF(!lt_top_is(MESH_LIFETIME_TRAIT_ROLE, roles, 2U),
+                      "and an advert's type is the node's role");
+
+    /* A direct message from Alice. */
+    const uint8_t code = MESH_MESHCORE_PUSH_MSG_WAITING;
+    mesh_protocol_receive(&protocol, &code, 1U);
+    const uint8_t direct[] = {16,   0x14, 0, 0, 0x40, 0x41, 0x42, 0x43, 0x44,
+                              0x45, 0xFF, 0, 0, 0,    0,    0,    'y',  'o'};
+    mesh_protocol_receive(&protocol, direct, sizeof direct);
+    const uint8_t done = MESH_MESHCORE_RESP_NO_MORE_MESSAGES;
+    mesh_protocol_receive(&protocol, &done, 1U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_RECEIVED) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_DIRECT_RECEIVED) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_DIRECT_RECEIVED_PRIVATE) !=
+                              1U,
+                      "one direct message received, under our key");
+
+    /* One back, which Alice's radio confirms. */
+    uint32_t packet_id = 0U;
+    MESH_TEST_FAIL_IF(mesh_meshcore_send_text(&meshcore, alice, 0U, "hi", &packet_id) != 0,
+                      "the direct send failed");
+    uint8_t sent[10] = {MESH_MESHCORE_RESP_SENT, 1};
+    mesh_test_put_u32(sent + 2, 0xDEADBEEFU);
+    mesh_test_put_u32(sent + 6, 1000U);
+    mesh_protocol_receive(&protocol, sent, sizeof sent);
+    uint8_t confirmed[9] = {MESH_MESHCORE_PUSH_SEND_CONFIRMED};
+    mesh_test_put_u32(confirmed + 1, 0xDEADBEEFU);
+    mesh_protocol_receive(&protocol, confirmed, sizeof confirmed);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_DIRECT_SENT) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_DELIVERED) !=
+                              1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_FAILED) != 0U,
+                      "a direct message sent and delivered");
+    struct mesh_lifetime_contact most;
+    MESH_TEST_FAIL_IF(!mesh_lifetime_most_messaged(&g_lifetime, &most) || most.node != alice ||
+                          most.count != 2U,
+                      "Alice is the most messaged, once each way");
+
+    /* A channel message is sent, and never asks to be delivered. */
+    MESH_TEST_FAIL_IF(
+        mesh_meshcore_send_text(&meshcore, MESH_MESSAGE_BROADCAST_ADDR, 0U, "all", NULL) != 0,
+        "the channel send failed");
+    const uint8_t ok = MESH_MESHCORE_RESP_OK;
+    mesh_protocol_receive(&protocol, &ok, 1U);
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_SENT) != 2U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_DIRECT_SENT) != 1U ||
+                          mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_DELIVERED) +
+                                  mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_MESSAGES_FAILED) !=
+                              1U,
+                      "a broadcast is a message sent, and no delivery either way");
+    MESH_TEST_FAIL_IF(mesh_lifetime_value(&g_lifetime, MESH_LIFETIME_NODES_HEARD) != 2U,
+                      "and hears nobody new");
     MESH_TEST_FAIL_IF(!mesh_test_remove_tree(dir), "cleanup failed");
     record_success(test_name);
 }
