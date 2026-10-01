@@ -204,6 +204,7 @@ static int import_walk(const struct mesh_radio_settings *settings, const meshtas
             write->payload.channel.role = meshtastic_Channel_Role_SECONDARY;
             write->payload.channel.has_settings = true;
             write->payload.channel.settings = set->settings[i];
+            plan->imported++;
         }
     } else {
         /* The set replaces the table: its first channel is the primary, the rest follow in
@@ -233,6 +234,7 @@ static int import_walk(const struct mesh_radio_settings *settings, const meshtas
             write->payload.channel.has_settings = true;
             if (want != NULL) {
                 write->payload.channel.settings = *want;
+                plan->imported++;
                 if (slot == 0U) {
                     plan->replaces_primary = true;
                 }

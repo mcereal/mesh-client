@@ -1442,6 +1442,13 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
     stats->traces = 9U;
     stats->longest_trace_hops = 4U;
     stats->longest_trace_measured = true;
+    stats->keys_verified = 2U;
+    stats->waypoints_sent = 5U;
+    stats->waypoints_received = 6U;
+    stats->contacts_shared = 1U;
+    stats->contacts_added = 4U;
+    stats->channels_imported = 3U;
+    stats->sf_recovered = 11U;
     mesh_ui_store_set_settings(&store, &settings);
     if ((value = stats_value_of(&store, "Received over MQTT", &item)) == NULL ||
         strcmp(value, "3") != 0 ||
@@ -1480,6 +1487,23 @@ MESH_TEST_CASE(ui_stats_page_reads_the_counts_and_asks_before_a_reset, unit) {
         (value = stats_value_of(&store, "Longest route", &item)) == NULL ||
         strcmp(value, "4") != 0) {
         failure = "the traces answered are a count, and the longest a number of hops";
+        goto cleanup;
+    }
+    if ((value = stats_value_of(&store, "Keys verified", &item)) == NULL ||
+        strcmp(value, "2") != 0 ||
+        (value = stats_value_of(&store, "Places shared", &item)) == NULL ||
+        strcmp(value, "5") != 0 ||
+        (value = stats_value_of(&store, "Places received", &item)) == NULL ||
+        strcmp(value, "6") != 0 ||
+        (value = stats_value_of(&store, "Contacts shared", &item)) == NULL ||
+        strcmp(value, "1") != 0 ||
+        (value = stats_value_of(&store, "Contacts added", &item)) == NULL ||
+        strcmp(value, "4") != 0 ||
+        (value = stats_value_of(&store, "Channels joined", &item)) == NULL ||
+        strcmp(value, "3") != 0 ||
+        (value = stats_value_of(&store, "Recovered by S&F", &item)) == NULL ||
+        strcmp(value, "11") != 0) {
+        failure = "what was verified, shared and recovered are counts";
         goto cleanup;
     }
     if ((value = stats_value_of(&store, "Heard", &item)) == NULL ||

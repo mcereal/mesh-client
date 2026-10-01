@@ -281,6 +281,17 @@ static void lifetime_bump(struct mesh_lifetime *lifetime, enum mesh_lifetime_sta
     lifetime_changed(lifetime);
 }
 
+/* A COUNT moved by `n` at once - several things that happened together. Nothing for 0. */
+static void lifetime_add(struct mesh_lifetime *lifetime, enum mesh_lifetime_stat stat, uint64_t n) {
+    if (n == 0U) {
+        return;
+    }
+    uint64_t *const total = &lifetime->values[stat];
+    *total = *total > UINT64_MAX - n ? UINT64_MAX : *total + n;
+    lifetime->dirty = true;
+    lifetime_changed(lifetime);
+}
+
 /* Whether `value` beats a record of `current`: larger for a MAX, smaller for a MIN, which holds
    an int64_t. A tie never does - see mesh_lifetime_holder(). */
 static bool lifetime_beats(enum mesh_lifetime_stat stat, uint64_t value, uint64_t current) {
@@ -627,6 +638,11 @@ static bool lifetime_distance(const struct mesh_session *session,
 static void lifetime_observe_message(struct mesh_lifetime *lifetime,
                                      const struct mesh_message *message, bool via_mqtt) {
     const bool outbound = message->direction == MESH_MESSAGE_OUTBOUND;
+    /* The session announces a replay only when its log did not already hold the message, so
+       each one is something this client would otherwise have missed, a reaction included. */
+    if (!outbound && message->replayed) {
+        lifetime_bump(lifetime, MESH_LIFETIME_SF_RECOVERED);
+    }
     if (message->is_reaction) {
         lifetime_bump(lifetime,
                       outbound ? MESH_LIFETIME_REACTIONS_SENT : MESH_LIFETIME_REACTIONS_RECEIVED);
@@ -821,6 +837,26 @@ void mesh_lifetime_observe(void *ctx, const struct mesh_session *session,
             lifetime_observe_trace(lifetime, event->trace);
         }
         return;
+    }
+    switch (event->kind) {
+    case MESH_SESSION_EVENT_WAYPOINT:
+        lifetime_bump(lifetime, event->outbound ? MESH_LIFETIME_WAYPOINTS_SENT
+                                                : MESH_LIFETIME_WAYPOINTS_RECEIVED);
+        return;
+    case MESH_SESSION_EVENT_KEY_VERIFIED:
+        lifetime_bump(lifetime, MESH_LIFETIME_KEYS_VERIFIED);
+        return;
+    case MESH_SESSION_EVENT_CONTACT_SHARED:
+        lifetime_bump(lifetime, MESH_LIFETIME_CONTACTS_SHARED);
+        return;
+    case MESH_SESSION_EVENT_CONTACT_ADDED:
+        lifetime_bump(lifetime, MESH_LIFETIME_CONTACTS_ADDED);
+        return;
+    case MESH_SESSION_EVENT_CHANNELS_IMPORTED:
+        lifetime_add(lifetime, MESH_LIFETIME_CHANNELS_IMPORTED, event->count);
+        return;
+    default:
+        break;
     }
     const struct mesh_node_summary *node = event->node;
     if (node == NULL) {

@@ -621,6 +621,65 @@ MESH_TEST_CASE(waypoint_send_keeps_whose_place_it_is, unit) {
     record_success(test_name);
 }
 
+/* A WAYPOINT_APP packet handed to the session as the radio would hand it over. */
+static bool wp_feed(struct mesh_session *session, uint32_t from, uint32_t id, uint32_t expire) {
+    meshtastic_FromRadio message = meshtastic_FromRadio_init_default;
+    message.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    return wp_packet(&message.packet, from, id, "Gate", WP_HOME_LAT, WP_HOME_LON, expire) &&
+           mesh_test_session_feed_from_radio(session, &message);
+}
+
+/*
+ * What the stats count: a place announced once each way. In is somebody else's live place, an
+ * edit included, and never a withdrawal or our own radio echoing a share back; out is a share
+ * the radio took, and not a place kept with no link to carry it.
+ */
+MESH_TEST_CASE(waypoint_session_announces_places_each_way, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+    static struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    mesh_session_set_observer(&session, mesh_test_event_record_fn, &record);
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0xAAAA0001U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info),
+                      "the radio should introduce itself");
+
+    MESH_TEST_FAIL_IF(!wp_feed(&session, 0x2222U, 51U, 0U) || !wp_feed(&session, 0x2222U, 51U, 0U),
+                      "a place and its edit should arrive");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_WAYPOINT, 0x2222U) != 2U,
+                      "a place and its edit are each one somebody shared");
+    MESH_TEST_FAIL_IF(!wp_feed(&session, 0x2222U, 51U, MESH_WAYPOINT_EXPIRE_DELETED) ||
+                          !wp_feed(&session, 0xAAAA0001U, 52U, 0U),
+                      "a withdrawal and an echo should arrive");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_WAYPOINT, 0U) != 2U,
+                      "a withdrawal and our own echo are not places received");
+
+    struct mesh_waypoint mine;
+    memset(&mine, 0, sizeof mine);
+    mine.has_coords = true;
+    mine.latitude_i = WP_EAST_LAT;
+    mine.longitude_i = WP_EAST_LON;
+    MESH_TEST_FAIL_IF(mesh_session_send_waypoint(&session, &mine, 0U, NULL) != 0,
+                      "a new place should go out");
+    const struct mesh_test_event *last = &record.events[record.count - 1U];
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_WAYPOINT, 0U) != 3U ||
+                          last->kind != MESH_SESSION_EVENT_WAYPOINT || !last->outbound ||
+                          last->node_id != 0xAAAA0001U,
+                      "a share is announced going out, as ours");
+
+    mesh_session_detach(&session);
+    MESH_TEST_FAIL_IF(mesh_session_send_waypoint(&session, &mine, 0U, NULL) != -ENOTCONN,
+                      "with no link the share should report that");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_WAYPOINT, 0U) != 3U,
+                      "a place kept with no link to carry it was not shared");
+    record_success(test_name);
+}
+
 /*
  * The two declarations of upstream's limits - the core's, next to the encoder, and the store's,
  * on the nanopb-free side of the seam - have to agree.

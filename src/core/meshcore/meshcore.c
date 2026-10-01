@@ -1973,6 +1973,13 @@ static void mesh_meshcore_on_reply(struct mesh_meshcore *meshcore, const uint8_t
         /* A channel message is sent once and never acknowledged; OK is all it will get. */
         if (cmd == MESH_MESHCORE_CMD_SEND_CHANNEL_TXT_MSG) {
             mesh_meshcore_mark(meshcore, packet_id, MESH_MESSAGE_ACK_NONE);
+        } else if (cmd == MESH_MESHCORE_CMD_SHARE_CONTACT && request != NULL &&
+                   request->len == 1U + MESH_MESHCORE_PUBKEY_LEN) {
+            /* Shared only once the radio says it sent the advert: one it keeps no advert for
+               is refused (below), and that went nowhere. */
+            mesh_session_model_note_share(
+                meshcore->model, MESH_SESSION_EVENT_CONTACT_SHARED,
+                mesh_meshcore_node_id(request->frame + 1, MESH_MESHCORE_PUBKEY_LEN), 0U);
         } else if (mesh_meshcore_is_settings_write(cmd)) {
             if (request != NULL) {
                 mesh_meshcore_apply_write(meshcore, request->frame, request->len);
@@ -2960,7 +2967,12 @@ int mesh_meshcore_import_contact(struct mesh_meshcore *meshcore,
     const int result = mesh_meshcore_enqueue_tagged(
         meshcore, frame, mesh_meshcore_encode_contact(&contact, frame, sizeof frame), 0U,
         MESH_MESHCORE_FAVORITE_NONE, node == NULL, false);
-    return result < 0 ? result : 1;
+    if (result < 0) {
+        return result;
+    }
+    mesh_session_model_note_share(meshcore->model, MESH_SESSION_EVENT_CONTACT_ADDED,
+                                  known != 0U ? known : id, 0U);
+    return 1;
 }
 
 int mesh_meshcore_import_card(struct mesh_meshcore *meshcore, const uint8_t *packet, size_t len,
@@ -2989,7 +3001,17 @@ int mesh_meshcore_import_card(struct mesh_meshcore *meshcore, const uint8_t *pac
     frame[0] = MESH_MESHCORE_CMD_IMPORT_CONTACT;
     memcpy(frame + 1, packet, len);
     const int result = mesh_meshcore_enqueue(meshcore, frame, (int)(len + 1U), 0U);
-    return result < 0 ? result : 1;
+    if (result < 0) {
+        return result;
+    }
+    /* A card for a contact the radio already holds refreshes it rather than adding one. */
+    const struct mesh_node_summary *held =
+        known != 0U ? mesh_meshcore_roster_node(meshcore, known) : NULL;
+    if (held == NULL || !held->in_nodedb) {
+        mesh_session_model_note_share(meshcore->model, MESH_SESSION_EVENT_CONTACT_ADDED,
+                                      known != 0U ? known : id, 0U);
+    }
+    return 1;
 }
 
 int mesh_meshcore_set_favorite(struct mesh_meshcore *meshcore, uint32_t node_id, bool favorite) {
@@ -3338,8 +3360,12 @@ int mesh_meshcore_import_channel(struct mesh_meshcore *meshcore, const char *nam
     memcpy(write.channel_secret, secret, MESH_MESHCORE_SECRET_LEN);
     const int result = mesh_meshcore_write_settings(meshcore, &write);
     inkwell_wipe(write.channel_secret, sizeof write.channel_secret);
-    if (result > 0 && out_slot != NULL) {
-        *out_slot = (uint8_t)free_slot;
+    if (result > 0) {
+        if (out_slot != NULL) {
+            *out_slot = (uint8_t)free_slot;
+        }
+        mesh_session_model_note_share(meshcore->model, MESH_SESSION_EVENT_CHANNELS_IMPORTED, 0U,
+                                      1U);
     }
     return result;
 }

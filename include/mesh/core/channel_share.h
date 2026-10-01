@@ -64,6 +64,7 @@ size_t mesh_channel_share_url(const struct mesh_radio_settings *settings, char *
  */
 struct mesh_channel_import_plan {
     size_t writes;         /* channel slots that would be written */
+    size_t imported;       /* of those, the ones taking a channel from the set rather than off */
     bool replaces_primary; /* the radio's primary channel would change */
     bool writes_lora;      /* the set carries a LoRa config and it differs from this radio's */
     bool full;             /* channels had to be dropped: the set is wider than the table */

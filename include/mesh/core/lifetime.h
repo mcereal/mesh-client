@@ -83,6 +83,16 @@
  * answer was lost somewhere. The longest trace is in relays, as the most-hops record is, and is
  * the longer way of the two: an answer may come back by another route than the request took.
  *
+ * **What was handed on is counted when it was handed over.** A waypoint, a contact and a channel
+ * link each count once the radio has been given them (MESH_SESSION_EVENT_WAYPOINT, _CONTACT_*,
+ * _CHANNELS_IMPORTED): a place kept with no link to carry it was not shared, and a link the
+ * radio was already on imports nothing. A key counts as verified when a ceremony ends in a yes
+ * (MESH_SESSION_EVENT_KEY_VERIFIED) - a no is the ceremony working, not a key verified.
+ *
+ * **A Store & Forward replay is a recovery.** Not a hearing of its author, below, but a message
+ * this client would otherwise have missed: a replayed message the log did not already hold is
+ * counted as received and as recovered, from the one MESSAGE the session announces for it.
+ *
  * **Time on a link is the one thing the session does not feed**, because the session does not
  * know it has a link: it is told about frames, not about a transport coming and going. So the
  * app says, each turn and each frame, whether a link is up (mesh_lifetime_note_link()), and the

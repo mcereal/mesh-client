@@ -163,6 +163,17 @@ struct mesh_ui_lifetime_stats {
     uint32_t longest_trace_hops;
     bool longest_trace_measured;
     struct mesh_ui_lifetime_holder longest_trace_holder;
+    /* Key-verification ceremonies that ended in a yes. */
+    uint64_t keys_verified;
+    /* What was handed on and taken in: places shared each way, contacts sent out for others to
+       add and added from a link, and channels a link put on the radio. */
+    uint64_t waypoints_sent;
+    uint64_t waypoints_received;
+    uint64_t contacts_shared;
+    uint64_t contacts_added;
+    uint64_t channels_imported;
+    /* Messages a Store & Forward router replayed that this client had not already got. */
+    uint64_t sf_recovered;
     /* The first credible wall-clock second the stats saw; 0 on a device that has never had a
        clock, which is a page that cannot say since when rather than one that started today. */
     uint32_t since;

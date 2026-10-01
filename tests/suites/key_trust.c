@@ -508,6 +508,9 @@ MESH_TEST_CASE(key_trust_session_settle_only_a_yes_marks_the_key, unit) {
     struct mesh_session session;
     unsigned sends = 0U;
     key_trust_seed(&session, &sends, false);
+    static struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    mesh_session_set_observer(&session, mesh_test_event_record_fn, &record);
 
     MESH_TEST_FAIL_IF(mesh_session_verify_key_settle(&session, true) != -EINVAL,
                       "an answer was accepted with no exchange open");
@@ -524,6 +527,8 @@ MESH_TEST_CASE(key_trust_session_settle_only_a_yes_marks_the_key, unit) {
                       "answering that the codes do not match marked the key verified");
     MESH_TEST_FAIL_IF(mesh_key_verification_active(mesh_session_verification(&session)),
                       "a refusal left the exchange open");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_KEY_VERIFIED, 0U) != 0U,
+                      "a refusal was announced as a key verified");
 
     /* The first ceremony's steps are still sitting in the queue - nothing here drains it - and
        an identical step for the same node is refused as a double press, which is the guard
@@ -544,6 +549,19 @@ MESH_TEST_CASE(key_trust_session_settle_only_a_yes_marks_the_key, unit) {
     node = mesh_test_session_find_node(&session, 0x2001U);
     MESH_TEST_FAIL_IF(node == NULL || !node->key_verified,
                       "a completed verification did not mark the key");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_KEY_VERIFIED, 0x2001U) !=
+                          1U,
+                      "a completed verification was not announced, once, for its node");
+
+    /* A yes before there were characters to compare is not a ceremony completed. */
+    mesh_radio_settings_reset_session(&session.settings);
+    MESH_TEST_FAIL_IF(mesh_session_verify_key_begin(&session, 0x2001U) <= 0,
+                      "a third ceremony would not start");
+    (void)mesh_key_verification_on_number_request(&session.verification, 0x79U, "Pine Ridge",
+                                                  VERIFY_NOW);
+    (void)mesh_session_verify_key_settle(&session, true);
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_KEY_VERIFIED, 0U) != 1U,
+                      "a yes with nothing compared was announced as a key verified");
     record_success(test_name);
 }
 

@@ -97,6 +97,14 @@ void mesh_test_event_record_fn(void *ctx, const struct mesh_session *session,
         out->trace_out = event->trace->hops_out;
         out->trace_back = event->trace->hops_back;
     }
+    if (event->waypoint != NULL) {
+        out->node_id = event->waypoint->from;
+        out->outbound = event->outbound;
+    }
+    if (event->peer != 0U) {
+        out->node_id = event->peer;
+    }
+    out->count = event->count;
     out->radio = event->radio;
     out->via_mqtt = event->via_mqtt;
     out->has_hops = event->has_hops;

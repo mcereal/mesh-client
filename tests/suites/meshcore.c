@@ -1272,6 +1272,9 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     struct mesh_protocol protocol;
     static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    static struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    mesh_session_set_observer(&g_model, mesh_test_event_record_fn, &record);
     uint8_t key[MESH_MESHCORE_PUBKEY_LEN];
     for (size_t i = 0; i < sizeof key; ++i) {
         key[i] = (uint8_t)(0xC0U + i);
@@ -1314,6 +1317,10 @@ MESH_TEST_CASE(meshcore_import_contact_from_a_link, unit) {
     MESH_TEST_FAIL_IF(mesh_meshcore_import_contact(&g_meshcore, cousin, "Eve",
                                                    MESH_MESHCORE_ADV_CHAT) != -EADDRINUSE,
                       "and a key starting the same, while the first waits, would land on it");
+    MESH_TEST_FAIL_IF(
+        mesh_test_event_count(&record, MESH_SESSION_EVENT_CONTACT_ADDED, 0U) != 1U ||
+            mesh_test_event_count(&record, MESH_SESSION_EVENT_CONTACT_ADDED, 0xC0C1C2C3U) != 1U,
+        "the one link asked is announced as a contact added, and nothing refused");
     const uint8_t *frame = wire.frames[before];
     MESH_TEST_FAIL_IF(wire.count != before + 1U ||
                           frame[0] != MESH_MESHCORE_CMD_ADD_UPDATE_CONTACT || frame[1] != 0xC0U ||
@@ -2464,6 +2471,9 @@ MESH_TEST_CASE(meshcore_channel_link_joins_a_free_slot, unit) {
     MESH_TEST_FAIL_IF(settings == NULL || settings->channels[0].settings.psk.size != 16U ||
                           memcmp(settings->channels[0].settings.psk.bytes, k_public, 16U) != 0,
                       "the fixture's Public is slot 0");
+    static struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    mesh_session_set_observer(&g_model, mesh_test_event_record_fn, &record);
     MESH_TEST_FAIL_IF(mesh_meshcore_import_channel(&g_meshcore, "Public", k_public, &slot) !=
                               -EEXIST ||
                           slot != 0U,
@@ -2488,6 +2498,10 @@ MESH_TEST_CASE(meshcore_channel_link_joins_a_free_slot, unit) {
                           wire.frames[0][1] != 1U || memcmp(wire.frames[0] + 2, "Owls", 5U) != 0 ||
                           memcmp(wire.frames[0] + 34, k_owls, 16U) != 0,
                       "as SET_CHANNEL: the slot, the name and the secret");
+    MESH_TEST_FAIL_IF(
+        mesh_test_event_count(&record, MESH_SESSION_EVENT_CHANNELS_IMPORTED, 0U) != 1U ||
+            record.events[record.count - 1U].count != 1U,
+        "the channel joined is announced as one imported, and none of the refusals is");
     record_success(test_name);
 }
 
@@ -2498,6 +2512,9 @@ MESH_TEST_CASE(meshcore_card_is_handed_to_the_radio_whole, unit) {
     struct mesh_protocol protocol;
     static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    static struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    mesh_session_set_observer(&g_model, mesh_test_event_record_fn, &record);
     uint8_t packet[1U + 1U + 32U + 4U + 64U + 5U];
     for (size_t i = 0; i < sizeof packet; ++i) {
         packet[i] = (uint8_t)(0xA0U + i);
@@ -2526,6 +2543,19 @@ MESH_TEST_CASE(meshcore_card_is_handed_to_the_radio_whole, unit) {
                           wire.frames[0][0] != MESH_MESHCORE_CMD_IMPORT_CONTACT ||
                           memcmp(wire.frames[0] + 1, packet, sizeof packet) != 0,
                       "as IMPORT_CONTACT and every byte of it");
+    MESH_TEST_FAIL_IF(
+        mesh_test_event_count(&record, MESH_SESSION_EVENT_CONTACT_ADDED, 0x77777777U) != 1U,
+        "a stranger's card is a contact added");
+    /* Alice's own card, for a contact the radio already holds, refreshes her rather than adding
+       anybody. */
+    uint8_t alice[32];
+    for (size_t i = 0; i < sizeof alice; ++i) {
+        alice[i] = (uint8_t)(0x40U + i);
+    }
+    MESH_TEST_FAIL_IF(mesh_meshcore_import_card(&g_meshcore, packet, sizeof packet, alice) != 1,
+                      "Alice's card is asked");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_CONTACT_ADDED, 0U) != 1U,
+                      "and is not a contact added");
     record_success(test_name);
 }
 
@@ -3785,6 +3815,9 @@ MESH_TEST_CASE(meshcore_share_contact_sends_its_advert_nearby, unit) {
     struct mesh_protocol protocol;
     static struct mesh_test_meshcore_wire wire;
     MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake walks to ready");
+    static struct mesh_test_event_record record;
+    memset(&record, 0, sizeof record);
+    mesh_session_set_observer(&g_model, mesh_test_event_record_fn, &record);
     const uint32_t alice = 0x40414243U;
     MESH_TEST_FAIL_IF(mesh_meshcore_share_contact(&g_meshcore, 0U) != -EINVAL, "nobody");
     MESH_TEST_FAIL_IF(mesh_meshcore_share_contact(&g_meshcore, 0x99999999U) != -ENOENT,
@@ -3797,6 +3830,9 @@ MESH_TEST_CASE(meshcore_share_contact_sends_its_advert_nearby, unit) {
                       "SHARE_CONTACT and her key");
     feed_code(&protocol, MESH_MESHCORE_RESP_OK);
     MESH_TEST_FAIL_IF(g_meshcore.share_refusals != 0U, "OK: it went");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_CONTACT_SHARED, alice) !=
+                          1U,
+                      "and it is announced as shared, once the radio said so");
 
     MESH_TEST_FAIL_IF(mesh_meshcore_share_contact(&g_meshcore, alice) != 1, "asked again");
     /* What a Heltec on 1.17 answers for a contact added over USB: 3, "unable to send". */
@@ -3804,5 +3840,7 @@ MESH_TEST_CASE(meshcore_share_contact_sends_its_advert_nearby, unit) {
     feed(&protocol, refused, sizeof refused);
     MESH_TEST_FAIL_IF(g_meshcore.share_refusals != 1U || g_meshcore.share_refused_node != alice,
                       "refused: counted, and against Alice");
+    MESH_TEST_FAIL_IF(mesh_test_event_count(&record, MESH_SESSION_EVENT_CONTACT_SHARED, 0U) != 1U,
+                      "a refused share is not one shared");
     record_success(test_name);
 }

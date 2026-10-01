@@ -154,6 +154,15 @@ uint32_t mesh_waypoint_book_prune(struct mesh_waypoint_book *book, uint32_t now)
 
 int mesh_waypoint_ingest(struct mesh_waypoint_book *book, const meshtastic_MeshPacket *packet,
                          uint32_t my_node_num, uint32_t heard) {
+    return mesh_waypoint_ingest_stored(book, packet, my_node_num, heard, NULL);
+}
+
+int mesh_waypoint_ingest_stored(struct mesh_waypoint_book *book,
+                                const meshtastic_MeshPacket *packet, uint32_t my_node_num,
+                                uint32_t heard, const struct mesh_waypoint **out_stored) {
+    if (out_stored != NULL) {
+        *out_stored = NULL;
+    }
     if (book == NULL || packet == NULL) {
         return -EINVAL;
     }
@@ -220,8 +229,12 @@ int mesh_waypoint_ingest(struct mesh_waypoint_book *book, const meshtastic_MeshP
     }
 
     const bool known = mesh_waypoint_book_find(book, waypoint.id) != NULL;
-    if (mesh_waypoint_book_store(book, &waypoint) == NULL) {
+    const struct mesh_waypoint *stored = mesh_waypoint_book_store(book, &waypoint);
+    if (stored == NULL) {
         return -ENOMEM;
+    }
+    if (out_stored != NULL) {
+        *out_stored = stored;
     }
     inkwell_log_info("waypoint", "%s waypoint %u \"%s\" from 0x%08x on channel %u",
                      known ? "Updated" : "Received", waypoint.id, waypoint.name, packet->from,

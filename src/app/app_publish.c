@@ -1202,6 +1202,13 @@ static void mesh_app_flatten_lifetime(const struct mesh_lifetime *lifetime,
         mesh_lifetime_measured(lifetime, MESH_LIFETIME_LONGEST_TRACE_HOPS);
     mesh_app_flatten_holder(lifetime, status, MESH_LIFETIME_LONGEST_TRACE_HOPS,
                             &dst->longest_trace_holder);
+    dst->keys_verified = mesh_lifetime_value(lifetime, MESH_LIFETIME_KEYS_VERIFIED);
+    dst->waypoints_sent = mesh_lifetime_value(lifetime, MESH_LIFETIME_WAYPOINTS_SENT);
+    dst->waypoints_received = mesh_lifetime_value(lifetime, MESH_LIFETIME_WAYPOINTS_RECEIVED);
+    dst->contacts_shared = mesh_lifetime_value(lifetime, MESH_LIFETIME_CONTACTS_SHARED);
+    dst->contacts_added = mesh_lifetime_value(lifetime, MESH_LIFETIME_CONTACTS_ADDED);
+    dst->channels_imported = mesh_lifetime_value(lifetime, MESH_LIFETIME_CHANNELS_IMPORTED);
+    dst->sf_recovered = mesh_lifetime_value(lifetime, MESH_LIFETIME_SF_RECOVERED);
     dst->since = lifetime->since;
 }
 
