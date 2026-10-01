@@ -2,7 +2,7 @@
 # Run a command inside the mesh-client build container with the repo bind-mounted at /src.
 #
 # Usage:
-#   scripts/docker.sh [--cross] [--rebuild] [cmd ...]     (no cmd = interactive shell)
+#   scripts/docker.sh [--cross|--cross-armhf] [--rebuild] [cmd ...]     (no cmd = interactive shell)
 #
 # Examples:
 #   scripts/docker.sh make debug test        # host-arch Debug build + unit tests
@@ -19,6 +19,7 @@ REBUILD=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --cross) TARGET=cross; shift ;;
+        --cross-armhf) TARGET=cross-armhf; shift ;;
         --dev) TARGET=dev; shift ;;
         --rebuild) REBUILD=1; shift ;;
         --) shift; break ;;

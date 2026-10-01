@@ -10,6 +10,8 @@
 #   cross - dev + static aarch64 musl toolchain and static libdbus for producing MeshClient.pak.
 #           Mirrors .github/workflows/semantic-release.yml (native musl-gcc on arm64 hosts,
 #           Bootlin aarch64--musl toolchain on x86_64 hosts).
+#   cross-armhf - dev + Ubuntu's armhf glibc cross gcc, for the Miyoo Mini's 32-bit ARM. The
+#           binary is linked static, so the device's older glibc is never asked for anything.
 
 FROM ubuntu:24.04 AS dev
 ENV DEBIAN_FRONTEND=noninteractive
@@ -29,3 +31,8 @@ FROM dev AS cross
 COPY docker/setup-cross.sh /opt/cross/setup-cross.sh
 RUN bash /opt/cross/setup-cross.sh
 ENV PATH="/opt/cross/bin:${PATH}"
+
+FROM dev AS cross-armhf
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc-arm-linux-gnueabihf libc6-dev-armhf-cross file \
+    && rm -rf /var/lib/apt/lists/*

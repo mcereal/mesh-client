@@ -12,7 +12,7 @@ DOCKER := ./scripts/docker.sh
 .PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run format fuzz \
         ui-capture ui-drive screenshots demo-pack linux-cli windows-debug macos-app windows-installer \
         ship ship-beta ship-rc \
-        docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak \
+        docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak docker-miyoo \
         docker-clean docker-ui-capture docker-screenshots docker-fuzz \
         deploy deploy-start deploy-stop deploy-run deploy-logs deploy-check deploy-shot deploy-clip deploy-input-map \
         deploy-shell deploy-key brick
@@ -50,6 +50,7 @@ help:
 	@echo "  make docker-run     - Run the container-built Debug binary (BLE unavailable; CLI backend)"
 	@echo "  make docker-shell   - Interactive bash in the dev container"
 	@echo "  make docker-pak     - Static aarch64 build + dist/MeshClient.pak.zip for the TrimUI Brick"
+	@echo "  make docker-miyoo   - Static armhf build + dist/miyoomini/MeshClient for Onion OS"
 	@echo "  make docker-image   - (Re)build the dev image;  make docker-cross-image for the cross image"
 	@echo "  make docker-clean   - Remove build/linux"
 	@echo "  make docker-ui-capture - make ui-capture inside the dev container (use this on macOS)"
@@ -245,6 +246,10 @@ docker-run:
 
 docker-pak:
 	$(DOCKER) --cross ./scripts/cross-build.sh
+
+# The Miyoo Mini / Mini Plus (Onion OS): static armhf, into dist/miyoomini/MeshClient/.
+docker-miyoo:
+	$(DOCKER) --cross-armhf ./scripts/cross-build-miyoo.sh
 
 docker-ui-capture:
 	$(DOCKER) make ui-capture ARGS="$(ARGS)"
