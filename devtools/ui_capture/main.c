@@ -36,6 +36,8 @@
  *                          frame, as a window's mouse would - the row's menu, at the pointer
  *   click row N            left-click the screen list's row N on the last frame, as a
  *                          window's mouse would - which also hides the cursor's cue
+ *   click actions          left-click a node detail's overflow button in the heading, which
+ *                          opens that node's verbs as a menu
  *   hover row N|none       the pointer over row N of the last frame, or over nothing
  *   cursor hidden|shown    whether the reader is on the pointer (no cursor cue) or the keys
  *   rail auto|collapsed|expanded|toggle   a window's rail width; `toggle` clicks the press
@@ -1080,9 +1082,17 @@ static int verb_click(struct inkstand_scene *scene, char *rest, void *userdata) 
     struct uicap *cap = userdata;
     uint32_t id = 0U;
     struct inkcell_focus_rect box;
-    const int found = uicap_row_box(scene, "click", &rest, &id, &box);
-    if (found < 0) {
-        return found;
+    if (rest != NULL && strncmp(rest, "actions", 7U) == 0) {
+        id = (uint32_t)MESH_UI_FOCUS_NODE_ACTIONS;
+        if (!inkcell_focus_rect_of(inkcell_capture_state(inkstand_scene_capture(scene))->focus, id,
+                                   &box)) {
+            return inkstand_scene_fail(scene, "the last frame drew no actions button");
+        }
+    } else {
+        const int found = uicap_row_box(scene, "click", &rest, &id, &box);
+        if (found < 0) {
+            return found;
+        }
     }
     (void)inkcell_fb_set_cursor_hidden(inkcell_capture_state(inkstand_scene_capture(scene)), true);
     struct mesh_ui_action action;

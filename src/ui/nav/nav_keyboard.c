@@ -812,8 +812,9 @@ bool mesh_ui_nav_insert_text(struct mesh_ui_nav *nav, const char *text) {
         return false;
     }
     /* Match hardware keys: dismiss the menu without editing the screen behind it. */
-    if (nav->context_open) {
+    if (nav->context_open || nav->choice_open) {
         nav->context_open = false;
+        nav->choice_open = false;
         return true;
     }
     struct mesh_ui_route active;

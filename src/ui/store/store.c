@@ -151,10 +151,11 @@ bool mesh_ui_store_handle_context(struct mesh_ui_store *store, uint32_t target, 
 }
 
 bool mesh_ui_store_dismiss_context(struct mesh_ui_store *store) {
-    if (store == NULL || !store->nav.context_open) {
+    if (store == NULL || !(store->nav.context_open || store->nav.choice_open)) {
         return false;
     }
     store->nav.context_open = false;
+    store->nav.choice_open = false;
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
     return true;
 }

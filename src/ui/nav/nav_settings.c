@@ -9,6 +9,7 @@
  * dropped rather than recorded, which is what keeps "toggle it twice" from queueing a write.
  */
 
+#include "inkcell/ui/widgets/control.h"
 #include "inkwell/base/text.h"
 
 #include "nav_internal.h"
@@ -290,6 +291,107 @@ static bool mesh_ui_nav_settings_edit_item(struct mesh_ui_nav *nav,
         return true;
     default:
         return false;
+    }
+}
+
+/* The choice row under the cursor with the edits applied, or false when it is not one: a
+   value the pop-up can name, and a field with values to name. */
+static bool mesh_ui_nav_choice_row(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                   struct mesh_ui_settings_item *out) {
+    if (!mesh_ui_nav_settings_current(nav, store, true, out) || out->kind != INKSTAND_FORM_ENUM ||
+        out->field == MESH_UI_FIELD_NONE) {
+        return false;
+    }
+    /* Two to four unconstrained values are a segmented control on the row (see the settings
+       renderer), which a click steps through as it always has: a menu of two is a detour. */
+    const uint32_t count = mesh_ui_settings_enum_count(out->field);
+    return (out->choices != 0U || count > INKCELL_FB_SEGMENTED_MAX) &&
+           count <= MESH_UI_FOCUS_CHOICE_MAX;
+}
+
+/*
+ * `wanted` if the row allows it, otherwise the first value it does - which is the row the pop-up
+ * draws first, so the keys stand where the menu shows them. A row can stop allowing a value under
+ * an open menu as well as before one: a preset a newly edited region refuses, or the radio's own
+ * table of presets arriving late. False when the row allows nothing.
+ */
+static bool mesh_ui_nav_choice_resolve(const struct mesh_ui_settings_item *item, uint32_t wanted,
+                                       uint32_t *out) {
+    const uint32_t count = mesh_ui_settings_enum_count(item->field);
+    uint32_t value = wanted;
+    if (!mesh_ui_settings_choice_allowed(item->choices, count, value)) {
+        value = 0U;
+        while (value < count && !mesh_ui_settings_choice_allowed(item->choices, count, value)) {
+            ++value;
+        }
+        if (value >= count) {
+            return false;
+        }
+    }
+    *out = value;
+    return true;
+}
+
+bool mesh_ui_nav_choice_open(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
+    struct mesh_ui_settings_item item;
+    uint32_t cursor = 0U;
+    /* The keys start on the value in force, or where the row says they can. */
+    if (!mesh_ui_nav_choice_row(nav, store, &item) ||
+        !mesh_ui_nav_choice_resolve(&item, item.number, &cursor)) {
+        return false;
+    }
+    nav->choice_open = true;
+    nav->choice_field = (uint16_t)item.field;
+    nav->choice_cursor = cursor;
+    return true;
+}
+
+bool mesh_ui_nav_choice_pick(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                             uint32_t value) {
+    nav->choice_open = false;
+    struct mesh_ui_settings_item item;
+    /* The row the pop-up hung from has gone, or become another field: nothing is picked. */
+    if (!mesh_ui_nav_choice_row(nav, store, &item) || item.field != nav->choice_field ||
+        !mesh_ui_settings_choice_allowed(item.choices, mesh_ui_settings_enum_count(item.field),
+                                         value)) {
+        return true;
+    }
+    if (value != item.number && mesh_ui_nav_edit_set(nav, store, item.field, value, NULL) &&
+        item.inactive && item.inactive_note != INKCELL_STR_NONE) {
+        /* As a step would: a dimmed row takes the edit and says when it will count. */
+        mesh_ui_nav_raise_toast(nav, inkcell_str(item.inactive_note));
+    }
+    return true;
+}
+
+bool mesh_ui_nav_choice_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                            enum inkcell_key key) {
+    struct mesh_ui_settings_item item;
+    if (!mesh_ui_nav_choice_row(nav, store, &item) || item.field != nav->choice_field ||
+        !mesh_ui_nav_choice_resolve(&item, nav->choice_cursor, &nav->choice_cursor)) {
+        nav->choice_open = false;
+        return true;
+    }
+    switch (key) {
+    case INKCELL_KEY_UP:
+    case INKCELL_KEY_DOWN: {
+        /* Down the menu is up the list of values, and neither end wraps: a menu stops. */
+        const uint32_t count = mesh_ui_settings_enum_count(item.field);
+        const int delta = key == INKCELL_KEY_DOWN ? 1 : -1;
+        for (uint32_t v = nav->choice_cursor + (uint32_t)delta; v < count; v += (uint32_t)delta) {
+            if (mesh_ui_settings_choice_allowed(item.choices, count, v)) {
+                nav->choice_cursor = v;
+                break;
+            }
+        }
+        return true;
+    }
+    case INKCELL_KEY_A:
+    case INKCELL_KEY_START:
+        return mesh_ui_nav_choice_pick(nav, store, nav->choice_cursor);
+    default:
+        nav->choice_open = false;
+        return true;
     }
 }
 

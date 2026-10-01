@@ -2689,6 +2689,10 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         nav->context_open = false;
         return true;
     }
+    /* A choice's pop-up is a menu too, but one the keys can answer - see struct mesh_ui_nav. */
+    if (nav->choice_open) {
+        return mesh_ui_nav_choice_key(nav, store, key);
+    }
 
     /*
      * A press dismisses a notice - except a direction. Moving is not an answer to the notice:

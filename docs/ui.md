@@ -597,10 +597,11 @@ already has somewhere better is left out - a row's own A (the row is clicked), t
 arrows (the wheel), quit (the close box), and Back (the heading's arrow). A verb is its command
 (`MESH_UI_FOCUS_BAR + command`) and reaches `mesh_ui_controller_handle_click()`, which runs it
 only if the screen offers it right now. A screen draws its heading through `fb_draw_app_bar()`,
-which hands the first heading on a pointer frame the verbs and the mark. Two places keep the bar
-for a pointer: Status, whose cards are its heading, and any layer the heading does not speak for -
-a dialog, a sheet, help - where it is the toolbar it always was. `pointer` in a capture scene
-draws the same frame.
+which hands the first heading on a pointer frame the verbs and the mark. The Radio tab's board
+draws a heading only for a pointer, and its card verbs stay on their cards, so that heading
+carries help alone. A layer the heading does not speak for - a dialog, a sheet, help - keeps the
+bar, where it is the toolbar it always was; a menu does not, since a click off it only puts it
+down. `pointer` in a capture scene draws the same frame.
 
 A right-click (or a control-click) on a row of the screen's list selects it and opens that
 row's menu at the pointer: its row commands, read from the same command set the action bar is
@@ -610,6 +611,21 @@ command (`MESH_UI_FOCUS_MENU + command`) and reaches
 anywhere off the menu, puts it down and does nothing else. `context row N` in a capture scene
 opens one. Command identity does not reorder the rows: they retain the action bar's established
 A, X, Y, Start sequence.
+
+A click on a settings choice with more values than a segmented control holds - a region, a
+preset - opens a pop-up of them instead of stepping to the next: every value the row allows, the
+one in force checked, lined up under the value it replaces (`inkcell_fb_list_item_value_x()`) and
+windowed around the keys' value when the panel is too short for all of them. A value is the row's
+edit (`MESH_UI_FOCUS_CHOICE + value`); Up, Down and A walk and pick, and any other key or a click
+off it puts it down. The d-pad never opens it: Left and Right still step.
+
+A node's verbs are the heading's overflow button with a pointer (`MESH_UI_FOCUS_NODE_ACTIONS`),
+and the detail opens on the node rather than on its Actions row, which is drawn only for the keys.
+The button is not a command - on the Brick the row is the way in, and a keycap for it would be a
+second one - and it raises the same sheet the row does, drawn as a menu hung from the button: the
+same targets (`MESH_UI_FOCUS_SHEET_ROWS + i`), a switch's state as the menu's check, and the
+heading it hangs from kept as it was. A click off it is B. `click actions` in a capture scene
+presses it.
 
 Two things to know before reaching for it:
 
@@ -1442,6 +1458,7 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `tab NAME`, `key NAME [COUNT]` | walk Left/Right to a tab; press a key (`a`…`y`, `l1`/`r1`, `l2`/`r2`, `start`, `select`, directions) |
 | `hold MS` | lengthen the frame just emitted, and move the clock on |
 | `pointer`, `click row N`, `context row N`, `hover row N\|none` | a window's frame; a left or right click on the screen list's row N, or the pointer resting on it |
+| `click actions` | a left click on a node detail's overflow button, which opens its verbs as a menu |
 | `cursor hidden\|shown`, `type TEXT` | whether the reader is on the pointer or the keys; text a window's keyboard commits into the open keyboard |
 | `frame` | emit the current screen again |
 | `config` | a radio that has answered the config handshake |

@@ -127,6 +127,30 @@ void fb_render_settings(struct inkcell_draw_state *state, const struct mesh_ui_s
 void fb_render_settings_list(struct inkcell_draw_state *state,
                              const struct mesh_ui_snapshot *snapshot,
                              struct inkcell_fb_layout *layout);
+/*
+ * Fits a menu of `menu->count` items to the room beside `anchor`, the box it hangs from - the
+ * larger of the space under it and over it: as many rows as that holds, in a window
+ * that keeps the keys' item (`cursor`, in the whole list) in it, as wide as the widest item of
+ * all. Moves `items`, the focus ids and the cursor to the window, so each row keeps its own
+ * target, and returns the box. A pop-up of a setting's values and a node's verbs can both outgrow
+ * a short window.
+ */
+struct inkcell_fb_rect fb_menu_window(const struct inkcell_draw_state *state,
+                                      struct inkcell_fb_menu *menu, uint32_t cursor,
+                                      struct inkcell_focus_rect anchor);
+/* Where the row a choice's pop-up hangs from starts its value, recorded by the settings renderer
+   as it draws that row and read by fb_render_choice() later in the same frame; 0 when no such
+   row was drawn. */
+void fb_choice_value_x_set(struct inkcell_draw_state *state, int x);
+int fb_choice_value_x(const struct inkcell_draw_state *state);
+/* Whether the node detail on the panel has verbs behind its overflow button: the detail open with
+   no chart over it, and a sheet of verbs for that node. */
+bool fb_node_actions_offered(const struct mesh_ui_snapshot *snapshot);
+/* Whether a node's verbs are up over its detail - drawn, for a pointer, as a menu hung from that
+   button rather than as a sheet. */
+bool fb_node_actions_menu(const struct mesh_ui_snapshot *snapshot);
+/* A settings choice's pop-up (nav.choice_open), over everything and hung from its row. */
+void fb_render_choice(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot);
 /* A Radio tab page (nav.radio_page): the settings section it is built from, drawn full width, as
    the Settings tab draws an open section, over the tab's own cursor. */
 void fb_render_radio_page(struct inkcell_draw_state *state, const struct mesh_ui_snapshot *snapshot,
@@ -171,6 +195,8 @@ enum fb_overlay_id {
     FB_OVERLAY_REACTIONS,
     /* A window's right-click menu: the verbs of the row under the cursor, at the pointer. */
     FB_OVERLAY_CONTEXT,
+    /* A window's pop-up menu: the values of the settings choice it was clicked open on. */
+    FB_OVERLAY_CHOICE,
 };
 
 /*

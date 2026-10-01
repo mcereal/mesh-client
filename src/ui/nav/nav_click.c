@@ -203,6 +203,13 @@ static bool mesh_ui_nav_click_row(struct mesh_ui_nav *nav, const struct mesh_ui_
     if (!activate) {
         return moved;
     }
+    /* A choice in an open section is a pop-up of its values rather than a step through them:
+       a pointer can name the one it wants. */
+    if (screen_list && cursor == &nav->cursor[nav->screen] &&
+        mesh_ui_nav_open_section(nav) != MESH_UI_SETTINGS_NO_SECTION &&
+        mesh_ui_nav_choice_open(nav, store)) {
+        return true;
+    }
     return mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_A, out_action) || moved;
 }
 
@@ -347,6 +354,15 @@ bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_stor
         nav->context_open = false;
         return true;
     }
+    /* And a choice's pop-up the same way, except that one of its values is a pick. */
+    if (nav->choice_open) {
+        if (target >= (uint32_t)MESH_UI_FOCUS_CHOICE &&
+            target < (uint32_t)MESH_UI_FOCUS_CHOICE + MESH_UI_FOCUS_CHOICE_MAX) {
+            return mesh_ui_nav_choice_pick(nav, store, target - (uint32_t)MESH_UI_FOCUS_CHOICE);
+        }
+        nav->choice_open = false;
+        return true;
+    }
     /*
      * A message being written in a window's thread field is put down by a click anywhere else, as
      * clicking away from a text box does - by B, which keeps the draft - and the click then lands
@@ -392,6 +408,28 @@ static bool mesh_ui_nav_click_target(struct mesh_ui_nav *nav, const struct mesh_
         }
         return mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_A, out_action);
     }
+    /* The heading's overflow button over a node's detail: the sheet the Actions row opens,
+       opened the way that row's A opens it - at its top, with nothing armed. */
+    if (target == (uint32_t)MESH_UI_FOCUS_NODE_ACTIONS) {
+        if (nav->screen != MESH_UI_SCREEN_NODES || !nav->node_detail_open ||
+            nav->node_trend != MESH_UI_HISTORY_NONE || nav->node_actions_open ||
+            nav->node_sort_open || mesh_ui_nav_click_modal(nav)) {
+            return false;
+        }
+        mesh_ui_nav_click_stand_down(nav);
+        nav->node_actions_open = true;
+        nav->node_actions_cursor = 0U;
+        return true;
+    }
+    /* Off a node's verbs drawn as a window's menu: B, which is how the sheet is put down and what
+       stands an armed removal down with it. */
+    if (target == (uint32_t)MESH_UI_FOCUS_MENU_DISMISS) {
+        if (nav->screen == MESH_UI_SCREEN_NODES && nav->node_actions_open &&
+            !mesh_ui_nav_click_modal(nav)) {
+            return mesh_ui_nav_handle_key(nav, store, INKCELL_KEY_B, out_action);
+        }
+        return false;
+    }
     if (target >= (uint32_t)MESH_UI_FOCUS_TABS &&
         target < (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_COUNT) {
         return mesh_ui_nav_click_tab(
@@ -430,8 +468,9 @@ bool mesh_ui_nav_handle_context(struct mesh_ui_nav *nav, const struct mesh_ui_st
     if (nav == NULL || store == NULL) {
         return false;
     }
-    if (nav->context_open) {
+    if (nav->context_open || nav->choice_open) {
         nav->context_open = false;
+        nav->choice_open = false;
         return true;
     }
     if (target < (uint32_t)MESH_UI_FOCUS_ROWS ||
