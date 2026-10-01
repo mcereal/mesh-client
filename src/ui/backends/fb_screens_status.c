@@ -1131,9 +1131,14 @@ static bool fb_status_board(struct inkcell_draw_state *state,
     (void)inkcell_fb_set_region(state, side);
     const int link_need = inkcell_fb_card_height(state, layout, &cards->link);
     const int link_least = inkcell_fb_card_min_height(state, layout, &cards->link);
+    const int radio_need = inkcell_fb_card_height(state, layout, &cards->radio);
     const int radio_least = cards->radio_tone != INKCELL_TONE_PRIMARY
-                                ? inkcell_fb_card_height(state, layout, &cards->radio)
+                                ? radio_need
                                 : inkcell_fb_card_min_height(state, layout, &cards->radio);
+    (void)inkcell_fb_set_region(
+        state, (struct inkcell_box){dash.edges[0], body.y,
+                                    dash.edges[tracks - 1U] - dash.edges[0] - gap, body.h});
+    const int mesh_need = inkcell_fb_card_height(state, layout, &cards->mesh);
     (void)inkcell_fb_set_region(
         state, (struct inkcell_box){dash.edges[0], body.y,
                                     dash.edges[reach_span] - dash.edges[0] - gap, body.h});
@@ -1171,21 +1176,43 @@ static bool fb_status_board(struct inkcell_draw_state *state,
         }
     }
 
-    /* The bottom row gets what its cards need, held under a third of what is left so the chart
-       keeps a picture's worth of room - and gives up altogether before the middle row does. */
+    /*
+     * Every row as tall as its cards say and no taller, from the top: a card stretched to the
+     * foot of a window is a card with nothing in most of it. The one card with something to put
+     * in extra room is Mesh, whose chart is drawn under its rows - and only once there is a chart
+     * to draw, at no more than a third of its width so it reads as a picture rather than a wall.
+     * The bottom row gives up before the middle row does.
+     */
     const int left = inkcell_dash_left(&dash);
-    int bottom_h = bottom_need < left / 3 ? bottom_need : left / 3;
-    if (left - gap - bottom_h < middle_least) {
-        bottom_h = left - gap - middle_least;
+    const int air = inkcell_fb_space(state, INKCELL_SPACE_SM);
+    int mesh_h = mesh_need;
+    if (mesh_ui_history_has_airtime(&snapshot->history)) {
+        const int mesh_w = dash.edges[tracks - 1U] - dash.edges[0] - gap;
+        const int chart_h = mesh_w / 3;
+        const int chart_least = inkcell_fb_chart_min_height(state, layout);
+        mesh_h += air + (chart_h > chart_least ? chart_h : chart_least);
     }
-    const int middle_h = bottom_h > 0 ? left - gap - bottom_h : left;
+    const int side_need = link_need + gap + radio_need;
+    int middle_h = mesh_h > side_need ? mesh_h : side_need;
+    if (middle_h < middle_least) {
+        middle_h = middle_least;
+    }
+    int bottom_h = bottom_need;
+    if (middle_h + gap + bottom_h > left) {
+        bottom_h = left - gap - middle_h;
+    }
+    if (bottom_h < 0) {
+        bottom_h = 0;
+    }
+    if (bottom_h == 0 && middle_h > left) {
+        middle_h = left;
+    }
 
     if (inkcell_dash_row(&dash, middle_h)) {
         const struct inkcell_box mesh_box = inkcell_dash_cell(&dash, tracks - 1U);
         struct inkcell_box room = inkcell_fb_draw_card_in(state, layout, mesh_box, &cards->mesh);
         /* A step of air between the last row and the chart's top label, which otherwise reads as
            a value of the row above it. */
-        const int air = inkcell_fb_space(state, INKCELL_SPACE_SM);
         room.y += air;
         room.h -= air;
         fb_render_airtime_in(state, snapshot, layout, room);

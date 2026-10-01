@@ -507,7 +507,11 @@ MESHCLIENT_UI_BACKEND=sdl ./build/debug/meshclient -f
 ```
 
 It is the same rasteriser, the same components and the same screen renderers; what differs is
-that changed rows become texture uploads instead of `memcpy`s into `/dev/fb0`. Drive it with the
+that changed rows become texture uploads instead of `memcpy`s into `/dev/fb0`. The text is sized
+for a desk rather than a handheld: inkcell's `inkcell_sdl_display_scale()` takes the theme's scale
+to seven eighths at the display's density, which is a 13pt body on a Retina display, and
+`MESHCLIENT_FB_SCALE` still overrides it. `make ui-capture ARGS="-s 3.5 -g 2880x1800 ..."` is that
+window, a 1440x900 one on a Retina display. Drive it with the
 arrows, Enter (A), Backspace (B), Space (Y), `x` (X), F1 (START), F2 (SELECT) and Escape to
 quit - the same table a USB keyboard on the device goes through, so a keycap means here what it
 means there. No pad: SDL's controller mapping and inkcell's device profile would be two answers
@@ -618,7 +622,10 @@ unfolded in the expanded width class, folded on a medium one. A capture sets it 
 `rail auto|collapsed|expanded`, or clicks the press itself with `rail toggle`.
 
 A window with room for a whole measure of detail beside a list - 1920x1080 at the Brick's scale is
-the first - stands the two side by side. Three screens do so:
+the first - stands the two side by side. The list is held to a desktop's list column (inkcell's
+`INKCELL_WIDTH_LIST_PANE_COLS`) and the detail takes the rest, filled margin to margin rather than
+held to a centred measure; only a detail wider than `INKCELL_WIDTH_DETAIL_PANE_COLS` is capped.
+Three screens do so:
 
 - **Messages**: the conversations, and beside them the open thread.
 - **Nodes**: the roster, and beside it whatever is open over one node - its detail, a chart of a
@@ -665,7 +672,9 @@ becomes a board once the window holds three tracks of cards (`fb_status_board()`
 `src/ui/backends/fb_screens_status.c`, over inkcell's `struct inkcell_dash`): a row of stat tiles -
 online, channel use, battery, delivered - then the Mesh card with the airtime chart drawn in the
 room under its rows, Link over Radio beside it, and a Reach card (the roster's hop spread,
-`mesh/ui/reach.h`) with the Broker card along the bottom. The cards are the column's cards, built
+`mesh/ui/reach.h`) with the Broker card under them. Each row is as tall as its cards need, from
+the top, and no taller: the chart, once there is one, is the only thing given extra room, at a
+third of the Mesh card's width. The cards are the column's cards, built
 once by `fb_status_build()`, so every verb is on the same card and the d-pad walks them in the
 same order; the tiles are read, not pressed. The Link, Mesh and Radio row is sized first and the
 Radio card keeps the column's reservation - all of it when it has something wrong to say - so the
