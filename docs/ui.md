@@ -541,10 +541,16 @@ quit - the same table a USB keyboard on the device goes through, so a keycap mea
 means there. No pad: SDL's controller mapping and inkcell's device profile would be two answers
 to the same question.
 
-The primary desktop modifier is Command on macOS and Control on Linux/Windows. With it, N asks
-for New, S for Save, and R for Refresh. Each shortcut runs only when the current screen offers
-that command; for example, Save on a message list does nothing. Modified keys never also act as
-Brick face buttons, so Control+X cannot accidentally invoke X's current-screen verb.
+On a Mac the window has a menu bar: Settings… (⌘,) in the application's menu, then File (New ⌘N,
+Save ⌘S), Edit (Paste ⌘V, Find ⌘F), View (the five tabs ⌘1-⌘5, Refresh ⌘R, Zoom In ⌘=, Zoom
+Out ⌘-, Zoom to Fit ⌘0), Go (Back ⌘[) and Help, beside the Window menu SDL puts up. The items
+are one table, `src/ui/tables/menu.c`, and each is a name for something the frame already has:
+a command, run only when the last frame offers it, or a click target - a tab, the Nodes list's
+search chip - run as that click. An item that would do nothing is greyed out rather than
+silent. Linux and Windows have no menu bar to put it in, and the same table is their chords
+with Control. Modified keys never also act as Brick face buttons, so Control+X cannot
+accidentally invoke X's current-screen verb. See `mesh/ui/menu.h` and inkcell's
+`inkcell/ui/sdl.h`.
 
 The words change with the input: help, toasts and empty states that name a Brick button read
 their `_DESKTOP` entry in a window instead - right-click, the heading's buttons, Home and End

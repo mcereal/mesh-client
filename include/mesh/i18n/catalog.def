@@ -3931,6 +3931,29 @@ MESH_STR_ENTRY(DATE_NOV, "Nov")
 MESH_STR_ENTRY(DATE_DEC, "Dec")
 MESH_STR_ENTRY(ABOUT_LANGUAGE_ENV, "Language (env)")
 
+/* ---- the menu bar ------------------------------------------------------------------------- */
+/* A window's menu bar on a Mac (include/mesh/ui/menu.h). Title Case, as the rest of a Mac's
+   menus are, and the platform's own words where it has them - "Settings…", not "Preferences",
+   and the ellipsis because the item opens somewhere more is asked. The tab items reuse TAB_*. */
+MESH_STR_ENTRY(MENU_FILE,                 "File")
+MESH_STR_ENTRY(MENU_EDIT,                 "Edit")
+MESH_STR_ENTRY(MENU_VIEW,                 "View")
+MESH_STR_ENTRY(MENU_GO,                   "Go")
+MESH_STR_ENTRY(MENU_HELP,                 "Help")
+MESH_STR_ENTRY(MENU_SETTINGS,             "Settings…")
+MESH_STR_ENTRY(MENU_NEW,                  "New")
+MESH_STR_ENTRY(MENU_SAVE,                 "Save")
+MESH_STR_ENTRY(MENU_PASTE,                "Paste")
+MESH_STR_ENTRY(MENU_FIND,                 "Find")
+MESH_STR_ENTRY(MENU_REFRESH,              "Refresh")
+MESH_STR_ENTRY(MENU_ZOOM_IN,              "Zoom In")
+MESH_STR_ENTRY(MENU_ZOOM_OUT,             "Zoom Out")
+/* The map framed on everything it can place - the Brick's "fit all". */
+MESH_STR_ENTRY(MENU_FIT,                  "Zoom to Fit")
+MESH_STR_ENTRY(MENU_BACK,                 "Back")
+/* The Help menu's one item; the product's name is not translated. */
+MESH_STR_ENTRY(MENU_HELP_ITEM,            "MeshClient Help")
+
 /* ---- desktop wording ---------------------------------------------------------------------- */
 
 /*

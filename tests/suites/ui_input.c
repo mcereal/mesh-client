@@ -17,7 +17,9 @@
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/controller.h"
 #include "mesh/ui/focus.h"
+#include "mesh/ui/menu.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/route.h"
 #include "mesh/ui/store.h"
 
 #include "inkcell/ui/input_codes.h"
@@ -650,15 +652,16 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
 
     mesh_test_nav_populate(&store);
     inkwell_loop_run(&loop, 0);
-    mesh_ui_controller_handle_shortcut(&controller, 's');
-    mesh_ui_controller_handle_shortcut(&controller, 'x');
-    if (store.pending_flags != MESH_UI_UPDATE_NONE) {
-        failure = "unoffered and unknown shortcuts must not change the current screen";
+    mesh_ui_controller_handle_menu(&controller, MESH_UI_COMMAND_SAVE);
+    mesh_ui_controller_handle_menu(&controller, (uint32_t)MESH_UI_FOCUS_NODE_CHIPS);
+    if (store.pending_flags != MESH_UI_UPDATE_NONE ||
+        mesh_ui_controller_menu_offered(&controller, MESH_UI_COMMAND_SAVE)) {
+        failure = "a menu item the frame does not offer must not change the current screen";
         goto cleanup;
     }
-    mesh_ui_controller_handle_shortcut(&controller, 'n');
+    mesh_ui_controller_handle_menu(&controller, MESH_UI_COMMAND_NEW);
     if (!store.nav.picker_open) {
-        failure = "New shortcut should open the message recipient picker";
+        failure = "New from the menu should open the message recipient picker";
         goto cleanup;
     }
     inkwell_loop_run(&loop, 0);
@@ -740,6 +743,135 @@ cleanup:
     mesh_ui_store_shutdown(&store);
     inkwell_loop_shutdown(&loop);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A menu item is a name for something the frame already has: a tab item is the tab's click, Find
+ * is the search chip's, and each is greyed out exactly where that click would not be answered -
+ * under the search field it opened, for one.
+ */
+MESH_TEST_CASE(ui_menu_items_are_the_clicks_they_name, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct inkwell_loop loop;
+    if (inkwell_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        return;
+    }
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        inkwell_loop_shutdown(&loop);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    struct mesh_ui_backend_stub_context backend;
+    memset(&backend, 0, sizeof backend);
+    struct mesh_ui_controller controller;
+    if (mesh_ui_controller_init(&controller, &store, mesh_ui_backend_stub(), &backend, &loop) !=
+        0) {
+        mesh_ui_store_shutdown(&store);
+        inkwell_loop_shutdown(&loop);
+        record_failure(test_name, "controller init failed");
+        return;
+    }
+    const uint32_t nodes_tab = (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_NODES;
+    const uint32_t messages_tab = (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_MESSAGES;
+    const uint32_t find = (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)MESH_UI_NODES_CHIP_FIND;
+
+    /* No radio: the Nodes tab is its empty state, with no chip bar for Find to name. */
+    inkwell_loop_run(&loop, 0);
+    mesh_ui_controller_handle_menu(&controller, nodes_tab);
+    inkwell_loop_run(&loop, 0);
+    if (backend.last_snapshot.nav.screen != MESH_UI_SCREEN_NODES ||
+        mesh_ui_controller_menu_offered(&controller, find)) {
+        failure = "Find should not be offered over an empty Nodes tab";
+        goto cleanup;
+    }
+    mesh_ui_controller_handle_menu(&controller, messages_tab);
+    mesh_test_nav_populate(&store);
+    inkwell_loop_run(&loop, 0);
+
+    /* A row's menu takes the next press and only puts itself down, so it greys out the bar. */
+    mesh_ui_controller_handle_context(&controller, (uint32_t)MESH_UI_FOCUS_ROWS + 1U, 40, 40);
+    inkwell_loop_run(&loop, 0);
+    if (!backend.last_snapshot.nav.context_open ||
+        mesh_ui_controller_menu_offered(&controller, MESH_UI_COMMAND_NEW) ||
+        mesh_ui_controller_menu_offered(&controller, nodes_tab)) {
+        failure = "nothing under an open row menu should be offered";
+        goto cleanup;
+    }
+    mesh_ui_controller_handle_context(&controller, INKCELL_FOCUS_NONE, 0, 0);
+    inkwell_loop_run(&loop, 0);
+    if (backend.last_snapshot.nav.context_open ||
+        !mesh_ui_controller_menu_offered(&controller, MESH_UI_COMMAND_NEW)) {
+        failure = "putting the row menu down should offer the bar again";
+        goto cleanup;
+    }
+
+    if (!mesh_ui_controller_menu_offered(&controller, nodes_tab) ||
+        mesh_ui_controller_menu_offered(&controller, find)) {
+        failure = "on Messages a tab item should be offered and Find should not";
+        goto cleanup;
+    }
+    mesh_ui_controller_handle_menu(&controller, nodes_tab);
+    inkwell_loop_run(&loop, 0);
+    if (backend.last_snapshot.nav.screen != MESH_UI_SCREEN_NODES ||
+        !mesh_ui_controller_menu_offered(&controller, find) ||
+        mesh_ui_controller_menu_offered(&controller, nodes_tab) ||
+        !mesh_ui_controller_menu_offered(&controller, messages_tab)) {
+        failure = "a tab item should change tab and grey itself out, and Nodes should offer Find";
+        goto cleanup;
+    }
+    mesh_ui_controller_handle_menu(&controller, find);
+    inkwell_loop_run(&loop, 0);
+    struct mesh_ui_route route;
+    mesh_ui_route_of(&backend.last_snapshot.nav, &route);
+    if (route.level != MESH_UI_ROUTE_KEYBOARD) {
+        failure = "Find should open the search field the chip opens";
+        goto cleanup;
+    }
+    if (mesh_ui_controller_menu_offered(&controller, messages_tab) ||
+        mesh_ui_controller_menu_offered(&controller, (uint32_t)MESH_UI_FOCUS_ROWS)) {
+        failure = "with the field open no tab is offered, and a target no menu names never is";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_controller_shutdown(&controller);
+    mesh_ui_store_shutdown(&store);
+    inkwell_loop_shutdown(&loop);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* One chord, one item: a chord named twice would be whichever AppKit met first on a Mac and
+   whichever inkcell met first elsewhere. Every item is labelled and names something a menu may. */
+MESH_TEST_CASE(ui_menu_chords_are_unique, unit) {
+    size_t count = 0U;
+    const struct inkcell_sdl_menu_item *const items = mesh_ui_menu_items(&count);
+    MESH_TEST_FAIL_IF(items == NULL || count == 0U, "the menu bar should have items");
+    for (size_t i = 0U; i < count; ++i) {
+        MESH_TEST_FAIL_IF(inkcell_str(items[i].label)[0] == '\0', "every item needs a label");
+        MESH_TEST_FAIL_IF(items[i].menu >= INKCELL_SDL_MENU_COUNT, "every item needs a menu");
+        const uint32_t command = items[i].command;
+        const bool named =
+            command == INKCELL_SDL_MENU_PASTE ||
+            (command > (uint32_t)MESH_UI_COMMAND_NONE &&
+             command < (uint32_t)MESH_UI_COMMAND_COUNT) ||
+            (command >= (uint32_t)MESH_UI_FOCUS_TABS &&
+             command < (uint32_t)MESH_UI_FOCUS_TABS + MESH_UI_SCREEN_COUNT) ||
+            command == (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)MESH_UI_NODES_CHIP_FIND;
+        MESH_TEST_FAIL_IF(!named, "an item names a command, a tab, Find or Paste");
+        for (size_t j = i + 1U; j < count && items[i].key != '\0'; ++j) {
+            MESH_TEST_FAIL_IF(items[j].key == items[i].key, "two items share a chord");
+        }
+    }
+    const inkcell_str_id *const titles = mesh_ui_menu_titles();
+    for (int m = INKCELL_SDL_MENU_FILE; m < INKCELL_SDL_MENU_COUNT; ++m) {
+        MESH_TEST_FAIL_IF(inkcell_str(titles[m])[0] == '\0', "every menu needs a title");
+    }
     record_success(test_name);
 }
 

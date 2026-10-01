@@ -199,23 +199,44 @@ void mesh_ui_controller_handle_command(struct mesh_ui_controller *controller,
     mesh_ui_controller_dispatch_command(controller, command, direction, false);
 }
 
-void mesh_ui_controller_handle_shortcut(struct mesh_ui_controller *controller, char letter) {
-    enum mesh_ui_command_id command = MESH_UI_COMMAND_NONE;
-    switch (letter) {
-    case 'n':
-        command = MESH_UI_COMMAND_NEW;
-        break;
-    case 'r':
-        command = MESH_UI_COMMAND_REFRESH;
-        break;
-    case 's':
-        command = MESH_UI_COMMAND_SAVE;
-        break;
-    default:
+bool mesh_ui_controller_menu_offered(const struct mesh_ui_controller *controller, uint32_t item) {
+    if (controller == NULL || controller->store == NULL ||
+        !inkstand_frame_scheduler_presented(&controller->frames)) {
+        return false;
+    }
+    /* A pop-up drawn in the frame - a row's menu, a choice's values - takes the next key or
+       click first and only puts itself down, so nothing under it is on offer until it is gone. */
+    if (controller->snapshot.nav.context_open || controller->snapshot.nav.choice_open) {
+        return false;
+    }
+    if (item < (uint32_t)MESH_UI_COMMAND_COUNT) {
+        struct mesh_ui_command_set offered;
+        mesh_ui_commands_for(&controller->snapshot, &offered);
+        return mesh_ui_commands_find(&offered, (enum mesh_ui_command_id)item) != NULL;
+    }
+    /* The Nodes list's chips are drawn only over a roster: with no radio, or none of its nodes
+       yet, fb_render_node_list() draws the empty state and no chip bar. The nav cannot see the
+       roster, and the frame it would be judged against is this snapshot. */
+    if (item >= (uint32_t)MESH_UI_FOCUS_NODE_CHIPS &&
+        item < (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)MESH_UI_NODES_CHIP_COUNT &&
+        (!controller->snapshot.handshake_valid ||
+         controller->snapshot.handshake.node_count == 0U)) {
+        return false;
+    }
+    return mesh_ui_nav_click_offered(&controller->snapshot.nav, item);
+}
+
+void mesh_ui_controller_handle_menu(struct mesh_ui_controller *controller, uint32_t item) {
+    if (!mesh_ui_controller_menu_offered(controller, item)) {
         inkcell_latency_press_handled(false);
         return;
     }
-    mesh_ui_controller_handle_command(controller, command, MESH_UI_COMMAND_DIRECTION_NONE);
+    if (item < (uint32_t)MESH_UI_COMMAND_COUNT) {
+        mesh_ui_controller_handle_command(controller, (enum mesh_ui_command_id)item,
+                                          MESH_UI_COMMAND_DIRECTION_NONE);
+        return;
+    }
+    mesh_ui_controller_handle_click(controller, item);
 }
 
 void mesh_ui_controller_handle_action_key(struct mesh_ui_controller *controller,

@@ -61,6 +61,23 @@ static bool mesh_ui_nav_click_modal(const struct mesh_ui_nav *nav) {
     }
 }
 
+bool mesh_ui_nav_click_offered(const struct mesh_ui_nav *nav, uint32_t target) {
+    if (nav == NULL || mesh_ui_nav_click_modal(nav)) {
+        return false;
+    }
+    /* Not the tab already up: mesh_ui_nav_click_tab() does nothing there. */
+    if (target >= (uint32_t)MESH_UI_FOCUS_TABS &&
+        target < (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_COUNT) {
+        return target - (uint32_t)MESH_UI_FOCUS_TABS != (uint32_t)nav->screen;
+    }
+    if (target >= (uint32_t)MESH_UI_FOCUS_NODE_CHIPS &&
+        target < (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)MESH_UI_NODES_CHIP_COUNT) {
+        return nav->screen == MESH_UI_SCREEN_NODES && !nav->node_detail_open &&
+               !nav->node_actions_open && !nav->node_sort_open;
+    }
+    return false;
+}
+
 /* A shoulder, pressed until `screen` is up or a press stops moving - whichever way round the
    strip is shorter, since it wraps. */
 static bool mesh_ui_nav_click_tab(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,

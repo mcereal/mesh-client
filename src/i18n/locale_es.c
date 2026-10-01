@@ -2353,4 +2353,20 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Se descarga la imagen, la radio sale de la malla y se reinicia en su cargador de "
         "actualización. De ahí solo se sale terminando, lo que tarda unos cuatro minutos. "
         "Mantén este ordenador cerca de la radio hasta entonces.",
+    [MESH_STR_MENU_FILE] = "Archivo",
+    [MESH_STR_MENU_EDIT] = "Edición",
+    [MESH_STR_MENU_VIEW] = "Visualización",
+    [MESH_STR_MENU_GO] = "Ir",
+    [MESH_STR_MENU_HELP] = "Ayuda",
+    [MESH_STR_MENU_SETTINGS] = "Ajustes…",
+    [MESH_STR_MENU_NEW] = "Nuevo",
+    [MESH_STR_MENU_SAVE] = "Guardar",
+    [MESH_STR_MENU_PASTE] = "Pegar",
+    [MESH_STR_MENU_FIND] = "Buscar",
+    [MESH_STR_MENU_REFRESH] = "Actualizar",
+    [MESH_STR_MENU_ZOOM_IN] = "Ampliar",
+    [MESH_STR_MENU_ZOOM_OUT] = "Reducir",
+    [MESH_STR_MENU_FIT] = "Ajustar al contenido",
+    [MESH_STR_MENU_BACK] = "Atrás",
+    [MESH_STR_MENU_HELP_ITEM] = "Ayuda de MeshClient",
 };
