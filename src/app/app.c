@@ -592,7 +592,10 @@ static bool mesh_app_select_sdl(struct mesh_app *app, const struct inkcell_backe
         *backend = inkcell_backend_sdl();
     }
     if (userdata != NULL) {
+        /* Its own statement: the order an initializer list's expressions are evaluated in is
+           not specified, so `.menu_count` could be read before the call below filled it. */
         size_t menu_count = 0U;
+        const struct inkcell_sdl_menu_item *const menu = mesh_ui_menu_items(&menu_count);
         app->ui_sdl_context = (struct inkcell_backend_sdl_context){
             .app = fb_app_vtable(),
             /* The same three calls over inkwell_loop the evdev reader is handed, because SDL
@@ -609,7 +612,7 @@ static bool mesh_app_select_sdl(struct mesh_app *app, const struct inkcell_backe
             .on_text_input = mesh_app_on_ui_text,
             /* The menu bar on a Mac, and the same chords with Control anywhere else - see
                mesh/ui/menu.h. */
-            .menu = mesh_ui_menu_items(&menu_count),
+            .menu = menu,
             .menu_count = menu_count,
             .menu_titles = mesh_ui_menu_titles(),
             .menu_enabled = mesh_app_ui_menu_offered,

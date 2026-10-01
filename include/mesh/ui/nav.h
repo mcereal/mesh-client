@@ -1314,8 +1314,8 @@ bool mesh_ui_nav_handle_click(struct mesh_ui_nav *nav, const struct mesh_ui_stor
                               uint32_t target, struct mesh_ui_action *out_action);
 
 /*
- * Whether a click on `target` would be answered now, without making it: a tab while nothing
- * modal is up, the Nodes list's chips while the list is the screen. Only those two - what a
+ * Whether a click on `target` would be answered now, without making it: another tab while
+ * nothing modal is up, the Nodes list's chips while the list is the screen. Only those two - what a
  * menu item may name (mesh/ui/menu.h) - and false for every other target, which a menu does
  * not reach.
  */

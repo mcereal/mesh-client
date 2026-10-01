@@ -780,6 +780,7 @@ MESH_TEST_CASE(ui_menu_items_are_the_clicks_they_name, unit) {
     inkwell_loop_run(&loop, 0);
 
     const uint32_t nodes_tab = (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_NODES;
+    const uint32_t messages_tab = (uint32_t)MESH_UI_FOCUS_TABS + (uint32_t)MESH_UI_SCREEN_MESSAGES;
     const uint32_t find = (uint32_t)MESH_UI_FOCUS_NODE_CHIPS + (uint32_t)MESH_UI_NODES_CHIP_FIND;
     if (!mesh_ui_controller_menu_offered(&controller, nodes_tab) ||
         mesh_ui_controller_menu_offered(&controller, find)) {
@@ -789,8 +790,10 @@ MESH_TEST_CASE(ui_menu_items_are_the_clicks_they_name, unit) {
     mesh_ui_controller_handle_menu(&controller, nodes_tab);
     inkwell_loop_run(&loop, 0);
     if (backend.last_snapshot.nav.screen != MESH_UI_SCREEN_NODES ||
-        !mesh_ui_controller_menu_offered(&controller, find)) {
-        failure = "a tab item should change tab, and the Nodes list should offer Find";
+        !mesh_ui_controller_menu_offered(&controller, find) ||
+        mesh_ui_controller_menu_offered(&controller, nodes_tab) ||
+        !mesh_ui_controller_menu_offered(&controller, messages_tab)) {
+        failure = "a tab item should change tab and grey itself out, and Nodes should offer Find";
         goto cleanup;
     }
     mesh_ui_controller_handle_menu(&controller, find);
@@ -801,7 +804,7 @@ MESH_TEST_CASE(ui_menu_items_are_the_clicks_they_name, unit) {
         failure = "Find should open the search field the chip opens";
         goto cleanup;
     }
-    if (mesh_ui_controller_menu_offered(&controller, nodes_tab) ||
+    if (mesh_ui_controller_menu_offered(&controller, messages_tab) ||
         mesh_ui_controller_menu_offered(&controller, (uint32_t)MESH_UI_FOCUS_ROWS)) {
         failure = "with the field open no tab is offered, and a target no menu names never is";
         goto cleanup;

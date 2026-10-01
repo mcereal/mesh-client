@@ -45,10 +45,8 @@ static const struct inkcell_sdl_menu_item k_menu_items[] = {
 
 static const inkcell_str_id k_menu_titles[INKCELL_SDL_MENU_COUNT] = {
     /* INKCELL_SDL_MENU_APP is left out: AppKit titles the application's menu with its name. */
-    [INKCELL_SDL_MENU_FILE] = MESH_STR_MENU_FILE,
-    [INKCELL_SDL_MENU_EDIT] = MESH_STR_MENU_EDIT,
-    [INKCELL_SDL_MENU_VIEW] = MESH_STR_MENU_VIEW,
-    [INKCELL_SDL_MENU_GO] = MESH_STR_MENU_GO,
+    [INKCELL_SDL_MENU_FILE] = MESH_STR_MENU_FILE, [INKCELL_SDL_MENU_EDIT] = MESH_STR_MENU_EDIT,
+    [INKCELL_SDL_MENU_VIEW] = MESH_STR_MENU_VIEW, [INKCELL_SDL_MENU_GO] = MESH_STR_MENU_GO,
     [INKCELL_SDL_MENU_HELP] = MESH_STR_MENU_HELP,
 };
 
