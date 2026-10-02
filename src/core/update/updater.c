@@ -764,6 +764,42 @@ static int updater_replace_binary(const struct mesh_updater *updater) {
 #endif
 }
 
+/*
+ * The part of an ELF header that says what it runs on: the magic, the class (32 or 64 bit) and
+ * byte order at 4 and 5, and e_machine at 18. The OS/ABI byte at 7 is left out on purpose - a
+ * static glibc build says GNU there and an otherwise identical one says System V.
+ */
+#define MESH_UPDATE_ELF_HEAD 20U
+
+static bool updater_read_elf_head(const char *path, uint8_t head[MESH_UPDATE_ELF_HEAD]) {
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return false;
+    }
+    const size_t got = fread(head, 1U, MESH_UPDATE_ELF_HEAD, file);
+    fclose(file);
+    return got == MESH_UPDATE_ELF_HEAD && memcmp(head,
+                                                 "\x7f"
+                                                 "ELF",
+                                                 4U) == 0;
+}
+
+bool mesh_updater_runs_here(const char *installed, const char *candidate) {
+    if (installed == NULL || candidate == NULL) {
+        return false;
+    }
+    uint8_t have[MESH_UPDATE_ELF_HEAD];
+    if (!updater_read_elf_head(installed, have)) {
+        return true;
+    }
+    uint8_t want[MESH_UPDATE_ELF_HEAD];
+    if (!updater_read_elf_head(candidate, want)) {
+        return false;
+    }
+    /* With the byte order equal, comparing e_machine's two raw bytes is comparing the value. */
+    return have[4] == want[4] && have[5] == want[5] && have[18] == want[18] && have[19] == want[19];
+}
+
 /* ---- steps ------------------------------------------------------------------------------ */
 
 int mesh_updater_init(struct mesh_updater *updater, struct inkwell_loop *loop) {
@@ -1152,6 +1188,13 @@ static void updater_on_download_done(void *userdata, const struct inkwell_fetch_
         inkwell_log_warn("update", "Checksum mismatch: got %s, expected %s", hex,
                          updater->asset_sha256);
         updater_set(updater, MESH_UPDATE_FAILED, inkcell_str(MESH_STR_UPDATE_CHECKSUM_MISMATCH));
+        (void)unlink(updater->staged_path);
+        return;
+    }
+    if (!mesh_updater_runs_here(updater->install_path, updater->staged_path)) {
+        inkwell_log_warn("update", "%s is built for another machine than %s; not installing it",
+                         mesh_updater_asset_name(), updater->install_path);
+        updater_set(updater, MESH_UPDATE_FAILED, inkcell_str(MESH_STR_UPDATE_WRONG_MACHINE));
         (void)unlink(updater->staged_path);
         return;
     }

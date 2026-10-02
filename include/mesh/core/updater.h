@@ -239,6 +239,19 @@ bool mesh_updater_parse_release(const char *json, const char *repo, const char *
                                 size_t out_url_len, char *out_sha256, size_t out_sha256_len,
                                 uint64_t *out_size);
 
+/*
+ * Whether `candidate` can run where `installed` does: false only when `installed` is an ELF
+ * executable and `candidate` is not one of the same class, byte order and machine.
+ *
+ * The checksum proves a download is the release's asset; this proves it is this device's. A
+ * build that names the wrong asset - a Miyoo build from before its own existed fell back to the
+ * Brick's - passes the checksum and installs an aarch64 binary that the 32-bit kernel cannot
+ * execute, leaving nothing on the card that can update it back. Anything that is not an ELF
+ * on the installed side (a Mac bundle, a Windows .exe, a path with nothing there yet) is
+ * answered true: there is no header to hold the download to.
+ */
+bool mesh_updater_runs_here(const char *installed, const char *candidate);
+
 /* owner/repo the updater asks about, and the release asset it looks for. Both are overridable
    through the environment (MESHCLIENT_UPDATE_REPO, MESHCLIENT_UPDATE_ASSET) so a fork or a
    test can point them elsewhere. */

@@ -1922,6 +1922,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_UPDATE_HASH_FAILED] = "No se pudo calcular la suma de verificación",
     [MESH_STR_UPDATE_CHECKSUM_MISMATCH] = "Suma de verificación incorrecta; descartado",
     [MESH_STR_UPDATE_CHMOD_FAILED] = "No se pudo hacer ejecutable la actualización",
+    [MESH_STR_UPDATE_WRONG_MACHINE] = "La actualización es para otro dispositivo; descartada",
     [MESH_STR_UPDATE_INSTALL_FAILED] = "Falló la instalación: %s",
     [MESH_STR_UPDATE_INSTALLED] = "%s instalado; vuelve a abrir para usarlo",
     [MESH_STR_UPDATE_TIMED_OUT] = "Tiempo agotado al conectar con GitHub",
