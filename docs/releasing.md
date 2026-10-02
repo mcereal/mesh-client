@@ -104,9 +104,11 @@ Base64-encoded Developer ID Application certificate and private key exported as 
 The `.p12` and password belong only in Actions secrets, never in the repository. A missing or
 invalid identity or rejected notarization fails the macOS job before it can upload an asset.
 
-**The icon is one image, drawn two ways.** `packaging/icon/meshclient.png` is the artwork;
+**The icon is one image, drawn three ways.** `packaging/icon/meshclient.png` is the artwork;
 [`scripts/gen-icons.py`](../scripts/gen-icons.py) (by hand, needs Pillow, output committed) cuts
-it into the layer of `packaging/macos/MeshClient.icon` and draws `packaging/windows/meshclient.ico`.
+it into the layer of `packaging/macos/MeshClient.icon`, draws `packaging/windows/meshclient.ico`,
+and scales the Windows tile to Onion OS's 74 px as `packaging/miyoomini/icon.png` - MainUI shows
+a placeholder rather than the 1000 px source.
 The Mac's is an Icon Composer icon rather than an `.icns` because macOS 26 shrinks a finished
 `.icns` into a grey tile; `package-macos.sh` compiles it with `actool` into an `Assets.car`
 (macOS 26) and an `.icns` (macOS 11 to 15), which is why it needs Xcode 26 or later installed -
@@ -121,8 +123,10 @@ unstamped development builds, so a packaging break shows in review, not at relea
 is only right for the build published under that name; `linux-cli-build.sh` passes
 `-DMESHCLIENT_UPDATE_ASSET=meshclient-linux-<arch>` and asserts the name survived into the
 binary. `package-macos.sh` and `package-windows.ps1` pass their own names the same way. Leave it
-out of a *new* published build and that build installs the handheld's aarch64 binary over itself
-the first time somebody updates it.
+out of a *new* published build and that build downloads the handheld's aarch64 binary the first
+time somebody updates it. On Linux the install then refuses it - `mesh_updater_runs_here()` holds a
+download to the ELF class, byte order and machine of the binary it would replace - but a Mac or
+Windows build has no such check.
 
 The updater verifies against the `digest` GitHub reports for the asset, not the `.sha256` file.
 **Renaming or dropping the binary asset breaks self-update for every installed client** — keep
