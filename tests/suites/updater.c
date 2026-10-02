@@ -38,6 +38,38 @@ static const char k_release_json[] =
 
 /* ---- client version and self-update ------------------------------------------------------- */
 
+/* A file that starts the way an executable for `machine` does - enough header for the updater's
+   check, padded so it is not mistaken for a short read. */
+static bool updater_write_elf(const char *path, uint8_t elf_class, uint8_t byte_order,
+                              uint16_t machine) {
+    uint8_t head[64];
+    memset(head, 0, sizeof head);
+    memcpy(head,
+           "\x7f"
+           "ELF",
+           4U);
+    head[4] = elf_class;
+    head[5] = byte_order;
+    head[6] = 1U;
+    head[16] = 2U; /* ET_EXEC */
+    head[18] = byte_order == 1U ? (uint8_t)(machine & 0xffU) : (uint8_t)(machine >> 8);
+    head[19] = byte_order == 1U ? (uint8_t)(machine >> 8) : (uint8_t)(machine & 0xffU);
+    FILE *file = fopen(path, "wb");
+    if (file == NULL) {
+        return false;
+    }
+    const bool wrote = fwrite(head, 1U, sizeof head, file) == sizeof head;
+    return fclose(file) == 0 && wrote;
+}
+
+/* e_machine values, and the two classes: the Brick is 64-bit ARM, the Miyoo 32-bit. */
+#define TEST_EM_ARM 40U
+#define TEST_EM_AARCH64 183U
+#define TEST_ELF32 1U
+#define TEST_ELF64 2U
+#define TEST_LSB 1U
+#define TEST_MSB 2U
+
 /*
  * What this build says it is, and what it will therefore accept as an update.
  *
@@ -703,6 +735,64 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
         goto cleanup;
     }
 
+#if !defined(__APPLE__)
+    /*
+     * And a download the checksum passes but this device cannot run. The installed binary is
+     * made a 32-bit ARM one - the Miyoo - and the release serves the Brick's aarch64 binary
+     * under a digest that matches it, which is exactly what a build naming the wrong asset gets.
+     * (On a Mac the install is a bundle, which has no ELF header to hold anything to.)
+     */
+    if (!updater_write_elf(installed_binary, TEST_ELF32, TEST_LSB, TEST_EM_ARM) ||
+        !updater_write_elf(payload_path, TEST_ELF64, TEST_LSB, TEST_EM_AARCH64) ||
+        inkwell_sha256_file(installed_binary, binary_digest) != 0 ||
+        inkwell_sha256_file(payload_path, digest) != 0 || stat(payload_path, &served) != 0) {
+        failure = "could not write the two machines' binaries";
+        goto cleanup;
+    }
+    inkwell_sha256_hex(digest, digest_hex, sizeof digest_hex);
+    json = fopen(json_path, "wb");
+    if (json == NULL) {
+        failure = "could not rewrite the release json";
+        goto cleanup;
+    }
+    fprintf(json,
+            "{\"tag_name\":\"v999.0.2\",\"assets\":[{\"name\":\"meshclient-tg5040-aarch64\","
+            "\"size\":%zu,\"browser_download_url\":\"https://github.com/mcereal/mesh-client/"
+            "releases/download/v999.0.2/meshclient-tg5040-aarch64\",\"digest\":\"sha256:%s\"}]}",
+            (size_t)served.st_size, digest_hex);
+    fclose(json);
+
+    updater.state = MESH_UPDATE_IDLE;
+    if (mesh_updater_check(&updater, 0U) != 0 ||
+        !updater_wait_past(&loop, &updater, MESH_UPDATE_CHECKING) ||
+        strcmp(updater.asset_sha256, digest_hex) != 0) {
+        failure = "the third check should read the aarch64 release";
+        goto cleanup;
+    }
+    updater.state = MESH_UPDATE_AVAILABLE;
+    if (mesh_updater_install(&updater, 0U) != 0 ||
+        !updater_wait_past(&loop, &updater, MESH_UPDATE_DOWNLOADING)) {
+        failure = "the third install should run";
+        goto cleanup;
+    }
+    if (updater.state != MESH_UPDATE_FAILED ||
+        strcmp(updater.message, inkcell_str(MESH_STR_UPDATE_WRONG_MACHINE)) != 0) {
+        failure = updater.message[0] != '\0'
+                      ? updater.message
+                      : "another machine's binary must fail the install, saying so";
+        goto cleanup;
+    }
+    if (access(staged, F_OK) == 0) {
+        failure = "another machine's binary should not be left on disk";
+        goto cleanup;
+    }
+    if (inkwell_sha256_file(installed_binary, installed) != 0 ||
+        memcmp(installed, binary_digest, sizeof binary_digest) != 0) {
+        failure = "another machine's binary must leave the installed one alone";
+        goto cleanup;
+    }
+#endif
+
 cleanup:
     if (updater_up) {
         mesh_updater_shutdown(&updater);
@@ -889,6 +979,64 @@ MESH_TEST_CASE(version_build_stamp, unit) {
                       "an unstamped build must never be offered an update");
     record_success(test_name);
 #endif
+}
+
+/*
+ * A download is held to the binary it replaces, not only to the release's checksum.
+ *
+ * A Miyoo build from before it had an asset of its own asked for the Brick's, which the
+ * checksum passed, and the aarch64 binary it installed could not be run by the Miyoo's 32-bit
+ * kernel - so the app would not open again, and nothing left on the card could update it back.
+ */
+MESH_TEST_CASE(updater_refuses_another_machines_binary, unit) {
+    char dir[] = "/tmp/meshclient_elf_XXXXXX";
+    MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "could not create a temporary directory");
+    char arm[256], aarch64[256], arm_msb[256], aarch64_32[256], script[256], missing[256];
+    snprintf(arm, sizeof arm, "%s/arm", dir);
+    snprintf(aarch64, sizeof aarch64, "%s/aarch64", dir);
+    snprintf(arm_msb, sizeof arm_msb, "%s/arm-msb", dir);
+    snprintf(aarch64_32, sizeof aarch64_32, "%s/aarch64-32", dir);
+    snprintf(script, sizeof script, "%s/script", dir);
+    snprintf(missing, sizeof missing, "%s/missing", dir);
+    FILE *file = fopen(script, "wb");
+    const bool made = updater_write_elf(arm, TEST_ELF32, TEST_LSB, TEST_EM_ARM) &&
+                      updater_write_elf(aarch64, TEST_ELF64, TEST_LSB, TEST_EM_AARCH64) &&
+                      updater_write_elf(arm_msb, TEST_ELF32, TEST_MSB, TEST_EM_ARM) &&
+                      updater_write_elf(aarch64_32, TEST_ELF32, TEST_LSB, TEST_EM_AARCH64) &&
+                      file != NULL && fputs("#!/bin/sh\nexit 0\n", file) >= 0;
+    if (file != NULL) {
+        fclose(file);
+    }
+
+    const char *failure = NULL;
+    if (!made) {
+        failure = "could not write the test executables";
+    } else if (!mesh_updater_runs_here(arm, arm) || !mesh_updater_runs_here(aarch64, aarch64)) {
+        failure = "a binary for the same machine should be accepted";
+    } else if (mesh_updater_runs_here(arm, aarch64)) {
+        failure = "the Brick's aarch64 binary must not replace a 32-bit ARM one";
+    } else if (mesh_updater_runs_here(aarch64, arm)) {
+        failure = "a 32-bit ARM binary must not replace an aarch64 one";
+    } else if (mesh_updater_runs_here(arm, aarch64_32)) {
+        failure = "the same class on another machine must be refused";
+    } else if (mesh_updater_runs_here(arm, arm_msb)) {
+        failure = "the same machine in the other byte order must be refused";
+    } else if (mesh_updater_runs_here(arm, script) || mesh_updater_runs_here(arm, missing)) {
+        failure = "something that is not an ELF must not replace one";
+    } else if (!mesh_updater_runs_here(script, aarch64) ||
+               !mesh_updater_runs_here(missing, aarch64)) {
+        /* A Mac bundle, a Windows .exe and the test suite's own stand-ins land here. */
+        failure = "with no ELF installed there is nothing to hold the download to";
+    }
+
+    unlink(arm);
+    unlink(aarch64);
+    unlink(arm_msb);
+    unlink(aarch64_32);
+    unlink(script);
+    rmdir(dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }
 
 /*

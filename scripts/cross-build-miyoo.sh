@@ -83,7 +83,8 @@ rm -rf "$OUT"
 mkdir -p "$OUT/licenses"
 cp "$BUILD_DIR/meshclient" "$OUT/meshclient"
 cp Tools/miyoomini/MeshClient/launch.sh Tools/miyoomini/MeshClient/config.json "$OUT/"
-cp packaging/icon/meshclient.png "$OUT/icon.png"
+# 74 px, as Onion's own are; MainUI shows a placeholder for the 1000 px source.
+cp packaging/miyoomini/icon.png "$OUT/icon.png"
 cp licenses/*.txt "$OUT/licenses/"
 chmod +x "$OUT/launch.sh" "$OUT/meshclient"
 

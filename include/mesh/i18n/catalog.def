@@ -3406,6 +3406,9 @@ MESH_STR_ENTRY(UPDATE_FILE_WRONG_SIZE,    "Downloaded file is the wrong size")
 MESH_STR_ENTRY(UPDATE_HASH_FAILED,        "Could not hash the download")
 MESH_STR_ENTRY(UPDATE_CHECKSUM_MISMATCH,  "Checksum mismatch; discarded")
 MESH_STR_ENTRY(UPDATE_CHMOD_FAILED,       "Could not make the update executable")
+/* The release's file was built for another device (a different processor); nothing was
+   installed. */
+MESH_STR_ENTRY(UPDATE_WRONG_MACHINE,      "Update is for a different device; discarded")
 /* The %s is the C library's own description of an errno and arrives untranslated. */
 MESH_STR_ENTRY(UPDATE_INSTALL_FAILED,     "Install failed: %s")
 MESH_STR_ENTRY(UPDATE_INSTALLED,          "%s installed - relaunch to run it")

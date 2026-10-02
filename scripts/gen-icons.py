@@ -17,6 +17,9 @@ writes:
         scripts/package-macos.sh compiles the whole .icon with actool.
     packaging/windows/meshclient.ico
         the executable's icon resource and the installer's, 16 px to 256 px.
+    packaging/miyoomini/icon.png
+        the Onion OS app icon: the Windows tile at 74 px, the size of Onion's own. MainUI shows
+        its placeholder instead of an icon much larger than that, and the 1000 px source is.
 
 Why the Mac gets a layer and not a picture: macOS 26 draws every app icon in its own squircle,
 and one that arrives as a finished picture - an .icns of a rounded tile - is shrunk and set inside
@@ -33,12 +36,15 @@ ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "packaging" / "icon" / "meshclient.png"
 LAYER = ROOT / "packaging" / "macos" / "MeshClient.icon" / "Assets" / "lizard.png"
 ICO = ROOT / "packaging" / "windows" / "meshclient.ico"
+ONION = ROOT / "packaging" / "miyoomini" / "icon.png"
 
 MASTER = 1024
 # Windows: a thin margin and a rounded corner, at 1024.
 WIN_TILE = 984
 WIN_RADIUS = 220
 ICO_SIZES = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
+# Onion OS: every icon under /mnt/SDCARD/Icons/Default/app is 74x74.
+ONION_SIZE = 74
 
 
 def without_background(art: Image.Image) -> Image.Image:
@@ -95,12 +101,14 @@ def main() -> None:
     LAYER.parent.mkdir(parents=True, exist_ok=True)
     without_background(master).save(LAYER, optimize=True)
 
+    tile = rounded_tile(master, WIN_TILE, WIN_RADIUS)
     ICO.parent.mkdir(parents=True, exist_ok=True)
-    rounded_tile(master, WIN_TILE, WIN_RADIUS).save(
-        ICO, format="ICO", sizes=[(s, s) for s in ICO_SIZES]
-    )
+    tile.save(ICO, format="ICO", sizes=[(s, s) for s in ICO_SIZES])
 
-    for path in (LAYER, ICO):
+    ONION.parent.mkdir(parents=True, exist_ok=True)
+    tile.resize((ONION_SIZE, ONION_SIZE), Image.LANCZOS).save(ONION, optimize=True)
+
+    for path in (LAYER, ICO, ONION):
         print(f"wrote {path.relative_to(ROOT)} ({path.stat().st_size} bytes)")
 
 
