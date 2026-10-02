@@ -1,3 +1,15 @@
+## [2.75.1](https://github.com/mcereal/mesh-client/compare/v2.75.0...v2.75.1) (2026-10-02)
+
+### Bug Fixes
+
+* **build:** ship the Miyoo an icon Onion will draw ([1d3aa0d](https://github.com/mcereal/mesh-client/commit/1d3aa0d6d11a6ed820c7098fe4a48ef4f0ca15ce))
+* **update:** refuse a download built for another machine ([fd44033](https://github.com/mcereal/mesh-client/commit/fd44033f4d99eb465e582d30d7bb4c222360cd5c))
+
+### Documentation
+
+* give the Miyoo its own first five minutes ([9175ee7](https://github.com/mcereal/mesh-client/commit/9175ee7cb405d79e2aae233963670c46c409e15b))
+* install the Miyoo Mini Plus build, and what it cannot do ([1d0ab27](https://github.com/mcereal/mesh-client/commit/1d0ab271f0264805db253c688a4e0b9f77d38606))
+
 ## [2.75.0](https://github.com/mcereal/mesh-client/compare/v2.74.0...v2.75.0) (2026-10-01)
 
 ### Features
