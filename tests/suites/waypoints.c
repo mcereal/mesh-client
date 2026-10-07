@@ -338,6 +338,21 @@ MESH_TEST_CASE(waypoint_lock_refuses_other_senders, unit) {
     MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &packet, 0U, WP_NOW) != 1 || book.count != 0U,
                       "the owner may withdraw a locked place");
 
+    /* A lock on a place that has already expired binds nobody: the tick would have retired it,
+       and the answer should not depend on whether it ran first. */
+    MESH_TEST_FAIL_IF(
+        !wp_packet(&packet, 0x1111U, 8U, "Camp", WP_HOME_LAT, WP_HOME_LON, WP_NOW + 60U) ||
+            !wp_lock_packet(&packet, 0x1111U),
+        "could not encode an expiring locked waypoint");
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &packet, 0U, WP_NOW) != 1, "should have stored");
+    MESH_TEST_FAIL_IF(!wp_packet(&packet, 0x2222U, 8U, "Gate", WP_EAST_LAT, WP_EAST_LON, 0U),
+                      "could not encode the stranger's place");
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &packet, 0U, WP_NOW + 120U) != 1,
+                      "an expired lock should not refuse a live place with the same id");
+    entry = mesh_waypoint_book_get(&book, 8U);
+    MESH_TEST_FAIL_IF(entry == NULL || strcmp(entry->name, "Gate") != 0,
+                      "the new place should have replaced the expired one");
+
     record_success(test_name);
 }
 

@@ -218,9 +218,12 @@ int mesh_waypoint_ingest_stored(struct mesh_waypoint_book *book,
      * The lock that counts is the one already held - the incoming copy's own `locked_to` is
      * whatever its sender chose, and a sender that may not edit would simply clear it. Both an
      * edit and a withdrawal are refused, because a tombstone is just an edit with a past expiry.
+     * A held copy that has already expired is a place the next tick would retire, so its lock
+     * binds nobody: whether a packet is accepted must not depend on which of the two ran first.
      */
     const struct mesh_waypoint *held = mesh_waypoint_book_find(book, waypoint.id);
-    if (held != NULL && held->locked_to != 0U && packet->from != held->locked_to) {
+    if (held != NULL && held->locked_to != 0U && packet->from != held->locked_to &&
+        mesh_waypoint_state(held, heard) == MESH_WAYPOINT_LIVE) {
         inkwell_log_info("waypoint",
                          "Ignoring a change to waypoint %u from 0x%08x: locked to 0x%08x",
                          waypoint.id, packet->from, held->locked_to);
