@@ -212,6 +212,22 @@ int mesh_waypoint_ingest_stored(struct mesh_waypoint_book *book,
                               sizeof waypoint.description);
 
     /*
+     * A lock is a promise about who may change a place, and it is kept on the way in as well as
+     * on the way out: mesh_session_forget_waypoint() will not withdraw somebody else's locked
+     * place, and a stranger's re-broadcast is not allowed to do here what this client would not.
+     * The lock that counts is the one already held - the incoming copy's own `locked_to` is
+     * whatever its sender chose, and a sender that may not edit would simply clear it. Both an
+     * edit and a withdrawal are refused, because a tombstone is just an edit with a past expiry.
+     */
+    const struct mesh_waypoint *held = mesh_waypoint_book_find(book, waypoint.id);
+    if (held != NULL && held->locked_to != 0U && packet->from != held->locked_to) {
+        inkwell_log_info("waypoint",
+                         "Ignoring a change to waypoint %u from 0x%08x: locked to 0x%08x",
+                         waypoint.id, packet->from, held->locked_to);
+        return 0;
+    }
+
+    /*
      * Two ways a place can arrive already gone, and `heard` is what tells them apart.
      *
      * A tombstone is recognised with no clock at all and is always a withdrawal. A dated expiry
@@ -228,7 +244,7 @@ int mesh_waypoint_ingest_stored(struct mesh_waypoint_book *book,
         return had ? 1 : 0;
     }
 
-    const bool known = mesh_waypoint_book_find(book, waypoint.id) != NULL;
+    const bool known = held != NULL;
     const struct mesh_waypoint *stored = mesh_waypoint_book_store(book, &waypoint);
     if (stored == NULL) {
         return -ENOMEM;

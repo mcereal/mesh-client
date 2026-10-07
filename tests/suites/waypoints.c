@@ -270,6 +270,77 @@ MESH_TEST_CASE(waypoint_expiry_and_withdrawal, unit) {
     record_success(test_name);
 }
 
+/* wp_packet() with a lock on it: the payload decoded, locked, and encoded back. */
+static bool wp_lock_packet(meshtastic_MeshPacket *packet, uint32_t locked_to) {
+    meshtastic_Waypoint waypoint = meshtastic_Waypoint_init_default;
+    pb_istream_t in =
+        pb_istream_from_buffer(packet->decoded.payload.bytes, packet->decoded.payload.size);
+    if (!pb_decode(&in, meshtastic_Waypoint_fields, &waypoint)) {
+        return false;
+    }
+    waypoint.locked_to = locked_to;
+    pb_ostream_t out =
+        pb_ostream_from_buffer(packet->decoded.payload.bytes, sizeof packet->decoded.payload.bytes);
+    if (!pb_encode(&out, meshtastic_Waypoint_fields, &waypoint)) {
+        return false;
+    }
+    packet->decoded.payload.size = (pb_size_t)out.bytes_written;
+    return true;
+}
+
+/*
+ * A locked place changes only for the node it is locked to.
+ *
+ * The send side already refuses to withdraw somebody else's locked place; this is the same
+ * promise on the way in. The lock checked is the one held, not the one arriving, because a
+ * stranger who may not edit would simply send `locked_to` of 0.
+ */
+MESH_TEST_CASE(waypoint_lock_refuses_other_senders, unit) {
+    struct mesh_waypoint_book book;
+    mesh_waypoint_book_reset(&book);
+    meshtastic_MeshPacket packet;
+
+    MESH_TEST_FAIL_IF(!wp_packet(&packet, 0x1111U, 7U, "Bridge", WP_HOME_LAT, WP_HOME_LON, 0U) ||
+                          !wp_lock_packet(&packet, 0x1111U),
+                      "could not encode a locked waypoint");
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &packet, 0U, WP_NOW) != 1, "should have stored");
+
+    /* Another node moves it, with the lock cleared on its copy. */
+    MESH_TEST_FAIL_IF(!wp_packet(&packet, 0x2222U, 7U, "Ford", WP_EAST_LAT, WP_EAST_LON, 0U),
+                      "could not encode the edit");
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &packet, 0U, WP_NOW) != 0,
+                      "an edit from a node the place is not locked to should change nothing");
+    const struct mesh_waypoint *entry = mesh_waypoint_book_get(&book, 7U);
+    MESH_TEST_FAIL_IF(entry == NULL || strcmp(entry->name, "Bridge") != 0 ||
+                          entry->locked_to != 0x1111U || entry->from != 0x1111U,
+                      "the locked place should be as its owner left it");
+
+    /* And withdraws it. */
+    MESH_TEST_FAIL_IF(!wp_packet(&packet, 0x2222U, 7U, "Bridge", WP_HOME_LAT, WP_HOME_LON,
+                                 MESH_WAYPOINT_EXPIRE_DELETED),
+                      "could not encode the withdrawal");
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &packet, 0U, WP_NOW) != 0,
+                      "a withdrawal from a node the place is not locked to should change nothing");
+    MESH_TEST_FAIL_IF(book.count != 1U, "the locked place should still be held");
+
+    /* The node it is locked to may do both. */
+    MESH_TEST_FAIL_IF(!wp_packet(&packet, 0x1111U, 7U, "Ford", WP_EAST_LAT, WP_EAST_LON, 0U) ||
+                          !wp_lock_packet(&packet, 0x1111U),
+                      "could not encode the owner's edit");
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &packet, 0U, WP_NOW) != 1,
+                      "the owner's edit should be stored");
+    entry = mesh_waypoint_book_get(&book, 7U);
+    MESH_TEST_FAIL_IF(entry == NULL || strcmp(entry->name, "Ford") != 0,
+                      "the owner's edit should have taken");
+    MESH_TEST_FAIL_IF(!wp_packet(&packet, 0x1111U, 7U, "Ford", WP_EAST_LAT, WP_EAST_LON,
+                                 MESH_WAYPOINT_EXPIRE_DELETED),
+                      "could not encode the owner's withdrawal");
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &packet, 0U, WP_NOW) != 1 || book.count != 0U,
+                      "the owner may withdraw a locked place");
+
+    record_success(test_name);
+}
+
 /*
  * A dated expiry is honoured once there is a clock to read it against, and only then.
  *
