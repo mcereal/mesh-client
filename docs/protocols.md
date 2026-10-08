@@ -361,7 +361,7 @@ end.
 
 Tern's companion protocol is the third conversation: `include/mesh/core/tern.h`, with the codec
 in `src/core/tern/tern_codec.c`, the conversation in `tern.c` and the stream framing in
-`src/proto/tern_framing.c`. Written from draft 0 of `draft/companion.md` in
+`src/proto/tern_framing.c`. Written from version 3 of `draft/companion.md` in
 [ternmesh/spec](https://github.com/ternmesh/spec) alone - nothing of the Meshtastic or MeshCore
 code here goes the other way - and checked against that repository's vectors, which
 `tests/data/tern_companion.json` and `tern_routing.json` carry verbatim.
@@ -369,7 +369,13 @@ code here goes the other way - and checked against that repository's vectors, wh
 - **Frames** are a type, a sequence byte and big-endian fields in a fixed order, at most 180
   bytes. The codec is one table, a row per type, which reading and writing both walk. A reader
   ignores bytes past the fields it knows; a request the client cannot read is the node's
-  problem, news it cannot read is ignored.
+  problem, news of a type it does not know is ignored.
+- **Versions.** HELLO carries the client's (`MESH_TERN_VERSION`, 3) and INFO the node's, and both
+  ends speak the lesser. Every frame is read by that version - each row and field of the table
+  carries the version that defines it - so a version 2 node's SYNCED is its two bytes, and news
+  of a type the version does not define is unknown before its bytes are looked at, even cut
+  short. A request the version lacks (END_SESSION before 1, a group request before 2) is refused
+  with `-EOPNOTSUPP` and never sent.
 - **Serial and TCP** frame as `0xF5 0x54`, a big-endian length, the frame and a CRC-16/IBM-3740
   over the length and the frame: `mesh_stream_framing_tern`. `0xF5` never occurs in UTF-8, so
   the node's console text, which shares the port, never starts a frame; a header with a bad
@@ -386,17 +392,28 @@ code here goes the other way - and checked against that repository's vectors, wh
   and the link is dropped and reopened. With nothing to ask, a PING goes `IDLE` (20 s) after the
   last answer - over USB that is the only way the node knows the client is still there, and
   ERROR 6 afterwards means it decided otherwise: the conversation says HELLO again.
-- **News is counted.** The node numbers its news from 0 after HELLO; a gap is news missed, and
-  the conversation syncs again - after the least id of a message still waiting or sent, less
-  one, since those are the ones whose state may have moved unseen.
+- **News is counted.** The node numbers its news from 0 after HELLO. A gap, news of a known type
+  that cannot be read, or a SYNCED whose count (version 3) is not the one expected is news
+  missed: the sync under way forgets nothing on its account, and another is asked. It asks after
+  the greatest id held when news was first missed, or one less than the least id that may still
+  change (`mesh_tern.open`: a message or invite waiting or sent, a group message waiting,
+  anything received and unread), whichever is lower; that mark holds until a sync finishes. A
+  connection starting counts as news missed, and a sync at a later version than the last one
+  asks from 0, once.
 - **A node is its routing id** (`mesh_tern_routing_id()`, SHA-256 of `"tern routing id"` and
   the address). It is the one number a CONTACT and a MESSAGE (which carry a 32-byte address) and
   a NEIGHBOUR (which carries only the id) all lead to, so the three land on one roster entry.
   The address is the entry's `public_key`; `user_id` is its first six bytes in hex until the
   draft says what a short code is.
-- **A sync is the whole of both lists.** A contact or neighbour it did not send is no longer the
+- **A sync is the whole of three lists.** A contact or neighbour it did not send is no longer the
   node's: it stays on the roster, which outlives the radio's lists, with `in_nodedb` off and a
-  contact's name gone with it.
+  contact's name gone with it. Groups are the third, but only from version 2: an earlier sync
+  sends none, which says nothing of whether they are gone.
+- **Groups** (version 2) are kept in the conversation's own lists - `groups`, and the newest
+  group messages and invites in `group_items` - and go no further: nothing in the model would
+  show a group as anything but a channel or a direct message, so no screen shows them yet. The
+  requests are there (`mesh_tern_make_group()` and the rest); ASKED, the node refusing first
+  contact, is kept as `has_asked` for the screen that will offer to save the address.
 - **A message's id is the node's.** Its packet id in the log is that id scoped to the node
   (`mesh_tern_packet_id()`: XORed with an odd multiple of the node's routing id, since every
   node counts from 1), so a record seen again - a sync after a reconnect, a received message
@@ -412,8 +429,9 @@ code here goes the other way - and checked against that repository's vectors, wh
 - **Airtime** is AIRTIME kept whole on `mesh_tern.airtime`, and the model's `air_util_tx` is the
   share of the region's period this node spent sending. POWER is our node's battery.
 
-The `tern` row in `src/ui/tables/protocols.c` lacks every feature: draft 0 has no channels, no
-link format and no firmware feed, and the client does not yet send SAVE_CONTACT,
-REMOVE_CONTACT, READ (from the UI) or SET. Settings show nothing of SELF yet.
-`tests/suites/tern_codec.c` runs every companion vector; `tests/suites/tern.c` replays the
-spec's exchange through the conversation and holds the rules around it.
+The `tern` row in `src/ui/tables/protocols.c` lacks every feature: the protocol has no
+channels, no link format and no firmware feed, and nothing in the UI yet sends SAVE_CONTACT,
+REMOVE_CONTACT, END_SESSION, READ, SET or a group request. Settings show nothing of SELF yet.
+`tests/suites/tern_codec.c` runs every companion vector but `group_ids` (a client never holds a
+group's secret); `tests/suites/tern.c` replays the spec's exchange and its older clients'
+connections through the conversation and holds the rules around them.

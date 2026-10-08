@@ -14,14 +14,18 @@ struct mesh_session;
 
 /*
  * Tern's companion protocol: what a client says to a node running Tern's firmware, over USB
- * serial, TCP or Bluetooth LE. Draft 0 of `draft/companion.md` in ternmesh/spec, checked
+ * serial, TCP or Bluetooth LE. Version 3 of `draft/companion.md` in ternmesh/spec, checked
  * against that repository's `vectors/companion.json` (tests/data/tern_companion.json here).
  *
  * Every frame is a type byte, a sequence byte and big-endian fields in a fixed order. The
  * client sends requests (0x01-0x3F) one at a time and the node answers each (0x40-0x7F) with
  * the request's sequence byte; news (0x80-0xBF) arrives whenever the node has some, numbered
- * by a count the node starts at 0 when it answers HELLO. Each news frame but STATE and the two
- * _GONEs is a whole record, so a client that applies them in order is right after each.
+ * by a count the node starts at 0 when it answers HELLO. Each news frame but STATE, the three
+ * _GONEs and ASKED is a whole record, so a client that applies them in order is right after each.
+ *
+ * Both ends speak the lesser of their two versions, and a frame is read by that version: a type
+ * it does not define is unknown however its bytes read, and a field it does not define is not
+ * there. Version 1 added END_SESSION and ASKED, version 2 groups, version 3 SYNCED's count.
  *
  * Written from the specification alone. Like meshcore.h the file is two halves: the codec is
  * pure - bytes to a struct and back - and the conversation below it is the struct
@@ -29,13 +33,14 @@ struct mesh_session;
  * model (mesh_session_model_sync_begin()).
  */
 
-#define MESH_TERN_VERSION 0U
+#define MESH_TERN_VERSION 3U
 #define MESH_TERN_MAX_FRAME 180U
 #define MESH_TERN_ADDRESS_LEN 32U
 #define MESH_TERN_NAME_MAX 31U
 #define MESH_TERN_TEXT_MAX 128U
 #define MESH_TERN_FIRMWARE_MAX 31U
 #define MESH_TERN_REGION_MAX 15U
+#define MESH_TERN_GROUP_LEN 8U
 
 /* The specification's timing parameters. */
 #define MESH_TERN_ANSWER_WAIT_MS 5000U
@@ -52,12 +57,20 @@ enum mesh_tern_type {
     MESH_TERN_READ = 0x11,
     MESH_TERN_SAVE_CONTACT = 0x18,
     MESH_TERN_REMOVE_CONTACT = 0x19,
+    MESH_TERN_END_SESSION = 0x1A, /* version 1 */
+    MESH_TERN_MAKE_GROUP = 0x20,  /* this and the rest of the group requests: version 2 */
+    MESH_TERN_LEAVE_GROUP = 0x21,
+    MESH_TERN_NAME_GROUP = 0x22,
+    MESH_TERN_SEND_GROUP = 0x23,
+    MESH_TERN_SEND_INVITE = 0x24,
+    MESH_TERN_JOIN = 0x25,
     /* Answers, node to client. */
     MESH_TERN_OK = 0x40,
     MESH_TERN_ERROR = 0x41,
     MESH_TERN_INFO = 0x42,
     MESH_TERN_SYNCED = 0x43,
     MESH_TERN_QUEUED = 0x44,
+    MESH_TERN_MADE = 0x45, /* version 2 */
     /* News, node to client. */
     MESH_TERN_SELF = 0x80,
     MESH_TERN_CONTACT = 0x81,
@@ -68,6 +81,11 @@ enum mesh_tern_type {
     MESH_TERN_NEIGHBOUR_GONE = 0x86,
     MESH_TERN_AIRTIME = 0x87,
     MESH_TERN_POWER = 0x88,
+    MESH_TERN_ASKED = 0x89, /* version 1 */
+    MESH_TERN_GROUP = 0x8A, /* this and the rest: version 2 */
+    MESH_TERN_GROUP_GONE = 0x8B,
+    MESH_TERN_GROUP_MESSAGE = 0x8C,
+    MESH_TERN_INVITE = 0x8D,
 };
 
 #define MESH_TERN_IS_REQUEST(type) ((type) >= 0x01U && (type) <= 0x3FU)
@@ -90,6 +108,13 @@ enum mesh_tern_error {
     MESH_TERN_ERR_HELLO_FIRST = 6,
     MESH_TERN_ERR_MTU = 7,
     MESH_TERN_ERR_NOT_NOW = 8,
+    MESH_TERN_ERR_NOT_HELD = 9, /* version 2: a group not held, or an invite */
+};
+
+/* Why a node refused first contact (ASKED); any other value is a refusal it cannot name. */
+enum mesh_tern_asked {
+    MESH_TERN_ASKED_NOT_CONTACT = 1,
+    MESH_TERN_ASKED_NO_ROOM = 2,
 };
 
 /* Where a message is. A sent one only goes forward, but for sent back to waiting on a retry. */
@@ -113,7 +138,7 @@ enum mesh_tern_reason {
 
 #define MESH_TERN_ROLE_LEAF 0U
 #define MESH_TERN_ROLE_RELAY 1U
-#define MESH_TERN_MESSAGE_READ 0x01U   /* MESSAGE flags */
+#define MESH_TERN_MESSAGE_READ 0x01U   /* MESSAGE, GROUP_MESSAGE and INVITE flags */
 #define MESH_TERN_POWER_CHARGING 0x01U /* POWER flags */
 #define MESH_TERN_POWER_EXTERNAL 0x02U
 #define MESH_TERN_PERCENT_UNKNOWN 255U
@@ -123,9 +148,9 @@ enum mesh_tern_reason {
  * Any frame, as its fields. Each type fills the members its table in the draft names, under the
  * same names, with three folded together: the one string a frame carries (text, name, firmware,
  * region, or SET's region) is `text`; the one address (to, address, contact) is `address`; and
- * `wait` is MESSAGE's and STATE's u16 or AIRTIME's u32. SET's value is `text`, `role`, `power`
- * or `passkey` as `setting` says. `text` is NUL-terminated after `text_len` bytes, for the
- * reader's convenience; the frame carries no NUL.
+ * `wait` is a message's u16 or AIRTIME's u32. SET's value is `text`, `role`, `power` or
+ * `passkey` as `setting` says. `text` is NUL-terminated after `text_len` bytes, for the reader's
+ * convenience; the frame carries no NUL. SYNCED's `news` is read only at version 3.
  */
 struct mesh_tern_frame {
     uint8_t type;
@@ -139,6 +164,8 @@ struct mesh_tern_frame {
     uint8_t state;
     uint8_t reason;
     uint8_t percent;
+    uint8_t why;  /* ASKED */
+    uint8_t news; /* SYNCED: the node's count as it answers */
     int8_t power;
     int8_t snr; /* quarter dB */
     uint16_t heard;
@@ -154,6 +181,8 @@ struct mesh_tern_frame {
     uint32_t used;
     uint32_t wait;
     uint32_t passkey;
+    uint32_t from; /* GROUP_MESSAGE: the writer's routing id, 0 for this node */
+    uint8_t group[MESH_TERN_GROUP_LEN];
     uint8_t address[MESH_TERN_ADDRESS_LEN];
     uint8_t text_len;
     char text[MESH_TERN_TEXT_MAX + 1U];
@@ -161,7 +190,8 @@ struct mesh_tern_frame {
 
 enum mesh_tern_decode_result {
     MESH_TERN_DECODE_OK = 0,
-    /* A type, or a setting, this version does not define: ERROR 1 for a request. */
+    /* A type, or a setting, the version read by does not define: ERROR 1 for a request. A
+       later version's type is this however its fields read, cut short included. */
     MESH_TERN_DECODE_UNKNOWN = MESH_TERN_ERR_UNKNOWN,
     /* Cut short, a string too long for its field or not UTF-8: ERROR 2 for a request. */
     MESH_TERN_DECODE_MALFORMED = MESH_TERN_ERR_MALFORMED,
@@ -169,15 +199,21 @@ enum mesh_tern_decode_result {
     MESH_TERN_DECODE_SHORT = 3,
 };
 
-/* Reads a frame's fields. Bytes after the last field this version defines are ignored - that is
-   how a later version adds one. */
-enum mesh_tern_decode_result mesh_tern_decode(const uint8_t *frame, size_t len,
+/* The version that first defines frame type `type`, or a value past MESH_TERN_VERSION for one
+   no version this client knows does. */
+uint8_t mesh_tern_since(uint8_t type);
+
+/* Reads a frame's fields as `version` defines them - the version both ends speak. Bytes after
+   the last field it defines are ignored: that is how a later version adds one. */
+enum mesh_tern_decode_result mesh_tern_decode(const uint8_t *frame, size_t len, uint8_t version,
                                               struct mesh_tern_frame *out);
 
-/* Writes a frame from its fields. Returns its length, or a negative errno: -EINVAL for a type
-   or setting this version does not define or a string longer than its field, -ENOSPC when
-   `out` is too small. The text is not checked for UTF-8; a writer is trusted to give text. */
-int mesh_tern_encode(const struct mesh_tern_frame *frame, uint8_t *out, size_t out_len);
+/* Writes a frame from its fields, as `version` defines it. Returns its length, or a negative
+   errno: -EINVAL for a type or setting that version does not define or a string longer than its
+   field, -ENOSPC when `out` is too small. The text is not checked for UTF-8; a writer is
+   trusted to give text. */
+int mesh_tern_encode(const struct mesh_tern_frame *frame, uint8_t version, uint8_t *out,
+                     size_t out_len);
 
 /* Whether `len` bytes are UTF-8 with no overlong form, surrogate or code point past U+10FFFF -
    the test a `str` field has to pass. */
@@ -198,6 +234,11 @@ uint32_t mesh_tern_routing_id(const uint8_t address[MESH_TERN_ADDRESS_LEN]);
    what a sync left out. Each sized past what the firmware's first port holds. */
 #define MESH_TERN_MAX_CONTACTS 64U
 #define MESH_TERN_MAX_NEIGHBOURS 64U
+#define MESH_TERN_MAX_GROUPS 16U
+/* The newest group messages and invites, which no screen shows yet and the log does not hold. */
+#define MESH_TERN_MAX_GROUP_ITEMS 32U
+/* The least ids of messages, group messages and invites that may yet change (`open`). */
+#define MESH_TERN_MAX_OPEN 64U
 /* Requests waiting their turn behind the one on the wire. */
 #define MESH_TERN_QUEUE_LEN 8U
 /* SENDs answered that nobody has taken yet (mesh_tern_take_queued()). */
@@ -215,6 +256,41 @@ struct mesh_tern_neighbour {
     uint32_t routing_id;
     uint8_t role;
     bool synced;
+};
+
+struct mesh_tern_group {
+    uint8_t id[MESH_TERN_GROUP_LEN];
+    bool synced;
+    char name[MESH_TERN_NAME_MAX + 1U];
+};
+
+/*
+ * A GROUP_MESSAGE or an INVITE, as the node last sent it - `kind` is the news type. Neither goes
+ * in the message log: a group is not a channel this client could send on, and an invite is not
+ * text to read as a direct message. They are kept whole here for the screens that will show
+ * them. `from` is a group message's writer, `contact` an invite's other end, and `text` the
+ * group message's text or the invite's name for its group.
+ */
+struct mesh_tern_group_item {
+    uint32_t id;
+    uint8_t kind;
+    uint8_t flags;
+    uint8_t state;
+    uint8_t reason;
+    uint32_t time;
+    uint32_t from;
+    uint8_t group[MESH_TERN_GROUP_LEN];
+    uint8_t contact[MESH_TERN_ADDRESS_LEN];
+    char text[MESH_TERN_TEXT_MAX + 1U];
+};
+
+/* One of the node's ids whose record may still change unseen: a message or invite waiting or
+   sent, a group message waiting, or any of the three received and not yet read. */
+struct mesh_tern_open {
+    uint32_t id;
+    uint8_t kind; /* the news type that last named it, MESSAGE for one only a STATE has */
+    uint8_t state;
+    uint8_t flags;
 };
 
 /* SELF, as the node last sent it. */
@@ -274,9 +350,25 @@ struct mesh_tern {
 
     /* The node's news count: the `seq` the next news should carry. */
     uint8_t news_expected;
-    /* News arrived out of count, so some was missed; another SYNC is asked once this one is
-       through. */
+    /* News arrived out of count, so some was missed: the sync under way proves nothing about
+       what is gone, and another is asked once it is through. */
     bool missed_news;
+    /* The greatest id held when news was first missed, until a sync that asked again from it
+       finishes. A connection starting counts as news missed: what changed while there was none
+       was not sent. */
+    bool has_missed_since;
+    uint32_t missed_since;
+
+    /* The version this client says HELLO with: MESH_TERN_VERSION, or less for a test playing an
+       older client. */
+    uint8_t version;
+    /* The lesser of that and the node's, once INFO has said the node's: what is read and sent. */
+    bool has_agreed;
+    uint8_t agreed;
+    /* The version spoken at the last sync that finished. A sync at a later one asks from 0,
+       once: the node may hold records the earlier version was never sent, under lower ids. */
+    bool has_synced_version;
+    uint8_t synced_version;
 
     uint8_t node_version;
     char firmware[MESH_TERN_FIRMWARE_MAX + 1U];
@@ -290,9 +382,21 @@ struct mesh_tern {
     size_t contact_count;
     struct mesh_tern_neighbour neighbours[MESH_TERN_MAX_NEIGHBOURS];
     size_t neighbour_count;
+    struct mesh_tern_group groups[MESH_TERN_MAX_GROUPS];
+    size_t group_count;
+    struct mesh_tern_group_item group_items[MESH_TERN_MAX_GROUP_ITEMS];
+    size_t group_item_count;
+    struct mesh_tern_open open[MESH_TERN_MAX_OPEN];
+    size_t open_count;
 
-    /* The greatest message id this conversation holds, which the next SYNC asks after. Kept
-       across a reconnect to the same node, cleared when another answers. */
+    /* The last first contact the node refused (ASKED), for a screen that offers to save it. */
+    bool has_asked;
+    uint8_t asked_address[MESH_TERN_ADDRESS_LEN];
+    uint8_t asked_why;
+
+    /* The greatest id this conversation holds, of a message, group message or invite, which the
+       next SYNC asks after. Kept across a reconnect to the same node, cleared when another
+       answers. */
     uint32_t newest_id;
 
     uint32_t next_ticket;
@@ -325,6 +429,36 @@ int mesh_tern_send_text(struct mesh_tern *tern, uint32_t dest, const char *text,
    read, on the node and so on every client driving it. 0 or a negative errno as
    mesh_tern_send_text(). */
 int mesh_tern_mark_read(struct mesh_tern *tern, uint32_t through);
+
+/* Saves `address` as a contact under `name` (empty is a name), or renames it. 0 or a negative
+   errno as mesh_tern_send_text(), -EMSGSIZE for a name past MESH_TERN_NAME_MAX. */
+int mesh_tern_save_contact(struct mesh_tern *tern, const uint8_t address[MESH_TERN_ADDRESS_LEN],
+                           const char *name);
+
+/*
+ * Version 1 and later. Ends the session the node shares with `node` - a node number, as
+ * mesh_tern_send_text() takes - so first contact is made again. -EOPNOTSUPP when the version
+ * spoken does not define it, which is refused here rather than sent: a node of an earlier
+ * version could not say what it changed. Otherwise as mesh_tern_send_text().
+ */
+int mesh_tern_end_session(struct mesh_tern *tern, uint32_t node);
+
+/*
+ * Version 2 and later: groups, each named by the id the node gives it. What becomes of each
+ * request arrives as news - GROUP, GROUP_GONE, GROUP_MESSAGE, INVITE - into the conversation's
+ * lists. 0 once the request is queued, or a negative errno: -EOPNOTSUPP below version 2, and the
+ * rest as mesh_tern_send_text(). `send_invite` invites `node` (a node number with an address
+ * known); `join` takes the group a received invite, by the node's id for it, is to.
+ */
+int mesh_tern_make_group(struct mesh_tern *tern, const char *name);
+int mesh_tern_leave_group(struct mesh_tern *tern, const uint8_t group[MESH_TERN_GROUP_LEN]);
+int mesh_tern_name_group(struct mesh_tern *tern, const uint8_t group[MESH_TERN_GROUP_LEN],
+                         const char *name);
+int mesh_tern_send_group(struct mesh_tern *tern, const uint8_t group[MESH_TERN_GROUP_LEN],
+                         const char *text);
+int mesh_tern_send_invite(struct mesh_tern *tern, const uint8_t group[MESH_TERN_GROUP_LEN],
+                          uint32_t node);
+int mesh_tern_join(struct mesh_tern *tern, uint32_t invite_id);
 
 /*
  * The packet id in the log of the node's message `message_id`: the id scoped to the node, so two

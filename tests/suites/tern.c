@@ -1,8 +1,9 @@
 /*
  * Tern's conversation: the client half of draft/companion.md, driven through its struct
  * mesh_protocol as a link would drive it, with what it learns read back off the session model.
- * The first case replays the specification's own exchange (tests/data/tern_companion.json); the
- * rest are the rules around it - a lapsed connection, missed news, silence and the ping.
+ * The first two cases replay the specification's own exchange and its older clients' connections
+ * (tests/data/tern_companion.json); the rest are the rules around them - a lapsed connection,
+ * missed news and the sync after it, the version both ends speak, silence and the ping.
  */
 
 #include "framework/mesh_test.h"
@@ -75,12 +76,39 @@ static void answer(const struct mesh_protocol *protocol, const struct wire *wire
     feed(protocol, frame, sizeof frame);
 }
 
+/* The version a node writes in: the one the two ends agreed, once they have. */
+static uint8_t spoken(void) { return g_tern.has_agreed ? g_tern.agreed : MESH_TERN_VERSION; }
+
 static void news(const struct mesh_protocol *protocol, const struct mesh_tern_frame *frame) {
     uint8_t out[MESH_TERN_MAX_FRAME];
-    const int len = mesh_tern_encode(frame, out, sizeof out);
+    const int len = mesh_tern_encode(frame, spoken(), out, sizeof out);
     if (len > 0) {
         feed(protocol, out, (size_t)len);
     }
+}
+
+/* SYNCED to the request last on the wire, with `count` as the node's news count. */
+static void synced_at(const struct mesh_protocol *protocol, const struct wire *wire,
+                      uint8_t count) {
+    const struct mesh_tern_frame frame = {
+        .type = MESH_TERN_SYNCED, .seq = wire_last(wire)[1], .news = count};
+    news(protocol, &frame);
+}
+
+/* SYNCED with the count the client expects: every news frame of the sync arrived. */
+static void synced(const struct mesh_protocol *protocol, const struct wire *wire) {
+    synced_at(protocol, wire, g_tern.news_expected);
+}
+
+/* The SYNC last on the wire's `after`, or UINT32_MAX when the last frame is not a SYNC. */
+static uint32_t last_sync_after(const struct wire *wire) {
+    struct mesh_tern_frame sync;
+    if (wire->count == 0U || wire_last(wire)[0] != MESH_TERN_SYNC ||
+        mesh_tern_decode(wire_last(wire), wire->lens[wire->count - 1U], MESH_TERN_VERSION, &sync) !=
+            MESH_TERN_DECODE_OK) {
+        return UINT32_MAX;
+    }
+    return sync.after;
 }
 
 static const struct mesh_node_summary *model_node(uint32_t id) {
@@ -92,27 +120,163 @@ static const struct mesh_node_summary *model_node(uint32_t id) {
     return NULL;
 }
 
-/* HELLO, INFO, SET_TIME, OK, SYNC, an empty sync: READY, news counted from 0 again. */
-static bool handshake(struct mesh_protocol *protocol, struct wire *wire) {
-    *protocol = start(wire);
-    if (wire->count != 1U || wire_last(wire)[0] != MESH_TERN_HELLO) {
+/* INFO from a node of `version`, SET_TIME, OK, SYNC, a sync of SELF alone: READY. */
+static bool greet(struct mesh_protocol *protocol, struct wire *wire, uint8_t version) {
+    if (wire->count == 0U || wire_last(wire)[0] != MESH_TERN_HELLO) {
         return false;
     }
-    struct mesh_tern_frame info = {.type = MESH_TERN_INFO, .seq = wire_last(wire)[1]};
+    struct mesh_tern_frame info = {
+        .type = MESH_TERN_INFO, .seq = wire_last(wire)[1], .version = version};
     news(protocol, &info);
     answer(protocol, wire, MESH_TERN_OK); /* SET_TIME */
     if (wire_last(wire)[0] != MESH_TERN_SYNC) {
         return false;
     }
-    struct mesh_tern_frame self = {.type = MESH_TERN_SELF, .seq = 0U};
+    struct mesh_tern_frame self = {.type = MESH_TERN_SELF, .seq = g_tern.news_expected};
     memcpy(self.address, k_node, sizeof k_node);
     news(protocol, &self);
-    answer(protocol, wire, MESH_TERN_SYNCED);
+    synced(protocol, wire);
     return mesh_tern_ready(&g_tern);
 }
 
-/* The vectors' exchange, frame by frame: what the client sends is what the exchange says it
-   sends, but for SEND's `ref`, which a client chooses at random. */
+/* HELLO and greet(): news counted from 0 again. */
+static bool handshake_at(struct mesh_protocol *protocol, struct wire *wire, uint8_t version) {
+    *protocol = start(wire);
+    return greet(protocol, wire, version);
+}
+
+static bool handshake(struct mesh_protocol *protocol, struct wire *wire) {
+    return handshake_at(protocol, wire, MESH_TERN_VERSION);
+}
+
+/* The link drops and comes back to the same node, which now speaks `version`. */
+static bool reconnect_at(struct mesh_protocol *protocol, struct wire *wire, uint8_t version) {
+    mesh_protocol_detach(protocol);
+    memset(wire, 0, sizeof *wire);
+    mesh_protocol_attach(protocol, wire_send, wire);
+    (void)mesh_protocol_begin(protocol);
+    return greet(protocol, wire, version);
+}
+
+/* An address in the vectors, as 64 hex digits. */
+static void unhex(const char *hex, uint8_t *out, size_t out_len, size_t *len) {
+    *len = 0U;
+    for (const char *p = hex; p[0] != '\0' && p[1] != '\0' && *len < out_len; p += 2) {
+        const char pair[3] = {p[0], p[1], '\0'};
+        out[(*len)++] = (uint8_t)strtoul(pair, NULL, 16);
+    }
+}
+
+/* What the user does, read off the frame the vectors show the client sending for it. HELLO,
+   SET_TIME and SYNC are the conversation's own, and need nothing done. */
+static int act(const struct mesh_tern_frame *want) {
+    const uint32_t node = mesh_tern_routing_id(want->address);
+    switch (want->type) {
+    case MESH_TERN_READ:
+        return mesh_tern_mark_read(&g_tern, mesh_tern_packet_id(&g_tern, want->through));
+    case MESH_TERN_SEND:
+        return mesh_tern_send_text(&g_tern, node, want->text, NULL);
+    case MESH_TERN_SAVE_CONTACT:
+        return mesh_tern_save_contact(&g_tern, want->address, want->text);
+    case MESH_TERN_END_SESSION:
+        return mesh_tern_end_session(&g_tern, node);
+    case MESH_TERN_MAKE_GROUP:
+        return mesh_tern_make_group(&g_tern, want->text);
+    case MESH_TERN_LEAVE_GROUP:
+        return mesh_tern_leave_group(&g_tern, want->group);
+    case MESH_TERN_NAME_GROUP:
+        return mesh_tern_name_group(&g_tern, want->group, want->text);
+    case MESH_TERN_SEND_GROUP:
+        return mesh_tern_send_group(&g_tern, want->group, want->text);
+    case MESH_TERN_SEND_INVITE:
+        return mesh_tern_send_invite(&g_tern, want->group, node);
+    case MESH_TERN_JOIN:
+        return mesh_tern_join(&g_tern, want->id);
+    default:
+        return 0;
+    }
+}
+
+/*
+ * One connection of the vectors, the array under the cursor, frame by frame as the client of
+ * `version`: the node's frames are fed, and each of the client's is what the user's action makes
+ * it send - but for a SEND's or SEND_GROUP's `ref`, which a client chooses at random. A request
+ * the version spoken does not define is refused here and not sent; the node's answer to the
+ * client that sent it anyway is then one to nothing asked.
+ */
+static void replay(struct inkwell_json *json, struct mesh_protocol *protocol, struct wire *wire,
+                   size_t *steps, char *failure, size_t failure_len) {
+    size_t sent = 0U; /* client frames matched so far, the HELLO on the wire already among them */
+    while (failure[0] == '\0' && inkwell_json_next_element(json)) {
+        char from[16] = "";
+        char type[32] = "";
+        char hex[512] = "";
+        char key[16];
+        bool ok = inkwell_json_enter_object(json);
+        while (ok && inkwell_json_next_key(json, key, sizeof key)) {
+            if (strcmp(key, "from") == 0) {
+                ok = inkwell_json_read_string(json, from, sizeof from);
+            } else if (strcmp(key, "type") == 0) {
+                ok = inkwell_json_read_string(json, type, sizeof type);
+            } else if (strcmp(key, "frame") == 0) {
+                ok = inkwell_json_read_string(json, hex, sizeof hex);
+            } else {
+                ok = inkwell_json_skip_value(json);
+            }
+        }
+        uint8_t frame[MESH_TERN_MAX_FRAME];
+        size_t len = 0U;
+        unhex(hex, frame, sizeof frame, &len);
+        struct mesh_tern_frame want;
+        if (!ok || len < 2U) {
+            snprintf(failure, failure_len, "step %zu should read", *steps);
+        } else if (strcmp(from, "node") == 0) {
+            feed(protocol, frame, len);
+        } else if (mesh_tern_decode(frame, len, MESH_TERN_VERSION, &want) != MESH_TERN_DECODE_OK) {
+            snprintf(failure, failure_len, "step %zu: the client's %s should read", *steps, type);
+        } else if (mesh_tern_since(want.type) > g_tern.agreed) {
+            if (act(&want) != -EOPNOTSUPP || wire->count != sent) {
+                snprintf(failure, failure_len, "step %zu: %s goes at version %u", *steps, type,
+                         (unsigned)g_tern.agreed);
+            }
+        } else {
+            const int acted = act(&want);
+            const size_t skip =
+                want.type == MESH_TERN_SEND || want.type == MESH_TERN_SEND_GROUP ? 6U : 2U;
+            if (acted != 0 || wire->count != sent + 1U || wire->lens[sent] != len ||
+                memcmp(wire->frames[sent], frame, 2U) != 0 ||
+                memcmp(wire->frames[sent] + skip, frame + skip, len - skip) != 0) {
+                snprintf(failure, failure_len, "step %zu: the client's %s differs (%d)", *steps,
+                         type, acted);
+            }
+            sent += 1U;
+        }
+        *steps += 1U;
+    }
+}
+
+/* A conversation as the client of `version`, with the wall clock one not worth giving a node. */
+static struct mesh_protocol start_as(struct wire *wire, uint8_t version) {
+    memset(wire, 0, sizeof *wire);
+    inkwell_time_wall_set_fixed(1000U);
+    mesh_session_init(&g_model);
+    mesh_tern_init(&g_tern, &g_model);
+    g_tern.version = version;
+    struct mesh_protocol protocol = mesh_tern_protocol(&g_tern);
+    mesh_protocol_attach(&protocol, wire_send, wire);
+    return protocol;
+}
+
+static size_t group_item_at(uint32_t id) {
+    for (size_t i = 0; i < g_tern.group_item_count; ++i) {
+        if (g_tern.group_items[i].id == id) {
+            return i;
+        }
+    }
+    return SIZE_MAX;
+}
+
+/* The vectors' exchange, as the client of version 3 it is. */
 MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
     size_t doc_len = 0U;
     char *document = mesh_test_data_read("tern_companion.json", &doc_len);
@@ -125,59 +289,14 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
 
     struct wire wire;
     struct mesh_protocol protocol = start(&wire);
-    size_t sent = 0U; /* client frames matched so far */
     size_t steps = 0U;
     char failure[160] = "";
-    while (failure[0] == '\0' && inkwell_json_next_element(&json)) {
-        char from[16] = "";
-        char type[32] = "";
-        char hex[512] = "";
-        char key[16];
-        bool ok = inkwell_json_enter_object(&json);
-        while (ok && inkwell_json_next_key(&json, key, sizeof key)) {
-            if (strcmp(key, "from") == 0) {
-                ok = inkwell_json_read_string(&json, from, sizeof from);
-            } else if (strcmp(key, "type") == 0) {
-                ok = inkwell_json_read_string(&json, type, sizeof type);
-            } else if (strcmp(key, "frame") == 0) {
-                ok = inkwell_json_read_string(&json, hex, sizeof hex);
-            } else {
-                ok = inkwell_json_skip_value(&json);
-            }
-        }
-        uint8_t frame[MESH_TERN_MAX_FRAME];
-        size_t len = 0U;
-        for (const char *p = hex; p[0] != '\0' && p[1] != '\0' && len < sizeof frame; p += 2) {
-            const char pair[3] = {p[0], p[1], '\0'};
-            frame[len++] = (uint8_t)strtoul(pair, NULL, 16);
-        }
-        if (!ok) {
-            snprintf(failure, sizeof failure, "exchange step %zu should read", steps);
-        } else if (strcmp(from, "node") == 0) {
-            feed(&protocol, frame, len);
-        } else {
-            /* What the user does, the exchange shows the client doing. */
-            if (strcmp(type, "READ") == 0) {
-                (void)mesh_tern_mark_read(&g_tern, mesh_tern_packet_id(&g_tern, 17U));
-            } else if (strcmp(type, "SEND") == 0) {
-                (void)mesh_tern_send_text(&g_tern, mesh_tern_routing_id(k_bob),
-                                          "On the ridge by six", NULL);
-            }
-            const bool same_ref = strcmp(type, "SEND") == 0;
-            if (wire.count != sent + 1U || wire.lens[sent] != len ||
-                memcmp(wire.frames[sent], frame, 2U) != 0 ||
-                memcmp(wire.frames[sent] + (same_ref ? 6U : 2U), frame + (same_ref ? 6U : 2U),
-                       len - (same_ref ? 6U : 2U)) != 0) {
-                snprintf(failure, sizeof failure, "exchange step %zu: the client's %s differs",
-                         steps, type);
-            }
-            sent += 1U;
-        }
-        steps += 1U;
-    }
+    replay(&json, &protocol, &wire, &steps, failure, sizeof failure);
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(steps != 20U, "all twenty steps");
+    MESH_TEST_FAIL_IF(steps != 54U, "all 54 steps");
+    MESH_TEST_FAIL_IF(g_tern.agreed != 3U || g_tern.missed_news || g_tern.news_expected != 26U,
+                      "version 3 throughout, every news frame counted and none missed");
 
     /* And what it learned. */
     const uint32_t self_id = mesh_tern_routing_id(k_node);
@@ -188,6 +307,8 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
     MESH_TEST_FAIL_IF(bob == NULL || strcmp(bob->long_name, "Bob") != 0 || !bob->in_nodedb ||
                           bob->public_key_len != 32U || memcmp(bob->public_key, k_bob, 32U) != 0,
                       "Bob is a contact, by name, with his address");
+    MESH_TEST_FAIL_IF(g_tern.contact_count != 2U || g_tern.contacts[0].session != 0U,
+                      "and Carol is saved beside him; his session has ended");
     const struct mesh_node_summary *neighbour = model_node(NEIGHBOUR_ID);
     MESH_TEST_FAIL_IF(neighbour == NULL || neighbour->snr != -9.5f || !neighbour->in_nodedb ||
                           neighbour->last_heard != EXCHANGE_TIME - 42U ||
@@ -216,6 +337,9 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
                       : 0U;
     }
     MESH_TEST_FAIL_IF(copies != 1U, "marked read, the record lands on the entry it already has");
+    MESH_TEST_FAIL_IF(
+        g_model.messages.count != 2U,
+        "group messages and invites are not direct messages, and stay out of the log");
 
     struct mesh_tern_queued queued;
     MESH_TEST_FAIL_IF(!mesh_tern_take_queued(&g_tern, &queued) ||
@@ -228,6 +352,88 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
                           mine->to != bob_id || mine->ack != MESH_MESSAGE_ACK_DELIVERED ||
                           mine->replayed,
                       "our message, waiting, then sent, then delivered");
+
+    MESH_TEST_FAIL_IF(!g_tern.has_asked || g_tern.asked_why != MESH_TERN_ASKED_NOT_CONTACT,
+                      "the node said whom it refused, and why");
+    static const uint8_t k_ridge[MESH_TERN_GROUP_LEN] = {0xc8, 0xea, 0xfa, 0xdc,
+                                                         0x08, 0x57, 0xa6, 0x96};
+    MESH_TEST_FAIL_IF(g_tern.group_count != 1U ||
+                          memcmp(g_tern.groups[0].id, k_ridge, sizeof k_ridge) != 0 ||
+                          strcmp(g_tern.groups[0].name, "Ridge walkers") != 0,
+                      "the group joined and renamed is held; the one made and left is not");
+    const size_t invite = group_item_at(19U);
+    const size_t written = group_item_at(20U);
+    const size_t heard = group_item_at(21U);
+    const size_t asked_in = group_item_at(22U);
+    MESH_TEST_FAIL_IF(invite == SIZE_MAX || written == SIZE_MAX || heard == SIZE_MAX ||
+                          asked_in == SIZE_MAX,
+                      "both group messages and both invites are held");
+    MESH_TEST_FAIL_IF(g_tern.group_items[invite].state != MESH_TERN_STATE_DELIVERED ||
+                          g_tern.group_items[written].state != MESH_TERN_STATE_SENT ||
+                          g_tern.group_items[heard].from != 0xf031219dU ||
+                          strcmp(g_tern.group_items[heard].text, "Two of us") != 0 ||
+                          (g_tern.group_items[asked_in].flags & MESH_TERN_MESSAGE_READ) == 0U,
+                      "each as its record and STATEs left it");
+    MESH_TEST_FAIL_IF(
+        g_tern.open_count != 0U,
+        "and nothing is left that may change: all delivered, sent to a group, or read");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+/*
+ * Each older connection, as the client of its version, against the same node. The node's INFO
+ * says 3 throughout; the client speaks its own. The client of version 0 has synced message 17
+ * at version 0 before, which is why it asks after it.
+ */
+MESH_TEST_CASE(tern_replays_the_older_clients_connections, unit) {
+    size_t doc_len = 0U;
+    char *document = mesh_test_data_read("tern_companion.json", &doc_len);
+    MESH_TEST_FAIL_IF(document == NULL, "the vectors should be there");
+    struct inkwell_json json;
+    inkwell_json_init(&json, document, doc_len);
+    const bool found = inkwell_json_object_find(&json, "older") && inkwell_json_enter_array(&json);
+    MESH_TEST_FAIL_IF_CLEANUP(!found, free(document), "the older connections should be there");
+
+    size_t connections = 0U;
+    size_t steps = 0U;
+    char failure[160] = "";
+    struct wire wire;
+    while (failure[0] == '\0' && inkwell_json_next_element(&json)) {
+        uint64_t version = 99U;
+        char key[16];
+        const bool read =
+            inkwell_json_object_find(&json, "version") && inkwell_json_read_u64(&json, &version) &&
+            inkwell_json_next_key(&json, key, sizeof key) && strcmp(key, "frames") == 0 &&
+            inkwell_json_enter_array(&json) && version <= MESH_TERN_VERSION;
+        if (!read) {
+            snprintf(failure, sizeof failure, "older connection %zu should read", connections);
+            break;
+        }
+        struct mesh_protocol protocol = start_as(&wire, (uint8_t)version);
+        if (version == 0U) {
+            g_tern.has_synced_version = true;
+            g_tern.synced_version = 0U;
+            g_tern.newest_id = 17U;
+        }
+        (void)mesh_protocol_begin(&protocol);
+        replay(&json, &protocol, &wire, &steps, failure, sizeof failure);
+        while (inkwell_json_next_key(&json, key, sizeof key)) {
+            (void)inkwell_json_skip_value(&json);
+        }
+        if (failure[0] == '\0' && (g_tern.agreed != version || !mesh_tern_ready(&g_tern) ||
+                                   g_tern.missed_news || g_tern.contact_count == 0U)) {
+            snprintf(failure, sizeof failure,
+                     "version %u: synced, by its own version, with nothing missed",
+                     (unsigned)version);
+        }
+        connections += 1U;
+    }
+    free(document);
+    MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
+    MESH_TEST_FAIL_IF(connections != 3U || steps != 39U, "three connections, 39 steps");
+    MESH_TEST_FAIL_IF(g_tern.synced_version != 2U || g_tern.has_missed_since,
+                      "the last, version 2's, finished its sync on a two-byte SYNCED");
     inkwell_time_wall_set_fixed(0U);
     record_success(test_name);
 }
@@ -281,10 +487,7 @@ MESH_TEST_CASE(tern_missed_news_syncs_again_from_what_may_have_moved, unit) {
     news(&protocol, &power);
     MESH_TEST_FAIL_IF(wire.count != before + 1U || wire_last(&wire)[0] != MESH_TERN_SYNC,
                       "a gap in the count is a sync asked for");
-    struct mesh_tern_frame sync;
-    MESH_TEST_FAIL_IF(mesh_tern_decode(wire_last(&wire), wire.lens[wire.count - 1U], &sync) !=
-                              MESH_TERN_DECODE_OK ||
-                          sync.after != 6U,
+    MESH_TEST_FAIL_IF(last_sync_after(&wire) != 6U,
                       "after one less than the least message still sent, whose state may have "
                       "moved unseen");
     inkwell_time_wall_set_fixed(0U);
@@ -307,7 +510,7 @@ MESH_TEST_CASE(tern_a_sync_is_the_whole_contact_list, unit) {
     struct mesh_tern_frame power = {.type = MESH_TERN_POWER, .seq = 5U};
     news(&protocol, &power); /* out of count, so a sync is asked */
     MESH_TEST_FAIL_IF(wire_last(&wire)[0] != MESH_TERN_SYNC, "a sync is asked");
-    answer(&protocol, &wire, MESH_TERN_SYNCED);
+    synced(&protocol, &wire);
     MESH_TEST_FAIL_IF(model_node(bob_id) == NULL, "the roster outlives what the node holds");
     MESH_TEST_FAIL_IF(model_node(bob_id)->in_nodedb || model_node(bob_id)->has_user ||
                           g_tern.contact_count != 0U,
@@ -465,6 +668,240 @@ MESH_TEST_CASE(tern_two_nodes_message_ids_never_meet, unit) {
                       "and neither is taken for the other");
     MESH_TEST_FAIL_IF(mesh_tern_packet_id(&g_tern, second) != 1U,
                       "a packet id reads back to the node's id");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+/* Count `seq`, a record of `type` the vectors' node would send, about Bob unless said. */
+static struct mesh_tern_frame record(uint8_t type, uint8_t seq, uint32_t id, uint8_t state,
+                                     uint8_t flags) {
+    struct mesh_tern_frame frame = {.type = type,
+                                    .seq = seq,
+                                    .id = id,
+                                    .state = state,
+                                    .flags = flags,
+                                    .text_len = 1U,
+                                    .text = "x"};
+    memcpy(frame.address, k_bob, sizeof k_bob);
+    return frame;
+}
+
+static const uint8_t k_hut[MESH_TERN_GROUP_LEN] = {0xc0, 0x03, 0x7d, 0xcd, 0x77, 0xf6, 0xea, 0xc6};
+
+MESH_TEST_CASE(tern_a_synced_count_past_the_last_news_forgets_nothing, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake should reach READY");
+    struct mesh_tern_frame contact = record(MESH_TERN_CONTACT, 1U, 0U, 0U, 0U);
+    news(&protocol, &contact);
+    const struct mesh_tern_frame neighbour = {
+        .type = MESH_TERN_NEIGHBOUR, .seq = 2U, .routing_id = NEIGHBOUR_ID};
+    news(&protocol, &neighbour);
+    struct mesh_tern_frame message =
+        record(MESH_TERN_MESSAGE, 3U, 5U, MESH_TERN_STATE_RECEIVED, 0U);
+    news(&protocol, &message);
+    message = record(MESH_TERN_MESSAGE, 4U, 9U, MESH_TERN_STATE_DELIVERED, 0U);
+    news(&protocol, &message);
+    /* Count 5 never came; 6 shows it. */
+    const struct mesh_tern_frame power = {.type = MESH_TERN_POWER, .seq = 6U};
+    news(&protocol, &power);
+    MESH_TEST_FAIL_IF(last_sync_after(&wire) != 4U,
+                      "a sync after one less than the received message still unread");
+
+    /* The sync's last news, count 8, is lost: nothing after it shows the gap but the count. */
+    struct mesh_tern_frame self = {.type = MESH_TERN_SELF, .seq = 7U};
+    memcpy(self.address, k_node, sizeof k_node);
+    news(&protocol, &self);
+    const size_t before = wire.count;
+    synced_at(&protocol, &wire, 9U);
+    MESH_TEST_FAIL_IF(g_tern.contact_count != 1U || g_tern.neighbour_count != 1U ||
+                          !model_node(mesh_tern_routing_id(k_bob))->in_nodedb,
+                      "what the sync did not send may be what was lost: nothing is forgotten");
+    MESH_TEST_FAIL_IF(wire.count != before + 1U || last_sync_after(&wire) != 4U ||
+                          mesh_tern_ready(&g_tern),
+                      "and the sync is asked again, from where the first missed news left it");
+
+    /* This one arrives whole, and it is the whole list: the neighbour has gone. */
+    self.seq = 9U;
+    news(&protocol, &self);
+    contact.seq = 10U;
+    news(&protocol, &contact);
+    synced_at(&protocol, &wire, 11U);
+    MESH_TEST_FAIL_IF(!mesh_tern_ready(&g_tern) || g_tern.contact_count != 1U ||
+                          g_tern.neighbour_count != 0U || g_tern.has_missed_since,
+                      "a sync that ends on the count proves what is gone, and clears the mark");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_a_version_2_node_ends_its_sync_in_two_bytes, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake_at(&protocol, &wire, 2U),
+                      "a SYNCED of two bytes ends a sync spoken at version 2");
+    MESH_TEST_FAIL_IF(g_tern.agreed != 2U || g_tern.synced_version != 2U, "spoken at version 2");
+    /* Another sync, whose SYNCED a later node pads with a count: version 2 reads none. */
+    const struct mesh_tern_frame power = {.type = MESH_TERN_POWER, .seq = 3U};
+    news(&protocol, &power);
+    MESH_TEST_FAIL_IF(wire_last(&wire)[0] != MESH_TERN_SYNC, "a gap asks for a sync");
+    const size_t before = wire.count;
+    const uint8_t padded[3] = {MESH_TERN_SYNCED, wire_last(&wire)[1], 200U};
+    feed(&protocol, padded, sizeof padded);
+    MESH_TEST_FAIL_IF(!mesh_tern_ready(&g_tern) || wire.count != before,
+                      "the byte past version 2's fields is not a count to be short of");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_news_of_a_later_version_is_counted_and_ignored, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake_at(&protocol, &wire, 1U), "the handshake should reach READY");
+    const size_t before = wire.count;
+    /* A GROUP cut short: at version 1 the type is undefined before it is short. */
+    const uint8_t cut_group[4] = {MESH_TERN_GROUP, 1U, 0xc0, 0x03};
+    feed(&protocol, cut_group, sizeof cut_group);
+    MESH_TEST_FAIL_IF(wire.count != before || g_tern.missed_news || g_tern.news_expected != 2U ||
+                          g_tern.group_count != 0U,
+                      "news version 1 does not define is ignored, but counted");
+    /* An ASKED cut short is version 1's own, and a record lost. */
+    const uint8_t cut_asked[3] = {MESH_TERN_ASKED, 2U, 0xfc};
+    feed(&protocol, cut_asked, sizeof cut_asked);
+    MESH_TEST_FAIL_IF(wire.count != before + 1U || wire_last(&wire)[0] != MESH_TERN_SYNC,
+                      "news it defines but cannot read is news missed");
+
+    MESH_TEST_FAIL_IF(!handshake_at(&protocol, &wire, 0U), "the handshake should reach READY");
+    const size_t at_zero = wire.count;
+    const uint8_t cut_asked_0[3] = {MESH_TERN_ASKED, 1U, 0xfc};
+    feed(&protocol, cut_asked_0, sizeof cut_asked_0);
+    MESH_TEST_FAIL_IF(wire.count != at_zero || g_tern.missed_news,
+                      "and at version 0 the same bytes are a type it does not define");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_a_sync_before_version_2_keeps_the_groups, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake should reach READY");
+    struct mesh_tern_frame group = {
+        .type = MESH_TERN_GROUP, .seq = 1U, .text_len = 3U, .text = "Hut"};
+    memcpy(group.group, k_hut, sizeof k_hut);
+    news(&protocol, &group);
+    const struct mesh_tern_frame contact = record(MESH_TERN_CONTACT, 2U, 0U, 0U, 0U);
+    news(&protocol, &contact);
+    MESH_TEST_FAIL_IF(g_tern.group_count != 1U || g_tern.contact_count != 1U, "both are held");
+
+    MESH_TEST_FAIL_IF(!reconnect_at(&protocol, &wire, 1U), "the node now speaks version 1");
+    MESH_TEST_FAIL_IF(g_tern.contact_count != 0U,
+                      "its sync sent no contact, so the node holds none");
+    MESH_TEST_FAIL_IF(g_tern.group_count != 1U,
+                      "but a version 1 sync sends no groups, and says nothing of them");
+    MESH_TEST_FAIL_IF(!reconnect_at(&protocol, &wire, 2U), "and now version 2");
+    MESH_TEST_FAIL_IF(g_tern.group_count != 0U, "whose sync is the whole list of groups");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_a_request_the_version_lacks_is_never_sent, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake_at(&protocol, &wire, 0U), "the handshake should reach READY");
+    const struct mesh_tern_frame contact = record(MESH_TERN_CONTACT, 1U, 0U, 0U, 0U);
+    news(&protocol, &contact);
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_tern_end_session(&g_tern, mesh_tern_routing_id(k_bob)) != -EOPNOTSUPP ||
+                          mesh_tern_make_group(&g_tern, "Hut") != -EOPNOTSUPP ||
+                          mesh_tern_join(&g_tern, 4U) != -EOPNOTSUPP || wire.count != before,
+                      "version 0 has no END_SESSION and no groups: refused here, not sent");
+
+    /* Asked before INFO said the node's version, and found to be one it lacks. */
+    struct mesh_protocol early = start(&wire);
+    MESH_TEST_FAIL_IF(mesh_tern_make_group(&g_tern, "Hut") != 0, "queued behind the HELLO");
+    const struct mesh_tern_frame info = {
+        .type = MESH_TERN_INFO, .seq = wire_last(&wire)[1], .version = 1U};
+    news(&early, &info);
+    for (size_t i = 0; i < wire.count; ++i) {
+        MESH_TEST_FAIL_IF(wire.frames[i][0] == MESH_TERN_MAKE_GROUP,
+                          "a node of version 1 is never sent MAKE_GROUP");
+    }
+    MESH_TEST_FAIL_IF(wire_last(&wire)[0] != MESH_TERN_SET_TIME, "the conversation goes on");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_missed_news_reaches_back_to_what_may_change_of_all_three, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake should reach READY");
+    struct mesh_tern_frame frame =
+        record(MESH_TERN_MESSAGE, 1U, 3U, MESH_TERN_STATE_RECEIVED, MESH_TERN_MESSAGE_READ);
+    news(&protocol, &frame);
+    frame = record(MESH_TERN_GROUP_MESSAGE, 2U, 4U, MESH_TERN_STATE_SENT, 0U);
+    news(&protocol, &frame);
+    frame = record(MESH_TERN_INVITE, 3U, 5U, MESH_TERN_STATE_RECEIVED, 0U);
+    news(&protocol, &frame);
+    frame = record(MESH_TERN_GROUP_MESSAGE, 4U, 6U, MESH_TERN_STATE_WAITING, 0U);
+    news(&protocol, &frame);
+    frame = record(MESH_TERN_MESSAGE, 5U, 7U, MESH_TERN_STATE_DELIVERED, 0U);
+    news(&protocol, &frame);
+    MESH_TEST_FAIL_IF(g_model.messages.count != 2U || g_tern.group_item_count != 3U,
+                      "messages to the log, group messages and invites beside it");
+    const struct mesh_tern_frame power = {.type = MESH_TERN_POWER, .seq = 7U};
+    news(&protocol, &power);
+    MESH_TEST_FAIL_IF(last_sync_after(&wire) != 4U,
+                      "after one less than the unread invite; a sent group message stays sent");
+
+    /* The sync: the invite read since, on another client. */
+    struct mesh_tern_frame self = {.type = MESH_TERN_SELF, .seq = 8U};
+    memcpy(self.address, k_node, sizeof k_node);
+    news(&protocol, &self);
+    frame = record(MESH_TERN_INVITE, 9U, 5U, MESH_TERN_STATE_RECEIVED, MESH_TERN_MESSAGE_READ);
+    news(&protocol, &frame);
+    frame = record(MESH_TERN_GROUP_MESSAGE, 10U, 6U, MESH_TERN_STATE_WAITING, 0U);
+    news(&protocol, &frame);
+    synced(&protocol, &wire);
+    MESH_TEST_FAIL_IF(!mesh_tern_ready(&g_tern), "synced");
+    const struct mesh_tern_frame state = {
+        .type = MESH_TERN_STATE, .seq = 12U, .id = 6U, .state = MESH_TERN_STATE_SENT};
+    news(&protocol, &state); /* 11 is missed */
+    MESH_TEST_FAIL_IF(last_sync_after(&wire) != 7U,
+                      "the group message has gone; nothing held may change, so the newest");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_a_later_version_than_the_last_sync_asks_from_0_once, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake_at(&protocol, &wire, 2U), "synced at version 2");
+    const struct mesh_tern_frame message =
+        record(MESH_TERN_MESSAGE, 1U, 8U, MESH_TERN_STATE_DELIVERED, 0U);
+    news(&protocol, &message);
+
+    mesh_protocol_detach(&protocol);
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, wire_send, &wire);
+    (void)mesh_protocol_begin(&protocol);
+    const struct mesh_tern_frame info = {
+        .type = MESH_TERN_INFO, .seq = wire_last(&wire)[1], .version = 3U};
+    news(&protocol, &info);
+    answer(&protocol, &wire, MESH_TERN_OK);
+    MESH_TEST_FAIL_IF(last_sync_after(&wire) != 0U,
+                      "the node may hold what version 2 was never sent, below id 8");
+    struct mesh_tern_frame self = {.type = MESH_TERN_SELF, .seq = 0U};
+    memcpy(self.address, k_node, sizeof k_node);
+    news(&protocol, &self);
+    synced(&protocol, &wire);
+
+    MESH_TEST_FAIL_IF(!reconnect_at(&protocol, &wire, 3U), "and again at version 3");
+    MESH_TEST_FAIL_IF(wire.count < 3U || wire.frames[2][0] != MESH_TERN_SYNC,
+                      "HELLO, SET_TIME, SYNC");
+    struct mesh_tern_frame sync;
+    MESH_TEST_FAIL_IF(mesh_tern_decode(wire.frames[2], wire.lens[2], 3U, &sync) !=
+                              MESH_TERN_DECODE_OK ||
+                          sync.after != 8U,
+                      "once: then after the newest held");
     inkwell_time_wall_set_fixed(0U);
     record_success(test_name);
 }

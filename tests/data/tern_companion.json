@@ -1,11 +1,40 @@
 {
-  "description": "The companion protocol, draft 0 (draft/companion.md). Frames, streams and addresses are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. Exchange is one connection, in order. The two addresses are the public keys of RFC 8032's first two Ed25519 test vectors.",
+  "description": "The companion protocol, version 3 (draft/companion.md). Frames, streams, addresses and group ids are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. In group_ids, group is the id of the group whose secret is group_secret. Exchange is one connection, in order. In it the node refuses first contact from the third address just before the ASKED; the group it makes has the secret made, where a node in use draws one; and after its own group message is sent it receives a message to that group from the second address's routing id, and then an invite from that address to the group whose secret is invited. Older holds connections to the same node by clients of earlier versions. To the client of version 0 it holds what the exchange begins with, and refuses that first contact after the sync, before the client's SAVE_CONTACT. To the client of version 1 it holds what the exchange has before its JOIN but for the group message and the invite received, which come after the sync and before the client's SEND; the client's last request is one its version does not define, which a client must not send, and the node answers it as it would any other it does not know from that client. To the client of version 2 it holds what the exchange begins with, and its SYNCED is version 2's, without news. Each connection's frames are read by the version its client speaks. The three addresses are the public keys of RFC 8032's first three Ed25519 test vectors.",
   "generator": "vectors/tools/companion.py",
   "crc_check": {
     "input": "313233343536373839",
     "crc": 10673
   },
+  "made": "000102030405060708090a0b0c0d0e0f",
+  "invited": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
   "frames": [
+    {
+      "type": "HELLO",
+      "seq": 1,
+      "fields": {
+        "version": 3
+      },
+      "frame": "010103",
+      "stream": "f5540003010103beb2"
+    },
+    {
+      "type": "HELLO",
+      "seq": 1,
+      "fields": {
+        "version": 2
+      },
+      "frame": "010102",
+      "stream": "f5540003010102ae93"
+    },
+    {
+      "type": "HELLO",
+      "seq": 1,
+      "fields": {
+        "version": 1
+      },
+      "frame": "010101",
+      "stream": "f55400030101019ef0"
+    },
     {
       "type": "HELLO",
       "seq": 1,
@@ -150,6 +179,73 @@
       "stream": "f5540022190f3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cab52"
     },
     {
+      "type": "END_SESSION",
+      "seq": 16,
+      "fields": {
+        "address": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+      },
+      "frame": "1a103d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "stream": "f55400221a103d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cfcc7"
+    },
+    {
+      "type": "MAKE_GROUP",
+      "seq": 17,
+      "fields": {
+        "name": "Hut"
+      },
+      "frame": "201103487574",
+      "stream": "f5540006201103487574ed77"
+    },
+    {
+      "type": "LEAVE_GROUP",
+      "seq": 18,
+      "fields": {
+        "group": "c0037dcd77f6eac6"
+      },
+      "frame": "2112c0037dcd77f6eac6",
+      "stream": "f554000a2112c0037dcd77f6eac68b82"
+    },
+    {
+      "type": "NAME_GROUP",
+      "seq": 19,
+      "fields": {
+        "group": "c8eafadc0857a696",
+        "name": "Ridge walkers"
+      },
+      "frame": "2213c8eafadc0857a6960d52696467652077616c6b657273",
+      "stream": "f55400182213c8eafadc0857a6960d52696467652077616c6b6572738c86"
+    },
+    {
+      "type": "SEND_GROUP",
+      "seq": 20,
+      "fields": {
+        "ref": 3237998082,
+        "group": "c0037dcd77f6eac6",
+        "text": "Anyone at the hut?"
+      },
+      "frame": "2314c0ffee02c0037dcd77f6eac612416e796f6e6520617420746865206875743f",
+      "stream": "f55400212314c0ffee02c0037dcd77f6eac612416e796f6e6520617420746865206875743f3134"
+    },
+    {
+      "type": "SEND_INVITE",
+      "seq": 21,
+      "fields": {
+        "group": "c0037dcd77f6eac6",
+        "to": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+      },
+      "frame": "2415c0037dcd77f6eac63d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "stream": "f554002a2415c0037dcd77f6eac63d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0296"
+    },
+    {
+      "type": "JOIN",
+      "seq": 22,
+      "fields": {
+        "id": 22
+      },
+      "frame": "251600000016",
+      "stream": "f55400062516000000165d3a"
+    },
+    {
       "type": "OK",
       "seq": 4,
       "fields": {},
@@ -169,18 +265,20 @@
       "type": "INFO",
       "seq": 1,
       "fields": {
-        "version": 0,
+        "version": 2,
         "firmware": "tern 0.1.0 heltec-v3"
       },
-      "frame": "420100147465726e20302e312e302068656c7465632d7633",
-      "stream": "f5540018420100147465726e20302e312e302068656c7465632d76339985"
+      "frame": "420102147465726e20302e312e302068656c7465632d7633",
+      "stream": "f5540018420102147465726e20302e312e302068656c7465632d76334235"
     },
     {
       "type": "SYNCED",
       "seq": 2,
-      "fields": {},
-      "frame": "4302",
-      "stream": "f55400024302927d"
+      "fields": {
+        "news": 6
+      },
+      "frame": "430206",
+      "stream": "f5540003430206c889"
     },
     {
       "type": "QUEUED",
@@ -190,6 +288,15 @@
       },
       "frame": "440a00000012",
       "stream": "f5540006440a000000128877"
+    },
+    {
+      "type": "MADE",
+      "seq": 17,
+      "fields": {
+        "group": "c0037dcd77f6eac6"
+      },
+      "frame": "4511c0037dcd77f6eac6",
+      "stream": "f554000a4511c0037dcd77f6eac640e4"
     },
     {
       "type": "SELF",
@@ -359,6 +466,123 @@
       },
       "frame": "880d0000ff02",
       "stream": "f5540006880d0000ff024bbe"
+    },
+    {
+      "type": "ASKED",
+      "seq": 14,
+      "fields": {
+        "address": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "why": 1
+      },
+      "frame": "890efc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802501",
+      "stream": "f5540023890efc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025019ed7"
+    },
+    {
+      "type": "ASKED",
+      "seq": 15,
+      "fields": {
+        "address": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "why": 2
+      },
+      "frame": "890ffc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802502",
+      "stream": "f5540023890ffc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025023291"
+    },
+    {
+      "type": "GROUP",
+      "seq": 16,
+      "fields": {
+        "group": "c0037dcd77f6eac6",
+        "name": "Hut"
+      },
+      "frame": "8a10c0037dcd77f6eac603487574",
+      "stream": "f554000e8a10c0037dcd77f6eac603487574cd7f"
+    },
+    {
+      "type": "GROUP",
+      "seq": 17,
+      "fields": {
+        "group": "c8eafadc0857a696",
+        "name": ""
+      },
+      "frame": "8a11c8eafadc0857a69600",
+      "stream": "f554000b8a11c8eafadc0857a696008665"
+    },
+    {
+      "type": "GROUP_GONE",
+      "seq": 18,
+      "fields": {
+        "group": "c0037dcd77f6eac6"
+      },
+      "frame": "8b12c0037dcd77f6eac6",
+      "stream": "f554000a8b12c0037dcd77f6eac6c27a"
+    },
+    {
+      "type": "GROUP_MESSAGE",
+      "seq": 19,
+      "fields": {
+        "id": 20,
+        "group": "c0037dcd77f6eac6",
+        "from": 0,
+        "time": 1790000120,
+        "flags": 0,
+        "state": 0,
+        "reason": 4,
+        "wait": 22,
+        "text": "Anyone at the hut?"
+      },
+      "frame": "8c1300000014c0037dcd77f6eac6000000006ab13bf8000004001612416e796f6e6520617420746865206875743f",
+      "stream": "f554002e8c1300000014c0037dcd77f6eac6000000006ab13bf8000004001612416e796f6e6520617420746865206875743f435b"
+    },
+    {
+      "type": "GROUP_MESSAGE",
+      "seq": 20,
+      "fields": {
+        "id": 21,
+        "group": "c0037dcd77f6eac6",
+        "from": 4029751709,
+        "time": 1790000150,
+        "flags": 1,
+        "state": 4,
+        "reason": 0,
+        "wait": 0,
+        "text": "Two of us"
+      },
+      "frame": "8c1400000015c0037dcd77f6eac6f031219d6ab13c1601040000000954776f206f66207573",
+      "stream": "f55400258c1400000015c0037dcd77f6eac6f031219d6ab13c1601040000000954776f206f66207573c519"
+    },
+    {
+      "type": "INVITE",
+      "seq": 21,
+      "fields": {
+        "id": 19,
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "group": "c0037dcd77f6eac6",
+        "time": 1790000100,
+        "flags": 0,
+        "state": 2,
+        "reason": 0,
+        "wait": 0,
+        "name": "Hut"
+      },
+      "frame": "8d15000000133d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc0037dcd77f6eac66ab13be4000200000003487574",
+      "stream": "f554003b8d15000000133d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc0037dcd77f6eac66ab13be4000200000003487574845b"
+    },
+    {
+      "type": "INVITE",
+      "seq": 22,
+      "fields": {
+        "id": 22,
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "group": "c8eafadc0857a696",
+        "time": 1790000200,
+        "flags": 0,
+        "state": 4,
+        "reason": 0,
+        "wait": 0,
+        "name": "Ridge"
+      },
+      "frame": "8d16000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a6966ab13c480004000000055269646765",
+      "stream": "f554003d8d16000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a6966ab13c48000400000005526964676527e5"
     }
   ],
   "extended": [
@@ -399,7 +623,7 @@
     },
     {
       "why": "a type this version does not define",
-      "frame": "2001",
+      "frame": "2f01",
       "answer": 1
     },
     {
@@ -416,6 +640,11 @@
       "why": "a field cut short",
       "frame": "0202000000",
       "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "4303",
+      "answer": null
     },
     {
       "why": "a field cut short",
@@ -455,6 +684,51 @@
     {
       "why": "a field cut short",
       "frame": "8305000000013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000000000",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "1a103d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af466",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "890efc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "2112c0037dcd77f6ea",
+      "answer": 2
+    },
+    {
+      "why": "a string longer than its field allows",
+      "frame": "2011207878787878787878787878787878787878787878787878787878787878787878",
+      "answer": 2
+    },
+    {
+      "why": "a string that is not UTF-8",
+      "frame": "231400000001c0037dcd77f6eac602c328",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "2415c0037dcd77f6eac63d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af466",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "2516000000",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "8a10c0037dcd77f6eac6034875",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "8d16000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a696000000000004000000",
       "answer": null
     }
   ],
@@ -594,18 +868,36 @@
       "pending": "f5"
     }
   ],
+  "group_ids": [
+    {
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "group": "c0037dcd77f6eac6"
+    },
+    {
+      "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+      "group": "c8eafadc0857a696"
+    },
+    {
+      "group_secret": "00000000000000000000000000000000",
+      "group": "5d92a4b01683ddea"
+    },
+    {
+      "group_secret": "ffffffffffffffffffffffffffffffff",
+      "group": "daade66d8a048a64"
+    }
+  ],
   "exchange": [
     {
       "from": "client",
       "type": "HELLO",
       "seq": 1,
-      "frame": "010100"
+      "frame": "010103"
     },
     {
       "from": "node",
       "type": "INFO",
       "seq": 1,
-      "frame": "420100147465726e20302e312e302068656c7465632d7633"
+      "frame": "420103147465726e20302e312e302068656c7465632d7633"
     },
     {
       "from": "client",
@@ -665,7 +957,7 @@
       "from": "node",
       "type": "SYNCED",
       "seq": 3,
-      "frame": "4303"
+      "frame": "430306"
     },
     {
       "from": "client",
@@ -714,6 +1006,461 @@
       "type": "STATE",
       "seq": 9,
       "frame": "84090000001202000000"
+    },
+    {
+      "from": "node",
+      "type": "ASKED",
+      "seq": 10,
+      "frame": "890afc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802501"
+    },
+    {
+      "from": "client",
+      "type": "SAVE_CONTACT",
+      "seq": 6,
+      "frame": "1806fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025054361726f6c"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 6,
+      "frame": "4006"
+    },
+    {
+      "from": "node",
+      "type": "CONTACT",
+      "seq": 11,
+      "frame": "810bfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802500054361726f6c"
+    },
+    {
+      "from": "client",
+      "type": "MAKE_GROUP",
+      "seq": 7,
+      "frame": "200703487574"
+    },
+    {
+      "from": "node",
+      "type": "MADE",
+      "seq": 7,
+      "frame": "4507c0037dcd77f6eac6"
+    },
+    {
+      "from": "node",
+      "type": "GROUP",
+      "seq": 12,
+      "frame": "8a0cc0037dcd77f6eac603487574"
+    },
+    {
+      "from": "client",
+      "type": "SEND_INVITE",
+      "seq": 8,
+      "frame": "2408c0037dcd77f6eac63d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+    },
+    {
+      "from": "node",
+      "type": "QUEUED",
+      "seq": 8,
+      "frame": "440800000013"
+    },
+    {
+      "from": "node",
+      "type": "INVITE",
+      "seq": 13,
+      "frame": "8d0d000000133d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc0037dcd77f6eac66ab13be4000001000003487574"
+    },
+    {
+      "from": "node",
+      "type": "STATE",
+      "seq": 14,
+      "frame": "840e0000001301000000"
+    },
+    {
+      "from": "node",
+      "type": "STATE",
+      "seq": 15,
+      "frame": "840f0000001302000000"
+    },
+    {
+      "from": "client",
+      "type": "SEND_GROUP",
+      "seq": 9,
+      "frame": "2309c0ffee02c0037dcd77f6eac612416e796f6e6520617420746865206875743f"
+    },
+    {
+      "from": "node",
+      "type": "QUEUED",
+      "seq": 9,
+      "frame": "440900000014"
+    },
+    {
+      "from": "node",
+      "type": "GROUP_MESSAGE",
+      "seq": 16,
+      "frame": "8c1000000014c0037dcd77f6eac6000000006ab13bf8000000000012416e796f6e6520617420746865206875743f"
+    },
+    {
+      "from": "node",
+      "type": "STATE",
+      "seq": 17,
+      "frame": "84110000001401000000"
+    },
+    {
+      "from": "node",
+      "type": "GROUP_MESSAGE",
+      "seq": 18,
+      "frame": "8c1200000015c0037dcd77f6eac6f031219d6ab13c1600040000000954776f206f66207573"
+    },
+    {
+      "from": "node",
+      "type": "INVITE",
+      "seq": 19,
+      "frame": "8d13000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a6966ab13c480004000000055269646765"
+    },
+    {
+      "from": "client",
+      "type": "JOIN",
+      "seq": 10,
+      "frame": "250a00000016"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 10,
+      "frame": "400a"
+    },
+    {
+      "from": "node",
+      "type": "GROUP",
+      "seq": 20,
+      "frame": "8a14c8eafadc0857a696055269646765"
+    },
+    {
+      "from": "client",
+      "type": "NAME_GROUP",
+      "seq": 11,
+      "frame": "220bc8eafadc0857a6960d52696467652077616c6b657273"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 11,
+      "frame": "400b"
+    },
+    {
+      "from": "node",
+      "type": "GROUP",
+      "seq": 21,
+      "frame": "8a15c8eafadc0857a6960d52696467652077616c6b657273"
+    },
+    {
+      "from": "client",
+      "type": "READ",
+      "seq": 12,
+      "frame": "110c00000016"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 12,
+      "frame": "400c"
+    },
+    {
+      "from": "node",
+      "type": "GROUP_MESSAGE",
+      "seq": 22,
+      "frame": "8c1600000015c0037dcd77f6eac6f031219d6ab13c1601040000000954776f206f66207573"
+    },
+    {
+      "from": "node",
+      "type": "INVITE",
+      "seq": 23,
+      "frame": "8d17000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a6966ab13c480104000000055269646765"
+    },
+    {
+      "from": "client",
+      "type": "LEAVE_GROUP",
+      "seq": 13,
+      "frame": "210dc0037dcd77f6eac6"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 13,
+      "frame": "400d"
+    },
+    {
+      "from": "node",
+      "type": "GROUP_GONE",
+      "seq": 24,
+      "frame": "8b18c0037dcd77f6eac6"
+    },
+    {
+      "from": "client",
+      "type": "END_SESSION",
+      "seq": 14,
+      "frame": "1a0e3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 14,
+      "frame": "400e"
+    },
+    {
+      "from": "node",
+      "type": "CONTACT",
+      "seq": 25,
+      "frame": "81193d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0003426f62"
+    }
+  ],
+  "older": [
+    {
+      "version": 0,
+      "frames": [
+        {
+          "from": "client",
+          "type": "HELLO",
+          "seq": 1,
+          "frame": "010100"
+        },
+        {
+          "from": "node",
+          "type": "INFO",
+          "seq": 1,
+          "frame": "420103147465726e20302e312e302068656c7465632d7633"
+        },
+        {
+          "from": "client",
+          "type": "SYNC",
+          "seq": 2,
+          "frame": "020200000011"
+        },
+        {
+          "from": "node",
+          "type": "SELF",
+          "seq": 0,
+          "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80"
+        },
+        {
+          "from": "node",
+          "type": "CONTACT",
+          "seq": 1,
+          "frame": "81013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62"
+        },
+        {
+          "from": "node",
+          "type": "NEIGHBOUR",
+          "seq": 2,
+          "frame": "85021d2e3f4001da002a"
+        },
+        {
+          "from": "node",
+          "type": "AIRTIME",
+          "seq": 3,
+          "frame": "870300000e1000057e400000303900000000"
+        },
+        {
+          "from": "node",
+          "type": "POWER",
+          "seq": 4,
+          "frame": "88040f935101"
+        },
+        {
+          "from": "node",
+          "type": "SYNCED",
+          "seq": 2,
+          "frame": "4302"
+        },
+        {
+          "from": "client",
+          "type": "SAVE_CONTACT",
+          "seq": 3,
+          "frame": "1803fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025054361726f6c"
+        },
+        {
+          "from": "node",
+          "type": "OK",
+          "seq": 3,
+          "frame": "4003"
+        },
+        {
+          "from": "node",
+          "type": "CONTACT",
+          "seq": 5,
+          "frame": "8105fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802500054361726f6c"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "frames": [
+        {
+          "from": "client",
+          "type": "HELLO",
+          "seq": 1,
+          "frame": "010101"
+        },
+        {
+          "from": "node",
+          "type": "INFO",
+          "seq": 1,
+          "frame": "420103147465726e20302e312e302068656c7465632d7633"
+        },
+        {
+          "from": "client",
+          "type": "SYNC",
+          "seq": 2,
+          "frame": "020200000000"
+        },
+        {
+          "from": "node",
+          "type": "SELF",
+          "seq": 0,
+          "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13c02"
+        },
+        {
+          "from": "node",
+          "type": "CONTACT",
+          "seq": 1,
+          "frame": "81013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62"
+        },
+        {
+          "from": "node",
+          "type": "CONTACT",
+          "seq": 2,
+          "frame": "8102fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802500054361726f6c"
+        },
+        {
+          "from": "node",
+          "type": "MESSAGE",
+          "seq": 3,
+          "frame": "8303000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379801040000000e57686572652061726520796f753f"
+        },
+        {
+          "from": "node",
+          "type": "MESSAGE",
+          "seq": 4,
+          "frame": "8304000000123d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab13bbc0002000000134f6e2074686520726964676520627920736978"
+        },
+        {
+          "from": "node",
+          "type": "NEIGHBOUR",
+          "seq": 5,
+          "frame": "85051d2e3f4001da002a"
+        },
+        {
+          "from": "node",
+          "type": "AIRTIME",
+          "seq": 6,
+          "frame": "870600000e1000057e400000303900000000"
+        },
+        {
+          "from": "node",
+          "type": "POWER",
+          "seq": 7,
+          "frame": "88070f935101"
+        },
+        {
+          "from": "node",
+          "type": "SYNCED",
+          "seq": 2,
+          "frame": "4302"
+        },
+        {
+          "from": "client",
+          "type": "SEND",
+          "seq": 3,
+          "frame": "1003c0ffee033d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0b436f6d696e6720646f776e"
+        },
+        {
+          "from": "node",
+          "type": "QUEUED",
+          "seq": 3,
+          "frame": "440300000017"
+        },
+        {
+          "from": "node",
+          "type": "MESSAGE",
+          "seq": 8,
+          "frame": "8308000000173d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab13cac00000100000b436f6d696e6720646f776e"
+        },
+        {
+          "from": "client",
+          "type": "MAKE_GROUP",
+          "seq": 4,
+          "frame": "200403487574"
+        },
+        {
+          "from": "node",
+          "type": "ERROR",
+          "seq": 4,
+          "frame": "410401"
+        }
+      ]
+    },
+    {
+      "version": 2,
+      "frames": [
+        {
+          "from": "client",
+          "type": "HELLO",
+          "seq": 1,
+          "frame": "010102"
+        },
+        {
+          "from": "node",
+          "type": "INFO",
+          "seq": 1,
+          "frame": "420103147465726e20302e312e302068656c7465632d7633"
+        },
+        {
+          "from": "client",
+          "type": "SYNC",
+          "seq": 2,
+          "frame": "020200000000"
+        },
+        {
+          "from": "node",
+          "type": "SELF",
+          "seq": 0,
+          "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80"
+        },
+        {
+          "from": "node",
+          "type": "CONTACT",
+          "seq": 1,
+          "frame": "81013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62"
+        },
+        {
+          "from": "node",
+          "type": "MESSAGE",
+          "seq": 2,
+          "frame": "8302000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379800040000000e57686572652061726520796f753f"
+        },
+        {
+          "from": "node",
+          "type": "NEIGHBOUR",
+          "seq": 3,
+          "frame": "85031d2e3f4001da002a"
+        },
+        {
+          "from": "node",
+          "type": "AIRTIME",
+          "seq": 4,
+          "frame": "870400000e1000057e400000303900000000"
+        },
+        {
+          "from": "node",
+          "type": "POWER",
+          "seq": 5,
+          "frame": "88050f935101"
+        },
+        {
+          "from": "node",
+          "type": "SYNCED",
+          "seq": 2,
+          "frame": "4302"
+        }
+      ]
     }
   ]
 }
