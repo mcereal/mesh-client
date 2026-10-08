@@ -1830,9 +1830,11 @@ static int send_text_message(struct mesh_app *app, const struct mesh_cli_link *l
     /* MeshCore acks every direct message on its own, so --ack only changes how long this
        waits for it. */
     uint32_t packet_id = 0U;
-    /* A Tern node numbers the message itself, so the id printed is 0 there. */
+    /* A Tern node numbers the message itself: the id is learned from its answer, below, and
+       printed as 0 here. */
+    uint32_t tern_ticket = 0U;
     int send_result =
-        app->tern_bound ? mesh_tern_send_text(&app->tern, dest, text, NULL)
+        app->tern_bound ? mesh_tern_send_text(&app->tern, dest, text, &tern_ticket)
         : app->meshcore_bound
             ? mesh_meshcore_send_text(&app->meshcore, dest, channel, text, &packet_id)
             : mesh_session_send_text(link->session, dest, channel, text, want_ack, &packet_id);
@@ -1858,6 +1860,13 @@ static int send_text_message(struct mesh_app *app, const struct mesh_cli_link *l
         if (run_result < 0) {
             inkwell_log_warn("main", "Event loop returned error %d while sending", run_result);
             break;
+        }
+
+        struct mesh_tern_queued queued;
+        while (app->tern_bound && packet_id == 0U && mesh_tern_take_queued(&app->tern, &queued)) {
+            if (queued.ticket == tern_ticket) {
+                packet_id = queued.id;
+            }
         }
 
         const struct mesh_message_log *log = mesh_session_messages(link->session);

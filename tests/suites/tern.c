@@ -158,7 +158,7 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
         } else {
             /* What the user does, the exchange shows the client doing. */
             if (strcmp(type, "READ") == 0) {
-                (void)mesh_tern_mark_read(&g_tern, 17U);
+                (void)mesh_tern_mark_read(&g_tern, mesh_tern_packet_id(&g_tern, 17U));
             } else if (strcmp(type, "SEND") == 0) {
                 (void)mesh_tern_send_text(&g_tern, mesh_tern_routing_id(k_bob),
                                           "On the ridge by six", NULL);
@@ -201,7 +201,8 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
                           g_model.stats.air_util_tx > 0.344f,
                       "12.345 s of an hour on the air");
 
-    struct mesh_message *received = mesh_message_log_find(&g_model.messages, 17U);
+    struct mesh_message *received =
+        mesh_message_log_find(&g_model.messages, mesh_tern_packet_id(&g_tern, 17U));
     MESH_TEST_FAIL_IF(received == NULL || received->direction != MESH_MESSAGE_INBOUND ||
                           received->from != bob_id ||
                           strcmp(received->text, "Where are you?") != 0 || !received->replayed ||
@@ -209,15 +210,20 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
                       "Bob's message, under the node's id, handed back by the sync");
     size_t copies = 0U;
     for (size_t i = 0; i < g_model.messages.count; ++i) {
-        copies += mesh_message_log_at(&g_model.messages, i)->packet_id == 17U ? 1U : 0U;
+        copies += mesh_message_log_at(&g_model.messages, i)->packet_id ==
+                          mesh_tern_packet_id(&g_tern, 17U)
+                      ? 1U
+                      : 0U;
     }
     MESH_TEST_FAIL_IF(copies != 1U, "marked read, the record lands on the entry it already has");
 
     struct mesh_tern_queued queued;
-    MESH_TEST_FAIL_IF(!mesh_tern_take_queued(&g_tern, &queued) || queued.id != 18U ||
-                          queued.ticket != 1U || mesh_tern_take_queued(&g_tern, &queued),
+    MESH_TEST_FAIL_IF(!mesh_tern_take_queued(&g_tern, &queued) ||
+                          queued.id != mesh_tern_packet_id(&g_tern, 18U) || queued.ticket != 1U ||
+                          mesh_tern_take_queued(&g_tern, &queued),
                       "QUEUED's id, once, under the send's ticket");
-    const struct mesh_message *mine = mesh_message_log_find(&g_model.messages, 18U);
+    const struct mesh_message *mine =
+        mesh_message_log_find(&g_model.messages, mesh_tern_packet_id(&g_tern, 18U));
     MESH_TEST_FAIL_IF(mine == NULL || mine->direction != MESH_MESSAGE_OUTBOUND ||
                           mine->to != bob_id || mine->ack != MESH_MESSAGE_ACK_DELIVERED ||
                           mine->replayed,
@@ -239,7 +245,8 @@ MESH_TEST_CASE(tern_message_states_follow_the_node, unit) {
                                       .text = "hi"};
     memcpy(message.address, k_bob, sizeof k_bob);
     news(&protocol, &message);
-    const struct mesh_message *logged = mesh_message_log_find(&g_model.messages, 5U);
+    const struct mesh_message *logged =
+        mesh_message_log_find(&g_model.messages, mesh_tern_packet_id(&g_tern, 5U));
     MESH_TEST_FAIL_IF(logged == NULL || logged->ack != MESH_MESSAGE_ACK_WAITING ||
                           logged->ack_error != MESH_TERN_WAIT_ROUTE || logged->replayed,
                       "waiting for a route, and live rather than replayed");
@@ -382,7 +389,7 @@ MESH_TEST_CASE(tern_sends_one_request_at_a_time, unit) {
     memcpy(message.address, k_bob, sizeof k_bob);
     news(&protocol, &message);
     MESH_TEST_FAIL_IF(!mesh_tern_take_queued(&g_tern, &taken) || taken.ticket != first ||
-                          taken.id != 40U,
+                          taken.id != mesh_tern_packet_id(&g_tern, 40U),
                       "the first, once its message is logged");
     MESH_TEST_FAIL_IF(!mesh_tern_take_queued(&g_tern, &taken) || taken.ticket != first + 1U ||
                           taken.id != 0U,
@@ -394,6 +401,70 @@ MESH_TEST_CASE(tern_sends_one_request_at_a_time, unit) {
     long_text[sizeof long_text - 1U] = '\0';
     MESH_TEST_FAIL_IF(mesh_tern_send_text(&g_tern, bob, long_text, NULL) != -EMSGSIZE,
                       "as is text past 128 bytes");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_the_frame_that_shows_a_gap_is_live_news, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake should reach READY");
+    /* Count 1 never came: this message, at 2, shows the gap. */
+    struct mesh_tern_frame message = {.type = MESH_TERN_MESSAGE,
+                                      .seq = 2U,
+                                      .id = 3U,
+                                      .state = MESH_TERN_STATE_RECEIVED,
+                                      .text_len = 2U,
+                                      .text = "hi"};
+    memcpy(message.address, k_bob, sizeof k_bob);
+    news(&protocol, &message);
+    const struct mesh_message *logged =
+        mesh_message_log_find(&g_model.messages, mesh_tern_packet_id(&g_tern, 3U));
+    MESH_TEST_FAIL_IF(logged == NULL || logged->replayed,
+                      "it arrived live, and is announced as live, not as part of the sync");
+    MESH_TEST_FAIL_IF(wire_last(&wire)[0] != MESH_TERN_SYNC, "and only then is a sync asked");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_two_nodes_message_ids_never_meet, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake should reach READY");
+    struct mesh_tern_frame message = {.type = MESH_TERN_MESSAGE,
+                                      .seq = 1U,
+                                      .id = 1U,
+                                      .state = MESH_TERN_STATE_RECEIVED,
+                                      .text_len = 5U,
+                                      .text = "first"};
+    memcpy(message.address, k_bob, sizeof k_bob);
+    news(&protocol, &message);
+    const uint32_t first = mesh_tern_packet_id(&g_tern, 1U);
+
+    /* Another node on the same run, which counts its messages from 1 too. The log is kept. */
+    mesh_protocol_detach(&protocol);
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, wire_send, &wire);
+    (void)mesh_protocol_begin(&protocol);
+    struct mesh_tern_frame info = {.type = MESH_TERN_INFO, .seq = wire_last(&wire)[1]};
+    news(&protocol, &info);
+    answer(&protocol, &wire, MESH_TERN_OK);
+    struct mesh_tern_frame self = {.type = MESH_TERN_SELF, .seq = 0U};
+    memcpy(self.address, k_bob, sizeof k_bob); /* Bob's node, this time */
+    news(&protocol, &self);
+    message.seq = 1U;
+    memcpy(message.address, k_node, sizeof k_node);
+    memcpy(message.text, "other", 5U);
+    news(&protocol, &message);
+    const uint32_t second = mesh_tern_packet_id(&g_tern, 1U);
+    MESH_TEST_FAIL_IF(first == second, "each node's message 1 has a packet id of its own");
+    const struct mesh_message *a = mesh_message_log_find(&g_model.messages, first);
+    const struct mesh_message *b = mesh_message_log_find(&g_model.messages, second);
+    MESH_TEST_FAIL_IF(a == NULL || b == NULL || strcmp(a->text, "first") != 0 ||
+                          strcmp(b->text, "other") != 0,
+                      "and neither is taken for the other");
+    MESH_TEST_FAIL_IF(mesh_tern_packet_id(&g_tern, second) != 1U,
+                      "a packet id reads back to the node's id");
     inkwell_time_wall_set_fixed(0U);
     record_success(test_name);
 }

@@ -434,18 +434,30 @@ static uint8_t mesh_tern_ack_for(uint8_t state) {
     return MESH_MESSAGE_ACK_NONE;
 }
 
-static bool mesh_tern_logged(const struct mesh_tern *tern, uint32_t id) {
-    return mesh_message_log_find(&tern->model->messages, id) != NULL;
+/*
+ * The radio's message ids, spread over the log's: an odd multiple of its routing id, XORed in.
+ * Every node counts its messages from 1, so two nodes on one run - or one run's cache and the
+ * next's - would otherwise give their first messages one packet id between them. The XOR keeps
+ * each node's ids apart from each other's and lets a packet id be read back to the node's.
+ */
+static uint32_t mesh_tern_mix(const struct mesh_tern *tern) {
+    return tern->self_node * 0x9E3779B1U;
+}
+
+static bool mesh_tern_logged(const struct mesh_tern *tern, uint32_t message_id) {
+    return mesh_message_log_find(&tern->model->messages, mesh_tern_packet_id(tern, message_id)) !=
+           NULL;
 }
 
 /*
- * One MESSAGE record. Its id is the node's, and it is the message's packet id in the log too:
- * unique on the node, the same on every client and after every restart, so a record seen again
- * - a sync after a reconnect, a received message marked read - lands on the entry it already
- * has rather than making a second.
+ * One MESSAGE record. Its id is the node's, and the message's packet id in the log is that id
+ * scoped to the node (mesh_tern_packet_id()): unique on the node, the same on every client and
+ * after every restart, so a record seen again - a sync after a reconnect, a received message
+ * marked read - lands on the entry it already has rather than making a second.
  */
 static void mesh_tern_store_message(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
-    if (frame->id == 0U) {
+    /* SELF comes first in every sync, and names the node the ids are scoped to. */
+    if (frame->id == 0U || !tern->has_self || mesh_tern_packet_id(tern, frame->id) == 0U) {
         return;
     }
     if (frame->id > tern->newest_id) {
@@ -455,8 +467,8 @@ static void mesh_tern_store_message(struct mesh_tern *tern, const struct mesh_te
     if (mesh_tern_logged(tern, frame->id)) {
         if (!inbound) {
             (void)mesh_session_model_mark_ack(
-                tern->model, frame->id, (enum mesh_message_ack)mesh_tern_ack_for(frame->state),
-                frame->reason);
+                tern->model, mesh_tern_packet_id(tern, frame->id),
+                (enum mesh_message_ack)mesh_tern_ack_for(frame->state), frame->reason);
         }
         return;
     }
@@ -465,7 +477,7 @@ static void mesh_tern_store_message(struct mesh_tern *tern, const struct mesh_te
 
     struct mesh_message message;
     memset(&message, 0, sizeof message);
-    message.packet_id = frame->id;
+    message.packet_id = mesh_tern_packet_id(tern, frame->id);
     message.kind = MESH_MESSAGE_KIND_TEXT;
     message.rx_time = frame->time;
     /* Secured unicast is all the radio protocol has: every message is to one node alone. */
@@ -496,10 +508,10 @@ static void mesh_tern_store_message(struct mesh_tern *tern, const struct mesh_te
 }
 
 static void mesh_tern_store_state(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
-    if (frame->state == MESH_TERN_STATE_RECEIVED) {
+    if (frame->state == MESH_TERN_STATE_RECEIVED || !tern->has_self) {
         return;
     }
-    (void)mesh_session_model_mark_ack(tern->model, frame->id,
+    (void)mesh_session_model_mark_ack(tern->model, mesh_tern_packet_id(tern, frame->id),
                                       (enum mesh_message_ack)mesh_tern_ack_for(frame->state),
                                       frame->reason);
 }
@@ -508,6 +520,7 @@ static void mesh_tern_store_state(struct mesh_tern *tern, const struct mesh_tern
 
 static uint32_t mesh_tern_resync_after(const struct mesh_tern *tern);
 static void mesh_tern_begin_sync(struct mesh_tern *tern, uint32_t after);
+static void mesh_tern_apply_news(struct mesh_tern *tern, const struct mesh_tern_frame *frame);
 
 static void mesh_tern_on_news(struct mesh_tern *tern, const uint8_t *raw, size_t len) {
     /* Every news frame counts, one whose type this version does not know included: the count is
@@ -518,21 +531,28 @@ static void mesh_tern_on_news(struct mesh_tern *tern, const uint8_t *raw, size_t
         tern->missed_news = true;
     }
     tern->news_expected = (uint8_t)(raw[1] + 1U);
-    /* Mid-sync, the sync's own end asks again (mesh_tern_synced()); otherwise now. */
-    if (tern->missed_news && tern->phase == MESH_TERN_READY) {
-        tern->missed_news = false;
-        tern->phase = MESH_TERN_SYNCING;
-        mesh_tern_begin_sync(tern, mesh_tern_resync_after(tern));
-    }
     /* A sync's answer is due after its last news, not after the wait from the request. */
     if (tern->awaiting && mesh_tern_head_type(tern) == MESH_TERN_SYNC) {
         tern->awaiting_since_ms = tern->now_ms;
     }
 
     struct mesh_tern_frame frame;
-    if (mesh_tern_decode(raw, len, &frame) != MESH_TERN_DECODE_OK) {
-        return; /* news unknown is ignored, news malformed discarded */
+    if (mesh_tern_decode(raw, len, &frame) == MESH_TERN_DECODE_OK) {
+        mesh_tern_apply_news(tern, &frame);
     }
+    /* News unknown is ignored and news malformed discarded, but either still counted. The frame
+       that showed the gap is live news, applied as such, and only then the sync asked: one
+       taken as part of the sync would be called replayed, or keep a contact the sync left out.
+       Mid-sync, the sync's own end asks again (mesh_tern_synced()). */
+    if (tern->missed_news && tern->phase == MESH_TERN_READY) {
+        tern->missed_news = false;
+        tern->phase = MESH_TERN_SYNCING;
+        mesh_tern_begin_sync(tern, mesh_tern_resync_after(tern));
+    }
+}
+
+static void mesh_tern_apply_news(struct mesh_tern *tern, const struct mesh_tern_frame *f) {
+    const struct mesh_tern_frame frame = *f;
     switch ((enum mesh_tern_type)frame.type) {
     case MESH_TERN_SELF:
         mesh_tern_store_self(tern, &frame);
@@ -576,13 +596,17 @@ static uint32_t mesh_tern_resync_after(const struct mesh_tern *tern) {
     for (size_t i = 0; i < log->count; ++i) {
         const struct mesh_message *message = mesh_message_log_at(log, i);
         if (message == NULL || message->direction != MESH_MESSAGE_OUTBOUND ||
-            message->packet_id == 0U || message->packet_id > tern->newest_id) {
+            message->from != tern->self_node || message->packet_id == 0U) {
+            continue;
+        }
+        const uint32_t id = message->packet_id ^ mesh_tern_mix(tern);
+        if (id == 0U || id > tern->newest_id) {
             continue;
         }
         if ((message->ack == MESH_MESSAGE_ACK_WAITING ||
              message->ack == MESH_MESSAGE_ACK_PENDING) &&
-            message->packet_id - 1U < after) {
-            after = message->packet_id - 1U;
+            id - 1U < after) {
+            after = id - 1U;
         }
     }
     return after;
@@ -893,8 +917,13 @@ int mesh_tern_mark_read(struct mesh_tern *tern, uint32_t through) {
     if (tern->send == NULL || tern->phase == MESH_TERN_IDLE) {
         return -ENOTCONN;
     }
-    const struct mesh_tern_frame frame = {.type = MESH_TERN_READ, .through = through};
+    const struct mesh_tern_frame frame = {.type = MESH_TERN_READ,
+                                          .through = through ^ mesh_tern_mix(tern)};
     return mesh_tern_enqueue(tern, &frame);
+}
+
+uint32_t mesh_tern_packet_id(const struct mesh_tern *tern, uint32_t message_id) {
+    return tern != NULL && message_id != 0U ? message_id ^ mesh_tern_mix(tern) : 0U;
 }
 
 bool mesh_tern_take_queued(struct mesh_tern *tern, struct mesh_tern_queued *out) {
@@ -906,7 +935,8 @@ bool mesh_tern_take_queued(struct mesh_tern *tern, struct mesh_tern_queued *out)
         return false; /* its MESSAGE is still to come */
     }
     if (out != NULL) {
-        *out = oldest;
+        *out = (struct mesh_tern_queued){.ticket = oldest.ticket,
+                                         .id = mesh_tern_packet_id(tern, oldest.id)};
     }
     memmove(tern->queued, tern->queued + 1, (tern->queued_count - 1U) * sizeof tern->queued[0]);
     tern->queued_count -= 1U;

@@ -321,14 +321,21 @@ bool mesh_tern_ready(const struct mesh_tern *tern);
 int mesh_tern_send_text(struct mesh_tern *tern, uint32_t dest, const char *text,
                         uint32_t *out_ticket);
 
-/* Marks every received message up to and including `through` - a packet id, which is the
-   node's message id - as read, on the node and so on every client driving it. 0 or a negative
-   errno as mesh_tern_send_text(). */
+/* Marks every received message up to and including `through` - a packet id in the log - as
+   read, on the node and so on every client driving it. 0 or a negative errno as
+   mesh_tern_send_text(). */
 int mesh_tern_mark_read(struct mesh_tern *tern, uint32_t through);
 
 /*
- * How the oldest send not yet taken ended, or false when none has: its ticket, and the node's
- * id for the message - its packet id in the log - or 0 when the node refused it. A send the
+ * The packet id in the log of the node's message `message_id`: the id scoped to the node, so two
+ * nodes counting from 1 never share one. Read back with the same call. 0 for 0. Only meaningful
+ * once SELF has named the node, which every sync does first.
+ */
+uint32_t mesh_tern_packet_id(const struct mesh_tern *tern, uint32_t message_id);
+
+/*
+ * How the oldest send not yet taken ended, or false when none has: its ticket, and the
+ * message's packet id in the log (mesh_tern_packet_id()), or 0 when the node refused it. A send the
  * node took is handed out only once its MESSAGE is in the log, so a caller can watch it there
  * at once.
  */

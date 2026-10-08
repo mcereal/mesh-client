@@ -397,9 +397,11 @@ code here goes the other way - and checked against that repository's vectors, wh
 - **A sync is the whole of both lists.** A contact or neighbour it did not send is no longer the
   node's: it stays on the roster, which outlives the radio's lists, with `in_nodedb` off and a
   contact's name gone with it.
-- **A message's id is the node's.** It is the packet id in the log, so a record seen again - a
-  sync after a reconnect, a received message marked read - lands on the entry it already has,
-  and the cache agrees with it across a restart. So a send logs nothing: the SEND's QUEUED names
+- **A message's id is the node's.** Its packet id in the log is that id scoped to the node
+  (`mesh_tern_packet_id()`: XORed with an odd multiple of the node's routing id, since every
+  node counts from 1), so a record seen again - a sync after a reconnect, a received message
+  marked read - lands on the entry it already has, the cache agrees with it across a restart,
+  and two nodes on one run never share one. So a send logs nothing: the SEND's QUEUED names
   the id, the MESSAGE news that follows is the bubble, and `mesh_tern_take_queued()` hands the
   app the send's ticket and id once the message is in the log, for the delivery watch. A refused
   send has no bubble and is said as a toast. A message handed back by a sync is `replayed`, so a
