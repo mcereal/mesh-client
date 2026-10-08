@@ -23,6 +23,11 @@
  * A node is known on the roster by its routing id (mesh_tern_routing_id()), because that is the
  * one number all three of a contact, a message and a neighbour lead to: the first two carry an
  * address, which hashes to it, and the third carries it bare.
+ *
+ * Groups, group messages and invites (version 2) are kept in the conversation's own lists and go
+ * no further: the model has no shape for a group that a screen would not take for a channel or a
+ * direct message. What they do reach is the sync, which has to know which of their ids may still
+ * change.
  */
 
 /* Meshtastic's role numbers, which the roster's `role` is read in: a relay forwards like a
@@ -34,8 +39,31 @@ enum {
 
 /* --------------------------------------------------------------------------------- requests */
 
+/* The version both ends speak, or this client's own before the node has said its. */
+static uint8_t mesh_tern_spoken(const struct mesh_tern *tern) {
+    return tern->has_agreed ? tern->agreed : tern->version;
+}
+
+static void mesh_tern_pop(struct mesh_tern *tern);
+static void mesh_tern_note_queued(struct mesh_tern *tern, uint32_t ticket, uint32_t id);
+
 static void mesh_tern_pump(struct mesh_tern *tern) {
-    if (tern->send == NULL || tern->awaiting || tern->queue_count == 0U) {
+    if (tern->send == NULL || tern->awaiting) {
+        return;
+    }
+    /* A request queued before INFO said the node's version may be one that version lacks. It is
+       not sent: the node could not tell this client what it changed. */
+    while (tern->queue_count > 0U &&
+           mesh_tern_since(tern->queue[tern->queue_head].frame[0]) > mesh_tern_spoken(tern)) {
+        const struct mesh_tern_request *dropped = &tern->queue[tern->queue_head];
+        inkwell_log_warn("tern", "Request 0x%02x not sent: version %u lacks it",
+                         (unsigned)dropped->frame[0], (unsigned)mesh_tern_spoken(tern));
+        if (dropped->ticket != 0U) {
+            mesh_tern_note_queued(tern, dropped->ticket, 0U);
+        }
+        mesh_tern_pop(tern);
+    }
+    if (tern->queue_count == 0U) {
         return;
     }
     struct mesh_tern_request *request = &tern->queue[tern->queue_head];
@@ -71,12 +99,16 @@ static int mesh_tern_enqueue_ticket(struct mesh_tern *tern, const struct mesh_te
     if (tern->send == NULL) {
         return -ENOTCONN;
     }
+    if (mesh_tern_since(frame->type) > mesh_tern_spoken(tern)) {
+        return -EOPNOTSUPP;
+    }
     if (tern->queue_count >= MESH_TERN_QUEUE_LEN) {
         return -ENOBUFS;
     }
     struct mesh_tern_request *slot =
         &tern->queue[(tern->queue_head + tern->queue_count) % MESH_TERN_QUEUE_LEN];
-    const int len = mesh_tern_encode(frame, slot->frame, sizeof slot->frame);
+    const int len =
+        mesh_tern_encode(frame, mesh_tern_spoken(tern), slot->frame, sizeof slot->frame);
     if (len < 0) {
         return len;
     }
@@ -339,7 +371,13 @@ static void mesh_tern_drop_neighbour(struct mesh_tern *tern, uint32_t routing_id
 static void mesh_tern_forget_books(struct mesh_tern *tern) {
     tern->contact_count = 0U;
     tern->neighbour_count = 0U;
+    tern->group_count = 0U;
+    tern->group_item_count = 0U;
+    tern->open_count = 0U;
     tern->newest_id = 0U;
+    tern->has_synced_version = false;
+    tern->has_missed_since = false;
+    tern->has_asked = false;
 }
 
 static void mesh_tern_store_self(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
@@ -347,6 +385,8 @@ static void mesh_tern_store_self(struct mesh_tern *tern, const struct mesh_tern_
        and its message ids are its own count. */
     if (tern->has_self && memcmp(tern->self.address, frame->address, MESH_TERN_ADDRESS_LEN) != 0) {
         mesh_tern_forget_books(tern);
+        /* The sync under way asked after the other node's ids: ask this one again, from 0. */
+        tern->missed_news = true;
     }
     tern->has_self = true;
     memcpy(tern->self.address, frame->address, MESH_TERN_ADDRESS_LEN);
@@ -444,6 +484,72 @@ static uint32_t mesh_tern_mix(const struct mesh_tern *tern) {
     return tern->self_node * 0x9E3779B1U;
 }
 
+/*
+ * Whether an item's record may yet change without this client seeing it, should news be missed:
+ * a message or an invite waiting or sent may be delivered, and anything received and unread may
+ * be read on another client. A group message that is sent stays sent - nothing answers a flood.
+ */
+static bool mesh_tern_may_change(uint8_t kind, uint8_t state, uint8_t flags) {
+    switch ((enum mesh_tern_state)state) {
+    case MESH_TERN_STATE_WAITING:
+        return true;
+    case MESH_TERN_STATE_SENT:
+        return kind != MESH_TERN_GROUP_MESSAGE;
+    case MESH_TERN_STATE_RECEIVED:
+        return (flags & MESH_TERN_MESSAGE_READ) == 0U;
+    case MESH_TERN_STATE_DELIVERED:
+    case MESH_TERN_STATE_NOT_DELIVERED:
+        break;
+    }
+    return false;
+}
+
+static size_t mesh_tern_open_find(const struct mesh_tern *tern, uint32_t id) {
+    for (size_t i = 0; i < tern->open_count; ++i) {
+        if (tern->open[i].id == id) {
+            return i;
+        }
+    }
+    return SIZE_MAX;
+}
+
+/* Keeps `open` to the ids whose record may yet change. Full, it keeps the least: a sync after
+   missed news asks after one less than the least, and the rest are above it. */
+static void mesh_tern_track(struct mesh_tern *tern, uint8_t kind, uint32_t id, uint8_t state,
+                            uint8_t flags) {
+    const size_t at = mesh_tern_open_find(tern, id);
+    if (!mesh_tern_may_change(kind, state, flags)) {
+        if (at != SIZE_MAX) {
+            tern->open[at] = tern->open[--tern->open_count];
+        }
+        return;
+    }
+    const struct mesh_tern_open entry = {.id = id, .kind = kind, .state = state, .flags = flags};
+    if (at != SIZE_MAX) {
+        tern->open[at] = entry;
+    } else if (tern->open_count < MESH_TERN_MAX_OPEN) {
+        tern->open[tern->open_count++] = entry;
+    } else {
+        size_t greatest = 0U;
+        for (size_t i = 1; i < tern->open_count; ++i) {
+            if (tern->open[i].id > tern->open[greatest].id) {
+                greatest = i;
+            }
+        }
+        if (tern->open[greatest].id > id) {
+            tern->open[greatest] = entry;
+        }
+    }
+}
+
+/* Every record of the node's count - a message, a group message, an invite - is an id held. */
+static void mesh_tern_note_item(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
+    if (frame->id > tern->newest_id) {
+        tern->newest_id = frame->id;
+    }
+    mesh_tern_track(tern, frame->type, frame->id, frame->state, frame->flags);
+}
+
 static bool mesh_tern_logged(const struct mesh_tern *tern, uint32_t message_id) {
     return mesh_message_log_find(&tern->model->messages, mesh_tern_packet_id(tern, message_id)) !=
            NULL;
@@ -456,12 +562,13 @@ static bool mesh_tern_logged(const struct mesh_tern *tern, uint32_t message_id) 
  * marked read - lands on the entry it already has rather than making a second.
  */
 static void mesh_tern_store_message(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
-    /* SELF comes first in every sync, and names the node the ids are scoped to. */
-    if (frame->id == 0U || !tern->has_self || mesh_tern_packet_id(tern, frame->id) == 0U) {
+    if (frame->id == 0U) {
         return;
     }
-    if (frame->id > tern->newest_id) {
-        tern->newest_id = frame->id;
+    mesh_tern_note_item(tern, frame);
+    /* SELF comes first in every sync, and names the node the ids are scoped to. */
+    if (!tern->has_self || mesh_tern_packet_id(tern, frame->id) == 0U) {
+        return;
     }
     const bool inbound = frame->state == MESH_TERN_STATE_RECEIVED;
     if (mesh_tern_logged(tern, frame->id)) {
@@ -507,8 +614,36 @@ static void mesh_tern_store_message(struct mesh_tern *tern, const struct mesh_te
     (void)mesh_session_model_log_message(tern->model, &message);
 }
 
+static size_t mesh_tern_group_item_find(const struct mesh_tern *tern, uint32_t id) {
+    for (size_t i = 0; i < tern->group_item_count; ++i) {
+        if (tern->group_items[i].id == id) {
+            return i;
+        }
+    }
+    return SIZE_MAX;
+}
+
+/* STATE: where a message, group message or invite is now - those three fields of it, no more. */
 static void mesh_tern_store_state(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
-    if (frame->state == MESH_TERN_STATE_RECEIVED || !tern->has_self) {
+    if (frame->id == 0U) {
+        return;
+    }
+    const size_t open = mesh_tern_open_find(tern, frame->id);
+    const size_t item = mesh_tern_group_item_find(tern, frame->id);
+    uint8_t kind = MESH_TERN_MESSAGE;
+    uint8_t flags = 0U;
+    if (item != SIZE_MAX) {
+        struct mesh_tern_group_item *held = &tern->group_items[item];
+        held->state = frame->state;
+        held->reason = frame->reason;
+        kind = held->kind;
+        flags = held->flags;
+    } else if (open != SIZE_MAX) {
+        kind = tern->open[open].kind;
+        flags = tern->open[open].flags;
+    }
+    mesh_tern_track(tern, kind, frame->id, frame->state, flags);
+    if (kind != MESH_TERN_MESSAGE || frame->state == MESH_TERN_STATE_RECEIVED || !tern->has_self) {
         return;
     }
     (void)mesh_session_model_mark_ack(tern->model, mesh_tern_packet_id(tern, frame->id),
@@ -516,19 +651,119 @@ static void mesh_tern_store_state(struct mesh_tern *tern, const struct mesh_tern
                                       frame->reason);
 }
 
+/* -------------------------------------------------------------------------------- groups */
+
+static size_t mesh_tern_group_find(const struct mesh_tern *tern, const uint8_t *id) {
+    for (size_t i = 0; i < tern->group_count; ++i) {
+        if (memcmp(tern->groups[i].id, id, MESH_TERN_GROUP_LEN) == 0) {
+            return i;
+        }
+    }
+    return SIZE_MAX;
+}
+
+static void mesh_tern_store_group(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
+    size_t at = mesh_tern_group_find(tern, frame->group);
+    if (at == SIZE_MAX) {
+        if (tern->group_count >= MESH_TERN_MAX_GROUPS) {
+            inkwell_log_warn("tern", "Group list full; one not kept");
+            return;
+        }
+        at = tern->group_count++;
+    }
+    struct mesh_tern_group *group = &tern->groups[at];
+    memcpy(group->id, frame->group, MESH_TERN_GROUP_LEN);
+    group->synced = group->synced || tern->phase == MESH_TERN_SYNCING;
+    inkwell_text_sanitise_str(frame->text, group->name, sizeof group->name);
+}
+
+static void mesh_tern_drop_group(struct mesh_tern *tern, const uint8_t *id) {
+    const size_t at = mesh_tern_group_find(tern, id);
+    if (at != SIZE_MAX) {
+        tern->groups[at] = tern->groups[--tern->group_count];
+    }
+}
+
+/* A GROUP_MESSAGE or INVITE record. Full, the oldest by id makes room: the newest are what a
+   screen would show first. */
+static void mesh_tern_store_group_item(struct mesh_tern *tern,
+                                       const struct mesh_tern_frame *frame) {
+    if (frame->id == 0U) {
+        return;
+    }
+    mesh_tern_note_item(tern, frame);
+    size_t at = mesh_tern_group_item_find(tern, frame->id);
+    if (at == SIZE_MAX && tern->group_item_count < MESH_TERN_MAX_GROUP_ITEMS) {
+        at = tern->group_item_count++;
+    } else if (at == SIZE_MAX) {
+        at = 0U;
+        for (size_t i = 1; i < tern->group_item_count; ++i) {
+            if (tern->group_items[i].id < tern->group_items[at].id) {
+                at = i;
+            }
+        }
+        if (tern->group_items[at].id > frame->id) {
+            return;
+        }
+    }
+    struct mesh_tern_group_item *item = &tern->group_items[at];
+    memset(item, 0, sizeof *item);
+    item->id = frame->id;
+    item->kind = frame->type;
+    item->flags = frame->flags;
+    item->state = frame->state;
+    item->reason = frame->reason;
+    item->time = frame->time;
+    memcpy(item->group, frame->group, MESH_TERN_GROUP_LEN);
+    if (frame->type == MESH_TERN_INVITE) {
+        memcpy(item->contact, frame->address, MESH_TERN_ADDRESS_LEN);
+    } else {
+        item->from = frame->from;
+    }
+    inkwell_text_sanitise((const uint8_t *)frame->text, frame->text_len, item->text,
+                          sizeof item->text);
+}
+
+/* ASKED: the node refused first contact from an address that proved itself. It is not a record
+   - a sync does not send it again - so the last one is all that is kept. */
+static void mesh_tern_store_asked(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
+    char id[16];
+    mesh_tern_hex_id(frame->address, id, sizeof id);
+    inkwell_log_info("tern", "Node refused first contact from %s (why %u)", id,
+                     (unsigned)frame->why);
+    tern->has_asked = true;
+    memcpy(tern->asked_address, frame->address, MESH_TERN_ADDRESS_LEN);
+    tern->asked_why = frame->why;
+}
+
 /* ---------------------------------------------------------------------------------- news */
 
-static uint32_t mesh_tern_resync_after(const struct mesh_tern *tern);
+static uint32_t mesh_tern_sync_after(const struct mesh_tern *tern);
 static void mesh_tern_begin_sync(struct mesh_tern *tern, uint32_t after);
 static void mesh_tern_apply_news(struct mesh_tern *tern, const struct mesh_tern_frame *frame);
 
+/* News was missed. The sync under way, if one is, no longer proves what is gone, and the next
+   reaches back at least to what was held when the first of it was. */
+static void mesh_tern_missed(struct mesh_tern *tern) {
+    tern->missed_news = true;
+    if (!tern->has_missed_since || tern->newest_id < tern->missed_since) {
+        tern->missed_since = tern->newest_id;
+    }
+    tern->has_missed_since = true;
+}
+
 static void mesh_tern_on_news(struct mesh_tern *tern, const uint8_t *raw, size_t len) {
-    /* Every news frame counts, one whose type this version does not know included: the count is
-       the node's, of what it sent. */
-    if (raw[1] != tern->news_expected) {
-        inkwell_log_info("tern", "News %u where %u was due; syncing again", (unsigned)raw[1],
+    /* Every news frame counts, one whose type the version spoken does not define included: the
+       count is the node's, of what it sent. Such a frame is ignored; one of a type it does
+       define that cannot be read is a record lost as surely as one that never came. */
+    struct mesh_tern_frame frame;
+    const enum mesh_tern_decode_result result =
+        mesh_tern_decode(raw, len, mesh_tern_spoken(tern), &frame);
+    if (raw[1] != tern->news_expected || result == MESH_TERN_DECODE_MALFORMED) {
+        inkwell_log_info("tern", "News %u %s where %u was due; syncing again", (unsigned)raw[1],
+                         result == MESH_TERN_DECODE_MALFORMED ? "malformed" : "arrived",
                          (unsigned)tern->news_expected);
-        tern->missed_news = true;
+        mesh_tern_missed(tern);
     }
     tern->news_expected = (uint8_t)(raw[1] + 1U);
     /* A sync's answer is due after its last news, not after the wait from the request. */
@@ -536,18 +771,16 @@ static void mesh_tern_on_news(struct mesh_tern *tern, const uint8_t *raw, size_t
         tern->awaiting_since_ms = tern->now_ms;
     }
 
-    struct mesh_tern_frame frame;
-    if (mesh_tern_decode(raw, len, &frame) == MESH_TERN_DECODE_OK) {
+    if (result == MESH_TERN_DECODE_OK) {
         mesh_tern_apply_news(tern, &frame);
     }
-    /* News unknown is ignored and news malformed discarded, but either still counted. The frame
-       that showed the gap is live news, applied as such, and only then the sync asked: one
-       taken as part of the sync would be called replayed, or keep a contact the sync left out.
-       Mid-sync, the sync's own end asks again (mesh_tern_synced()). */
+    /* The frame that showed the gap is live news, applied as such, and only then the sync
+       asked: one taken as part of the sync would be called replayed, or keep a contact the sync
+       left out. Mid-sync, the sync's own end asks again (mesh_tern_synced()). */
     if (tern->missed_news && tern->phase == MESH_TERN_READY) {
         tern->missed_news = false;
         tern->phase = MESH_TERN_SYNCING;
-        mesh_tern_begin_sync(tern, mesh_tern_resync_after(tern));
+        mesh_tern_begin_sync(tern, mesh_tern_sync_after(tern));
     }
 }
 
@@ -581,6 +814,19 @@ static void mesh_tern_apply_news(struct mesh_tern *tern, const struct mesh_tern_
     case MESH_TERN_POWER:
         mesh_tern_store_power(tern, &frame);
         break;
+    case MESH_TERN_ASKED:
+        mesh_tern_store_asked(tern, &frame);
+        break;
+    case MESH_TERN_GROUP:
+        mesh_tern_store_group(tern, &frame);
+        break;
+    case MESH_TERN_GROUP_GONE:
+        mesh_tern_drop_group(tern, frame.group);
+        break;
+    case MESH_TERN_GROUP_MESSAGE:
+    case MESH_TERN_INVITE:
+        mesh_tern_store_group_item(tern, &frame);
+        break;
     default:
         break;
     }
@@ -588,32 +834,47 @@ static void mesh_tern_apply_news(struct mesh_tern *tern, const struct mesh_tern_
 
 /* -------------------------------------------------------------------------------- answers */
 
-/* The id a sync after missed news asks after: one less than the least a message whose state
-   may have moved unseen - one still waiting or sent - holds, or the newest held when none is. */
-static uint32_t mesh_tern_resync_after(const struct mesh_tern *tern) {
-    uint32_t after = tern->newest_id;
-    const struct mesh_message_log *log = &tern->model->messages;
-    for (size_t i = 0; i < log->count; ++i) {
-        const struct mesh_message *message = mesh_message_log_at(log, i);
-        if (message == NULL || message->direction != MESH_MESSAGE_OUTBOUND ||
-            message->from != tern->self_node || message->packet_id == 0U) {
-            continue;
-        }
-        const uint32_t id = message->packet_id ^ mesh_tern_mix(tern);
-        if (id == 0U || id > tern->newest_id) {
-            continue;
-        }
-        if ((message->ack == MESH_MESSAGE_ACK_WAITING ||
-             message->ack == MESH_MESSAGE_ACK_PENDING) &&
-            id - 1U < after) {
-            after = id - 1U;
+/*
+ * The id a sync asks after. Normally the greatest held. After missed news, one less than the
+ * least of any whose record may have changed unseen (`open`), and never more than the greatest
+ * held when the news was first missed: what was lost may be a record below ones that arrived
+ * after it. At a later version than the last sync spoke - or with none - 0, once.
+ */
+static uint32_t mesh_tern_sync_after(const struct mesh_tern *tern) {
+    if (!tern->has_synced_version || tern->synced_version < mesh_tern_spoken(tern)) {
+        return 0U;
+    }
+    if (!tern->has_missed_since) {
+        return tern->newest_id;
+    }
+    uint32_t after = tern->missed_since;
+    for (size_t i = 0; i < tern->open_count; ++i) {
+        if (tern->open[i].id - 1U < after) {
+            after = tern->open[i].id - 1U;
         }
     }
     return after;
 }
 
-static void mesh_tern_synced(struct mesh_tern *tern) {
-    /* A sync is the whole of both lists: what it did not send, the node no longer holds. */
+static void mesh_tern_synced(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
+    /* The sync's last news is the one a gap cannot show: nothing comes after it. Version 3's
+       SYNCED says what the count should be by now. */
+    if (mesh_tern_spoken(tern) >= 3U && frame->news != tern->news_expected) {
+        inkwell_log_info("tern", "Sync ended at news %u where %u was due; syncing again",
+                         (unsigned)frame->news, (unsigned)tern->news_expected);
+        mesh_tern_missed(tern);
+        tern->news_expected = frame->news;
+    }
+    if (tern->missed_news) {
+        /* What this sync did not send may be what was lost: nothing is forgotten on its
+           account, and it is asked again. */
+        tern->missed_news = false;
+        tern->phase = MESH_TERN_SYNCING;
+        mesh_tern_begin_sync(tern, mesh_tern_sync_after(tern));
+        return;
+    }
+    /* A sync is the whole of the three lists: what it did not send, the node no longer holds.
+       Before version 2 a sync sends no groups, which says nothing of whether they are gone. */
     for (size_t i = tern->contact_count; i > 0U; --i) {
         if (!tern->contacts[i - 1U].synced) {
             mesh_tern_drop_contact(tern, tern->contacts[i - 1U].address);
@@ -624,17 +885,22 @@ static void mesh_tern_synced(struct mesh_tern *tern) {
             mesh_tern_drop_neighbour(tern, tern->neighbours[i - 1U].routing_id);
         }
     }
+    if (mesh_tern_spoken(tern) >= 2U) {
+        for (size_t i = tern->group_count; i > 0U; --i) {
+            if (!tern->groups[i - 1U].synced) {
+                mesh_tern_drop_group(tern, tern->groups[i - 1U].id);
+            }
+        }
+    }
+    tern->has_synced_version = true;
+    tern->synced_version = mesh_tern_spoken(tern);
+    tern->has_missed_since = false;
     const bool first = tern->phase != MESH_TERN_READY;
     tern->phase = MESH_TERN_READY;
     mesh_session_model_sync_complete(tern->model);
     if (first) {
-        inkwell_log_info("tern", "Synced: %zu contacts, %zu neighbours", tern->contact_count,
-                         tern->neighbour_count);
-    }
-    if (tern->missed_news) {
-        tern->missed_news = false;
-        tern->phase = MESH_TERN_SYNCING;
-        mesh_tern_begin_sync(tern, mesh_tern_resync_after(tern));
+        inkwell_log_info("tern", "Synced: %zu contacts, %zu groups, %zu neighbours",
+                         tern->contact_count, tern->group_count, tern->neighbour_count);
     }
 }
 
@@ -644,6 +910,9 @@ static void mesh_tern_begin_sync(struct mesh_tern *tern, uint32_t after) {
     }
     for (size_t i = 0; i < tern->neighbour_count; ++i) {
         tern->neighbours[i].synced = false;
+    }
+    for (size_t i = 0; i < tern->group_count; ++i) {
+        tern->groups[i].synced = false;
     }
     mesh_tern_request_sync(tern, after);
 }
@@ -656,7 +925,7 @@ static void mesh_tern_on_answer(struct mesh_tern *tern, const uint8_t *raw, size
         return; /* an answer to a request given up on */
     }
     struct mesh_tern_frame frame;
-    if (mesh_tern_decode(raw, len, &frame) != MESH_TERN_DECODE_OK) {
+    if (mesh_tern_decode(raw, len, mesh_tern_spoken(tern), &frame) != MESH_TERN_DECODE_OK) {
         return; /* discarded; the request times out as if unanswered */
     }
     const uint8_t asked = mesh_tern_head_type(tern);
@@ -691,10 +960,15 @@ static void mesh_tern_on_answer(struct mesh_tern *tern, const uint8_t *raw, size
             break;
         }
         tern->node_version = frame.version;
+        tern->has_agreed = true;
+        tern->agreed = frame.version < tern->version ? frame.version : tern->version;
         inkwell_str_copy(tern->firmware, sizeof tern->firmware, frame.text);
-        inkwell_log_info("tern", "Node speaks version %u (%s)", (unsigned)frame.version,
-                         tern->firmware);
+        inkwell_log_info("tern", "Node speaks version %u (%s); speaking %u",
+                         (unsigned)frame.version, tern->firmware, (unsigned)tern->agreed);
         tern->phase = MESH_TERN_SYNCING;
+        /* What changed while there was no connection was never sent: news missed. */
+        mesh_tern_missed(tern);
+        tern->missed_news = false;
         {
             const uint32_t now = inkwell_time_wall_credible_s();
             if (now != 0U) {
@@ -702,11 +976,11 @@ static void mesh_tern_on_answer(struct mesh_tern *tern, const uint8_t *raw, size
                 (void)mesh_tern_enqueue(tern, &set_time);
             }
         }
-        mesh_tern_begin_sync(tern, tern->newest_id);
+        mesh_tern_begin_sync(tern, mesh_tern_sync_after(tern));
         break;
     case MESH_TERN_SYNC:
         if (frame.type == MESH_TERN_SYNCED) {
-            mesh_tern_synced(tern);
+            mesh_tern_synced(tern, &frame);
         }
         break;
     case MESH_TERN_SEND:
@@ -741,6 +1015,7 @@ static void mesh_tern_reset_link(struct mesh_tern *tern) {
     tern->missed_news = false;
     tern->news_expected = 0U;
     tern->queued_count = 0U;
+    tern->has_agreed = false;
 }
 
 static void mesh_tern_attach(void *self, mesh_protocol_send_fn send, void *send_ctx) {
@@ -764,7 +1039,7 @@ static int mesh_tern_hello(struct mesh_tern *tern) {
     mesh_tern_reset_link(tern);
     tern->phase = MESH_TERN_HELLO_SENT;
     tern->answered_ms = tern->now_ms;
-    const struct mesh_tern_frame hello = {.type = MESH_TERN_HELLO, .version = MESH_TERN_VERSION};
+    const struct mesh_tern_frame hello = {.type = MESH_TERN_HELLO, .version = tern->version};
     return mesh_tern_enqueue(tern, &hello);
 }
 
@@ -853,6 +1128,7 @@ void mesh_tern_init(struct mesh_tern *tern, struct mesh_session *model) {
     }
     memset(tern, 0, sizeof *tern);
     tern->model = model;
+    tern->version = MESH_TERN_VERSION;
 }
 
 struct mesh_protocol mesh_tern_protocol(struct mesh_tern *tern) {
@@ -872,42 +1148,165 @@ static uint32_t mesh_tern_ref(struct mesh_tern *tern) {
     return ref != 0U ? ref : 1U;
 }
 
+/* The address of the node `node`: a contact's, or a node a message came from, which the roster
+   holds by its address. */
+static int mesh_tern_address_of(const struct mesh_tern *tern, uint32_t node, uint8_t *out) {
+    const size_t contact = mesh_tern_contact_by_node(tern, node);
+    if (contact != SIZE_MAX) {
+        memcpy(out, tern->contacts[contact].address, MESH_TERN_ADDRESS_LEN);
+        return 0;
+    }
+    const struct mesh_node_summary *summary = mesh_tern_roster_node(tern, node);
+    if (summary == NULL || summary->public_key_len != MESH_TERN_ADDRESS_LEN ||
+        mesh_tern_routing_id(summary->public_key) != node) {
+        return -ENOENT;
+    }
+    memcpy(out, summary->public_key, MESH_TERN_ADDRESS_LEN);
+    return 0;
+}
+
+/* `text` into the frame's one string, `max` bytes at most; `empty_ok` for a name. */
+static int mesh_tern_put_text(struct mesh_tern_frame *frame, const char *text, size_t max,
+                              bool empty_ok) {
+    if (text == NULL || (!empty_ok && text[0] == '\0')) {
+        return -EINVAL;
+    }
+    const size_t len = strlen(text);
+    if (len > max) {
+        return -EMSGSIZE;
+    }
+    if (!mesh_tern_utf8_valid((const uint8_t *)text, len)) {
+        return -EINVAL;
+    }
+    memcpy(frame->text, text, len);
+    frame->text[len] = '\0';
+    frame->text_len = (uint8_t)len;
+    return 0;
+}
+
+static int mesh_tern_connected(const struct mesh_tern *tern) {
+    return tern->send == NULL || tern->phase == MESH_TERN_IDLE ? -ENOTCONN : 0;
+}
+
 int mesh_tern_send_text(struct mesh_tern *tern, uint32_t dest, const char *text,
                         uint32_t *out_ticket) {
     if (tern == NULL || text == NULL || text[0] == '\0') {
         return -EINVAL;
     }
-    if (tern->send == NULL || tern->phase == MESH_TERN_IDLE) {
+    if (mesh_tern_connected(tern) < 0) {
         return -ENOTCONN;
     }
-    const size_t len = strlen(text);
-    if (len > MESH_TERN_TEXT_MAX) {
+    if (strlen(text) > MESH_TERN_TEXT_MAX) {
         return -EMSGSIZE;
     }
     struct mesh_tern_frame frame = {.type = MESH_TERN_SEND, .ref = mesh_tern_ref(tern)};
-    const size_t contact = mesh_tern_contact_by_node(tern, dest);
-    if (contact != SIZE_MAX) {
-        memcpy(frame.address, tern->contacts[contact].address, MESH_TERN_ADDRESS_LEN);
-    } else {
-        /* A node a message came from, which the roster holds by its address. */
-        const struct mesh_node_summary *node = mesh_tern_roster_node(tern, dest);
-        if (node == NULL || node->public_key_len != MESH_TERN_ADDRESS_LEN ||
-            mesh_tern_routing_id(node->public_key) != dest) {
-            return -ENOENT;
-        }
-        memcpy(frame.address, node->public_key, MESH_TERN_ADDRESS_LEN);
+    int result = mesh_tern_address_of(tern, dest, frame.address);
+    if (result == 0) {
+        result = mesh_tern_put_text(&frame, text, MESH_TERN_TEXT_MAX, false);
     }
-    if (!mesh_tern_utf8_valid((const uint8_t *)text, len)) {
-        return -EINVAL;
+    if (result < 0) {
+        return result;
     }
-    memcpy(frame.text, text, len);
-    frame.text_len = (uint8_t)len;
     tern->next_ticket = tern->next_ticket + 1U != 0U ? tern->next_ticket + 1U : 1U;
-    const int result = mesh_tern_enqueue_ticket(tern, &frame, tern->next_ticket);
+    result = mesh_tern_enqueue_ticket(tern, &frame, tern->next_ticket);
     if (result == 0 && out_ticket != NULL) {
         *out_ticket = tern->next_ticket;
     }
     return result;
+}
+
+int mesh_tern_save_contact(struct mesh_tern *tern, const uint8_t address[MESH_TERN_ADDRESS_LEN],
+                           const char *name) {
+    if (tern == NULL || address == NULL) {
+        return -EINVAL;
+    }
+    if (mesh_tern_connected(tern) < 0) {
+        return -ENOTCONN;
+    }
+    struct mesh_tern_frame frame = {.type = MESH_TERN_SAVE_CONTACT};
+    memcpy(frame.address, address, MESH_TERN_ADDRESS_LEN);
+    const int result = mesh_tern_put_text(&frame, name, MESH_TERN_NAME_MAX, true);
+    return result < 0 ? result : mesh_tern_enqueue(tern, &frame);
+}
+
+int mesh_tern_end_session(struct mesh_tern *tern, uint32_t node) {
+    if (tern == NULL) {
+        return -EINVAL;
+    }
+    if (mesh_tern_connected(tern) < 0) {
+        return -ENOTCONN;
+    }
+    struct mesh_tern_frame frame = {.type = MESH_TERN_END_SESSION};
+    const int result = mesh_tern_address_of(tern, node, frame.address);
+    return result < 0 ? result : mesh_tern_enqueue(tern, &frame);
+}
+
+/* A group request: `group` (may be NULL) and the string, checked as `max` and `empty_ok` say. */
+static int mesh_tern_group_request(struct mesh_tern *tern, struct mesh_tern_frame *frame,
+                                   const uint8_t *group, const char *text, size_t max,
+                                   bool empty_ok) {
+    if (tern == NULL) {
+        return -EINVAL;
+    }
+    if (mesh_tern_connected(tern) < 0) {
+        return -ENOTCONN;
+    }
+    if (group != NULL) {
+        memcpy(frame->group, group, MESH_TERN_GROUP_LEN);
+    }
+    if (max > 0U) {
+        const int result = mesh_tern_put_text(frame, text, max, empty_ok);
+        if (result < 0) {
+            return result;
+        }
+    }
+    return mesh_tern_enqueue(tern, frame);
+}
+
+int mesh_tern_make_group(struct mesh_tern *tern, const char *name) {
+    struct mesh_tern_frame frame = {.type = MESH_TERN_MAKE_GROUP};
+    return mesh_tern_group_request(tern, &frame, NULL, name, MESH_TERN_NAME_MAX, true);
+}
+
+int mesh_tern_leave_group(struct mesh_tern *tern, const uint8_t group[MESH_TERN_GROUP_LEN]) {
+    struct mesh_tern_frame frame = {.type = MESH_TERN_LEAVE_GROUP};
+    return group == NULL ? -EINVAL : mesh_tern_group_request(tern, &frame, group, NULL, 0U, true);
+}
+
+int mesh_tern_name_group(struct mesh_tern *tern, const uint8_t group[MESH_TERN_GROUP_LEN],
+                         const char *name) {
+    struct mesh_tern_frame frame = {.type = MESH_TERN_NAME_GROUP};
+    return group == NULL
+               ? -EINVAL
+               : mesh_tern_group_request(tern, &frame, group, name, MESH_TERN_NAME_MAX, true);
+}
+
+int mesh_tern_send_group(struct mesh_tern *tern, const uint8_t group[MESH_TERN_GROUP_LEN],
+                         const char *text) {
+    if (tern == NULL || group == NULL) {
+        return -EINVAL;
+    }
+    /* A `ref` as SEND's, under the same rule: the node sends a repeat once. */
+    struct mesh_tern_frame frame = {.type = MESH_TERN_SEND_GROUP, .ref = mesh_tern_ref(tern)};
+    return mesh_tern_group_request(tern, &frame, group, text, MESH_TERN_TEXT_MAX, false);
+}
+
+int mesh_tern_send_invite(struct mesh_tern *tern, const uint8_t group[MESH_TERN_GROUP_LEN],
+                          uint32_t node) {
+    if (tern == NULL || group == NULL) {
+        return -EINVAL;
+    }
+    struct mesh_tern_frame frame = {.type = MESH_TERN_SEND_INVITE};
+    const int result = mesh_tern_address_of(tern, node, frame.address);
+    return result < 0 ? result : mesh_tern_group_request(tern, &frame, group, NULL, 0U, true);
+}
+
+int mesh_tern_join(struct mesh_tern *tern, uint32_t invite_id) {
+    if (invite_id == 0U) {
+        return -EINVAL;
+    }
+    struct mesh_tern_frame frame = {.type = MESH_TERN_JOIN, .id = invite_id};
+    return mesh_tern_group_request(tern, &frame, NULL, NULL, 0U, true);
 }
 
 int mesh_tern_mark_read(struct mesh_tern *tern, uint32_t through) {
