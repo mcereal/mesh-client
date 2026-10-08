@@ -47,6 +47,10 @@ enum mesh_message_ack {
     MESH_MESSAGE_ACK_PENDING,   /* sent with want_ack, no Routing reply seen yet */
     MESH_MESSAGE_ACK_DELIVERED, /* Routing reply with error_reason == NONE */
     MESH_MESSAGE_ACK_FAILED,    /* Routing reply carrying an error */
+    /* Not yet on the air: the radio holds it, waiting for a route, a session or its turn. Only
+       a radio that says so reports it - Tern's - and `ack_error` is then its reason (enum
+       mesh_tern_reason). Last, so a cached record from before it reads as it did. */
+    MESH_MESSAGE_ACK_WAITING,
 };
 
 struct mesh_message {
@@ -59,7 +63,7 @@ struct mesh_message {
     uint8_t direction;  /* enum mesh_message_direction */
     uint8_t kind;       /* enum mesh_message_kind */
     uint8_t ack;        /* enum mesh_message_ack */
-    uint8_t ack_error;  /* meshtastic_Routing_Error, meaningful when ack == FAILED */
+    uint8_t ack_error;  /* meshtastic_Routing_Error when ack == FAILED; a reason when WAITING */
     bool has_hops_away; /* hop_start/hop_limit were both usable */
     uint8_t hops_away;
     /*

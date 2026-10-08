@@ -123,6 +123,35 @@ int mesh_meshcore_frame_encode(const uint8_t *payload, size_t payload_len, uint8
 
 extern const struct mesh_stream_framing mesh_stream_framing_meshcore;
 
+/*
+ * Tern's companion framing (draft/companion.md, "Byte streams"): a two-byte magic, a 16-bit
+ * big-endian length, the frame, and a CRC-16 over the length and the frame.
+ *
+ *     0xF5 0x54 len_hi len_lo <frame> crc_hi crc_lo
+ *
+ * The same in both directions. 0xF5 never occurs in UTF-8, so no byte of the node's console
+ * text starts a frame, and the CRC is what lets a receiver that took noise for a header find
+ * out and look again from the byte after the 0xF5: the parser reads a header with a length
+ * outside 2..180, or a frame whose CRC is wrong, as one byte of text. The CRC is
+ * CRC-16/IBM-3740 (polynomial 0x1021, initial 0xFFFF, no reflection, no final XOR). No wake
+ * burst: the node needs none.
+ */
+#define MESH_TERN_FRAME_MAGIC1 0xF5U
+#define MESH_TERN_FRAME_MAGIC2 0x54U
+#define MESH_TERN_FRAME_HEADER_LEN 4U
+#define MESH_TERN_FRAME_CRC_LEN 2U
+#define MESH_TERN_FRAME_MIN_PAYLOAD 2U
+#define MESH_TERN_FRAME_MAX_PAYLOAD 180U
+
+uint16_t mesh_tern_crc16(const uint8_t *data, size_t len);
+void mesh_tern_parser_push(struct mesh_stream_parser *parser, const uint8_t *data, size_t len,
+                           const struct mesh_stream_parser_callbacks *callbacks);
+/* As mesh_stream_frame_encode(), but a payload shorter than two bytes is -EINVAL: no frame is. */
+int mesh_tern_frame_encode(const uint8_t *payload, size_t payload_len, uint8_t *out, size_t out_len,
+                           size_t *written);
+
+extern const struct mesh_stream_framing mesh_stream_framing_tern;
+
 #ifdef __cplusplus
 }
 #endif

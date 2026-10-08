@@ -323,6 +323,8 @@ MESH_STR_ENTRY(BUBBLE_RELAY,              "via %s")
  * The words stay because the mark has to be nameable: a text backend has no sprites, and a test
  * that asserted on a sprite would be asserting on a picture. */
 MESH_STR_ENTRY(DELIVERY_SENDING,          "sending")
+/* A message the radio holds and has not yet put on the air: no route yet, or not its turn. */
+MESH_STR_ENTRY(DELIVERY_WAITING,          "waiting")
 MESH_STR_ENTRY(DELIVERY_DELIVERED,        "delivered")
 MESH_STR_ENTRY(DELIVERY_FAILED,           "failed")
 

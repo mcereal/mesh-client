@@ -14,15 +14,16 @@
 /*
  * Which protocol a cable or a host speaks, found out by asking.
  *
- * BLE needs none of this: MeshCore and Meshtastic advertise different services, and the scan
- * that found a radio already knows which. A USB port or a TCP socket is bytes, and the only way
- * to learn what is behind it is to say something and see what comes back. Each protocol's
- * opening ignores the other's - Meshtastic's parser waits for 0x94 0xC3 and MeshCore's for '<'
- * - so asking in the wrong one costs a window and nothing else.
+ * BLE needs none of this: the three advertise different services, and the scan that found a
+ * radio already knows which. A USB port or a TCP socket is bytes, and the only way to learn what
+ * is behind it is to say something and see what comes back. Each protocol's opening ignores the
+ * others' - Meshtastic's parser waits for 0x94 0xC3, MeshCore's for '<' and Tern's for 0xF5 0x54
+ * with a CRC after it - so asking in the wrong one costs a window and nothing else. A Tern node
+ * takes the other two's bytes for console input, as it would a stray keypress.
  *
- * Meshtastic is asked first because it is what most radios on a cable are, and a radio that
- * answered once is asked in that protocol first next time, so a MeshCore radio pays the window
- * once a run rather than on every reconnect.
+ * Meshtastic is asked first because it is what most radios on a cable are, then MeshCore, then
+ * Tern, and a radio that answered once is asked in that protocol first next time, so a MeshCore
+ * or Tern radio pays the window once a run rather than on every reconnect.
  */
 
 static struct mesh_transport *mesh_app_probe_transport(uint8_t kind) {
@@ -41,7 +42,29 @@ static uint8_t mesh_app_probe_forced(void) {
     if (strcmp(protocol, "meshtastic") == 0) {
         return MESH_APP_PROBE_MESHTASTIC;
     }
+    if (strcmp(protocol, "tern") == 0) {
+        return MESH_APP_PROBE_TERN;
+    }
     return 0U;
+}
+
+/* A probe bit as the protocol it binds, and back. */
+static enum mesh_app_protocol mesh_app_probe_protocol(uint8_t bit) {
+    return bit == MESH_APP_PROBE_MESHCORE ? MESH_APP_PROTOCOL_MESHCORE
+           : bit == MESH_APP_PROBE_TERN   ? MESH_APP_PROTOCOL_TERN
+                                          : MESH_APP_PROTOCOL_MESHTASTIC;
+}
+
+static uint8_t mesh_app_probe_bit(enum mesh_app_protocol protocol) {
+    switch (protocol) {
+    case MESH_APP_PROTOCOL_MESHCORE:
+        return MESH_APP_PROBE_MESHCORE;
+    case MESH_APP_PROTOCOL_TERN:
+        return MESH_APP_PROBE_TERN;
+    case MESH_APP_PROTOCOL_MESHTASTIC:
+        break;
+    }
+    return MESH_APP_PROBE_MESHTASTIC;
 }
 
 static struct mesh_app_probe_port *mesh_app_probe_port(struct mesh_app_probe *probe,
@@ -87,7 +110,9 @@ void mesh_app_probe_expect(struct mesh_app *app, const char *key, bool meshcore,
 }
 
 static const char *mesh_app_probe_name(uint8_t protocol) {
-    return protocol == MESH_APP_PROBE_MESHCORE ? "MeshCore" : "Meshtastic";
+    return protocol == MESH_APP_PROBE_MESHCORE ? "MeshCore"
+           : protocol == MESH_APP_PROBE_TERN   ? "Tern"
+                                               : "Meshtastic";
 }
 
 static int mesh_app_probe_connect(struct mesh_app *app) {
@@ -134,7 +159,7 @@ void mesh_app_probe_begin(struct mesh_app *app, uint8_t kind, const char *identi
 
     const uint8_t forced = mesh_app_probe_forced();
     if (forced != 0U || identifier == NULL || identifier[0] == '\0') {
-        mesh_app_bind_protocol(app, forced == MESH_APP_PROBE_MESHCORE);
+        mesh_app_bind_protocol(app, mesh_app_probe_protocol(forced));
         return;
     }
 
@@ -142,9 +167,8 @@ void mesh_app_probe_begin(struct mesh_app *app, uint8_t kind, const char *identi
        the row, or auto-connect coming back once the mute ran out. */
     const char *key = mesh_app_probe_key(kind, identifier);
     struct mesh_app_probe_port *port = mesh_app_probe_port(probe, key);
-    const uint8_t first = (port != NULL && port->answered == MESH_APP_PROBE_MESHCORE)
-                              ? MESH_APP_PROBE_MESHCORE
-                              : MESH_APP_PROBE_MESHTASTIC;
+    const uint8_t first =
+        port != NULL && port->answered != 0U ? port->answered : MESH_APP_PROBE_MESHTASTIC;
     if (port != NULL) {
         port->mute_until_ms = 0U;
     }
@@ -154,7 +178,7 @@ void mesh_app_probe_begin(struct mesh_app *app, uint8_t kind, const char *identi
     probe->kind = kind;
     probe->tried = first;
     probe->deadline_ms = now_ms + mesh_app_probe_window(probe, now_ms);
-    mesh_app_bind_protocol(app, first == MESH_APP_PROBE_MESHCORE);
+    mesh_app_bind_protocol(app, mesh_app_probe_protocol(first));
 }
 
 bool mesh_app_probe_muted(const struct mesh_app *app, const char *key, uint64_t now_ms) {
@@ -235,7 +259,7 @@ void mesh_app_probe_tick(struct mesh_app *app, uint64_t now_ms) {
 
     const size_t frames = tcp ? mesh_tcp_transport_stats(transport).frames_received
                               : mesh_serial_transport_stats(transport).frames_received;
-    const uint8_t bound = app->meshcore_bound ? MESH_APP_PROBE_MESHCORE : MESH_APP_PROBE_MESHTASTIC;
+    const uint8_t bound = mesh_app_probe_bit(mesh_app_bound_protocol(app));
     if (frames > 0U) {
         inkwell_log_info("app", "%s answered in %s", probe->identifier, mesh_app_probe_name(bound));
         mesh_app_probe_remember(probe, probe->key, bound, 0U);
@@ -250,17 +274,19 @@ void mesh_app_probe_tick(struct mesh_app *app, uint64_t now_ms) {
     }
 
     const uint8_t untried =
-        (uint8_t)((MESH_APP_PROBE_MESHTASTIC | MESH_APP_PROBE_MESHCORE) & ~(unsigned)probe->tried);
+        (uint8_t)((MESH_APP_PROBE_MESHTASTIC | MESH_APP_PROBE_MESHCORE | MESH_APP_PROBE_TERN) &
+                  ~(unsigned)probe->tried);
     if (untried != 0U) {
         const uint8_t next = (untried & MESH_APP_PROBE_MESHTASTIC) != 0U ? MESH_APP_PROBE_MESHTASTIC
-                                                                         : MESH_APP_PROBE_MESHCORE;
+                             : (untried & MESH_APP_PROBE_MESHCORE) != 0U ? MESH_APP_PROBE_MESHCORE
+                                                                         : MESH_APP_PROBE_TERN;
         inkwell_log_info("app", "%s sent no %s frame in %u ms; asking in %s", probe->identifier,
                          mesh_app_probe_name(bound), MESH_APP_PROBE_WINDOW_MS,
                          mesh_app_probe_name(next));
         probe->tried |= next;
         probe->deadline_ms = now_ms + mesh_app_probe_window(probe, now_ms);
         mesh_app_probe_disconnect(app);
-        mesh_app_bind_protocol(app, next == MESH_APP_PROBE_MESHCORE);
+        mesh_app_bind_protocol(app, mesh_app_probe_protocol(next));
         const int result = mesh_app_probe_connect(app);
         if (result < 0 && result != -EALREADY && result != -EINPROGRESS) {
             inkwell_log_warn("app", "Reopening %s failed (%d)", probe->identifier, result);
@@ -269,7 +295,8 @@ void mesh_app_probe_tick(struct mesh_app *app, uint64_t now_ms) {
         return;
     }
 
-    inkwell_log_warn("app", "%s answered neither Meshtastic nor MeshCore; passing it over for %u s",
+    inkwell_log_warn("app",
+                     "%s answered none of Meshtastic, MeshCore and Tern; passing it over for %u s",
                      probe->identifier, MESH_APP_PROBE_MUTE_MS / 1000U);
     mesh_app_probe_remember(probe, probe->key, 0U, now_ms + MESH_APP_PROBE_MUTE_MS);
     char where[MESH_APP_PROBE_ID_MAX];

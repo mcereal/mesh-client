@@ -506,6 +506,28 @@ static void on_connect(struct mesh_app *app, const struct mesh_ui_action *action
 static int mesh_app_send_message(struct mesh_app *app, const struct mesh_ui_action *action,
                                  uint32_t *packet_id) {
     const bool broadcast = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
+    /* Tern has neither channels nor threads nor reactions: a message is to one node. Its id is
+       the node's to give, so it is watched once the answer names it (mesh_app_take_tern_sends())
+       and `packet_id` stays 0 here. */
+    if (app->tern_bound) {
+        if (action->is_reaction || broadcast) {
+            return -ENOTSUP;
+        }
+        uint32_t ticket = 0U;
+        const int result = mesh_tern_send_text(&app->tern, action->dest, action->text, &ticket);
+        if (result == 0) {
+            const size_t capacity = sizeof app->ui_tern_sends / sizeof app->ui_tern_sends[0];
+            if (app->ui_tern_send_count >= capacity) {
+                memmove(&app->ui_tern_sends[0], &app->ui_tern_sends[1],
+                        (capacity - 1U) * sizeof app->ui_tern_sends[0]);
+                app->ui_tern_send_count = capacity - 1U;
+            }
+            struct mesh_app_tern_send *slot = &app->ui_tern_sends[app->ui_tern_send_count++];
+            slot->ticket = ticket;
+            snprintf(slot->peer, sizeof slot->peer, "%s", app->ui_store.nav.target_name);
+        }
+        return result;
+    }
     if (app->meshcore_bound) {
         if (action->is_reaction) {
             return -ENOTSUP;
@@ -548,7 +570,9 @@ static void on_send_text(struct mesh_app *app, const struct mesh_ui_action *acti
             inkwell_log_info("ui", "Sent \"%s\" to %s (packet %u)", action->text,
                              app->ui_store.nav.target_name, packet_id);
         }
-        mesh_app_watch_sent(app, packet_id, app->ui_store.nav.target_name);
+        if (packet_id != 0U) {
+            mesh_app_watch_sent(app, packet_id, app->ui_store.nav.target_name);
+        }
     } else if (result == -ENOTCONN) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else if (result == -EBUSY) {
@@ -590,7 +614,9 @@ static void on_resend(struct mesh_app *app, const struct mesh_ui_action *action)
                          action->text, app->ui_store.nav.target_name, packet_id, action->number);
         /* Watched like any other send, so the retry's own result reaches the user. The failed
            attempt has already been reported and is no longer watched. */
-        mesh_app_watch_sent(app, packet_id, app->ui_store.nav.target_name);
+        if (packet_id != 0U) {
+            mesh_app_watch_sent(app, packet_id, app->ui_store.nav.target_name);
+        }
     } else if (result == -ENOTCONN) {
         snprintf(toast, sizeof toast, "%s", inkcell_str(MESH_STR_TOAST_NOT_CONNECTED));
     } else {

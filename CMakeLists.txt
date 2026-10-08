@@ -103,6 +103,8 @@ add_library(meshclient_core
     src/core/meshcore/meshcore.c
     src/core/meshcore/meshcore_backup.c
     src/core/meshcore/meshcore_codec.c
+    src/core/tern/tern.c
+    src/core/tern/tern_codec.c
     src/core/session/key_verification.c
     src/core/session/message.c
     src/core/session/waypoint.c
@@ -132,6 +134,7 @@ add_library(meshclient_core
     src/proto/meshcore_url.c
     src/proto/mqtt_topic.c
     src/proto/stream_framing.c
+    src/proto/tern_framing.c
     src/geo/coords.c
     src/geo/mercator.c
     src/geo/vector.c

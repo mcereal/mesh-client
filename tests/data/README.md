@@ -24,6 +24,8 @@ Refresh one by fetching it again, not by editing it.
 | `meshcore_flasher_config.json` | `https://flasher.meshcore.io/config.json` | 2026-09-27 | nothing — all 67 devices, verbatim, so every row of the twin table is checked against a name the flasher really serves |
 | `meshcore_companion_tags.json` | `https://api.github.com/repos/meshcore-dev/MeshCore/git/matching-refs/tags/companion-v` | 2026-09-27 | `url`s dropped; every tag kept |
 | `meshcore_release_companion-v1.17.1.json` | `…/repos/meshcore-dev/MeshCore/releases/tags/companion-v1.17.1` | 2026-09-27 | the 16 Heltec V3, T114 and RAK 4631 assets of 315, each cut to `name`, `content_type`, `size` and `browser_download_url` |
+| `tern_companion.json` | `vectors/companion.json` in [ternmesh/spec](https://github.com/ternmesh/spec) at `8c36974` (CC0) | 2026-10-08 | nothing — the companion protocol's conformance vectors, verbatim |
+| `tern_routing.json` | `vectors/routing.json` in ternmesh/spec at `8c36974` (CC0) | 2026-10-08 | nothing — the routing vectors, of which `ids` is read |
 
 `firmware_list.json` is the one that is not whole, because the served document is 155 KB and
 almost all of it is release notes. Kept: the first four entries of each channel, every key each

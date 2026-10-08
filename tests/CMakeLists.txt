@@ -68,6 +68,8 @@ set(MESHCLIENT_TEST_SUITES
     suites/session_events.c
     suites/lifetime.c
     suites/store_forward.c
+    suites/tern.c
+    suites/tern_codec.c
     suites/transport_ble_data.c
     suites/transport_ble_link.c
     suites/transport_ble_pairing.c

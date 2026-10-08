@@ -1830,8 +1830,10 @@ static int send_text_message(struct mesh_app *app, const struct mesh_cli_link *l
     /* MeshCore acks every direct message on its own, so --ack only changes how long this
        waits for it. */
     uint32_t packet_id = 0U;
+    /* A Tern node numbers the message itself, so the id printed is 0 there. */
     int send_result =
-        app->meshcore_bound
+        app->tern_bound ? mesh_tern_send_text(&app->tern, dest, text, NULL)
+        : app->meshcore_bound
             ? mesh_meshcore_send_text(&app->meshcore, dest, channel, text, &packet_id)
             : mesh_session_send_text(link->session, dest, channel, text, want_ack, &packet_id);
     if (send_result < 0) {

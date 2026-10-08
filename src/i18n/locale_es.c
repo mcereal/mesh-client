@@ -138,6 +138,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_BUBBLE_SENSOR] = "  sensor",
     [MESH_STR_BUBBLE_RELAY] = "vía %s",
     [MESH_STR_DELIVERY_SENDING] = "enviando",
+    [MESH_STR_DELIVERY_WAITING] = "en espera",
     [MESH_STR_DELIVERY_DELIVERED] = "entregado",
     [MESH_STR_DELIVERY_FAILED] = "fallido",
     [MESH_STR_WAYPOINTS_EMPTY] = "Todavía no se ha compartido ningún lugar.",

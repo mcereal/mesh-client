@@ -22,6 +22,7 @@
 #include "inkwell/runtime/crash.h"
 #include "mesh/core/ca_roots.h"
 #include "mesh/core/meshcore.h"
+#include "mesh/core/tern.h"
 #include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/map/stack.h"
@@ -211,18 +212,32 @@ static void mesh_app_on_link_traffic(void *ctx) {
     mesh_app_note_link_time(app);
 }
 
-struct mesh_protocol mesh_app_protocol(struct mesh_app *app) {
-    return app->meshcore_bound ? mesh_meshcore_protocol(&app->meshcore)
-                               : mesh_session_protocol(&app->session);
+enum mesh_app_protocol mesh_app_bound_protocol(const struct mesh_app *app) {
+    return app->tern_bound       ? MESH_APP_PROTOCOL_TERN
+           : app->meshcore_bound ? MESH_APP_PROTOCOL_MESHCORE
+                                 : MESH_APP_PROTOCOL_MESHTASTIC;
 }
 
-void mesh_app_bind_protocol(struct mesh_app *app, bool meshcore) {
-    if (app->meshcore_bound == meshcore) {
+struct mesh_protocol mesh_app_protocol(struct mesh_app *app) {
+    switch (mesh_app_bound_protocol(app)) {
+    case MESH_APP_PROTOCOL_MESHCORE:
+        return mesh_meshcore_protocol(&app->meshcore);
+    case MESH_APP_PROTOCOL_TERN:
+        return mesh_tern_protocol(&app->tern);
+    case MESH_APP_PROTOCOL_MESHTASTIC:
+        break;
+    }
+    return mesh_session_protocol(&app->session);
+}
+
+void mesh_app_bind_protocol(struct mesh_app *app, enum mesh_app_protocol which) {
+    if (mesh_app_bound_protocol(app) == which) {
         return;
     }
     const struct mesh_protocol previous = mesh_app_protocol(app);
     mesh_protocol_detach(&previous);
-    app->meshcore_bound = meshcore;
+    app->meshcore_bound = which == MESH_APP_PROTOCOL_MESHCORE;
+    app->tern_bound = which == MESH_APP_PROTOCOL_TERN;
     const struct mesh_protocol protocol = mesh_app_protocol(app);
     const struct mesh_protocol tapped = mesh_protocol_tap_bind(&app->link_tap, &protocol);
     mesh_transport_registry_set_protocol(&app->transport_registry, &tapped);
@@ -234,6 +249,15 @@ static bool mesh_app_ble_speaks_meshcore(struct mesh_transport *ble, const char 
     return mesh_ble_transport_device_profile(ble, address) == &mesh_ble_profile_meshcore;
 }
 
+/* The conversation the BLE radio at `address` was found under. */
+static enum mesh_app_protocol mesh_app_ble_protocol(struct mesh_transport *ble,
+                                                    const char *address) {
+    const struct mesh_ble_profile *profile = mesh_ble_transport_device_profile(ble, address);
+    return profile == &mesh_ble_profile_meshcore ? MESH_APP_PROTOCOL_MESHCORE
+           : profile == &mesh_ble_profile_tern   ? MESH_APP_PROTOCOL_TERN
+                                                 : MESH_APP_PROTOCOL_MESHTASTIC;
+}
+
 void mesh_app_bind_link(struct mesh_app *app, uint8_t kind, const char *identifier) {
     if (app == NULL) {
         return;
@@ -243,7 +267,7 @@ void mesh_app_bind_link(struct mesh_app *app, uint8_t kind, const char *identifi
         return;
     }
     app->probe.identifier[0] = '\0';
-    mesh_app_bind_protocol(app, mesh_app_ble_speaks_meshcore(mesh_ble_transport(), identifier));
+    mesh_app_bind_protocol(app, mesh_app_ble_protocol(mesh_ble_transport(), identifier));
 }
 
 int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t kind) {
@@ -1345,7 +1369,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
                          target->name, target->address, (int)target->rssi);
     }
 
-    mesh_app_bind_protocol(app, mesh_app_ble_speaks_meshcore(ble, target->address));
+    mesh_app_bind_protocol(app, mesh_app_ble_protocol(ble, target->address));
     /* The radio just moved to Bluetooth is one the user is holding, having agreed to the move:
        its PIN - on its screen, for a MeshCore build with one - is theirs to type. */
     int result = handoff ? mesh_ble_transport_connect_and_pair(ble, target->address)
@@ -1850,6 +1874,8 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     mesh_app_seed_nodes_from_cache(app);
     mesh_meshcore_init(&app->meshcore, &app->session);
     app->meshcore_bound = false;
+    mesh_tern_init(&app->tern, &app->session);
+    app->tern_bound = false;
     memset(&app->probe, 0, sizeof app->probe);
     memset(&app->link_tap, 0, sizeof app->link_tap);
     app->link_tap.on_traffic = mesh_app_on_link_traffic;

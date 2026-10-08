@@ -200,6 +200,8 @@ const char *mesh_message_ack_to_string(enum mesh_message_ack ack) {
         return "delivered";
     case MESH_MESSAGE_ACK_FAILED:
         return "failed";
+    case MESH_MESSAGE_ACK_WAITING:
+        return "waiting";
     }
     return "unknown";
 }
