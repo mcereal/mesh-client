@@ -1071,7 +1071,8 @@ static void lifetime_observe_delivery(struct mesh_lifetime *lifetime,
     const uint8_t joined = lifetime_delivery_count(message->ack);
     uint8_t *held = lifetime_settled(lifetime, message->packet_id);
     if (held == NULL) {
-        if (previous != MESH_MESSAGE_ACK_PENDING || joined == LIFETIME_SETTLED_NEITHER) {
+        if ((previous != MESH_MESSAGE_ACK_PENDING && previous != MESH_MESSAGE_ACK_WAITING) ||
+            joined == LIFETIME_SETTLED_NEITHER) {
             return;
         }
         uint32_t *id = NULL;

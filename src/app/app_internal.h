@@ -375,26 +375,40 @@ uint8_t mesh_app_primary_channel(const struct mesh_handshake_status *status);
 /* Starts watching a sent packet so its delivery result can be announced once. */
 void mesh_app_watch_sent(struct mesh_app *app, uint32_t packet_id, const char *peer);
 
+/* The conversations a link can carry. Meshtastic is zero: a fresh app speaks it. */
+enum mesh_app_protocol {
+    MESH_APP_PROTOCOL_MESHTASTIC = 0,
+    MESH_APP_PROTOCOL_MESHCORE,
+    MESH_APP_PROTOCOL_TERN,
+};
+
+/* Which of them is bound now. */
+enum mesh_app_protocol mesh_app_bound_protocol(const struct mesh_app *app);
+
 /*
  * Which conversation the transports carry. Meshtastic's session unless the radio about to be
- * connected speaks MeshCore: a BLE radio says so by the profile the scan found it under, and a
- * serial or network link is asked (mesh_app_probe_begin()). Called right before a connect, after
- * any other link has been released; a change detaches the conversation that was bound so
- * nothing it queued goes to the new one.
+ * connected speaks MeshCore or Tern: a BLE radio says so by the profile the scan found it
+ * under, and a serial or network link is asked (mesh_app_probe_begin()). Called right before a
+ * connect, after any other link has been released; a change detaches the conversation that was
+ * bound so nothing it queued goes to the new one.
  */
-void mesh_app_bind_protocol(struct mesh_app *app, bool meshcore);
+void mesh_app_bind_protocol(struct mesh_app *app, enum mesh_app_protocol protocol);
+
+/* Hands each Tern send the node has answered to the delivery watch, or says it was refused. */
+void mesh_app_take_tern_sends(struct mesh_app *app);
 
 /*
  * A serial or network link says nothing about the firmware behind it, so it is asked: opened
  * in the protocol it answered in last (Meshtastic for one never heard), and opened again in the
- * other when no frame comes back in time. One that answers neither is dropped and muted for a
- * while, so a radio that talks only over the air - MeshCore's BLE build, which is silent on its
- * USB port - cannot hold auto-connect on a cable forever.
+ * next - Meshtastic, MeshCore, Tern - when no frame comes back in time. One that answers neither is
+ * dropped and muted for a while, so a radio that talks only over the air - MeshCore's BLE build,
+ * which is silent on its USB port - cannot hold auto-connect on a cable forever.
  *
- * MESHCLIENT_PROTOCOL=meshtastic|meshcore skips the question and binds that one.
+ * MESHCLIENT_PROTOCOL=meshtastic|meshcore|tern skips the question and binds that one.
  */
 #define MESH_APP_PROBE_MESHTASTIC 0x01U
 #define MESH_APP_PROBE_MESHCORE 0x02U
+#define MESH_APP_PROBE_TERN 0x04U
 /* How long a bound protocol has, from the link being up, to produce its first frame. */
 #define MESH_APP_PROBE_WINDOW_MS 6000U
 /* How long a link that answered neither is passed over by auto-connect. */

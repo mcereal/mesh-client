@@ -1,8 +1,8 @@
 # Protocols
 
 A **transport** is how bytes reach a radio (BLE, USB serial, TCP). A **protocol** is what those
-bytes say. This client speaks two: Meshtastic (`struct mesh_session`) and MeshCore
-(`struct mesh_meshcore`, [below](#meshcore)). The line between a transport and a protocol is
+bytes say. This client speaks three: Meshtastic (`struct mesh_session`), MeshCore
+(`struct mesh_meshcore`, [below](#meshcore)) and Tern (`struct mesh_tern`, [below](#tern)). The line between a transport and a protocol is
 `include/mesh/core/protocol.h`, and this page says what sits on each side of it and what is
 still Meshtastic's everywhere else.
 
@@ -40,7 +40,7 @@ one to subscribe to, and what a notification on it means:
 | `inbound` | A notification is | Who uses it |
 |---|---|---|
 | `MESH_BLE_INBOUND_PULL` | a doorbell; the link reads `read_uuid` until a read comes back empty | Meshtastic (FromNum, then FromRadio) |
-| `MESH_BLE_INBOUND_NOTIFY` | the frame itself; nothing is read | the Nordic UART shape, which is MeshCore's |
+| `MESH_BLE_INBOUND_NOTIFY` | the frame itself; nothing is read | the Nordic UART shape, which is MeshCore's; Tern's |
 
 The BLE link connects under the bound protocol's profile. Its scan looks for every profile in
 `mesh_ble_known_profiles[]` (and the bound protocol's, if that is not one of them) and tags each
@@ -131,7 +131,7 @@ against `examples/companion_radio/MyMesh.cpp` at companion-v1.17.1 (firmware ver
   on its port - so a link that answers neither is dropped and auto-connect passes it over for
   `MESH_APP_PROBE_MUTE_MS`, which is what lets Bluetooth have its turn. A USB port is remembered
   by its sysfs id, not its tty, which it only gets once the driver binds.
-  `MESHCLIENT_PROTOCOL=meshtastic|meshcore` skips the question.
+  `MESHCLIENT_PROTOCOL=meshtastic|meshcore|tern` skips the question.
 - **One command at a time.** Each `CMD_*` is answered by one `RESP_CODE_*` (the contact list by a
   start, a record each and an end), and the firmware's BLE queue holds four frames, so the
   conversation queues commands and writes the next only once the last is answered.
@@ -356,3 +356,64 @@ end.
   forgotten for not matching the bus the radio is on. Afterwards auto-connect reaches for
   `MeshCore-<node name>` over Bluetooth ahead of any other for five minutes, and pairs it
   attended: the BLE build shows a PIN on its screen, and the prompt is the user's to answer.
+
+## Tern
+
+Tern's companion protocol is the third conversation: `include/mesh/core/tern.h`, with the codec
+in `src/core/tern/tern_codec.c`, the conversation in `tern.c` and the stream framing in
+`src/proto/tern_framing.c`. Written from draft 0 of `draft/companion.md` in
+[ternmesh/spec](https://github.com/ternmesh/spec) alone - nothing of the Meshtastic or MeshCore
+code here goes the other way - and checked against that repository's vectors, which
+`tests/data/tern_companion.json` and `tern_routing.json` carry verbatim.
+
+- **Frames** are a type, a sequence byte and big-endian fields in a fixed order, at most 180
+  bytes. The codec is one table, a row per type, which reading and writing both walk. A reader
+  ignores bytes past the fields it knows; a request the client cannot read is the node's
+  problem, news it cannot read is ignored.
+- **Serial and TCP** frame as `0xF5 0x54`, a big-endian length, the frame and a CRC-16/IBM-3740
+  over the length and the frame: `mesh_stream_framing_tern`. `0xF5` never occurs in UTF-8, so
+  the node's console text, which shares the port, never starts a frame; a header with a bad
+  length or CRC gives up its first byte as text. The parser keeps no clock, so the draft's
+  `GAP` (a half frame idle 500 ms is text) is not applied on this side.
+- **BLE** is Tern's own service, `7A280001-…`: write `…0002`, notified on `…0003`, one frame
+  each and no stream wrapping (`mesh_ble_profile_tern`, in `mesh_ble_known_profiles[]`). The
+  node refuses HELLO with ERROR 7 on an ATT MTU under 183, which the client takes as a failed
+  connect; BlueZ and CoreBluetooth both negotiate more by themselves.
+- **One request at a time.** HELLO, SET_TIME when the clock is credible, SYNC; then whatever the
+  user asks, each written only once the last is answered. An answer carries its request's
+  sequence byte, so one that arrives after the request was given up on is ignored. A request
+  unanswered for `ANSWER_WAIT` (5 s; a sync's wait restarts with each news frame) is `silent()`,
+  and the link is dropped and reopened. With nothing to ask, a PING goes `IDLE` (20 s) after the
+  last answer - over USB that is the only way the node knows the client is still there, and
+  ERROR 6 afterwards means it decided otherwise: the conversation says HELLO again.
+- **News is counted.** The node numbers its news from 0 after HELLO; a gap is news missed, and
+  the conversation syncs again - after the least id of a message still waiting or sent, less
+  one, since those are the ones whose state may have moved unseen.
+- **A node is its routing id** (`mesh_tern_routing_id()`, SHA-256 of `"tern routing id"` and
+  the address). It is the one number a CONTACT and a MESSAGE (which carry a 32-byte address) and
+  a NEIGHBOUR (which carries only the id) all lead to, so the three land on one roster entry.
+  The address is the entry's `public_key`; `user_id` is its first six bytes in hex until the
+  draft says what a short code is.
+- **A sync is the whole of both lists.** A contact or neighbour it did not send is no longer the
+  node's: it stays on the roster, which outlives the radio's lists, with `in_nodedb` off and a
+  contact's name gone with it.
+- **A message's id is the node's.** Its packet id in the log is that id scoped to the node
+  (`mesh_tern_packet_id()`: XORed with an odd multiple of the node's routing id, since every
+  node counts from 1), so a record seen again - a sync after a reconnect, a received message
+  marked read - lands on the entry it already has, the cache agrees with it across a restart,
+  and two nodes on one run never share one. So a send logs nothing: the SEND's QUEUED names
+  the id, the MESSAGE news that follows is the bubble, and `mesh_tern_take_queued()` hands the
+  app the send's ticket and id once the message is in the log, for the delivery watch. A refused
+  send has no bubble and is said as a toast. A message handed back by a sync is `replayed`, so a
+  reconnect does not announce the history again.
+- **Delivery** is the node's state: waiting is `MESH_MESSAGE_ACK_WAITING` (with the reason in
+  `ack_error`), sent is `PENDING`, delivered and not delivered are `DELIVERED` and `FAILED`.
+  Waiting is the one state no other protocol reports.
+- **Airtime** is AIRTIME kept whole on `mesh_tern.airtime`, and the model's `air_util_tx` is the
+  share of the region's period this node spent sending. POWER is our node's battery.
+
+The `tern` row in `src/ui/tables/protocols.c` lacks every feature: draft 0 has no channels, no
+link format and no firmware feed, and the client does not yet send SAVE_CONTACT,
+REMOVE_CONTACT, READ (from the UI) or SET. Settings show nothing of SELF yet.
+`tests/suites/tern_codec.c` runs every companion vector; `tests/suites/tern.c` replays the
+spec's exchange through the conversation and holds the rules around it.

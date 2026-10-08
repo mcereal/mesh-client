@@ -23,6 +23,7 @@
 #include "mesh/core/radio_backup.h"
 #include "mesh/core/radio_profile.h"
 #include "mesh/core/session.h"
+#include "mesh/core/tern.h"
 #include "mesh/core/updater.h"
 #include "mesh/transport/transport.h"
 #include "mesh/ui/backends/cli.h"
@@ -106,10 +107,14 @@ struct mesh_app {
        mesh_app_bind_protocol(). */
     struct mesh_meshcore meshcore;
     bool meshcore_bound;
-    /* Whichever of the two is bound, as the transports are handed it: the same protocol with a
+    /* Tern's conversation, the same way: bound when the node about to be connected speaks it.
+       At most one of `meshcore_bound` and `tern_bound` is set, and neither means Meshtastic. */
+    struct mesh_tern tern;
+    bool tern_bound;
+    /* Whichever of the three is bound, as the transports are handed it: the same protocol with a
        count of the frames each way, which is what lights the footer's traffic arrows. */
     struct mesh_protocol_tap link_tap;
-    /* Which of the two a serial or network link's radio speaks, found out by asking - a port
+    /* Which protocol a serial or network link's radio speaks, found out by asking - a port
        says nothing about the firmware behind it. See src/app/app_probe.c. */
     struct mesh_app_probe probe;
     struct mesh_ui_store ui_store;
@@ -399,6 +404,13 @@ struct mesh_app {
         char peer[MESH_UI_NAV_TARGET_NAME_MAX];
     } ui_sent_watch[8];
     size_t ui_sent_watch_count;
+    /* Tern sends the node has yet to give an id: the node numbers its own messages, so a send
+       is watched once its answer names one (mesh_tern_take_queued()). By ticket. */
+    struct mesh_app_tern_send {
+        uint32_t ticket;
+        char peer[MESH_UI_NAV_TARGET_NAME_MAX];
+    } ui_tern_sends[8];
+    size_t ui_tern_send_count;
     /*
      * The radio's own announcements, seen once each. Both counters are session-scoped and both
      * reset to 0 when the link is reset, so a counter that has gone *backwards* is a new

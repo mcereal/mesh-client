@@ -2230,6 +2230,35 @@ void mesh_app_watch_sent(struct mesh_app *app, uint32_t packet_id, const char *p
     snprintf(slot->peer, sizeof slot->peer, "%s", peer != NULL ? peer : "");
 }
 
+void mesh_app_take_tern_sends(struct mesh_app *app) {
+    if (app == NULL || !app->tern_bound) {
+        return;
+    }
+    struct mesh_tern_queued queued;
+    while (mesh_tern_take_queued(&app->tern, &queued)) {
+        char peer[MESH_UI_NAV_TARGET_NAME_MAX] = "";
+        for (size_t i = 0; i < app->ui_tern_send_count; ++i) {
+            if (app->ui_tern_sends[i].ticket == queued.ticket) {
+                snprintf(peer, sizeof peer, "%s", app->ui_tern_sends[i].peer);
+                memmove(&app->ui_tern_sends[i], &app->ui_tern_sends[i + 1U],
+                        (app->ui_tern_send_count - i - 1U) * sizeof app->ui_tern_sends[0]);
+                app->ui_tern_send_count -= 1U;
+                break;
+            }
+        }
+        if (queued.id != 0U) {
+            mesh_app_watch_sent(app, queued.id, peer);
+            continue;
+        }
+        /* The node refused it: no room, or an address it will not send to. Nothing was logged,
+           so this is the only place the user hears of it. */
+        char toast[MESH_UI_NAV_TOAST_MAX];
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SEND_FAILED, -ECANCELED);
+        mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+        inkwell_log_warn("ui", "Tern node refused the message to %s", peer);
+    }
+}
+
 /* Announces the delivery result of anything being watched, once. Failures only: a delivered
    message already shows "ok" on its row, and a toast per message would be noise. */
 static void mesh_app_report_delivery(struct mesh_app *app) {
@@ -2255,7 +2284,7 @@ static void mesh_app_report_delivery(struct mesh_app *app) {
         if (message == NULL) {
             continue; /* evicted from the ring; nothing left to report */
         }
-        if (message->ack == MESH_MESSAGE_ACK_PENDING) {
+        if (message->ack == MESH_MESSAGE_ACK_PENDING || message->ack == MESH_MESSAGE_ACK_WAITING) {
             app->ui_sent_watch[kept++] = *watch;
             continue;
         }
@@ -2782,6 +2811,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     }
 
     mesh_ui_store_tick(&app->ui_store, inkwell_time_monotonic_ms());
+    mesh_app_take_tern_sends(app);
     mesh_app_report_delivery(app);
     mesh_app_report_radio_notices(app);
     mesh_app_report_meshcore_answers(app);

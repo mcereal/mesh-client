@@ -22,9 +22,19 @@ const struct mesh_ble_profile mesh_ble_profile_meshcore = {
     .name_prefix = MESH_BLE_MESHCORE_NAME_PREFIX,
 };
 
+const struct mesh_ble_profile mesh_ble_profile_tern = {
+    .name = "tern",
+    .service_uuid = MESH_BLE_TERN_SERVICE_UUID,
+    .write_uuid = MESH_BLE_TERN_TO_NODE_UUID,
+    .notify_uuid = MESH_BLE_TERN_FROM_NODE_UUID,
+    .inbound = MESH_BLE_INBOUND_NOTIFY,
+    .max_frame = 180U,
+};
+
 const struct mesh_ble_profile *const mesh_ble_known_profiles[] = {
     &mesh_ble_profile_meshtastic,
     &mesh_ble_profile_meshcore,
+    &mesh_ble_profile_tern,
 };
 
 const size_t mesh_ble_known_profile_count =

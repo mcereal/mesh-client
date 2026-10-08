@@ -31,6 +31,11 @@ static const struct {
          MESH_UI_FEATURE_REMOTE_ADMIN | MESH_UI_FEATURE_KEY_VERIFICATION | MESH_UI_FEATURE_MODULES |
          MESH_UI_FEATURE_REACTIONS | MESH_UI_FEATURE_FULL_CONFIG |
          MESH_UI_FEATURE_RADIO_MAINTENANCE},
+    /* Direct messages to a contact or a neighbour, with their delivery state, and nothing else
+       yet. Draft 0 of its companion protocol has no channels, no link format, no firmware
+       feed and none of the per-node verbs, and this client does not yet send its contact and
+       settings requests (SAVE_CONTACT, REMOVE_CONTACT, SET). */
+    {"tern", MESH_UI_PROTOCOL_TERN, MESH_UI_FEATURES_ALL},
 };
 
 void mesh_ui_protocol_features(const struct mesh_protocol *protocol, uint8_t *out_protocol,

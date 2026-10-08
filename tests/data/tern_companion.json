@@ -1,0 +1,719 @@
+{
+  "description": "The companion protocol, draft 0 (draft/companion.md). Frames, streams and addresses are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. Exchange is one connection, in order. The two addresses are the public keys of RFC 8032's first two Ed25519 test vectors.",
+  "generator": "vectors/tools/companion.py",
+  "crc_check": {
+    "input": "313233343536373839",
+    "crc": 10673
+  },
+  "frames": [
+    {
+      "type": "HELLO",
+      "seq": 1,
+      "fields": {
+        "version": 0
+      },
+      "frame": "010100",
+      "stream": "f55400030101008ed1"
+    },
+    {
+      "type": "SYNC",
+      "seq": 2,
+      "fields": {
+        "after": 0
+      },
+      "frame": "020200000000",
+      "stream": "f55400060202000000005fd8"
+    },
+    {
+      "type": "SYNC",
+      "seq": 3,
+      "fields": {
+        "after": 258
+      },
+      "frame": "020300000102",
+      "stream": "f5540006020300000102e6fa"
+    },
+    {
+      "type": "PING",
+      "seq": 4,
+      "fields": {},
+      "frame": "0304",
+      "stream": "f55400020304ff77"
+    },
+    {
+      "type": "SET_TIME",
+      "seq": 5,
+      "fields": {
+        "time": 1790000000
+      },
+      "frame": "04056ab13b80",
+      "stream": "f554000604056ab13b8005bc"
+    },
+    {
+      "type": "SET",
+      "seq": 6,
+      "fields": {
+        "setting": 1,
+        "value": "EU868"
+      },
+      "frame": "050601054555383638",
+      "stream": "f5540009050601054555383638724b"
+    },
+    {
+      "type": "SET",
+      "seq": 7,
+      "fields": {
+        "setting": 2,
+        "value": 1
+      },
+      "frame": "05070201",
+      "stream": "f554000405070201c880"
+    },
+    {
+      "type": "SET",
+      "seq": 8,
+      "fields": {
+        "setting": 3,
+        "value": -9
+      },
+      "frame": "050803f7",
+      "stream": "f5540004050803f75859"
+    },
+    {
+      "type": "SET",
+      "seq": 9,
+      "fields": {
+        "setting": 4,
+        "value": 123456
+      },
+      "frame": "0509040001e240",
+      "stream": "f55400070509040001e2406e0d"
+    },
+    {
+      "type": "SEND",
+      "seq": 10,
+      "fields": {
+        "ref": 3237998081,
+        "to": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "text": "On the ridge by six"
+      },
+      "frame": "100ac0ffee013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c134f6e2074686520726964676520627920736978",
+      "stream": "f554003a100ac0ffee013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c134f6e20746865207269646765206279207369785bf7"
+    },
+    {
+      "type": "SEND",
+      "seq": 11,
+      "fields": {
+        "ref": 2,
+        "to": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "text": "Ça va? 🐦"
+      },
+      "frame": "100b000000023d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0cc387612076613f20f09f90a6",
+      "stream": "f5540033100b000000023d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0cc387612076613f20f09f90a6f3cb"
+    },
+    {
+      "type": "READ",
+      "seq": 12,
+      "fields": {
+        "through": 17
+      },
+      "frame": "110c00000011",
+      "stream": "f5540006110c000000114604"
+    },
+    {
+      "type": "SAVE_CONTACT",
+      "seq": 13,
+      "fields": {
+        "address": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "name": "Bob"
+      },
+      "frame": "180d3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c03426f62",
+      "stream": "f5540026180d3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c03426f62fda2"
+    },
+    {
+      "type": "SAVE_CONTACT",
+      "seq": 14,
+      "fields": {
+        "address": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "name": ""
+      },
+      "frame": "180e3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c00",
+      "stream": "f5540023180e3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0084d0"
+    },
+    {
+      "type": "REMOVE_CONTACT",
+      "seq": 15,
+      "fields": {
+        "address": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+      },
+      "frame": "190f3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "stream": "f5540022190f3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cab52"
+    },
+    {
+      "type": "OK",
+      "seq": 4,
+      "fields": {},
+      "frame": "4004",
+      "stream": "f55400024004a7e8"
+    },
+    {
+      "type": "ERROR",
+      "seq": 15,
+      "fields": {
+        "code": 4
+      },
+      "frame": "410f04",
+      "stream": "f5540003410f04f0f7"
+    },
+    {
+      "type": "INFO",
+      "seq": 1,
+      "fields": {
+        "version": 0,
+        "firmware": "tern 0.1.0 heltec-v3"
+      },
+      "frame": "420100147465726e20302e312e302068656c7465632d7633",
+      "stream": "f5540018420100147465726e20302e312e302068656c7465632d76339985"
+    },
+    {
+      "type": "SYNCED",
+      "seq": 2,
+      "fields": {},
+      "frame": "4302",
+      "stream": "f55400024302927d"
+    },
+    {
+      "type": "QUEUED",
+      "seq": 10,
+      "fields": {
+        "id": 18
+      },
+      "frame": "440a00000012",
+      "stream": "f5540006440a000000128877"
+    },
+    {
+      "type": "SELF",
+      "seq": 0,
+      "fields": {
+        "address": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "role": 1,
+        "region": "EU868",
+        "power": 14,
+        "time": 1790000000
+      },
+      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80",
+      "stream": "f554002e8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b800c60"
+    },
+    {
+      "type": "SELF",
+      "seq": 1,
+      "fields": {
+        "address": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "role": 0,
+        "region": "US915",
+        "power": -9,
+        "time": 0
+      },
+      "frame": "8001d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00055553393135f700000000",
+      "stream": "f554002e8001d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00055553393135f7000000002287"
+    },
+    {
+      "type": "CONTACT",
+      "seq": 2,
+      "fields": {
+        "address": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "session": 1,
+        "name": "Bob"
+      },
+      "frame": "81023d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62",
+      "stream": "f554002781023d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f622545"
+    },
+    {
+      "type": "CONTACT_GONE",
+      "seq": 3,
+      "fields": {
+        "address": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+      },
+      "frame": "82033d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "stream": "f554002282033d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6f15"
+    },
+    {
+      "type": "MESSAGE",
+      "seq": 4,
+      "fields": {
+        "id": 17,
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "time": 1789999000,
+        "flags": 1,
+        "state": 4,
+        "reason": 0,
+        "wait": 0,
+        "text": "Where are you?"
+      },
+      "frame": "8304000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379801040000000e57686572652061726520796f753f",
+      "stream": "f554003e8304000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379801040000000e57686572652061726520796f753f4d44"
+    },
+    {
+      "type": "MESSAGE",
+      "seq": 5,
+      "fields": {
+        "id": 18,
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "time": 1790000060,
+        "flags": 0,
+        "state": 0,
+        "reason": 3,
+        "wait": 95,
+        "text": "On the ridge by six"
+      },
+      "frame": "8305000000123d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab13bbc000003005f134f6e2074686520726964676520627920736978",
+      "stream": "f55400438305000000123d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab13bbc000003005f134f6e2074686520726964676520627920736978c82f"
+    },
+    {
+      "type": "STATE",
+      "seq": 6,
+      "fields": {
+        "id": 18,
+        "state": 1,
+        "reason": 0,
+        "wait": 0
+      },
+      "frame": "84060000001201000000",
+      "stream": "f554000a84060000001201000000a320"
+    },
+    {
+      "type": "STATE",
+      "seq": 7,
+      "fields": {
+        "id": 18,
+        "state": 2,
+        "reason": 0,
+        "wait": 0
+      },
+      "frame": "84070000001202000000",
+      "stream": "f554000a84070000001202000000d3df"
+    },
+    {
+      "type": "NEIGHBOUR",
+      "seq": 8,
+      "fields": {
+        "routing_id": 489570112,
+        "role": 1,
+        "snr_quarter_db": -38,
+        "heard": 42
+      },
+      "frame": "85081d2e3f4001da002a",
+      "stream": "f554000a85081d2e3f4001da002a14ff"
+    },
+    {
+      "type": "NEIGHBOUR_GONE",
+      "seq": 9,
+      "fields": {
+        "routing_id": 489570112
+      },
+      "frame": "86091d2e3f40",
+      "stream": "f554000686091d2e3f40832f"
+    },
+    {
+      "type": "AIRTIME",
+      "seq": 10,
+      "fields": {
+        "period": 3600,
+        "allowed": 360000,
+        "used": 12345,
+        "wait": 0
+      },
+      "frame": "870a00000e1000057e400000303900000000",
+      "stream": "f5540012870a00000e1000057e40000030390000000096e0"
+    },
+    {
+      "type": "AIRTIME",
+      "seq": 11,
+      "fields": {
+        "period": 0,
+        "allowed": 0,
+        "used": 812,
+        "wait": 0
+      },
+      "frame": "870b00000000000000000000032c00000000",
+      "stream": "f5540012870b00000000000000000000032c000000008679"
+    },
+    {
+      "type": "POWER",
+      "seq": 12,
+      "fields": {
+        "millivolts": 3987,
+        "percent": 81,
+        "flags": 1
+      },
+      "frame": "880c0f935101",
+      "stream": "f5540006880c0f9351011a7a"
+    },
+    {
+      "type": "POWER",
+      "seq": 13,
+      "fields": {
+        "millivolts": 0,
+        "percent": 255,
+        "flags": 2
+      },
+      "frame": "880d0000ff02",
+      "stream": "f5540006880d0000ff024bbe"
+    }
+  ],
+  "extended": [
+    {
+      "frame": "03040102",
+      "type": "PING",
+      "seq": 4,
+      "fields": {}
+    },
+    {
+      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e00000000aa",
+      "type": "SELF",
+      "seq": 0,
+      "fields": {
+        "address": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "role": 1,
+        "region": "EU868",
+        "power": 14,
+        "time": 0
+      }
+    }
+  ],
+  "rejected": [
+    {
+      "why": "shorter than a type and a sequence number",
+      "frame": "03",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "0101",
+      "answer": 2
+    },
+    {
+      "why": "a type this version does not define",
+      "frame": "0001",
+      "answer": null
+    },
+    {
+      "why": "a type this version does not define",
+      "frame": "2001",
+      "answer": 1
+    },
+    {
+      "why": "a type this version does not define",
+      "frame": "c001",
+      "answer": null
+    },
+    {
+      "why": "a type this version does not define",
+      "frame": "9f01",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "0202000000",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "050601054555",
+      "answer": 2
+    },
+    {
+      "why": "a setting this version does not define",
+      "frame": "05060900",
+      "answer": 1
+    },
+    {
+      "why": "a field cut short",
+      "frame": "180d3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "180d3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c03426f",
+      "answer": 2
+    },
+    {
+      "why": "a string longer than its field allows",
+      "frame": "180d3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c207878787878787878787878787878787878787878787878787878787878787878",
+      "answer": 2
+    },
+    {
+      "why": "a string that is not UTF-8",
+      "frame": "100a000000013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c02c328",
+      "answer": 2
+    },
+    {
+      "why": "a string longer than its field allows",
+      "frame": "100a000000013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c81787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "8305000000013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000000000",
+      "answer": null
+    }
+  ],
+  "streams": [
+    {
+      "why": "one frame",
+      "stream": "f55400020304ff77",
+      "items": [
+        {
+          "frame": "0304"
+        }
+      ],
+      "pending": ""
+    },
+    {
+      "why": "two frames back to back",
+      "stream": "f55400020304ff77f55400024004a7e8",
+      "items": [
+        {
+          "frame": "0304"
+        },
+        {
+          "frame": "4004"
+        }
+      ],
+      "pending": ""
+    },
+    {
+      "why": "console text either side",
+      "stream": "7374617475730d0a616464726573732064373561393830312e2e2e0d0af55400024004a7e83e20",
+      "items": [
+        {
+          "text": "7374617475730d0a616464726573732064373561393830312e2e2e0d0a"
+        },
+        {
+          "frame": "4004"
+        },
+        {
+          "text": "3e20"
+        }
+      ],
+      "pending": ""
+    },
+    {
+      "why": "a frame with its CRC wrong is text",
+      "stream": "f55400024004a7e9f55400024004a7e8",
+      "items": [
+        {
+          "text": "f55400024004a7e9"
+        },
+        {
+          "frame": "4004"
+        }
+      ],
+      "pending": ""
+    },
+    {
+      "why": "a length past the longest frame",
+      "stream": "f55400b5f55400024004a7e8",
+      "items": [
+        {
+          "text": "f55400b5"
+        },
+        {
+          "frame": "4004"
+        }
+      ],
+      "pending": ""
+    },
+    {
+      "why": "a length too short for a frame",
+      "stream": "f554000103f55400024004a7e8",
+      "items": [
+        {
+          "text": "f554000103"
+        },
+        {
+          "frame": "4004"
+        }
+      ],
+      "pending": ""
+    },
+    {
+      "why": "a magic inside a frame's claimed length",
+      "stream": "f5540004f55400024004a7e8",
+      "items": [
+        {
+          "text": "f5540004"
+        },
+        {
+          "frame": "4004"
+        }
+      ],
+      "pending": ""
+    },
+    {
+      "why": "half a magic",
+      "stream": "f5f55400024004a7e8",
+      "items": [
+        {
+          "text": "f5"
+        },
+        {
+          "frame": "4004"
+        }
+      ],
+      "pending": ""
+    },
+    {
+      "why": "a frame that contains the magic",
+      "stream": "f5540006440af554f554ed47",
+      "items": [
+        {
+          "frame": "440af554f554"
+        }
+      ],
+      "pending": ""
+    },
+    {
+      "why": "a frame not finished",
+      "stream": "f55400020304ff77f554000240",
+      "items": [
+        {
+          "frame": "0304"
+        }
+      ],
+      "pending": "f554000240"
+    },
+    {
+      "why": "the start of a magic, last",
+      "stream": "6f6b0d0af5",
+      "items": [
+        {
+          "text": "6f6b0d0a"
+        }
+      ],
+      "pending": "f5"
+    }
+  ],
+  "exchange": [
+    {
+      "from": "client",
+      "type": "HELLO",
+      "seq": 1,
+      "frame": "010100"
+    },
+    {
+      "from": "node",
+      "type": "INFO",
+      "seq": 1,
+      "frame": "420100147465726e20302e312e302068656c7465632d7633"
+    },
+    {
+      "from": "client",
+      "type": "SET_TIME",
+      "seq": 2,
+      "frame": "04026ab13b80"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 2,
+      "frame": "4002"
+    },
+    {
+      "from": "client",
+      "type": "SYNC",
+      "seq": 3,
+      "frame": "020300000000"
+    },
+    {
+      "from": "node",
+      "type": "SELF",
+      "seq": 0,
+      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80"
+    },
+    {
+      "from": "node",
+      "type": "CONTACT",
+      "seq": 1,
+      "frame": "81013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62"
+    },
+    {
+      "from": "node",
+      "type": "MESSAGE",
+      "seq": 2,
+      "frame": "8302000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379800040000000e57686572652061726520796f753f"
+    },
+    {
+      "from": "node",
+      "type": "NEIGHBOUR",
+      "seq": 3,
+      "frame": "85031d2e3f4001da002a"
+    },
+    {
+      "from": "node",
+      "type": "AIRTIME",
+      "seq": 4,
+      "frame": "870400000e1000057e400000303900000000"
+    },
+    {
+      "from": "node",
+      "type": "POWER",
+      "seq": 5,
+      "frame": "88050f935101"
+    },
+    {
+      "from": "node",
+      "type": "SYNCED",
+      "seq": 3,
+      "frame": "4303"
+    },
+    {
+      "from": "client",
+      "type": "READ",
+      "seq": 4,
+      "frame": "110400000011"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 4,
+      "frame": "4004"
+    },
+    {
+      "from": "node",
+      "type": "MESSAGE",
+      "seq": 6,
+      "frame": "8306000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379801040000000e57686572652061726520796f753f"
+    },
+    {
+      "from": "client",
+      "type": "SEND",
+      "seq": 5,
+      "frame": "1005c0ffee013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c134f6e2074686520726964676520627920736978"
+    },
+    {
+      "from": "node",
+      "type": "QUEUED",
+      "seq": 5,
+      "frame": "440500000012"
+    },
+    {
+      "from": "node",
+      "type": "MESSAGE",
+      "seq": 7,
+      "frame": "8307000000123d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab13bbc0000010000134f6e2074686520726964676520627920736978"
+    },
+    {
+      "from": "node",
+      "type": "STATE",
+      "seq": 8,
+      "frame": "84080000001201000000"
+    },
+    {
+      "from": "node",
+      "type": "STATE",
+      "seq": 9,
+      "frame": "84090000001202000000"
+    }
+  ]
+}

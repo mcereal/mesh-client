@@ -81,6 +81,14 @@ struct mesh_ble_profile {
 #define MESH_BLE_NUS_TX_UUID "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 #define MESH_BLE_MESHCORE_NAME_PREFIX "MeshCore-"
 
+/* Tern's companion service (draft/companion.md, "Bluetooth LE"): the client writes one frame to
+   the first characteristic and is notified one frame at a time on the second, with no stream
+   wrapping. The service is Tern's own, so it needs no name filter - and a node must not
+   advertise anything that names it. */
+#define MESH_BLE_TERN_SERVICE_UUID "7A280001-EB17-4C1C-889B-1741DD50FF40"
+#define MESH_BLE_TERN_TO_NODE_UUID "7A280002-EB17-4C1C-889B-1741DD50FF40"
+#define MESH_BLE_TERN_FROM_NODE_UUID "7A280003-EB17-4C1C-889B-1741DD50FF40"
+
 /* The most any profile may carry in one frame - ATT's own limit, and what Meshtastic uses. */
 #define MESH_BLE_MAX_PACKET_SIZE 512U
 
@@ -89,6 +97,9 @@ extern const struct mesh_ble_profile mesh_ble_profile_meshtastic;
 
 /* RX, TX notified with one frame each; MAX_FRAME_SIZE (176) either way. */
 extern const struct mesh_ble_profile mesh_ble_profile_meshcore;
+
+/* To-node written, from-node notified with one frame each; MAX_FRAME (180) either way. */
+extern const struct mesh_ble_profile mesh_ble_profile_tern;
 
 /* Every profile the scan looks for, in the order a radio advertising several is tagged. */
 extern const struct mesh_ble_profile *const mesh_ble_known_profiles[];

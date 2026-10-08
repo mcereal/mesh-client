@@ -5442,7 +5442,7 @@ MESH_TEST_CASE(app_probe_finds_meshcore_on_a_silent_meshtastic_port, unit) {
 
     /* And the next connect to that port opens in MeshCore without being asked again. */
     (void)mesh_serial_transport_disconnect(mesh_serial_transport());
-    mesh_app_bind_protocol(app, false);
+    mesh_app_bind_protocol(app, MESH_APP_PROTOCOL_MESHTASTIC);
     mesh_app_probe_begin(app, (uint8_t)MESH_UI_DEVICE_SERIAL, port, later + 200U);
     if (!app->meshcore_bound) {
         failure = "a port that answered in MeshCore should be opened in it next time";
@@ -5475,6 +5475,12 @@ MESH_TEST_CASE(app_probe_mutes_a_port_that_answers_neither, unit) {
     mesh_app_probe_tick(app, now);
     if (!app->meshcore_bound || !app_probe_wait_up(&fx)) {
         failure = "the port should have been asked in MeshCore";
+        goto cleanup;
+    }
+    now += MESH_APP_PROBE_WINDOW_MS + 1000U;
+    mesh_app_probe_tick(app, now);
+    if (!app->tern_bound || app->meshcore_bound || !app_probe_wait_up(&fx)) {
+        failure = "then in Tern";
         goto cleanup;
     }
     now += MESH_APP_PROBE_WINDOW_MS + 1000U;
@@ -5558,6 +5564,12 @@ MESH_TEST_CASE(app_probe_honours_a_forced_protocol, unit) {
         failure = "and so is Meshtastic";
         goto cleanup;
     }
+    setenv("MESHCLIENT_PROTOCOL", "tern", 1);
+    mesh_app_probe_begin(app, (uint8_t)MESH_UI_DEVICE_SERIAL, "/dev/ttyUSB0", 0U);
+    if (!app->tern_bound || app->meshcore_bound || app->probe.identifier[0] != '\0') {
+        failure = "and so is Tern";
+        goto cleanup;
+    }
 
 cleanup:
     unsetenv("MESHCLIENT_PROTOCOL");
@@ -5619,7 +5631,7 @@ MESH_TEST_CASE(app_meshcore_settings_save_speaks_meshcore, unit) {
         goto cleanup;
     }
     app_ready = true;
-    mesh_app_bind_protocol(&app, true);
+    mesh_app_bind_protocol(&app, MESH_APP_PROTOCOL_MESHCORE);
     protocol = mesh_meshcore_protocol(&app.meshcore);
     mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
     app.meshcore.has_self = true;
@@ -5812,7 +5824,7 @@ MESH_TEST_CASE(app_meshcore_channel_save_is_one_slot, unit) {
         goto cleanup;
     }
     app_ready = true;
-    mesh_app_bind_protocol(&app, true);
+    mesh_app_bind_protocol(&app, MESH_APP_PROTOCOL_MESHCORE);
     protocol = mesh_meshcore_protocol(&app.meshcore);
     mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
     app.meshcore.has_self = true;
@@ -5982,7 +5994,7 @@ MESH_TEST_CASE(app_meshcore_other_params_save, unit) {
         goto cleanup;
     }
     app_ready = true;
-    mesh_app_bind_protocol(&app, true);
+    mesh_app_bind_protocol(&app, MESH_APP_PROTOCOL_MESHCORE);
     protocol = mesh_meshcore_protocol(&app.meshcore);
     mesh_protocol_attach(&protocol, app_meshcore_capture, &wire);
     app.meshcore.has_self = true;
@@ -6417,7 +6429,7 @@ static bool app_meshcore_restore_open(struct mesh_app *app, char *home, size_t h
     if (!app_backup_open(app, home, home_cap, "backup_meshcore")) {
         return false;
     }
-    mesh_app_bind_protocol(app, true);
+    mesh_app_bind_protocol(app, MESH_APP_PROTOCOL_MESHCORE);
     *protocol = mesh_meshcore_protocol(&app->meshcore);
     if (!mesh_test_meshcore_sync(&app->meshcore, protocol, &g_restore_wire)) {
         return false;

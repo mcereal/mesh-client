@@ -7,6 +7,10 @@ struct mesh_ui_delivery mesh_ui_delivery_of(uint8_t ack) {
     case MESH_MESSAGE_ACK_PENDING:
         return (struct mesh_ui_delivery){.icon = INKCELL_ICON_SENDING,
                                          .word = MESH_STR_DELIVERY_SENDING};
+    case MESH_MESSAGE_ACK_WAITING:
+        /* The same clock as sending: the message is the radio's and not yet the air's. */
+        return (struct mesh_ui_delivery){.icon = INKCELL_ICON_SENDING,
+                                         .word = MESH_STR_DELIVERY_WAITING};
     case MESH_MESSAGE_ACK_DELIVERED:
         return (struct mesh_ui_delivery){.icon = INKCELL_ICON_DELIVERED,
                                          .word = MESH_STR_DELIVERY_DELIVERED};
