@@ -437,6 +437,7 @@ enum mesh_tern_update_outcome {
     MESH_TERN_UPDATE_REFUSED,     /* ERROR `code` - 5 no room or not updatable, 11 not an image */
     MESH_TERN_UPDATE_CONFUSED,    /* an answer no update request is answered with */
     MESH_TERN_UPDATE_CANCELLED,
+    MESH_TERN_UPDATE_ANOTHER_NODE, /* the link came back to another node: nothing sent on to it */
 };
 
 struct mesh_tern_update {
@@ -447,8 +448,10 @@ struct mesh_tern_update {
     const uint8_t *image;
     uint32_t size;
     uint8_t digest[MESH_TERN_DIGEST_LEN];
-    uint32_t held;     /* what the node has said it holds */
-    uint8_t not_there; /* ERROR 10s in a row with nothing held between */
+    uint8_t
+        address[MESH_TERN_ADDRESS_LEN]; /* the node it was begun on, and the only one it goes to */
+    uint32_t held;                      /* what the node has said it holds */
+    uint8_t not_there;                  /* ERROR 10s in a row with nothing held between */
     bool cancel_wanted;
 };
 

@@ -393,7 +393,16 @@ static void mesh_tern_forget_books(struct mesh_tern *tern) {
     tern->has_asked = false;
 }
 
+static void mesh_tern_update_finish(struct mesh_tern *tern, enum mesh_tern_update_outcome outcome,
+                                    uint8_t code);
+
 static void mesh_tern_store_self(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
+    /* An update begun on another node is that node's image: never begun again on this one. */
+    if (tern->update.phase != MESH_TERN_UPDATE_IDLE &&
+        tern->update.phase != MESH_TERN_UPDATE_FINISHED &&
+        memcmp(tern->update.address, frame->address, MESH_TERN_ADDRESS_LEN) != 0) {
+        mesh_tern_update_finish(tern, MESH_TERN_UPDATE_ANOTHER_NODE, 0U);
+    }
     /* Another node on this link than the last: what was learned of that one is not this one's,
        and its message ids are its own count. */
     if (tern->has_self && memcmp(tern->self.address, frame->address, MESH_TERN_ADDRESS_LEN) != 0) {
@@ -1857,7 +1866,16 @@ int mesh_tern_share_group(struct mesh_tern *tern, const uint8_t group[MESH_TERN_
 
 int mesh_tern_group_link(struct mesh_tern *tern, const uint8_t group[MESH_TERN_GROUP_LEN]) {
     struct mesh_tern_frame frame = {.type = MESH_TERN_GROUP_LINK};
-    return group == NULL ? -EINVAL : mesh_tern_group_request(tern, &frame, group, NULL, 0U, true);
+    if (group == NULL) {
+        return -EINVAL;
+    }
+    const int result = mesh_tern_group_request(tern, &frame, group, NULL, 0U, true);
+    if (result >= 0) {
+        /* A code not yet taken was for another request: never this one's answer. */
+        inkwell_wipe(tern->link, sizeof tern->link);
+        tern->has_link = false;
+    }
+    return result;
 }
 
 bool mesh_tern_take_link(struct mesh_tern *tern, char *out, size_t out_len) {
@@ -1897,6 +1915,7 @@ int mesh_tern_update_start(struct mesh_tern *tern, const uint8_t *image, size_t 
         return -EBUSY;
     }
     memset(update, 0, sizeof *update);
+    memcpy(update->address, tern->self.address, MESH_TERN_ADDRESS_LEN);
     update->image = image;
     update->size = (uint32_t)size;
     struct inkwell_sha256 sha;

@@ -454,13 +454,15 @@ code here goes the other way - and checked against that repository's vectors, wh
   claim. SELF's `cards` and card name are kept on `mesh_tern.self`; `mesh_tern_set_value()` and
   `mesh_tern_set_text()` are SET, settings 5 and 6 among them.
 - **Join codes** (version 7). `mesh_tern_group_link()` asks for a group's code and
-  `mesh_tern_take_link()` hands it over once and wipes it; `mesh_tern_join_link()` hands the node
+  `mesh_tern_take_link()` hands it over once and wipes it, as asking again does a code not yet
+  taken; `mesh_tern_join_link()` hands the node
   a code, and its request is wiped from the queue once answered. The client never reads the
   secret out of the link and keeps neither.
 - **Firmware updates** (version 4). INFO's `board` and `release` are kept. `mesh_tern_update_start()`
   sends an image the caller holds: UPDATE_BEGIN, UPDATE_CHUNK (172) bytes at a time from the offset
   the node gives, then UPDATE_END. ERROR 10 asks UPDATE_BEGIN again (three times at most); a
-  dropped link leaves the update waiting, and it goes on after the next connection's first sync.
+  dropped link leaves the update waiting, and it goes on after the next connection's first sync -
+  on the node it was begun on only; SELF from another node finishes it, nothing sent.
   An UPDATE_END given up on is never sent again - the outcome is unconfirmed, and the next
   INFO's release says. `mesh_tern_update_status()` is where it stands.
 

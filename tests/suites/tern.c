@@ -125,7 +125,8 @@ static const struct mesh_node_summary *model_node(uint32_t id) {
 }
 
 /* INFO from a node of `version`, SET_TIME, OK, SYNC, a sync of SELF alone: READY. */
-static bool greet(struct mesh_protocol *protocol, struct wire *wire, uint8_t version) {
+static bool greet_as(struct mesh_protocol *protocol, struct wire *wire, uint8_t version,
+                     const uint8_t address[MESH_TERN_ADDRESS_LEN]) {
     if (wire->count == 0U || wire_last(wire)[0] != MESH_TERN_HELLO) {
         return false;
     }
@@ -137,10 +138,14 @@ static bool greet(struct mesh_protocol *protocol, struct wire *wire, uint8_t ver
         return false;
     }
     struct mesh_tern_frame self = {.type = MESH_TERN_SELF, .seq = g_tern.news_expected};
-    memcpy(self.address, k_node, sizeof k_node);
+    memcpy(self.address, address, MESH_TERN_ADDRESS_LEN);
     news(protocol, &self);
     synced(protocol, wire);
     return mesh_tern_ready(&g_tern);
+}
+
+static bool greet(struct mesh_protocol *protocol, struct wire *wire, uint8_t version) {
+    return greet_as(protocol, wire, version, k_node);
 }
 
 /* HELLO and greet(): news counted from 0 again. */
@@ -636,6 +641,31 @@ MESH_TEST_CASE(tern_an_update_goes_on_from_where_the_node_says_and_ends_once, un
     MESH_TEST_FAIL_IF(wire.count != before || update->outcome != MESH_TERN_UPDATE_CANCELLED,
                       "the chunk out is answered, and no other follows");
 
+    /* The link drops mid-update and comes back to another radio: its image is not this one's. */
+    MESH_TEST_FAIL_IF(mesh_tern_update_start(&g_tern, image, sizeof image) != 0, "a fourth");
+    updating(&protocol, &wire, 0U);
+    mesh_protocol_detach(&protocol);
+    MESH_TEST_FAIL_IF(update->phase != MESH_TERN_UPDATE_WAITING, "it waits for the link");
+    uint8_t other[MESH_TERN_ADDRESS_LEN];
+    memcpy(other, k_node, sizeof other);
+    other[0] ^= 0x01U;
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, wire_send, &wire);
+    (void)mesh_protocol_begin(&protocol);
+    /* Another node's SELF has its books forgotten and the sync asked again from 0. */
+    if (!greet_as(&protocol, &wire, MESH_TERN_VERSION, other)) {
+        synced(&protocol, &wire);
+    }
+    MESH_TEST_FAIL_IF(!mesh_tern_ready(&g_tern), "the other radio should reach READY");
+    for (size_t i = 0; i < wire.count; ++i) {
+        MESH_TEST_FAIL_IF(wire.frames[i][0] == MESH_TERN_UPDATE_BEGIN ||
+                              wire.frames[i][0] == MESH_TERN_UPDATE_DATA,
+                          "nothing of the update goes to another node");
+    }
+    MESH_TEST_FAIL_IF(update->phase != MESH_TERN_UPDATE_FINISHED ||
+                          update->outcome != MESH_TERN_UPDATE_ANOTHER_NODE || update->image != NULL,
+                      "it finishes, and the image is the caller's again");
+
     MESH_TEST_FAIL_IF(!handshake_at(&protocol, &wire, 3U) ||
                           mesh_tern_update_start(&g_tern, image, sizeof image) != -EOPNOTSUPP,
                       "a node of version 3 has no updates");
@@ -748,6 +778,14 @@ MESH_TEST_CASE(tern_a_join_code_crosses_the_link_once_and_is_kept_by_nobody, uni
     MESH_TEST_FAIL_IF(mesh_tern_take_link(&g_tern, out, sizeof out) ||
                           memmem(&g_tern, sizeof g_tern, "TERNMESH", 8U) != NULL,
                       "once: then the conversation holds nothing of it");
+    /* A code not taken is never the answer to the next request. */
+    MESH_TEST_FAIL_IF(mesh_tern_group_link(&g_tern, k_hut) != 0, "GROUP_LINK again");
+    link.seq = wire_last(&wire)[1];
+    news(&protocol, &link);
+    MESH_TEST_FAIL_IF(mesh_tern_group_link(&g_tern, k_hut) != 0 ||
+                          mesh_tern_take_link(&g_tern, out, sizeof out) ||
+                          memmem(&g_tern, sizeof g_tern, "TERNMESH", 8U) != NULL,
+                      "asking again wipes the code the last request was answered with");
     MESH_TEST_FAIL_IF(!handshake_at(&protocol, &wire, 6U) ||
                           mesh_tern_join_link(&g_tern, k_code) != -EOPNOTSUPP ||
                           mesh_tern_group_link(&g_tern, k_hut) != -EOPNOTSUPP,
