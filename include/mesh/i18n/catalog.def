@@ -1128,6 +1128,12 @@ MESH_STR_ENTRY(NODE_LOGIN_GUEST,          "guest")
 MESH_STR_ENTRY(NODE_LOGIN_READ_ONLY,      "read-only")
 MESH_STR_ENTRY(NODE_LOGIN_READ_WRITE,     "read-write")
 MESH_STR_ENTRY(NODE_LOGIN_ADMIN,          "admin")
+/* A Tern node's presence card: the name its sender put on it - in quotes, since it is the
+   sender's claim and not a name the user gave - then how long ago the radio took it. A card may
+   carry no name at all. */
+MESH_STR_ENTRY(NODE_CARD,                 "Presence card")
+MESH_STR_ENTRY(NODE_VAL_CARD,             "“%s”, %s")
+MESH_STR_ENTRY(NODE_VAL_CARD_UNNAMED,     "no name, %s")
 MESH_STR_ENTRY(NODE_ACT_REQUEST_STATUS,   "Ask for status")
 /* Asking a MeshCore repeater which nodes it hears directly. The answer fills the node's
    Neighbours group. Under MESH_UI_NODE_LABEL_MAX, which is 20 bytes and cuts silently. */

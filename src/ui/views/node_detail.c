@@ -523,6 +523,17 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
         rows_info(rows, MESH_STR_NODE_LOGIN, MESH_STR_NODE_VAL_LOGIN,
                   inkcell_str(mesh_ui_node_login_name(node->login)), age);
     }
+    /* What a Tern node's presence card says it is, and how long ago the radio took it: its
+       sender's claim, so a row of its own beside the name above and never in its place. */
+    if (node->has_card) {
+        char age[24];
+        mesh_ui_format_age(node->card_heard, now, age, sizeof age);
+        if (node->card_name[0] != '\0') {
+            rows_info(rows, MESH_STR_NODE_CARD, MESH_STR_NODE_VAL_CARD, node->card_name, age);
+        } else {
+            rows_info(rows, MESH_STR_NODE_CARD, MESH_STR_NODE_VAL_CARD_UNNAMED, age);
+        }
+    }
     if (node->hw_model != 0U) {
         char fallback[MESH_UI_NODE_VALUE_MAX];
         rows_text(rows, MESH_STR_NODE_HARDWARE,

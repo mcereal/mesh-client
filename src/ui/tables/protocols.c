@@ -31,10 +31,11 @@ static const struct {
          MESH_UI_FEATURE_REMOTE_ADMIN | MESH_UI_FEATURE_KEY_VERIFICATION | MESH_UI_FEATURE_MODULES |
          MESH_UI_FEATURE_REACTIONS | MESH_UI_FEATURE_FULL_CONFIG |
          MESH_UI_FEATURE_RADIO_MAINTENANCE},
-    /* Direct messages to a contact or a neighbour, with their delivery state, and nothing else
-       yet. Draft 0 of its companion protocol has no channels, no link format, no firmware
-       feed and none of the per-node verbs, and this client does not yet send its contact and
-       settings requests (SAVE_CONTACT, REMOVE_CONTACT, SET). */
+    /* Direct messages to a contact or a neighbour, with their delivery state; a contact's
+       position on the map and a node's presence card on its detail, which need no verb. Version
+       7 of its companion protocol has groups, join codes and firmware updates, which this client
+       speaks but no screen offers yet (docs/protocols.md), no channels, no contact link and none
+       of the per-node verbs. */
     {"tern", MESH_UI_PROTOCOL_TERN, MESH_UI_FEATURES_ALL},
 };
 
