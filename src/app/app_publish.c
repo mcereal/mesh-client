@@ -3220,6 +3220,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             dst->is_muted = src->is_muted;
             dst->channel = src->channel;
             dst->discovered = src->discovered;
+            dst->has_card = src->has_card;
+            dst->card_heard = src->card_heard;
+            snprintf(dst->card_name, sizeof(dst->card_name), "%s", src->card_name);
             mesh_app_copy_node_detail(src, dst);
         }
         ui_handshake.node_count = (uint32_t)copy_count;

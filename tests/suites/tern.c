@@ -1,9 +1,10 @@
 /*
  * Tern's conversation: the client half of draft/companion.md, driven through its struct
  * mesh_protocol as a link would drive it, with what it learns read back off the session model.
- * The first two cases replay the specification's own exchange and its older clients' connections
- * (tests/data/tern_companion.json); the rest are the rules around them - a lapsed connection,
- * missed news and the sync after it, the version both ends speak, silence and the ping.
+ * The first three cases replay the specification's own exchange, its older clients' connections
+ * and its update over two connections (tests/data/tern_companion.json); the rest are the rules
+ * around them - a lapsed connection, missed news and the sync after it, the version both ends
+ * speak, silence and the ping, positions, cards, join codes and updates.
  */
 
 #include "framework/mesh_test.h"
@@ -22,6 +23,9 @@
 
 static struct mesh_session g_model;
 static struct mesh_tern g_tern;
+/* The image an UPDATE_BEGIN in a replay starts an update of. */
+static uint8_t g_image[512];
+static size_t g_image_len;
 
 /* The exchange's node and its contact, as the vectors give them. */
 static const uint8_t k_node[MESH_TERN_ADDRESS_LEN] = {
@@ -121,7 +125,8 @@ static const struct mesh_node_summary *model_node(uint32_t id) {
 }
 
 /* INFO from a node of `version`, SET_TIME, OK, SYNC, a sync of SELF alone: READY. */
-static bool greet(struct mesh_protocol *protocol, struct wire *wire, uint8_t version) {
+static bool greet_as(struct mesh_protocol *protocol, struct wire *wire, uint8_t version,
+                     const uint8_t address[MESH_TERN_ADDRESS_LEN]) {
     if (wire->count == 0U || wire_last(wire)[0] != MESH_TERN_HELLO) {
         return false;
     }
@@ -133,10 +138,14 @@ static bool greet(struct mesh_protocol *protocol, struct wire *wire, uint8_t ver
         return false;
     }
     struct mesh_tern_frame self = {.type = MESH_TERN_SELF, .seq = g_tern.news_expected};
-    memcpy(self.address, k_node, sizeof k_node);
+    memcpy(self.address, address, MESH_TERN_ADDRESS_LEN);
     news(protocol, &self);
     synced(protocol, wire);
     return mesh_tern_ready(&g_tern);
+}
+
+static bool greet(struct mesh_protocol *protocol, struct wire *wire, uint8_t version) {
+    return greet_as(protocol, wire, version, k_node);
 }
 
 /* HELLO and greet(): news counted from 0 again. */
@@ -192,6 +201,39 @@ static int act(const struct mesh_tern_frame *want) {
         return mesh_tern_send_invite(&g_tern, want->group, node);
     case MESH_TERN_JOIN:
         return mesh_tern_join(&g_tern, want->id);
+    case MESH_TERN_SET:
+        if (want->setting == MESH_TERN_SETTING_REGION ||
+            want->setting == MESH_TERN_SETTING_CARD_NAME) {
+            return mesh_tern_set_text(&g_tern, want->setting, want->text);
+        }
+        return mesh_tern_set_value(&g_tern, want->setting,
+                                   want->setting == MESH_TERN_SETTING_ROLE    ? want->role
+                                   : want->setting == MESH_TERN_SETTING_POWER ? (uint8_t)want->power
+                                   : want->setting == MESH_TERN_SETTING_CARDS ? want->cards
+                                                                              : want->passkey);
+    case MESH_TERN_SET_POSITION:
+        return mesh_tern_set_position(&g_tern, want->lat, want->lon, want->altitude, want->accuracy,
+                                      (uint16_t)want->age);
+    case MESH_TERN_SHARE:
+    case MESH_TERN_SHARE_GROUP: {
+        const struct mesh_tern_share share = {.precision = want->precision,
+                                              .fields = want->fields,
+                                              .interval = want->interval,
+                                              .minutes = want->minutes};
+        return want->type == MESH_TERN_SHARE ? mesh_tern_share(&g_tern, node, &share)
+                                             : mesh_tern_share_group(&g_tern, want->group, &share);
+    }
+    case MESH_TERN_GROUP_LINK:
+        return mesh_tern_group_link(&g_tern, want->group);
+    case MESH_TERN_JOIN_LINK:
+        return mesh_tern_join_link(&g_tern, want->text);
+    case MESH_TERN_UPDATE_BEGIN: {
+        /* The user starts one; after a dropped link the conversation goes on with it itself. */
+        const enum mesh_tern_update_phase phase = mesh_tern_update_status(&g_tern)->phase;
+        return phase == MESH_TERN_UPDATE_IDLE || phase == MESH_TERN_UPDATE_FINISHED
+                   ? mesh_tern_update_start(&g_tern, g_image, g_image_len)
+                   : 0;
+    }
     default:
         return 0;
     }
@@ -234,7 +276,7 @@ static void replay(struct inkwell_json *json, struct mesh_protocol *protocol, st
             feed(protocol, frame, len);
         } else if (mesh_tern_decode(frame, len, MESH_TERN_VERSION, &want) != MESH_TERN_DECODE_OK) {
             snprintf(failure, failure_len, "step %zu: the client's %s should read", *steps, type);
-        } else if (mesh_tern_since(want.type) > g_tern.agreed) {
+        } else if (mesh_tern_frame_since(frame, len) > g_tern.agreed) {
             if (act(&want) != -EOPNOTSUPP || wire->count != sent) {
                 snprintf(failure, failure_len, "step %zu: %s goes at version %u", *steps, type,
                          (unsigned)g_tern.agreed);
@@ -267,6 +309,8 @@ static struct mesh_protocol start_as(struct wire *wire, uint8_t version) {
     return protocol;
 }
 
+static const uint8_t k_hut[MESH_TERN_GROUP_LEN] = {0xc0, 0x03, 0x7d, 0xcd, 0x77, 0xf6, 0xea, 0xc6};
+
 static size_t group_item_at(uint32_t id) {
     for (size_t i = 0; i < g_tern.group_item_count; ++i) {
         if (g_tern.group_items[i].id == id) {
@@ -276,7 +320,7 @@ static size_t group_item_at(uint32_t id) {
     return SIZE_MAX;
 }
 
-/* The vectors' exchange, as the client of version 3 it is. */
+/* The vectors' exchange, as the client of version 7 it is. */
 MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
     size_t doc_len = 0U;
     char *document = mesh_test_data_read("tern_companion.json", &doc_len);
@@ -294,9 +338,12 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
     replay(&json, &protocol, &wire, &steps, failure, sizeof failure);
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(steps != 54U, "all 54 steps");
-    MESH_TEST_FAIL_IF(g_tern.agreed != 3U || g_tern.missed_news || g_tern.news_expected != 26U,
-                      "version 3 throughout, every news frame counted and none missed");
+    MESH_TEST_FAIL_IF(steps != 89U, "all 89 steps");
+    MESH_TEST_FAIL_IF(g_tern.agreed != 7U || g_tern.missed_news || g_tern.news_expected != 37U,
+                      "version 7 throughout, every news frame counted and none missed");
+    MESH_TEST_FAIL_IF(strcmp(g_tern.board, "heltec-v3") != 0 ||
+                          strcmp(g_tern.release, "0.2.0") != 0,
+                      "INFO names the board and the release, which an update is found by");
 
     /* And what it learned. */
     const uint32_t self_id = mesh_tern_routing_id(k_node);
@@ -307,8 +354,8 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
     MESH_TEST_FAIL_IF(bob == NULL || strcmp(bob->long_name, "Bob") != 0 || !bob->in_nodedb ||
                           bob->public_key_len != 32U || memcmp(bob->public_key, k_bob, 32U) != 0,
                       "Bob is a contact, by name, with his address");
-    MESH_TEST_FAIL_IF(g_tern.contact_count != 2U || g_tern.contacts[0].session != 0U,
-                      "and Carol is saved beside him; his session has ended");
+    MESH_TEST_FAIL_IF(g_tern.contact_count != 3U || g_tern.contacts[0].session != 0U,
+                      "Carol and the card's sender are saved beside him; his session has ended");
     const struct mesh_node_summary *neighbour = model_node(NEIGHBOUR_ID);
     MESH_TEST_FAIL_IF(neighbour == NULL || neighbour->snr != -9.5f || !neighbour->in_nodedb ||
                           neighbour->last_heard != EXCHANGE_TIME - 42U ||
@@ -357,10 +404,12 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
                       "the node said whom it refused, and why");
     static const uint8_t k_ridge[MESH_TERN_GROUP_LEN] = {0xc8, 0xea, 0xfa, 0xdc,
                                                          0x08, 0x57, 0xa6, 0x96};
-    MESH_TEST_FAIL_IF(g_tern.group_count != 1U ||
+    MESH_TEST_FAIL_IF(g_tern.group_count != 2U ||
                           memcmp(g_tern.groups[0].id, k_ridge, sizeof k_ridge) != 0 ||
-                          strcmp(g_tern.groups[0].name, "Ridge walkers") != 0,
-                      "the group joined and renamed is held; the one made and left is not");
+                          strcmp(g_tern.groups[0].name, "Ridge walkers") != 0 ||
+                          memcmp(g_tern.groups[1].id, k_hut, sizeof k_hut) != 0,
+                      "the group joined and renamed is held, and the one left is back from its "
+                      "join code");
     const size_t invite = group_item_at(19U);
     const size_t written = group_item_at(20U);
     const size_t heard = group_item_at(21U);
@@ -377,13 +426,29 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
     MESH_TEST_FAIL_IF(
         g_tern.open_count != 0U,
         "and nothing is left that may change: all delivered, sent to a group, or read");
+
+    MESH_TEST_FAIL_IF(bob->position.valid != true || bob->position.latitude_i != 603945922 ||
+                          bob->position.longitude_i != 52871704 ||
+                          bob->position.precision_bits != 16U || bob->position.has_altitude ||
+                          bob->position.time != EXCHANGE_TIME - 40U,
+                      "Bob's position, on his roster entry, a cell of 2^-16 turns, 40 s old");
+    MESH_TEST_FAIL_IF(g_tern.sharing_count != 0U, "sharing with him was turned on, then off");
+    MESH_TEST_FAIL_IF(g_tern.self.cards != 0U ||
+                          strcmp(g_tern.self.card_name, "Ada \xc2\xb7 hut warden") != 0,
+                      "cards on, then off; their name kept while they are off");
+    MESH_TEST_FAIL_IF(g_tern.card_count != 0U, "the card held from the start was forgotten");
+    char link[MESH_TERN_LINK_MAX + 1U];
+    MESH_TEST_FAIL_IF(!mesh_tern_take_link(&g_tern, link, sizeof link) ||
+                          strncmp(link, "HTTPS://TERNMESH.ORG/G#", 23U) != 0 ||
+                          mesh_tern_take_link(&g_tern, link, sizeof link),
+                      "the join code asked for, had once");
     inkwell_time_wall_set_fixed(0U);
     record_success(test_name);
 }
 
 /*
  * Each older connection, as the client of its version, against the same node. The node's INFO
- * says 3 throughout; the client speaks its own. The client of version 0 has synced message 17
+ * says 7 throughout; the client speaks its own. The client of version 0 has synced message 17
  * at version 0 before, which is why it asks after it.
  */
 MESH_TEST_CASE(tern_replays_the_older_clients_connections, unit) {
@@ -431,9 +496,339 @@ MESH_TEST_CASE(tern_replays_the_older_clients_connections, unit) {
     }
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(connections != 3U || steps != 39U, "three connections, 39 steps");
-    MESH_TEST_FAIL_IF(g_tern.synced_version != 2U || g_tern.has_missed_since,
-                      "the last, version 2's, finished its sync on a two-byte SYNCED");
+    MESH_TEST_FAIL_IF(connections != 7U || steps != 88U, "seven connections, 88 steps");
+    MESH_TEST_FAIL_IF(g_tern.synced_version != 6U || g_tern.has_missed_since ||
+                          g_tern.card_count != 1U,
+                      "the last, version 6's, synced with the card it is sent");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+/*
+ * The vectors' update: one image over two connections, the first lost after its last frame. The
+ * client starts the update once synced, sends UPDATE_CHUNK at a time, and after the link drops
+ * goes on by itself from the offset the node gives, once the next connection has synced.
+ */
+MESH_TEST_CASE(tern_replays_the_specifications_update_over_two_connections, unit) {
+    size_t doc_len = 0U;
+    char *document = mesh_test_data_read("tern_companion.json", &doc_len);
+    MESH_TEST_FAIL_IF(document == NULL, "the vectors should be there");
+    struct inkwell_json json;
+    inkwell_json_init(&json, document, doc_len);
+    char hex[2U * sizeof g_image + 1U];
+    const bool image = inkwell_json_object_find(&json, "image") &&
+                       inkwell_json_read_string(&json, hex, sizeof hex);
+    unhex(hex, g_image, sizeof g_image, &g_image_len);
+    inkwell_json_init(&json, document, doc_len);
+    const bool found = image && g_image_len == 400U && inkwell_json_object_find(&json, "update") &&
+                       inkwell_json_enter_array(&json);
+    MESH_TEST_FAIL_IF_CLEANUP(!found, free(document), "the update and its image should be there");
+
+    struct wire wire;
+    struct mesh_protocol protocol = start(&wire);
+    size_t connections = 0U;
+    size_t steps = 0U;
+    char failure[160] = "";
+    while (failure[0] == '\0' && inkwell_json_next_element(&json)) {
+        if (connections > 0U) {
+            /* The link was lost: what the client sent after the last frame never arrived. */
+            if (mesh_tern_update_status(&g_tern)->phase != MESH_TERN_UPDATE_SENDING ||
+                wire_last(&wire)[0] != MESH_TERN_UPDATE_DATA) {
+                snprintf(failure, sizeof failure, "the first connection ends mid-update");
+                break;
+            }
+            mesh_protocol_detach(&protocol);
+            if (mesh_tern_update_status(&g_tern)->phase != MESH_TERN_UPDATE_WAITING) {
+                snprintf(failure, sizeof failure, "a dropped link leaves the update waiting");
+                break;
+            }
+            memset(&wire, 0, sizeof wire);
+            mesh_protocol_attach(&protocol, wire_send, &wire);
+            /* The vectors number each connection's requests from 1. This client's count runs on
+               across connections - an answer from the last can never be taken for one of this
+               one's - so it is started where the vectors start. */
+            g_tern.next_seq = 0U;
+            (void)mesh_protocol_begin(&protocol);
+        }
+        if (!inkwell_json_enter_array(&json)) {
+            snprintf(failure, sizeof failure, "connection %zu should read", connections);
+            break;
+        }
+        replay(&json, &protocol, &wire, &steps, failure, sizeof failure);
+        connections += 1U;
+    }
+    free(document);
+    MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
+    MESH_TEST_FAIL_IF(connections != 2U || steps != 30U, "two connections, 30 steps");
+    const struct mesh_tern_update *update = mesh_tern_update_status(&g_tern);
+    MESH_TEST_FAIL_IF(update->phase != MESH_TERN_UPDATE_FINISHED ||
+                          update->outcome != MESH_TERN_UPDATE_RESTARTING || update->held != 400U ||
+                          update->image != NULL,
+                      "UPDATE_END answered: the node restarts into the image, which is the "
+                      "caller's again");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+/* The answer to the request last on the wire: ERROR `code`, or UPDATING at `offset`. */
+static void refuse(const struct mesh_protocol *protocol, const struct wire *wire, uint8_t code) {
+    const uint8_t frame[3] = {MESH_TERN_ERROR, wire_last(wire)[1], code};
+    feed(protocol, frame, sizeof frame);
+}
+
+static void updating(const struct mesh_protocol *protocol, const struct wire *wire,
+                     uint32_t offset) {
+    const struct mesh_tern_frame frame = {
+        .type = MESH_TERN_UPDATING, .seq = wire_last(wire)[1], .offset = offset};
+    news(protocol, &frame);
+}
+
+MESH_TEST_CASE(tern_an_update_goes_on_from_where_the_node_says_and_ends_once, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake should reach READY");
+    static uint8_t image[400];
+    for (size_t i = 0; i < sizeof image; ++i) {
+        image[i] = (uint8_t)i;
+    }
+    MESH_TEST_FAIL_IF(mesh_tern_update_start(&g_tern, image, 0U) != -EINVAL,
+                      "an image is at least a byte");
+    MESH_TEST_FAIL_IF(mesh_tern_update_start(&g_tern, image, sizeof image) != 0 ||
+                          wire_last(&wire)[0] != MESH_TERN_UPDATE_BEGIN,
+                      "UPDATE_BEGIN first, asking where to go on from");
+    MESH_TEST_FAIL_IF(mesh_tern_update_start(&g_tern, image, sizeof image) != -EBUSY,
+                      "one update at a time");
+    updating(&protocol, &wire, 0U);
+    struct mesh_tern_frame data;
+    MESH_TEST_FAIL_IF(mesh_tern_decode(wire_last(&wire), wire.lens[wire.count - 1U],
+                                       MESH_TERN_VERSION, &data) != MESH_TERN_DECODE_OK ||
+                          data.type != MESH_TERN_UPDATE_DATA || data.offset != 0U ||
+                          data.data_len != MESH_TERN_UPDATE_CHUNK,
+                      "then UPDATE_CHUNK bytes from the offset");
+    /* The node lost track: ERROR 10 asks where to go on from again. */
+    refuse(&protocol, &wire, MESH_TERN_ERR_NOT_THERE);
+    MESH_TEST_FAIL_IF(wire_last(&wire)[0] != MESH_TERN_UPDATE_BEGIN,
+                      "ERROR 10 to UPDATE_DATA is an UPDATE_BEGIN again");
+    updating(&protocol, &wire, 9999U);
+    MESH_TEST_FAIL_IF(wire_last(&wire)[0] != MESH_TERN_UPDATE_END,
+                      "a node that says it holds more than the image is asked to end it");
+    refuse(&protocol, &wire, MESH_TERN_ERR_NOT_AN_IMAGE);
+    const struct mesh_tern_update *update = mesh_tern_update_status(&g_tern);
+    MESH_TEST_FAIL_IF(update->phase != MESH_TERN_UPDATE_FINISHED ||
+                          update->outcome != MESH_TERN_UPDATE_REFUSED ||
+                          update->code != MESH_TERN_ERR_NOT_AN_IMAGE,
+                      "ERROR 11: not an image this node runs, and discarded");
+
+    /* Again, with the link lost while UPDATE_END is out: never sent again. */
+    MESH_TEST_FAIL_IF(mesh_tern_update_start(&g_tern, image, sizeof image) != 0,
+                      "a finished update makes room for another");
+    updating(&protocol, &wire, sizeof image);
+    MESH_TEST_FAIL_IF(wire_last(&wire)[0] != MESH_TERN_UPDATE_END, "all held: UPDATE_END");
+    MESH_TEST_FAIL_IF(mesh_tern_update_cancel(&g_tern), "too late to cancel");
+    mesh_protocol_detach(&protocol);
+    MESH_TEST_FAIL_IF(update->outcome != MESH_TERN_UPDATE_UNCONFIRMED,
+                      "the node may be restarting into the image: wait, and read its release");
+    MESH_TEST_FAIL_IF(!reconnect_at(&protocol, &wire, MESH_TERN_VERSION) ||
+                          wire_last(&wire)[0] == MESH_TERN_UPDATE_END,
+                      "and nothing of it is sent on the next connection");
+
+    /* Cancelled while a chunk is out: the answer comes first, then nothing more. */
+    MESH_TEST_FAIL_IF(mesh_tern_update_start(&g_tern, image, sizeof image) != 0, "a third");
+    updating(&protocol, &wire, 0U);
+    MESH_TEST_FAIL_IF(!mesh_tern_update_cancel(&g_tern), "cancelled before UPDATE_END");
+    const size_t before = wire.count;
+    answer(&protocol, &wire, MESH_TERN_OK);
+    MESH_TEST_FAIL_IF(wire.count != before || update->outcome != MESH_TERN_UPDATE_CANCELLED,
+                      "the chunk out is answered, and no other follows");
+
+    /* The link drops mid-update and comes back to another radio: its image is not this one's. */
+    MESH_TEST_FAIL_IF(mesh_tern_update_start(&g_tern, image, sizeof image) != 0, "a fourth");
+    updating(&protocol, &wire, 0U);
+    mesh_protocol_detach(&protocol);
+    MESH_TEST_FAIL_IF(update->phase != MESH_TERN_UPDATE_WAITING, "it waits for the link");
+    uint8_t other[MESH_TERN_ADDRESS_LEN];
+    memcpy(other, k_node, sizeof other);
+    other[0] ^= 0x01U;
+    memset(&wire, 0, sizeof wire);
+    mesh_protocol_attach(&protocol, wire_send, &wire);
+    (void)mesh_protocol_begin(&protocol);
+    /* Another node's SELF has its books forgotten and the sync asked again from 0. */
+    if (!greet_as(&protocol, &wire, MESH_TERN_VERSION, other)) {
+        synced(&protocol, &wire);
+    }
+    MESH_TEST_FAIL_IF(!mesh_tern_ready(&g_tern), "the other radio should reach READY");
+    for (size_t i = 0; i < wire.count; ++i) {
+        MESH_TEST_FAIL_IF(wire.frames[i][0] == MESH_TERN_UPDATE_BEGIN ||
+                              wire.frames[i][0] == MESH_TERN_UPDATE_DATA,
+                          "nothing of the update goes to another node");
+    }
+    MESH_TEST_FAIL_IF(update->phase != MESH_TERN_UPDATE_FINISHED ||
+                          update->outcome != MESH_TERN_UPDATE_ANOTHER_NODE || update->image != NULL,
+                      "it finishes, and the image is the caller's again");
+
+    MESH_TEST_FAIL_IF(!handshake_at(&protocol, &wire, 3U) ||
+                          mesh_tern_update_start(&g_tern, image, sizeof image) != -EOPNOTSUPP,
+                      "a node of version 3 has no updates");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_positions_sharing_and_cards_are_whole_lists_from_their_version, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake should reach READY");
+    const uint32_t bob_id = mesh_tern_routing_id(k_bob);
+    struct mesh_tern_frame position = {.type = MESH_TERN_POSITION,
+                                       .seq = 1U,
+                                       .precision = 20U,
+                                       .lat = 458325000,
+                                       .lon = 68644000,
+                                       .altitude = 4806,
+                                       .accuracy = 4U,
+                                       .age = 30U};
+    memcpy(position.address, k_bob, sizeof k_bob);
+    news(&protocol, &position);
+    const struct mesh_node_summary *bob = model_node(bob_id);
+    MESH_TEST_FAIL_IF(bob == NULL || !bob->position.valid || !bob->position.has_altitude ||
+                          bob->position.altitude != 4806 || bob->position.precision_bits != 20U ||
+                          bob->position.received != EXCHANGE_TIME ||
+                          bob->position.time != EXCHANGE_TIME - 30U,
+                      "a contact's position lands on his roster entry, received now");
+    struct mesh_tern_frame from_group = {.type = MESH_TERN_GROUP_POSITION,
+                                         .seq = 2U,
+                                         .from = NEIGHBOUR_ID,
+                                         .precision = 12U,
+                                         .altitude = MESH_TERN_NO_ALTITUDE};
+    memcpy(from_group.group, k_hut, sizeof k_hut);
+    news(&protocol, &from_group);
+    MESH_TEST_FAIL_IF(g_tern.group_position_count != 1U || model_node(NEIGHBOUR_ID) != NULL,
+                      "a group member's is kept, and makes no roster entry of a claimed id");
+    struct mesh_tern_frame sharing = {
+        .type = MESH_TERN_SHARING, .seq = 3U, .precision = 16U, .interval = 900U, .minutes = 60U};
+    memcpy(sharing.address, k_bob, sizeof k_bob);
+    news(&protocol, &sharing);
+    MESH_TEST_FAIL_IF(g_tern.sharing_count != 1U || g_tern.sharing[0].ends != EXCHANGE_TIME + 3600U,
+                      "sharing with him, for an hour from now");
+    struct mesh_tern_frame card = {
+        .type = MESH_TERN_CARD, .seq = 4U, .heard = 60U, .text_len = 4U, .text = "Pine"};
+    memcpy(card.address, k_node, sizeof k_node);
+    card.address[0] ^= 0x01U; /* a stranger */
+    news(&protocol, &card);
+    const uint32_t stranger = mesh_tern_routing_id(card.address);
+    const struct mesh_node_summary *about = model_node(stranger);
+    MESH_TEST_FAIL_IF(about == NULL || !about->has_card || strcmp(about->card_name, "Pine") != 0 ||
+                          about->card_heard != EXCHANGE_TIME - 60U || about->has_user ||
+                          strstr(about->long_name, "Pine") != NULL,
+                      "a card is about its sender, beside and never in the place of a name");
+
+    /* Precision 0: the node no longer holds Bob's position. */
+    position.seq = 5U;
+    position.precision = 0U;
+    news(&protocol, &position);
+    MESH_TEST_FAIL_IF(model_node(bob_id)->position.valid, "a record of precision 0 forgets it");
+    position.seq = 6U;
+    position.precision = 20U;
+    news(&protocol, &position);
+
+    /* A sync that sends none of them: each is gone, and sharing is off. */
+    const struct mesh_tern_frame power = {.type = MESH_TERN_POWER, .seq = 9U};
+    news(&protocol, &power);
+    struct mesh_tern_frame self = {.type = MESH_TERN_SELF, .seq = 10U};
+    memcpy(self.address, k_node, sizeof k_node);
+    news(&protocol, &self);
+    synced(&protocol, &wire);
+    MESH_TEST_FAIL_IF(!mesh_tern_ready(&g_tern) || model_node(bob_id)->position.valid ||
+                          g_tern.position_count != 0U || g_tern.group_position_count != 0U ||
+                          g_tern.sharing_count != 0U || g_tern.card_count != 0U ||
+                          model_node(stranger)->has_card,
+                      "what a version 7 sync did not send, the node does not hold");
+
+    /* At version 5 the sync says nothing of cards, which version 6 added. */
+    card.seq = 11U;
+    news(&protocol, &card);
+    MESH_TEST_FAIL_IF(!reconnect_at(&protocol, &wire, 5U) || g_tern.card_count != 1U,
+                      "a version 5 sync sends no cards, which says nothing of them");
+    MESH_TEST_FAIL_IF(!reconnect_at(&protocol, &wire, 6U) || g_tern.card_count != 0U,
+                      "a version 6 one is the whole list");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_a_join_code_crosses_the_link_once_and_is_kept_by_nobody, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake should reach READY");
+    static const char k_code[] = "HTTPS://TERNMESH.ORG/G#AAAQEAYEAUDAOCAJBIFQYDIOB7UBUSDVOQ";
+    MESH_TEST_FAIL_IF(mesh_tern_join_link(&g_tern, k_code) != 0, "JOIN_LINK goes");
+    MESH_TEST_FAIL_IF(memmem(g_tern.queue, sizeof g_tern.queue, "TERNMESH", 8U) == NULL,
+                      "it is on the wire, from the queue's head");
+    const struct mesh_tern_frame made = {.type = MESH_TERN_MADE, .seq = wire_last(&wire)[1]};
+    news(&protocol, &made);
+    MESH_TEST_FAIL_IF(memmem(g_tern.queue, sizeof g_tern.queue, "TERNMESH", 8U) != NULL,
+                      "and once answered nothing of it is left in the queue");
+    MESH_TEST_FAIL_IF(mesh_tern_group_link(&g_tern, k_hut) != 0, "GROUP_LINK goes");
+    struct mesh_tern_frame link = {.type = MESH_TERN_LINK,
+                                   .seq = wire_last(&wire)[1],
+                                   .text_len = (uint8_t)(sizeof k_code - 1U)};
+    memcpy(link.text, k_code, sizeof k_code);
+    news(&protocol, &link);
+    char out[MESH_TERN_LINK_MAX + 1U];
+    MESH_TEST_FAIL_IF(!mesh_tern_take_link(&g_tern, out, sizeof out) || strcmp(out, k_code) != 0,
+                      "the code, for the screen that shows it");
+    MESH_TEST_FAIL_IF(mesh_tern_take_link(&g_tern, out, sizeof out) ||
+                          memmem(&g_tern, sizeof g_tern, "TERNMESH", 8U) != NULL,
+                      "once: then the conversation holds nothing of it");
+    /* A code not taken is never the answer to the next request. */
+    MESH_TEST_FAIL_IF(mesh_tern_group_link(&g_tern, k_hut) != 0, "GROUP_LINK again");
+    link.seq = wire_last(&wire)[1];
+    news(&protocol, &link);
+    MESH_TEST_FAIL_IF(mesh_tern_group_link(&g_tern, k_hut) != 0 ||
+                          mesh_tern_take_link(&g_tern, out, sizeof out) ||
+                          memmem(&g_tern, sizeof g_tern, "TERNMESH", 8U) != NULL,
+                      "asking again wipes the code the last request was answered with");
+    MESH_TEST_FAIL_IF(!handshake_at(&protocol, &wire, 6U) ||
+                          mesh_tern_join_link(&g_tern, k_code) != -EOPNOTSUPP ||
+                          mesh_tern_group_link(&g_tern, k_hut) != -EOPNOTSUPP,
+                      "a node of version 6 has no join codes");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_a_setting_the_version_lacks_is_never_sent, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake_at(&protocol, &wire, 5U), "the handshake should reach READY");
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_tern_set_value(&g_tern, MESH_TERN_SETTING_CARDS, 1U) != -EOPNOTSUPP ||
+                          mesh_tern_set_text(&g_tern, MESH_TERN_SETTING_CARD_NAME, "Ada") !=
+                              -EOPNOTSUPP ||
+                          wire.count != before,
+                      "cards are version 6's: refused here, not sent");
+    MESH_TEST_FAIL_IF(mesh_tern_set_value(&g_tern, MESH_TERN_SETTING_REGION, 1U) != -EINVAL ||
+                          mesh_tern_set_text(&g_tern, MESH_TERN_SETTING_ROLE, "1") != -EINVAL,
+                      "and a value of the wrong kind for its setting is no SET at all");
+    MESH_TEST_FAIL_IF(mesh_tern_set_text(&g_tern, MESH_TERN_SETTING_REGION, "EU868") != 0 ||
+                          wire_last(&wire)[0] != MESH_TERN_SET,
+                      "the region is version 0's");
+    answer(&protocol, &wire, MESH_TERN_OK);
+    MESH_TEST_FAIL_IF(mesh_tern_set_position(&g_tern, 900000001, 0, 0, 0U, 0U) != -EINVAL,
+                      "a latitude past the pole");
+    MESH_TEST_FAIL_IF(mesh_tern_set_position(&g_tern, -336183000, -704517000, MESH_TERN_NO_ALTITUDE,
+                                             0U, 600U) != 0 ||
+                          wire_last(&wire)[0] != MESH_TERN_SET_POSITION,
+                      "positions are version 5's");
+
+    /* Asked before INFO said the node's version, and found to be one it lacks. */
+    struct mesh_protocol early = start(&wire);
+    MESH_TEST_FAIL_IF(mesh_tern_set_value(&g_tern, MESH_TERN_SETTING_CARDS, 1U) != 0,
+                      "queued behind the HELLO");
+    const struct mesh_tern_frame info = {
+        .type = MESH_TERN_INFO, .seq = wire_last(&wire)[1], .version = 5U};
+    news(&early, &info);
+    for (size_t i = 0; i < wire.count; ++i) {
+        MESH_TEST_FAIL_IF(wire.frames[i][0] == MESH_TERN_SET,
+                          "a node of version 5 is never sent SET 5");
+    }
     inkwell_time_wall_set_fixed(0U);
     record_success(test_name);
 }
@@ -685,8 +1080,6 @@ static struct mesh_tern_frame record(uint8_t type, uint8_t seq, uint32_t id, uin
     memcpy(frame.address, k_bob, sizeof k_bob);
     return frame;
 }
-
-static const uint8_t k_hut[MESH_TERN_GROUP_LEN] = {0xc0, 0x03, 0x7d, 0xcd, 0x77, 0xf6, 0xea, 0xc6};
 
 MESH_TEST_CASE(tern_a_synced_count_past_the_last_news_forgets_nothing, unit) {
     struct wire wire;

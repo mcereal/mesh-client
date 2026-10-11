@@ -1,0 +1,19 @@
+# A Tern presence card on the node's Identity card. The name on a card is its sender's claim, not
+# a name the user gave, so it is a row of its own - quoted, with how long ago the radio took it -
+# beside the node's name and never in its place.
+
+scene demo
+clock 2026-01-15 12:00
+protocol tern
+card ECHO Trail crew · ask me
+tab nodes
+# Echo Repeater is seeds[5], so row 6 under the chip bar.
+key down 6
+key a
+hold 1200
+# Through to Identity.
+key right
+key right
+key right
+key right
+hold 1600

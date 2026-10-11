@@ -1,5 +1,5 @@
 {
-  "description": "The companion protocol, version 3 (draft/companion.md). Frames, streams, addresses and group ids are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. In group_ids, group is the id of the group whose secret is group_secret. Exchange is one connection, in order. In it the node refuses first contact from the third address just before the ASKED; the group it makes has the secret made, where a node in use draws one; and after its own group message is sent it receives a message to that group from the second address's routing id, and then an invite from that address to the group whose secret is invited. Older holds connections to the same node by clients of earlier versions. To the client of version 0 it holds what the exchange begins with, and refuses that first contact after the sync, before the client's SAVE_CONTACT. To the client of version 1 it holds what the exchange has before its JOIN but for the group message and the invite received, which come after the sync and before the client's SEND; the client's last request is one its version does not define, which a client must not send, and the node answers it as it would any other it does not know from that client. To the client of version 2 it holds what the exchange begins with, and its SYNCED is version 2's, without news. Each connection's frames are read by the version its client speaks. The three addresses are the public keys of RFC 8032's first three Ed25519 test vectors.",
+  "description": "The companion protocol, version 7 (draft/companion.md). Frames, streams, addresses and group ids are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In unknown_to_older, frame is of a type, or names a setting, that version does not define: a node speaking it answers ERROR answer, and a client speaking it ignores news and discards an answer (null). In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. In group_ids, group is the id of the group whose secret is group_secret. Exchange is one connection, in order. In it the node refuses first contact from the third address just before the ASKED; the group it makes has the secret made, where a node in use draws one; and after its own group message is sent it receives a message to that group from the second address's routing id, and then an invite from that address to the group whose secret is invited. After it leaves the first group, it receives a position from the second address, just before its POSITION. It holds a card from the fourth address from the start, received 1260 seconds before the sync; after the CONTACT that follows END_SESSION it accepts a newer card from that address, with the same name, just before the CARD that says so, and forgets it just before the CARD_GONE. Its last JOIN_LINK carries the first group's join code with one character of the secret typed wrong. Older holds connections to the same node by clients of earlier versions. To the client of version 0 it holds what the exchange begins with, and refuses that first contact after the sync, before the client's SAVE_CONTACT. To the client of version 1 it holds what the exchange has before its JOIN but for the group message and the invite received, which come after the sync and before the client's SEND; the client's last request is one its version does not define, which a client must not send, and the node answers it as it would any other it does not know from that client. To the client of version 2 it holds what the exchange begins with, and its SYNCED is version 2's, without news. To the clients of versions 3 and 4 it holds what the exchange begins with, a position from the second address, and sharing with that address: the sync sends neither, and the node refuses the request each client's version does not define, which it must not send. To the client of version 5 it holds what the exchange begins with, and the sync sends no card; the client's last request names a setting its version does not define. To the client of version 6 it holds what the exchange begins with, and the client's last request is one its version does not define. Positions are in units of 10^-7 degree. Each connection's frames are read by the version its client speaks, and each client of an earlier version is sent an INFO without board and release. Update is one update of image, whose SHA-256 is image_digest, over two connections to a node that holds only itself: the link is lost after the first connection's last frame, and the node keeps what it was sent. Refusals is one connection to a node with no update under way, given an image of the same size whose digest is not its own. The four addresses are the public keys of RFC 8032's first four Ed25519 test vectors (section 7.1: TEST 1, 2, 3 and 1024).",
   "generator": "vectors/tools/companion.py",
   "crc_check": {
     "input": "313233343536373839",
@@ -8,6 +8,42 @@
   "made": "000102030405060708090a0b0c0d0e0f",
   "invited": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
   "frames": [
+    {
+      "type": "HELLO",
+      "seq": 1,
+      "fields": {
+        "version": 7
+      },
+      "frame": "010107",
+      "stream": "f5540003010107fe36"
+    },
+    {
+      "type": "HELLO",
+      "seq": 1,
+      "fields": {
+        "version": 6
+      },
+      "frame": "010106",
+      "stream": "f5540003010106ee17"
+    },
+    {
+      "type": "HELLO",
+      "seq": 1,
+      "fields": {
+        "version": 5
+      },
+      "frame": "010105",
+      "stream": "f5540003010105de74"
+    },
+    {
+      "type": "HELLO",
+      "seq": 1,
+      "fields": {
+        "version": 4
+      },
+      "frame": "010104",
+      "stream": "f5540003010104ce55"
+    },
     {
       "type": "HELLO",
       "seq": 1,
@@ -246,6 +282,175 @@
       "stream": "f55400062516000000165d3a"
     },
     {
+      "type": "UPDATE_BEGIN",
+      "seq": 23,
+      "fields": {
+        "size": 400,
+        "digest": "5bfba1ba423a18ae5da63853d4ece421507db90702b63dcc6ebdac56b5ce4349"
+      },
+      "frame": "3017000001905bfba1ba423a18ae5da63853d4ece421507db90702b63dcc6ebdac56b5ce4349",
+      "stream": "f55400263017000001905bfba1ba423a18ae5da63853d4ece421507db90702b63dcc6ebdac56b5ce434994ba"
+    },
+    {
+      "type": "UPDATE_DATA",
+      "seq": 24,
+      "fields": {
+        "offset": 0,
+        "data": "079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960f78e25bc53ea8118af46dd740ba239d067fe952cc35af1881fb64de4"
+      },
+      "frame": "311800000000ac079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960f78e25bc53ea8118af46dd740ba239d067fe952cc35af1881fb64de4",
+      "stream": "f55400b3311800000000ac079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960f78e25bc53ea8118af46dd740ba239d067fe952cc35af1881fb64de45b86"
+    },
+    {
+      "type": "UPDATE_DATA",
+      "seq": 25,
+      "fields": {
+        "offset": 344,
+        "data": "ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960"
+      },
+      "frame": "31190000015838ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960",
+      "stream": "f554003f31190000015838ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960e068"
+    },
+    {
+      "type": "UPDATE_END",
+      "seq": 26,
+      "fields": {},
+      "frame": "321a",
+      "stream": "f5540002321a3a2c"
+    },
+    {
+      "type": "SET_POSITION",
+      "seq": 27,
+      "fields": {
+        "lat": 458325000,
+        "lon": 68644000,
+        "altitude": 4806,
+        "accuracy": 4,
+        "age": 3
+      },
+      "frame": "331b1b517c0804176ca012c600040003",
+      "stream": "f5540010331b1b517c0804176ca012c6000400035053"
+    },
+    {
+      "type": "SET_POSITION",
+      "seq": 28,
+      "fields": {
+        "lat": -336183000,
+        "lon": -704517000,
+        "altitude": -32768,
+        "accuracy": 0,
+        "age": 600
+      },
+      "frame": "331cebf64128d601ec78800000000258",
+      "stream": "f5540010331cebf64128d601ec78800000000258ab9d"
+    },
+    {
+      "type": "SHARE",
+      "seq": 29,
+      "fields": {
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "precision": 20,
+        "fields": 3,
+        "interval": 900,
+        "minutes": 60
+      },
+      "frame": "341d3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14030384003c",
+      "stream": "f5540028341d3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14030384003c8d2b"
+    },
+    {
+      "type": "SHARE",
+      "seq": 30,
+      "fields": {
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "precision": 0,
+        "fields": 0,
+        "interval": 0,
+        "minutes": 0
+      },
+      "frame": "341e3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000",
+      "stream": "f5540028341e3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0000000000009fbb"
+    },
+    {
+      "type": "SHARE_GROUP",
+      "seq": 31,
+      "fields": {
+        "group": "c8eafadc0857a696",
+        "precision": 12,
+        "fields": 0,
+        "interval": 300,
+        "minutes": 0
+      },
+      "frame": "351fc8eafadc0857a6960c00012c0000",
+      "stream": "f5540010351fc8eafadc0857a6960c00012c0000c95e"
+    },
+    {
+      "type": "SET",
+      "seq": 32,
+      "fields": {
+        "setting": 5,
+        "value": 1
+      },
+      "frame": "05200501",
+      "stream": "f5540004052005015241"
+    },
+    {
+      "type": "SET",
+      "seq": 33,
+      "fields": {
+        "setting": 5,
+        "value": 0
+      },
+      "frame": "05210500",
+      "stream": "f5540004052105007550"
+    },
+    {
+      "type": "SET",
+      "seq": 34,
+      "fields": {
+        "setting": 6,
+        "value": "Ada · hut warden"
+      },
+      "frame": "0522061141646120c2b7206875742077617264656e",
+      "stream": "f55400150522061141646120c2b7206875742077617264656e69b7"
+    },
+    {
+      "type": "SET",
+      "seq": 35,
+      "fields": {
+        "setting": 6,
+        "value": ""
+      },
+      "frame": "05230600",
+      "stream": "f5540004052306004e63"
+    },
+    {
+      "type": "GROUP_LINK",
+      "seq": 36,
+      "fields": {
+        "group": "c8eafadc0857a696"
+      },
+      "frame": "2624c8eafadc0857a696",
+      "stream": "f554000a2624c8eafadc0857a696a80e"
+    },
+    {
+      "type": "JOIN_LINK",
+      "seq": 37,
+      "fields": {
+        "link": "HTTPS://TERNMESH.ORG/G#AAAQEAYEAUDAOCAJBIFQYDIOB7UBUSDVOQ"
+      },
+      "frame": "27253948545450533a2f2f5445524e4d4553482e4f52472f47234141415145415945415544414f43414a424946515944494f42375542555344564f51",
+      "stream": "f554003c27253948545450533a2f2f5445524e4d4553482e4f52472f47234141415145415945415544414f43414a424946515944494f42375542555344564f512ba4"
+    },
+    {
+      "type": "JOIN_LINK",
+      "seq": 38,
+      "fields": {
+        "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYQMQI6DYPB4HQ6DYPB4HQ6DYPB4HQ6DYPB4HQ6DYPB4HQ6DYPB4HQ6A"
+      },
+      "frame": "27266648545450533a2f2f5445524e4d4553482e4f52472f47235954434d4a5247455954434d4a5247455954434d4a52474559514d51493644595042344851364459504234485136445950423448513644595042344851364459504234485136445950423448513641",
+      "stream": "f554006927266648545450533a2f2f5445524e4d4553482e4f52472f47235954434d4a5247455954434d4a5247455954434d4a52474559514d51493644595042344851364459504234485136445950423448513644595042344851364459504234485136445950423448513641e16e"
+    },
+    {
       "type": "OK",
       "seq": 4,
       "fields": {},
@@ -265,11 +470,25 @@
       "type": "INFO",
       "seq": 1,
       "fields": {
-        "version": 2,
-        "firmware": "tern 0.1.0 heltec-v3"
+        "version": 4,
+        "firmware": "tern 0.2.0 heltec-v3",
+        "board": "heltec-v3",
+        "release": "0.2.0"
       },
-      "frame": "420102147465726e20302e312e302068656c7465632d7633",
-      "stream": "f5540018420102147465726e20302e312e302068656c7465632d76334235"
+      "frame": "420104147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30",
+      "stream": "f5540028420104147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e304fa3"
+    },
+    {
+      "type": "INFO",
+      "seq": 1,
+      "fields": {
+        "version": 4,
+        "firmware": "tern (built by hand)",
+        "board": "",
+        "release": ""
+      },
+      "frame": "420104147465726e20286275696c742062792068616e64290000",
+      "stream": "f554001a420104147465726e20286275696c742062792068616e64290000a8a2"
     },
     {
       "type": "SYNCED",
@@ -299,6 +518,60 @@
       "stream": "f554000a4511c0037dcd77f6eac640e4"
     },
     {
+      "type": "UPDATING",
+      "seq": 23,
+      "fields": {
+        "offset": 0
+      },
+      "frame": "461700000000",
+      "stream": "f55400064617000000001464"
+    },
+    {
+      "type": "UPDATING",
+      "seq": 23,
+      "fields": {
+        "offset": 344
+      },
+      "frame": "461700000158",
+      "stream": "f5540006461700000158fca8"
+    },
+    {
+      "type": "ERROR",
+      "seq": 24,
+      "fields": {
+        "code": 10
+      },
+      "frame": "41180a",
+      "stream": "f554000341180a8bdd"
+    },
+    {
+      "type": "ERROR",
+      "seq": 26,
+      "fields": {
+        "code": 11
+      },
+      "frame": "411a0b",
+      "stream": "f5540003411a0bfd9e"
+    },
+    {
+      "type": "ERROR",
+      "seq": 29,
+      "fields": {
+        "code": 12
+      },
+      "frame": "411d0c",
+      "stream": "f5540003411d0c14ee"
+    },
+    {
+      "type": "LINK",
+      "seq": 36,
+      "fields": {
+        "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYRS2WUTJMRTWKIDXMFWGWZLSOM"
+      },
+      "frame": "47244948545450533a2f2f5445524e4d4553482e4f52472f47235954434d4a5247455954434d4a5247455954434d4a524745595253325755544a4d5254574b4944584d465747575a4c534f4d",
+      "stream": "f554004c47244948545450533a2f2f5445524e4d4553482e4f52472f47235954434d4a5247455954434d4a5247455954434d4a524745595253325755544a4d5254574b4944584d465747575a4c534f4d81a3"
+    },
+    {
       "type": "SELF",
       "seq": 0,
       "fields": {
@@ -306,10 +579,12 @@
         "role": 1,
         "region": "EU868",
         "power": 14,
-        "time": 1790000000
+        "time": 1790000000,
+        "cards": 1,
+        "card_name": "Ada · hut warden"
       },
-      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80",
-      "stream": "f554002e8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b800c60"
+      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80011141646120c2b7206875742077617264656e",
+      "stream": "f55400418000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80011141646120c2b7206875742077617264656e8fd0"
     },
     {
       "type": "SELF",
@@ -319,10 +594,12 @@
         "role": 0,
         "region": "US915",
         "power": -9,
-        "time": 0
+        "time": 0,
+        "cards": 0,
+        "card_name": ""
       },
-      "frame": "8001d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00055553393135f700000000",
-      "stream": "f554002e8001d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00055553393135f7000000002287"
+      "frame": "8001d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00055553393135f7000000000000",
+      "stream": "f55400308001d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00055553393135f7000000000000e27e"
     },
     {
       "type": "CONTACT",
@@ -583,6 +860,122 @@
       },
       "frame": "8d16000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a6966ab13c480004000000055269646765",
       "stream": "f554003d8d16000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a6966ab13c48000400000005526964676527e5"
+    },
+    {
+      "type": "POSITION",
+      "seq": 23,
+      "fields": {
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "precision": 16,
+        "lat": 603945922,
+        "lon": 52871704,
+        "altitude": -32768,
+        "accuracy": 0,
+        "age": 40
+      },
+      "frame": "8e173d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1023ff7bc20326c21880000000000028",
+      "stream": "f55400328e173d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1023ff7bc20326c21880000000000028ab29"
+    },
+    {
+      "type": "POSITION",
+      "seq": 24,
+      "fields": {
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "precision": 0,
+        "lat": 0,
+        "lon": 0,
+        "altitude": 0,
+        "accuracy": 0,
+        "age": 0
+      },
+      "frame": "8e183d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c00000000000000000000000000000000",
+      "stream": "f55400328e183d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000000000000000000000001e1d"
+    },
+    {
+      "type": "GROUP_POSITION",
+      "seq": 25,
+      "fields": {
+        "group": "c8eafadc0857a696",
+        "from": 150946753,
+        "precision": 24,
+        "lat": 458325040,
+        "lon": 68644058,
+        "altitude": 4806,
+        "accuracy": 4,
+        "age": 12
+      },
+      "frame": "8f19c8eafadc0857a69608ff43c1181b517c3004176cda12c6040000000c",
+      "stream": "f554001e8f19c8eafadc0857a69608ff43c1181b517c3004176cda12c6040000000c273e"
+    },
+    {
+      "type": "SHARING",
+      "seq": 26,
+      "fields": {
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "precision": 20,
+        "fields": 3,
+        "interval": 900,
+        "minutes": 60
+      },
+      "frame": "901a3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14030384003c",
+      "stream": "f5540028901a3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14030384003cbde2"
+    },
+    {
+      "type": "SHARING",
+      "seq": 27,
+      "fields": {
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "precision": 0,
+        "fields": 0,
+        "interval": 0,
+        "minutes": 0
+      },
+      "frame": "901b3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000",
+      "stream": "f5540028901b3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000e226"
+    },
+    {
+      "type": "GROUP_SHARING",
+      "seq": 28,
+      "fields": {
+        "group": "c8eafadc0857a696",
+        "precision": 12,
+        "fields": 0,
+        "interval": 300,
+        "minutes": 0
+      },
+      "frame": "911cc8eafadc0857a6960c00012c0000",
+      "stream": "f5540010911cc8eafadc0857a6960c00012c0000e4cc"
+    },
+    {
+      "type": "CARD",
+      "seq": 29,
+      "fields": {
+        "address": "278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e",
+        "heard": 1260,
+        "name": "Trail crew · ask me"
+      },
+      "frame": "921d278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e000004ec14547261696c206372657720c2b72061736b206d65",
+      "stream": "f554003b921d278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e000004ec14547261696c206372657720c2b72061736b206d65d776"
+    },
+    {
+      "type": "CARD",
+      "seq": 30,
+      "fields": {
+        "address": "278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e",
+        "heard": 86399,
+        "name": ""
+      },
+      "frame": "921e278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e0001517f00",
+      "stream": "f5540027921e278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e0001517f0072dd"
+    },
+    {
+      "type": "CARD_GONE",
+      "seq": 31,
+      "fields": {
+        "address": "278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e"
+      },
+      "frame": "931f278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e",
+      "stream": "f5540022931f278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426eea9a"
     }
   ],
   "extended": [
@@ -593,7 +986,7 @@
       "fields": {}
     },
     {
-      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e00000000aa",
+      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e000000000000aa",
       "type": "SELF",
       "seq": 0,
       "fields": {
@@ -601,7 +994,9 @@
         "role": 1,
         "region": "EU868",
         "power": 14,
-        "time": 0
+        "time": 0,
+        "cards": 0,
+        "card_name": ""
       }
     }
   ],
@@ -729,6 +1124,91 @@
     {
       "why": "a field cut short",
       "frame": "8d16000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a696000000000004000000",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "3017000000015bfba1ba423a18ae5da63853d4ece421507db90702b63dcc6ebdac56b5ce43",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "3118000000000a079e35cc63fa9128bf",
+      "answer": 2
+    },
+    {
+      "why": "bytes longer than their field allows",
+      "frame": "311800000000ad079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960f78e25bc53ea8118af46dd740ba239d067fe952cc35af1881fb64de47b",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "4617000000",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "420104147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "331b1b517c0804176ca00000000000",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "341d3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1400038400",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "8e173d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1023ff7bc20326c218000000000000",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "052005",
+      "answer": 2
+    },
+    {
+      "why": "a string longer than its field allows",
+      "frame": "052206207878787878787878787878787878787878787878787878787878787878787878",
+      "answer": 2
+    },
+    {
+      "why": "a string that is not UTF-8",
+      "frame": "05220602c328",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "921d278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e000004ec",
+      "answer": null
+    },
+    {
+      "why": "a string that is not UTF-8",
+      "frame": "921d278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e000004ec02c328",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "931f278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d42",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "2624c8eafadc0857a6",
+      "answer": 2
+    },
+    {
+      "why": "a string longer than its field allows",
+      "frame": "27256741414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "47244948545450533a2f2f5445524e4d4553482e4f52472f47235954434d4a5247455954434d4a5247455954434d4a524745595253325755544a4d5254574b4944584d465747575a4c534f",
       "answer": null
     }
   ],
@@ -891,13 +1371,13 @@
       "from": "client",
       "type": "HELLO",
       "seq": 1,
-      "frame": "010103"
+      "frame": "010107"
     },
     {
       "from": "node",
       "type": "INFO",
       "seq": 1,
-      "frame": "420103147465726e20302e312e302068656c7465632d7633"
+      "frame": "420107147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
     },
     {
       "from": "client",
@@ -921,7 +1401,7 @@
       "from": "node",
       "type": "SELF",
       "seq": 0,
-      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80"
+      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b800000"
     },
     {
       "from": "node",
@@ -943,21 +1423,27 @@
     },
     {
       "from": "node",
-      "type": "AIRTIME",
+      "type": "CARD",
       "seq": 4,
-      "frame": "870400000e1000057e400000303900000000"
+      "frame": "9204278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e000004ec14547261696c206372657720c2b72061736b206d65"
+    },
+    {
+      "from": "node",
+      "type": "AIRTIME",
+      "seq": 5,
+      "frame": "870500000e1000057e400000303900000000"
     },
     {
       "from": "node",
       "type": "POWER",
-      "seq": 5,
-      "frame": "88050f935101"
+      "seq": 6,
+      "frame": "88060f935101"
     },
     {
       "from": "node",
       "type": "SYNCED",
       "seq": 3,
-      "frame": "430306"
+      "frame": "430307"
     },
     {
       "from": "client",
@@ -974,8 +1460,8 @@
     {
       "from": "node",
       "type": "MESSAGE",
-      "seq": 6,
-      "frame": "8306000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379801040000000e57686572652061726520796f753f"
+      "seq": 7,
+      "frame": "8307000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379801040000000e57686572652061726520796f753f"
     },
     {
       "from": "client",
@@ -992,26 +1478,26 @@
     {
       "from": "node",
       "type": "MESSAGE",
-      "seq": 7,
-      "frame": "8307000000123d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab13bbc0000010000134f6e2074686520726964676520627920736978"
-    },
-    {
-      "from": "node",
-      "type": "STATE",
       "seq": 8,
-      "frame": "84080000001201000000"
+      "frame": "8308000000123d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab13bbc0000010000134f6e2074686520726964676520627920736978"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 9,
-      "frame": "84090000001202000000"
+      "frame": "84090000001201000000"
+    },
+    {
+      "from": "node",
+      "type": "STATE",
+      "seq": 10,
+      "frame": "840a0000001202000000"
     },
     {
       "from": "node",
       "type": "ASKED",
-      "seq": 10,
-      "frame": "890afc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802501"
+      "seq": 11,
+      "frame": "890bfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802501"
     },
     {
       "from": "client",
@@ -1028,8 +1514,8 @@
     {
       "from": "node",
       "type": "CONTACT",
-      "seq": 11,
-      "frame": "810bfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802500054361726f6c"
+      "seq": 12,
+      "frame": "810cfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802500054361726f6c"
     },
     {
       "from": "client",
@@ -1046,8 +1532,8 @@
     {
       "from": "node",
       "type": "GROUP",
-      "seq": 12,
-      "frame": "8a0cc0037dcd77f6eac603487574"
+      "seq": 13,
+      "frame": "8a0dc0037dcd77f6eac603487574"
     },
     {
       "from": "client",
@@ -1064,20 +1550,20 @@
     {
       "from": "node",
       "type": "INVITE",
-      "seq": 13,
-      "frame": "8d0d000000133d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc0037dcd77f6eac66ab13be4000001000003487574"
-    },
-    {
-      "from": "node",
-      "type": "STATE",
       "seq": 14,
-      "frame": "840e0000001301000000"
+      "frame": "8d0e000000133d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc0037dcd77f6eac66ab13be4000001000003487574"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 15,
-      "frame": "840f0000001302000000"
+      "frame": "840f0000001301000000"
+    },
+    {
+      "from": "node",
+      "type": "STATE",
+      "seq": 16,
+      "frame": "84100000001302000000"
     },
     {
       "from": "client",
@@ -1094,26 +1580,26 @@
     {
       "from": "node",
       "type": "GROUP_MESSAGE",
-      "seq": 16,
-      "frame": "8c1000000014c0037dcd77f6eac6000000006ab13bf8000000000012416e796f6e6520617420746865206875743f"
+      "seq": 17,
+      "frame": "8c1100000014c0037dcd77f6eac6000000006ab13bf8000000000012416e796f6e6520617420746865206875743f"
     },
     {
       "from": "node",
       "type": "STATE",
-      "seq": 17,
-      "frame": "84110000001401000000"
+      "seq": 18,
+      "frame": "84120000001401000000"
     },
     {
       "from": "node",
       "type": "GROUP_MESSAGE",
-      "seq": 18,
-      "frame": "8c1200000015c0037dcd77f6eac6f031219d6ab13c1600040000000954776f206f66207573"
+      "seq": 19,
+      "frame": "8c1300000015c0037dcd77f6eac6f031219d6ab13c1600040000000954776f206f66207573"
     },
     {
       "from": "node",
       "type": "INVITE",
-      "seq": 19,
-      "frame": "8d13000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a6966ab13c480004000000055269646765"
+      "seq": 20,
+      "frame": "8d14000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a6966ab13c480004000000055269646765"
     },
     {
       "from": "client",
@@ -1130,8 +1616,8 @@
     {
       "from": "node",
       "type": "GROUP",
-      "seq": 20,
-      "frame": "8a14c8eafadc0857a696055269646765"
+      "seq": 21,
+      "frame": "8a15c8eafadc0857a696055269646765"
     },
     {
       "from": "client",
@@ -1148,8 +1634,8 @@
     {
       "from": "node",
       "type": "GROUP",
-      "seq": 21,
-      "frame": "8a15c8eafadc0857a6960d52696467652077616c6b657273"
+      "seq": 22,
+      "frame": "8a16c8eafadc0857a6960d52696467652077616c6b657273"
     },
     {
       "from": "client",
@@ -1166,14 +1652,14 @@
     {
       "from": "node",
       "type": "GROUP_MESSAGE",
-      "seq": 22,
-      "frame": "8c1600000015c0037dcd77f6eac6f031219d6ab13c1601040000000954776f206f66207573"
+      "seq": 23,
+      "frame": "8c1700000015c0037dcd77f6eac6f031219d6ab13c1601040000000954776f206f66207573"
     },
     {
       "from": "node",
       "type": "INVITE",
-      "seq": 23,
-      "frame": "8d17000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a6966ab13c480104000000055269646765"
+      "seq": 24,
+      "frame": "8d18000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a6966ab13c480104000000055269646765"
     },
     {
       "from": "client",
@@ -1190,14 +1676,14 @@
     {
       "from": "node",
       "type": "GROUP_GONE",
-      "seq": 24,
-      "frame": "8b18c0037dcd77f6eac6"
+      "seq": 25,
+      "frame": "8b19c0037dcd77f6eac6"
     },
     {
       "from": "client",
-      "type": "END_SESSION",
+      "type": "SET_POSITION",
       "seq": 14,
-      "frame": "1a0e3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+      "frame": "330e1b517c0804176ca012c600040003"
     },
     {
       "from": "node",
@@ -1206,10 +1692,214 @@
       "frame": "400e"
     },
     {
+      "from": "client",
+      "type": "SHARE",
+      "seq": 15,
+      "frame": "340f3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14000384003c"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 15,
+      "frame": "400f"
+    },
+    {
+      "from": "node",
+      "type": "SHARING",
+      "seq": 26,
+      "frame": "901a3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14000384003c"
+    },
+    {
+      "from": "node",
+      "type": "POSITION",
+      "seq": 27,
+      "frame": "8e1b3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1023ff7bc20326c21880000000000028"
+    },
+    {
+      "from": "client",
+      "type": "SHARE_GROUP",
+      "seq": 16,
+      "frame": "3510c8eafadc0857a6961900012c0000"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 16,
+      "frame": "411003"
+    },
+    {
+      "from": "client",
+      "type": "SHARE",
+      "seq": 17,
+      "frame": "34113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 17,
+      "frame": "4011"
+    },
+    {
+      "from": "node",
+      "type": "SHARING",
+      "seq": 28,
+      "frame": "901c3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000"
+    },
+    {
+      "from": "client",
+      "type": "END_SESSION",
+      "seq": 18,
+      "frame": "1a123d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 18,
+      "frame": "4012"
+    },
+    {
       "from": "node",
       "type": "CONTACT",
+      "seq": 29,
+      "frame": "811d3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0003426f62"
+    },
+    {
+      "from": "client",
+      "type": "SET",
+      "seq": 19,
+      "frame": "0513061141646120c2b7206875742077617264656e"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 19,
+      "frame": "4013"
+    },
+    {
+      "from": "node",
+      "type": "SELF",
+      "seq": 30,
+      "frame": "801ed75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80001141646120c2b7206875742077617264656e"
+    },
+    {
+      "from": "client",
+      "type": "SET",
+      "seq": 20,
+      "frame": "05140501"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 20,
+      "frame": "4014"
+    },
+    {
+      "from": "node",
+      "type": "SELF",
+      "seq": 31,
+      "frame": "801fd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80011141646120c2b7206875742077617264656e"
+    },
+    {
+      "from": "client",
+      "type": "SET",
+      "seq": 21,
+      "frame": "05150502"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 21,
+      "frame": "411503"
+    },
+    {
+      "from": "node",
+      "type": "CARD",
+      "seq": 32,
+      "frame": "9220278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e0000000014547261696c206372657720c2b72061736b206d65"
+    },
+    {
+      "from": "client",
+      "type": "SAVE_CONTACT",
+      "seq": 22,
+      "frame": "1816278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e11446176652028747261696c206372657729"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 22,
+      "frame": "4016"
+    },
+    {
+      "from": "node",
+      "type": "CONTACT",
+      "seq": 33,
+      "frame": "8121278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e0011446176652028747261696c206372657729"
+    },
+    {
+      "from": "client",
+      "type": "SET",
+      "seq": 23,
+      "frame": "05170500"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 23,
+      "frame": "4017"
+    },
+    {
+      "from": "node",
+      "type": "SELF",
+      "seq": 34,
+      "frame": "8022d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80001141646120c2b7206875742077617264656e"
+    },
+    {
+      "from": "node",
+      "type": "CARD_GONE",
+      "seq": 35,
+      "frame": "9323278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e"
+    },
+    {
+      "from": "client",
+      "type": "GROUP_LINK",
+      "seq": 24,
+      "frame": "2618c8eafadc0857a696"
+    },
+    {
+      "from": "node",
+      "type": "LINK",
+      "seq": 24,
+      "frame": "47184948545450533a2f2f5445524e4d4553482e4f52472f47235954434d4a5247455954434d4a5247455954434d4a524745595253325755544a4d5254574b4944584d465747575a4c534f4d"
+    },
+    {
+      "from": "client",
+      "type": "JOIN_LINK",
       "seq": 25,
-      "frame": "81193d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0003426f62"
+      "frame": "27193948545450533a2f2f5445524e4d4553482e4f52472f47234141415145415945415544414f43414a424946515944494f42375542555344564f51"
+    },
+    {
+      "from": "node",
+      "type": "MADE",
+      "seq": 25,
+      "frame": "4519c0037dcd77f6eac6"
+    },
+    {
+      "from": "node",
+      "type": "GROUP",
+      "seq": 36,
+      "frame": "8a24c0037dcd77f6eac603487574"
+    },
+    {
+      "from": "client",
+      "type": "JOIN_LINK",
+      "seq": 26,
+      "frame": "271a3948545450533a2f2f5445524e4d4553482e4f52472f47234241415145415945415544414f43414a424946515944494f42375542555344564f51"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 26,
+      "frame": "411a03"
     }
   ],
   "older": [
@@ -1226,7 +1916,7 @@
           "from": "node",
           "type": "INFO",
           "seq": 1,
-          "frame": "420103147465726e20302e312e302068656c7465632d7633"
+          "frame": "420107147465726e20302e322e302068656c7465632d7633"
         },
         {
           "from": "client",
@@ -1303,7 +1993,7 @@
           "from": "node",
           "type": "INFO",
           "seq": 1,
-          "frame": "420103147465726e20302e312e302068656c7465632d7633"
+          "frame": "420107147465726e20302e322e302068656c7465632d7633"
         },
         {
           "from": "client",
@@ -1410,7 +2100,7 @@
           "from": "node",
           "type": "INFO",
           "seq": 1,
-          "frame": "420103147465726e20302e312e302068656c7465632d7633"
+          "frame": "420107147465726e20302e322e302068656c7465632d7633"
         },
         {
           "from": "client",
@@ -1461,6 +2151,818 @@
           "frame": "4302"
         }
       ]
+    },
+    {
+      "version": 3,
+      "frames": [
+        {
+          "from": "client",
+          "type": "HELLO",
+          "seq": 1,
+          "frame": "010103"
+        },
+        {
+          "from": "node",
+          "type": "INFO",
+          "seq": 1,
+          "frame": "420107147465726e20302e322e302068656c7465632d7633"
+        },
+        {
+          "from": "client",
+          "type": "SYNC",
+          "seq": 2,
+          "frame": "020200000000"
+        },
+        {
+          "from": "node",
+          "type": "SELF",
+          "seq": 0,
+          "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80"
+        },
+        {
+          "from": "node",
+          "type": "CONTACT",
+          "seq": 1,
+          "frame": "81013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62"
+        },
+        {
+          "from": "node",
+          "type": "MESSAGE",
+          "seq": 2,
+          "frame": "8302000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379800040000000e57686572652061726520796f753f"
+        },
+        {
+          "from": "node",
+          "type": "NEIGHBOUR",
+          "seq": 3,
+          "frame": "85031d2e3f4001da002a"
+        },
+        {
+          "from": "node",
+          "type": "AIRTIME",
+          "seq": 4,
+          "frame": "870400000e1000057e400000303900000000"
+        },
+        {
+          "from": "node",
+          "type": "POWER",
+          "seq": 5,
+          "frame": "88050f935101"
+        },
+        {
+          "from": "node",
+          "type": "SYNCED",
+          "seq": 2,
+          "frame": "430206"
+        },
+        {
+          "from": "client",
+          "type": "UPDATE_BEGIN",
+          "seq": 3,
+          "frame": "3003000001905bfba1ba423a18ae5da63853d4ece421507db90702b63dcc6ebdac56b5ce4349"
+        },
+        {
+          "from": "node",
+          "type": "ERROR",
+          "seq": 3,
+          "frame": "410301"
+        }
+      ]
+    },
+    {
+      "version": 4,
+      "frames": [
+        {
+          "from": "client",
+          "type": "HELLO",
+          "seq": 1,
+          "frame": "010104"
+        },
+        {
+          "from": "node",
+          "type": "INFO",
+          "seq": 1,
+          "frame": "420107147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
+        },
+        {
+          "from": "client",
+          "type": "SYNC",
+          "seq": 2,
+          "frame": "020200000000"
+        },
+        {
+          "from": "node",
+          "type": "SELF",
+          "seq": 0,
+          "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80"
+        },
+        {
+          "from": "node",
+          "type": "CONTACT",
+          "seq": 1,
+          "frame": "81013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62"
+        },
+        {
+          "from": "node",
+          "type": "MESSAGE",
+          "seq": 2,
+          "frame": "8302000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379800040000000e57686572652061726520796f753f"
+        },
+        {
+          "from": "node",
+          "type": "NEIGHBOUR",
+          "seq": 3,
+          "frame": "85031d2e3f4001da002a"
+        },
+        {
+          "from": "node",
+          "type": "AIRTIME",
+          "seq": 4,
+          "frame": "870400000e1000057e400000303900000000"
+        },
+        {
+          "from": "node",
+          "type": "POWER",
+          "seq": 5,
+          "frame": "88050f935101"
+        },
+        {
+          "from": "node",
+          "type": "SYNCED",
+          "seq": 2,
+          "frame": "430206"
+        },
+        {
+          "from": "client",
+          "type": "SHARE",
+          "seq": 3,
+          "frame": "34033d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000"
+        },
+        {
+          "from": "node",
+          "type": "ERROR",
+          "seq": 3,
+          "frame": "410301"
+        }
+      ]
+    },
+    {
+      "version": 5,
+      "frames": [
+        {
+          "from": "client",
+          "type": "HELLO",
+          "seq": 1,
+          "frame": "010105"
+        },
+        {
+          "from": "node",
+          "type": "INFO",
+          "seq": 1,
+          "frame": "420107147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
+        },
+        {
+          "from": "client",
+          "type": "SYNC",
+          "seq": 2,
+          "frame": "020200000000"
+        },
+        {
+          "from": "node",
+          "type": "SELF",
+          "seq": 0,
+          "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80"
+        },
+        {
+          "from": "node",
+          "type": "CONTACT",
+          "seq": 1,
+          "frame": "81013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62"
+        },
+        {
+          "from": "node",
+          "type": "MESSAGE",
+          "seq": 2,
+          "frame": "8302000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379800040000000e57686572652061726520796f753f"
+        },
+        {
+          "from": "node",
+          "type": "NEIGHBOUR",
+          "seq": 3,
+          "frame": "85031d2e3f4001da002a"
+        },
+        {
+          "from": "node",
+          "type": "AIRTIME",
+          "seq": 4,
+          "frame": "870400000e1000057e400000303900000000"
+        },
+        {
+          "from": "node",
+          "type": "POWER",
+          "seq": 5,
+          "frame": "88050f935101"
+        },
+        {
+          "from": "node",
+          "type": "SYNCED",
+          "seq": 2,
+          "frame": "430206"
+        },
+        {
+          "from": "client",
+          "type": "SET",
+          "seq": 3,
+          "frame": "05030501"
+        },
+        {
+          "from": "node",
+          "type": "ERROR",
+          "seq": 3,
+          "frame": "410301"
+        }
+      ]
+    },
+    {
+      "version": 6,
+      "frames": [
+        {
+          "from": "client",
+          "type": "HELLO",
+          "seq": 1,
+          "frame": "010106"
+        },
+        {
+          "from": "node",
+          "type": "INFO",
+          "seq": 1,
+          "frame": "420107147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
+        },
+        {
+          "from": "client",
+          "type": "SYNC",
+          "seq": 2,
+          "frame": "020200000000"
+        },
+        {
+          "from": "node",
+          "type": "SELF",
+          "seq": 0,
+          "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b800000"
+        },
+        {
+          "from": "node",
+          "type": "CONTACT",
+          "seq": 1,
+          "frame": "81013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62"
+        },
+        {
+          "from": "node",
+          "type": "MESSAGE",
+          "seq": 2,
+          "frame": "8302000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379800040000000e57686572652061726520796f753f"
+        },
+        {
+          "from": "node",
+          "type": "NEIGHBOUR",
+          "seq": 3,
+          "frame": "85031d2e3f4001da002a"
+        },
+        {
+          "from": "node",
+          "type": "CARD",
+          "seq": 4,
+          "frame": "9204278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e000004ec14547261696c206372657720c2b72061736b206d65"
+        },
+        {
+          "from": "node",
+          "type": "AIRTIME",
+          "seq": 5,
+          "frame": "870500000e1000057e400000303900000000"
+        },
+        {
+          "from": "node",
+          "type": "POWER",
+          "seq": 6,
+          "frame": "88060f935101"
+        },
+        {
+          "from": "node",
+          "type": "SYNCED",
+          "seq": 2,
+          "frame": "430207"
+        },
+        {
+          "from": "client",
+          "type": "JOIN_LINK",
+          "seq": 3,
+          "frame": "27033948545450533a2f2f5445524e4d4553482e4f52472f47234141415145415945415544414f43414a424946515944494f42375542555344564f51"
+        },
+        {
+          "from": "node",
+          "type": "ERROR",
+          "seq": 3,
+          "frame": "410301"
+        }
+      ]
+    }
+  ],
+  "unknown_to_older": [
+    {
+      "type": "END_SESSION",
+      "version": 0,
+      "frame": "1a053d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "ASKED",
+      "version": 0,
+      "frame": "8905fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802501",
+      "why": "a type this version does not define",
+      "answer": null
+    },
+    {
+      "type": "MAKE_GROUP",
+      "version": 1,
+      "frame": "200503487574",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "GROUP",
+      "version": 1,
+      "frame": "8a05c0037dcd77f6eac603487574",
+      "why": "a type this version does not define",
+      "answer": null
+    },
+    {
+      "type": "UPDATE_BEGIN",
+      "version": 3,
+      "frame": "3005000001905bfba1ba423a18ae5da63853d4ece421507db90702b63dcc6ebdac56b5ce4349",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "UPDATE_END",
+      "version": 3,
+      "frame": "3205",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "UPDATING",
+      "version": 3,
+      "frame": "460500000000",
+      "why": "a type this version does not define",
+      "answer": null
+    },
+    {
+      "type": "SHARE",
+      "version": 4,
+      "frame": "34053d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14000384003c",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "SET_POSITION",
+      "version": 4,
+      "frame": "33051b517c0804176ca012c600040003",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "POSITION",
+      "version": 4,
+      "frame": "8e053d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1023ff7bc20326c21880000000000028",
+      "why": "a type this version does not define",
+      "answer": null
+    },
+    {
+      "type": "SHARING",
+      "version": 4,
+      "frame": "90053d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14000384003c",
+      "why": "a type this version does not define",
+      "answer": null
+    },
+    {
+      "type": "SET",
+      "version": 5,
+      "frame": "05050501",
+      "why": "a setting this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "SET",
+      "version": 5,
+      "frame": "05050614547261696c206372657720c2b72061736b206d65",
+      "why": "a setting this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "CARD",
+      "version": 5,
+      "frame": "9205278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e000004ec14547261696c206372657720c2b72061736b206d65",
+      "why": "a type this version does not define",
+      "answer": null
+    },
+    {
+      "type": "CARD_GONE",
+      "version": 5,
+      "frame": "9305278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e",
+      "why": "a type this version does not define",
+      "answer": null
+    },
+    {
+      "type": "GROUP_LINK",
+      "version": 6,
+      "frame": "2605c8eafadc0857a696",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "JOIN_LINK",
+      "version": 6,
+      "frame": "27053948545450533a2f2f5445524e4d4553482e4f52472f47234141415145415945415544414f43414a424946515944494f42375542555344564f51",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "LINK",
+      "version": 6,
+      "frame": "47054948545450533a2f2f5445524e4d4553482e4f52472f47235954434d4a5247455954434d4a5247455954434d4a524745595253325755544a4d5254574b4944584d465747575a4c534f4d",
+      "why": "a type this version does not define",
+      "answer": null
+    }
+  ],
+  "image": "079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960f78e25bc53ea8118af46dd740ba239d067fe952cc35af1881fb64de47b12a940d76e059c33ca61f88f26bd54eb8219b047de750ca33ad168ff962dc45bf28920b74ee57c13aa41d86f069d34cb62f99027be55ec831ab148df760da43bd26900972ec55cf38a21b84fe67d14ab42d970079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960",
+  "image_digest": "5bfba1ba423a18ae5da63853d4ece421507db90702b63dcc6ebdac56b5ce4349",
+  "update": [
+    [
+      {
+        "from": "client",
+        "type": "HELLO",
+        "seq": 1,
+        "frame": "010107"
+      },
+      {
+        "from": "node",
+        "type": "INFO",
+        "seq": 1,
+        "frame": "420107147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
+      },
+      {
+        "from": "client",
+        "type": "SET_TIME",
+        "seq": 2,
+        "frame": "04026ab13b80"
+      },
+      {
+        "from": "node",
+        "type": "OK",
+        "seq": 2,
+        "frame": "4002"
+      },
+      {
+        "from": "client",
+        "type": "SYNC",
+        "seq": 3,
+        "frame": "020300000000"
+      },
+      {
+        "from": "node",
+        "type": "SELF",
+        "seq": 0,
+        "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b800000"
+      },
+      {
+        "from": "node",
+        "type": "AIRTIME",
+        "seq": 1,
+        "frame": "870100000e1000057e400000303900000000"
+      },
+      {
+        "from": "node",
+        "type": "POWER",
+        "seq": 2,
+        "frame": "88020f935101"
+      },
+      {
+        "from": "node",
+        "type": "SYNCED",
+        "seq": 3,
+        "frame": "430303"
+      },
+      {
+        "from": "client",
+        "type": "UPDATE_BEGIN",
+        "seq": 4,
+        "frame": "3004000001905bfba1ba423a18ae5da63853d4ece421507db90702b63dcc6ebdac56b5ce4349"
+      },
+      {
+        "from": "node",
+        "type": "UPDATING",
+        "seq": 4,
+        "frame": "460400000000"
+      },
+      {
+        "from": "client",
+        "type": "UPDATE_DATA",
+        "seq": 5,
+        "frame": "310500000000ac079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960f78e25bc53ea8118af46dd740ba239d067fe952cc35af1881fb64de4"
+      },
+      {
+        "from": "node",
+        "type": "OK",
+        "seq": 5,
+        "frame": "4005"
+      },
+      {
+        "from": "client",
+        "type": "UPDATE_DATA",
+        "seq": 6,
+        "frame": "3106000000acac7b12a940d76e059c33ca61f88f26bd54eb8219b047de750ca33ad168ff962dc45bf28920b74ee57c13aa41d86f069d34cb62f99027be55ec831ab148df760da43bd26900972ec55cf38a21b84fe67d14ab42d970079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158"
+      },
+      {
+        "from": "node",
+        "type": "OK",
+        "seq": 6,
+        "frame": "4006"
+      }
+    ],
+    [
+      {
+        "from": "client",
+        "type": "HELLO",
+        "seq": 1,
+        "frame": "010107"
+      },
+      {
+        "from": "node",
+        "type": "INFO",
+        "seq": 1,
+        "frame": "420107147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
+      },
+      {
+        "from": "client",
+        "type": "SET_TIME",
+        "seq": 2,
+        "frame": "04026ab13b80"
+      },
+      {
+        "from": "node",
+        "type": "OK",
+        "seq": 2,
+        "frame": "4002"
+      },
+      {
+        "from": "client",
+        "type": "SYNC",
+        "seq": 3,
+        "frame": "020300000000"
+      },
+      {
+        "from": "node",
+        "type": "SELF",
+        "seq": 0,
+        "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b800000"
+      },
+      {
+        "from": "node",
+        "type": "AIRTIME",
+        "seq": 1,
+        "frame": "870100000e1000057e400000303900000000"
+      },
+      {
+        "from": "node",
+        "type": "POWER",
+        "seq": 2,
+        "frame": "88020f935101"
+      },
+      {
+        "from": "node",
+        "type": "SYNCED",
+        "seq": 3,
+        "frame": "430303"
+      },
+      {
+        "from": "client",
+        "type": "UPDATE_BEGIN",
+        "seq": 4,
+        "frame": "3004000001905bfba1ba423a18ae5da63853d4ece421507db90702b63dcc6ebdac56b5ce4349"
+      },
+      {
+        "from": "node",
+        "type": "UPDATING",
+        "seq": 4,
+        "frame": "460400000158"
+      },
+      {
+        "from": "client",
+        "type": "UPDATE_DATA",
+        "seq": 5,
+        "frame": "31050000015838ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960"
+      },
+      {
+        "from": "node",
+        "type": "OK",
+        "seq": 5,
+        "frame": "4005"
+      },
+      {
+        "from": "client",
+        "type": "UPDATE_END",
+        "seq": 6,
+        "frame": "3206"
+      },
+      {
+        "from": "node",
+        "type": "OK",
+        "seq": 6,
+        "frame": "4006"
+      }
+    ]
+  ],
+  "refusals": [
+    {
+      "from": "client",
+      "type": "HELLO",
+      "seq": 1,
+      "frame": "010107"
+    },
+    {
+      "from": "node",
+      "type": "INFO",
+      "seq": 1,
+      "frame": "420107147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_DATA",
+      "seq": 2,
+      "frame": "310200000000ac079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960f78e25bc53ea8118af46dd740ba239d067fe952cc35af1881fb64de4"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 2,
+      "frame": "41020a"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_END",
+      "seq": 3,
+      "frame": "3203"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 3,
+      "frame": "41030a"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_BEGIN",
+      "seq": 4,
+      "frame": "3004000000005bfba1ba423a18ae5da63853d4ece421507db90702b63dcc6ebdac56b5ce4349"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 4,
+      "frame": "410403"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_BEGIN",
+      "seq": 5,
+      "frame": "300500000190e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "from": "node",
+      "type": "UPDATING",
+      "seq": 5,
+      "frame": "460500000000"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_DATA",
+      "seq": 6,
+      "frame": "310600000000ac079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960f78e25bc53ea8118af46dd740ba239d067fe952cc35af1881fb64de4"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 6,
+      "frame": "4006"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_DATA",
+      "seq": 7,
+      "frame": "310700000000ac079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960f78e25bc53ea8118af46dd740ba239d067fe952cc35af1881fb64de4"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 7,
+      "frame": "4007"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_DATA",
+      "seq": 8,
+      "frame": "31080000012c64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 8,
+      "frame": "41080a"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_DATA",
+      "seq": 9,
+      "frame": "3109000000acac7b12a940d76e059c33ca61f88f26bd54eb8219b047de750ca33ad168ff962dc45bf28920b74ee57c13aa41d86f069d34cb62f99027be55ec831ab148df760da43bd26900972ec55cf38a21b84fe67d14ab42d970079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 9,
+      "frame": "4009"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_DATA",
+      "seq": 10,
+      "frame": "310a00000158ac00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 10,
+      "frame": "410a03"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_DATA",
+      "seq": 11,
+      "frame": "310b0000015800"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 11,
+      "frame": "410b03"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_END",
+      "seq": 12,
+      "frame": "320c"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 12,
+      "frame": "410c0a"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_DATA",
+      "seq": 13,
+      "frame": "310d0000015838ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 13,
+      "frame": "400d"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_END",
+      "seq": 14,
+      "frame": "320e"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 14,
+      "frame": "410e0b"
+    },
+    {
+      "from": "client",
+      "type": "UPDATE_END",
+      "seq": 15,
+      "frame": "320f"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 15,
+      "frame": "410f0a"
     }
   ]
 }

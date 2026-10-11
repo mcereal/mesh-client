@@ -1291,6 +1291,35 @@ static int verb_login(struct inkstand_scene *scene, char *rest, void *userdata) 
     return 0;
 }
 
+/* `card ALFA Trail crew`: a Tern presence card the radio took from that node 21 minutes ago,
+   carrying the rest of the line as its name - or none, with nothing after the short name. */
+static int verb_card(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    char *name = inkstand_scene_word(&rest);
+    if (name == NULL) {
+        return inkstand_scene_fail(scene, "'card' needs a short name");
+    }
+    while (rest != NULL && *rest == ' ') {
+        ++rest;
+    }
+    struct mesh_ui_handshake_state handshake = cap->store.handshake;
+    bool matched = false;
+    for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        struct mesh_ui_node_summary *node = &handshake.nodes[i];
+        if (strcmp(node->short_name, name) == 0) {
+            node->has_card = true;
+            node->card_heard = inkwell_time_wall_s() - 1260U;
+            snprintf(node->card_name, sizeof node->card_name, "%s", rest != NULL ? rest : "");
+            matched = true;
+        }
+    }
+    if (!matched) {
+        return inkstand_scene_fail(scene, "no node in the scene called '%s'", name);
+    }
+    mesh_ui_store_set_handshake(&cap->store, &handshake);
+    return 0;
+}
+
 static int verb_verify(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
     char *stage = inkstand_scene_word(&rest);
@@ -2852,14 +2881,19 @@ static int verb_units(struct inkstand_scene *scene, char *rest, void *userdata) 
 static int verb_protocol(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
     char *value = inkstand_scene_word(&rest);
-    if (value == NULL || (strcmp(value, "meshcore") != 0 && strcmp(value, "meshtastic") != 0)) {
-        return inkstand_scene_fail(scene, "'protocol' is meshtastic or meshcore");
+    static const struct mesh_protocol_ops k_named[] = {
+        {.name = "meshtastic"}, {.name = "meshcore"}, {.name = "tern"}};
+    const struct mesh_protocol_ops *named = NULL;
+    for (size_t i = 0; value != NULL && i < sizeof k_named / sizeof k_named[0]; ++i) {
+        if (strcmp(value, k_named[i].name) == 0) {
+            named = &k_named[i];
+        }
     }
-    static const struct mesh_protocol_ops k_named[] = {{.name = "meshtastic"},
-                                                       {.name = "meshcore"}};
+    if (named == NULL) {
+        return inkstand_scene_fail(scene, "'protocol' is meshtastic, meshcore or tern");
+    }
     static int bound;
-    const struct mesh_protocol protocol = {&k_named[strcmp(value, "meshcore") == 0 ? 1 : 0],
-                                           &bound};
+    const struct mesh_protocol protocol = {named, &bound};
     struct mesh_ui_settings settings = cap->store.settings;
     mesh_ui_protocol_features(&protocol, &settings.protocol, &settings.protocol_lacks);
     mesh_ui_store_set_settings(&cap->store, &settings);
@@ -3428,6 +3462,7 @@ static const struct inkstand_scene_verb uicap_verbs[] = {
     {"mute", 0U, verb_mute},
     {"verified", 0U, verb_verified},
     {"login", 0U, verb_login},
+    {"card", 0U, verb_card},
     {"verify", 0U, verb_verify},
     {"pin", 0U, verb_pin},
     {"battery", 0U, verb_battery},

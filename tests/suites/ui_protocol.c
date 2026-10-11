@@ -592,6 +592,52 @@ MESH_TEST_CASE(ui_protocol_meshcore_login_role_is_shown_with_its_age, unit) {
     record_success(test_name);
 }
 
+/* A Tern presence card's name is its sender's claim: a row of its own, quoted, with its age -
+   never the node's name. */
+MESH_TEST_CASE(ui_protocol_tern_presence_card_is_shown_beside_the_name, unit) {
+    static struct mesh_ui_handshake_state roster;
+    memset(&roster, 0, sizeof roster);
+    roster.node_count = 1U;
+    struct mesh_ui_node_summary *node = &roster.nodes[0];
+    node->node_id = 0x40414243U;
+    node->in_nodedb = true;
+    snprintf(node->long_name, sizeof node->long_name, "%s", "Bob");
+    static struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const char *label = inkcell_str(MESH_STR_NODE_CARD);
+    uint32_t count = mesh_ui_node_detail_build(node, false, 1750000000U, NULL, &roster, NULL, false,
+                                               items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        MESH_TEST_FAIL_IF(strcmp(items[i].label, label) == 0, "no row without a card");
+    }
+    node->has_card = true;
+    node->card_heard = 1750000000U - 1260U;
+    snprintf(node->card_name, sizeof node->card_name, "%s", "Trail crew");
+    count = mesh_ui_node_detail_build(node, false, 1750000000U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    char want[64];
+    char age[24];
+    mesh_ui_format_age(node->card_heard, 1750000000U, age, sizeof age);
+    inkcell_str_format(want, sizeof want, MESH_STR_NODE_VAL_CARD, "Trail crew", age);
+    bool shown = false;
+    bool named = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        shown = shown || (strcmp(items[i].label, label) == 0 && strcmp(items[i].value, want) == 0);
+        named = named || (strcmp(items[i].label, inkcell_str(MESH_STR_NODE_LONG_NAME)) == 0 &&
+                          strcmp(items[i].value, "Bob") == 0);
+    }
+    MESH_TEST_FAIL_IF(!shown || !named, "the card's name and age, and the user's name for it");
+    node->card_name[0] = '\0';
+    count = mesh_ui_node_detail_build(node, false, 1750000000U, NULL, &roster, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    inkcell_str_format(want, sizeof want, MESH_STR_NODE_VAL_CARD_UNNAMED, age);
+    shown = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        shown = shown || (strcmp(items[i].label, label) == 0 && strcmp(items[i].value, want) == 0);
+    }
+    MESH_TEST_FAIL_IF(!shown, "a card may carry no name");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_protocol_meshcore_route_is_shown_and_forgotten, unit) {
     static const struct mesh_protocol_ops k_meshcore = {.name = "meshcore"};
     static int meshcore_self;

@@ -361,7 +361,7 @@ end.
 
 Tern's companion protocol is the third conversation: `include/mesh/core/tern.h`, with the codec
 in `src/core/tern/tern_codec.c`, the conversation in `tern.c` and the stream framing in
-`src/proto/tern_framing.c`. Written from version 3 of `draft/companion.md` in
+`src/proto/tern_framing.c`. Written from version 7 of `draft/companion.md` in
 [ternmesh/spec](https://github.com/ternmesh/spec) alone - nothing of the Meshtastic or MeshCore
 code here goes the other way - and checked against that repository's vectors, which
 `tests/data/tern_companion.json` and `tern_routing.json` carry verbatim.
@@ -370,12 +370,24 @@ code here goes the other way - and checked against that repository's vectors, wh
   bytes. The codec is one table, a row per type, which reading and writing both walk. A reader
   ignores bytes past the fields it knows; a request the client cannot read is the node's
   problem, news of a type it does not know is ignored.
-- **Versions.** HELLO carries the client's (`MESH_TERN_VERSION`, 3) and INFO the node's, and both
-  ends speak the lesser. Every frame is read by that version - each row and field of the table
-  carries the version that defines it - so a version 2 node's SYNCED is its two bytes, and news
-  of a type the version does not define is unknown before its bytes are looked at, even cut
-  short. A request the version lacks (END_SESSION before 1, a group request before 2) is refused
-  with `-EOPNOTSUPP` and never sent.
+- **Versions.** HELLO carries the client's (`MESH_TERN_VERSION`, 7) and INFO the node's, and both
+  ends speak the lesser. Every frame is read by that version - each row and field of the table,
+  and each SET setting, carries the version that defines it - so a version 2 node's SYNCED is its
+  two bytes, and news of a type the version does not define is unknown before its bytes are
+  looked at, even cut short. INFO is read by the lesser of that and the version it carries,
+  since it is how the client learns the node's. A request the version lacks is refused with
+  `-EOPNOTSUPP` and never sent; one queued before INFO said the version is dropped then.
+
+  | Version | Added |
+  |---|---|
+  | 1 | END_SESSION, ASKED |
+  | 2 | groups: MAKE_GROUP to JOIN, MADE, error 9, GROUP, GROUP_GONE, GROUP_MESSAGE, INVITE |
+  | 3 | SYNCED's news count |
+  | 4 | firmware updates: UPDATE_BEGIN/DATA/END, UPDATING, errors 10 and 11; INFO's board and release |
+  | 5 | positions: SET_POSITION, SHARE, SHARE_GROUP, error 12, POSITION, GROUP_POSITION, SHARING, GROUP_SHARING |
+  | 6 | presence cards: SET 5 and 6, SELF's cards and card name, CARD, CARD_GONE |
+  | 7 | join codes: GROUP_LINK, JOIN_LINK, LINK |
+
 - **Serial and TCP** frame as `0xF5 0x54`, a big-endian length, the frame and a CRC-16/IBM-3740
   over the length and the frame: `mesh_stream_framing_tern`. `0xF5` never occurs in UTF-8, so
   the node's console text, which shares the port, never starts a frame; a header with a bad
@@ -405,10 +417,11 @@ code here goes the other way - and checked against that repository's vectors, wh
   a NEIGHBOUR (which carries only the id) all lead to, so the three land on one roster entry.
   The address is the entry's `public_key`; `user_id` is its first six bytes in hex until the
   draft says what a short code is.
-- **A sync is the whole of three lists.** A contact or neighbour it did not send is no longer the
+- **A sync is the whole of each list.** A contact or neighbour it did not send is no longer the
   node's: it stays on the roster, which outlives the radio's lists, with `in_nodedb` off and a
-  contact's name gone with it. Groups are the third, but only from version 2: an earlier sync
-  sends none, which says nothing of whether they are gone.
+  contact's name gone with it. Groups, positions and sharing, and cards are whole lists only
+  from the version that added them (2, 5, 6): an earlier sync sends none, which says nothing of
+  whether they are gone. Sharing a sync sent nothing for is off.
 - **Groups** (version 2) are kept in the conversation's own lists - `groups`, and the newest
   group messages and invites in `group_items` - and go no further: nothing in the model would
   show a group as anything but a channel or a direct message, so no screen shows them yet. The
@@ -428,10 +441,39 @@ code here goes the other way - and checked against that repository's vectors, wh
   Waiting is the one state no other protocol reports.
 - **Airtime** is AIRTIME kept whole on `mesh_tern.airtime`, and the model's `air_util_tx` is the
   share of the region's period this node spent sending. POWER is our node's battery.
+- **Positions** (version 5). A contact's POSITION goes on its roster entry, so the Map tab and the
+  node's detail show it; precision 0 takes it off. `precision_bits` is Tern's precision as is: a
+  Tern cell (360 / 2^p degrees) is about a sixth smaller than the Meshtastic footprint drawn for
+  the same number, so the circle never understates. A GROUP_POSITION's sender is a routing id a
+  member claimed, so it is kept in `group_positions` and makes no roster entry. SHARING is kept
+  in `sharing`; `mesh_tern_set_position()`, `mesh_tern_share()` and `mesh_tern_share_group()` are
+  the requests, and nothing sends them unasked.
+- **Presence cards** (version 6). A CARD is kept in `cards` and put on the sender's roster entry
+  (`has_card`, `card_name`, `card_heard`), creating it for a stranger. The node detail shows it as
+  its own row, quoted, beside the node's name and never in its place: the name is the sender's
+  claim. SELF's `cards` and card name are kept on `mesh_tern.self`; `mesh_tern_set_value()` and
+  `mesh_tern_set_text()` are SET, settings 5 and 6 among them.
+- **Join codes** (version 7). `mesh_tern_group_link()` asks for a group's code and
+  `mesh_tern_take_link()` hands it over once and wipes it, as asking again does a code not yet
+  taken; `mesh_tern_join_link()` hands the node
+  a code, and its request is wiped from the queue once answered. The client never reads the
+  secret out of the link and keeps neither.
+- **Firmware updates** (version 4). INFO's `board` and `release` are kept. `mesh_tern_update_start()`
+  sends an image the caller holds: UPDATE_BEGIN, UPDATE_CHUNK (172) bytes at a time from the offset
+  the node gives, then UPDATE_END. ERROR 10 asks UPDATE_BEGIN again (three times at most); a
+  dropped link leaves the update waiting, and it goes on after the next connection's first sync -
+  on the node it was begun on only; SELF from another node finishes it, nothing sent.
+  An UPDATE_END given up on is never sent again - the outcome is unconfirmed, and the next
+  INFO's release says. `mesh_tern_update_status()` is where it stands.
 
 The `tern` row in `src/ui/tables/protocols.c` lacks every feature: the protocol has no
-channels, no link format and no firmware feed, and nothing in the UI yet sends SAVE_CONTACT,
-REMOVE_CONTACT, END_SESSION, READ, SET or a group request. Settings show nothing of SELF yet.
+channels and no contact link. **Spoken but not yet on a screen:** groups, group messages and
+invites; join codes (showing one, and joining from one typed in); sharing this node's position
+and giving it ours; turning cards on and naming them; region, role, power and passkey (SET);
+SAVE_CONTACT, END_SESSION and READ; ASKED; and firmware updates, for which this client has
+neither a release feed for Tern boards nor an install flow over the companion link.
+REMOVE_CONTACT is in the codec and has no call.
 `tests/suites/tern_codec.c` runs every companion vector but `group_ids` (a client never holds a
-group's secret); `tests/suites/tern.c` replays the spec's exchange and its older clients'
-connections through the conversation and holds the rules around them.
+group's secret) and `refusals` (a node's answers to requests a client does not make);
+`tests/suites/tern.c` replays the spec's exchange, its older clients' connections and its update
+over two connections through the conversation, and holds the rules around them.

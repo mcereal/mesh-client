@@ -265,6 +265,11 @@ struct mesh_ui_node_summary {
        told us about, 0 when its arrival was not news. See mesh_session_nodes_discovered(), and
        mesh_ui_node_is_new() for what the Nodes tab does with it. Never cached. */
     uint32_t discovered;
+    /* A Tern presence card the radio holds from this node: the name on it is its sender's
+       claim, so it is shown beside the node's name, never as it. Never cached. */
+    bool has_card;
+    uint32_t card_heard; /* when the radio accepted it, our clock; 0 when unknown */
+    char card_name[32];
     struct mesh_ui_node_position position;
     struct mesh_ui_node_metrics metrics;
     struct mesh_ui_node_environment environment;

@@ -1,8 +1,11 @@
 #include "mesh/core/tern.h"
 
+#include "inkwell/base/array.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
+#include "inkwell/base/wipe.h"
+#include "inkwell/codec/sha256.h"
 
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
@@ -27,7 +30,8 @@
  * Groups, group messages and invites (version 2) are kept in the conversation's own lists and go
  * no further: the model has no shape for a group that a screen would not take for a channel or a
  * direct message. What they do reach is the sync, which has to know which of their ids may still
- * change.
+ * change. So with a group member's position and with sharing (version 5): kept here. A contact's
+ * position and a presence card (version 6) are the node's own, and go on its roster entry too.
  */
 
 /* Meshtastic's role numbers, which the roster's `role` is read in: a relay forwards like a
@@ -54,7 +58,8 @@ static void mesh_tern_pump(struct mesh_tern *tern) {
     /* A request queued before INFO said the node's version may be one that version lacks. It is
        not sent: the node could not tell this client what it changed. */
     while (tern->queue_count > 0U &&
-           mesh_tern_since(tern->queue[tern->queue_head].frame[0]) > mesh_tern_spoken(tern)) {
+           mesh_tern_frame_since(tern->queue[tern->queue_head].frame,
+                                 tern->queue[tern->queue_head].len) > mesh_tern_spoken(tern)) {
         const struct mesh_tern_request *dropped = &tern->queue[tern->queue_head];
         inkwell_log_warn("tern", "Request 0x%02x not sent: version %u lacks it",
                          (unsigned)dropped->frame[0], (unsigned)mesh_tern_spoken(tern));
@@ -85,6 +90,8 @@ static void mesh_tern_pop(struct mesh_tern *tern) {
     if (tern->queue_count == 0U) {
         return;
     }
+    /* A JOIN_LINK carried a group's secret: nothing of it outlives its answer. */
+    inkwell_wipe(&tern->queue[tern->queue_head], sizeof tern->queue[tern->queue_head]);
     tern->queue_head = (tern->queue_head + 1U) % MESH_TERN_QUEUE_LEN;
     tern->queue_count -= 1U;
     tern->awaiting = false;
@@ -99,7 +106,9 @@ static int mesh_tern_enqueue_ticket(struct mesh_tern *tern, const struct mesh_te
     if (tern->send == NULL) {
         return -ENOTCONN;
     }
-    if (mesh_tern_since(frame->type) > mesh_tern_spoken(tern)) {
+    if (mesh_tern_since(frame->type) > mesh_tern_spoken(tern) ||
+        (frame->type == MESH_TERN_SET &&
+         mesh_tern_setting_since(frame->setting) > mesh_tern_spoken(tern))) {
         return -EOPNOTSUPP;
     }
     if (tern->queue_count >= MESH_TERN_QUEUE_LEN) {
@@ -374,13 +383,26 @@ static void mesh_tern_forget_books(struct mesh_tern *tern) {
     tern->group_count = 0U;
     tern->group_item_count = 0U;
     tern->open_count = 0U;
+    tern->position_count = 0U;
+    tern->group_position_count = 0U;
+    tern->sharing_count = 0U;
+    tern->card_count = 0U;
     tern->newest_id = 0U;
     tern->has_synced_version = false;
     tern->has_missed_since = false;
     tern->has_asked = false;
 }
 
+static void mesh_tern_update_finish(struct mesh_tern *tern, enum mesh_tern_update_outcome outcome,
+                                    uint8_t code);
+
 static void mesh_tern_store_self(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
+    /* An update begun on another node is that node's image: never begun again on this one. */
+    if (tern->update.phase != MESH_TERN_UPDATE_IDLE &&
+        tern->update.phase != MESH_TERN_UPDATE_FINISHED &&
+        memcmp(tern->update.address, frame->address, MESH_TERN_ADDRESS_LEN) != 0) {
+        mesh_tern_update_finish(tern, MESH_TERN_UPDATE_ANOTHER_NODE, 0U);
+    }
     /* Another node on this link than the last: what was learned of that one is not this one's,
        and its message ids are its own count. */
     if (tern->has_self && memcmp(tern->self.address, frame->address, MESH_TERN_ADDRESS_LEN) != 0) {
@@ -394,6 +416,8 @@ static void mesh_tern_store_self(struct mesh_tern *tern, const struct mesh_tern_
     tern->self.power = frame->power;
     tern->self.time = frame->time;
     inkwell_str_copy(tern->self.region, sizeof tern->self.region, frame->text);
+    tern->self.cards = frame->cards;
+    inkwell_text_sanitise_str(frame->card_name, tern->self.card_name, sizeof tern->self.card_name);
 
     tern->self_node = mesh_tern_routing_id(frame->address);
     mesh_session_model_adopt_radio(tern->model, tern->self_node);
@@ -736,6 +760,197 @@ static void mesh_tern_store_asked(struct mesh_tern *tern, const struct mesh_tern
     tern->asked_why = frame->why;
 }
 
+/* ----------------------------------------------------------------- positions, sharing, cards */
+
+/* When something `ago` seconds old as the record was sent happened, by this client's clock, or 0
+   with none credible. */
+static uint32_t mesh_tern_ago(uint32_t ago) {
+    const uint32_t now = inkwell_time_wall_credible_s();
+    return now == 0U ? 0U : (now > ago ? now - ago : 1U);
+}
+
+/* A contact's position onto its roster entry, or off it (`held` NULL). */
+static void mesh_tern_place_node(struct mesh_tern *tern, const uint8_t *address,
+                                 const struct mesh_tern_position *held) {
+    struct mesh_node_summary *node = mesh_tern_node_at(tern, address, false);
+    if (node == NULL) {
+        return;
+    }
+    memset(&node->position, 0, sizeof node->position);
+    if (held == NULL) {
+        return;
+    }
+    node->position.valid = true;
+    node->position.latitude_i = held->lat;
+    node->position.longitude_i = held->lon;
+    node->position.has_altitude = held->altitude != MESH_TERN_NO_ALTITUDE;
+    node->position.altitude = node->position.has_altitude ? held->altitude : 0;
+    node->position.time = held->fixed;
+    /* A sync hands back what the node held; live news is a fix arriving now. */
+    node->position.received =
+        tern->phase == MESH_TERN_SYNCING ? 0U : inkwell_time_wall_credible_s();
+    /* A Tern cell is 360 / 2^p degrees and a Meshtastic one 2^(32-b) * 10^-7, so the same number
+       is a cell about a sixth smaller here than the footprint a screen draws for it: never larger.
+     */
+    node->position.precision_bits = held->precision;
+}
+
+static size_t mesh_tern_position_find(const struct mesh_tern_position *list, size_t count,
+                                      const struct mesh_tern_frame *frame) {
+    for (size_t i = 0; i < count; ++i) {
+        const bool same = frame->type == MESH_TERN_POSITION
+                              ? memcmp(list[i].address, frame->address, MESH_TERN_ADDRESS_LEN) == 0
+                              : memcmp(list[i].group, frame->group, MESH_TERN_GROUP_LEN) == 0 &&
+                                    list[i].from == frame->from;
+        if (same) {
+            return i;
+        }
+    }
+    return SIZE_MAX;
+}
+
+static void mesh_tern_drop_position(struct mesh_tern *tern, bool group_kind, size_t at) {
+    if (group_kind) {
+        tern->group_positions[at] = tern->group_positions[--tern->group_position_count];
+        return;
+    }
+    mesh_tern_place_node(tern, tern->positions[at].address, NULL);
+    tern->positions[at] = tern->positions[--tern->position_count];
+}
+
+/* POSITION or GROUP_POSITION: the position the node holds from a sender, or with precision 0 that
+   it holds none. */
+static void mesh_tern_store_position(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
+    const bool group_kind = frame->type == MESH_TERN_GROUP_POSITION;
+    struct mesh_tern_position *list = group_kind ? tern->group_positions : tern->positions;
+    size_t *count = group_kind ? &tern->group_position_count : &tern->position_count;
+    const size_t capacity = group_kind ? MESH_TERN_MAX_GROUP_POSITIONS : MESH_TERN_MAX_CONTACTS;
+    size_t at = mesh_tern_position_find(list, *count, frame);
+    if (frame->precision == 0U || frame->precision > MESH_TERN_PRECISION_MAX) {
+        if (at != SIZE_MAX) {
+            mesh_tern_drop_position(tern, group_kind, at);
+        }
+        return;
+    }
+    if (at == SIZE_MAX) {
+        if (*count >= capacity) {
+            inkwell_log_warn("tern", "Position list full; one not kept");
+            return;
+        }
+        at = (*count)++;
+    }
+    struct mesh_tern_position *held = &list[at];
+    memset(held, 0, sizeof *held);
+    memcpy(held->address, frame->address, MESH_TERN_ADDRESS_LEN);
+    memcpy(held->group, frame->group, MESH_TERN_GROUP_LEN);
+    held->from = frame->from;
+    held->precision = frame->precision;
+    held->lat = frame->lat;
+    held->lon = frame->lon;
+    held->altitude = frame->altitude;
+    held->accuracy = (uint8_t)(frame->accuracy > 0xFFU ? 0xFFU : frame->accuracy);
+    held->fixed = mesh_tern_ago(frame->age);
+    held->synced = tern->phase == MESH_TERN_SYNCING;
+    if (!group_kind) {
+        mesh_tern_place_node(tern, frame->address, held);
+    }
+}
+
+static size_t mesh_tern_sharing_find(const struct mesh_tern *tern, bool group_kind,
+                                     const struct mesh_tern_frame *frame) {
+    for (size_t i = 0; i < tern->sharing_count; ++i) {
+        const struct mesh_tern_sharing *held = &tern->sharing[i];
+        if (held->group_kind == group_kind &&
+            (group_kind ? memcmp(held->group, frame->group, MESH_TERN_GROUP_LEN) == 0
+                        : memcmp(held->address, frame->address, MESH_TERN_ADDRESS_LEN) == 0)) {
+            return i;
+        }
+    }
+    return SIZE_MAX;
+}
+
+/* SHARING or GROUP_SHARING: whether and how the node shares its position there. */
+static void mesh_tern_store_sharing(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
+    const bool group_kind = frame->type == MESH_TERN_GROUP_SHARING;
+    size_t at = mesh_tern_sharing_find(tern, group_kind, frame);
+    if (frame->precision == 0U) {
+        if (at != SIZE_MAX) {
+            tern->sharing[at] = tern->sharing[--tern->sharing_count];
+        }
+        return;
+    }
+    if (at == SIZE_MAX) {
+        if (tern->sharing_count >= INKWELL_ARRAY_LEN(tern->sharing)) {
+            return;
+        }
+        at = tern->sharing_count++;
+    }
+    struct mesh_tern_sharing *held = &tern->sharing[at];
+    memset(held, 0, sizeof *held);
+    held->group_kind = group_kind;
+    memcpy(held->address, frame->address, MESH_TERN_ADDRESS_LEN);
+    memcpy(held->group, frame->group, MESH_TERN_GROUP_LEN);
+    held->share = (struct mesh_tern_share){.precision = frame->precision,
+                                           .fields = frame->fields,
+                                           .interval = frame->interval,
+                                           .minutes = frame->minutes};
+    const uint32_t now = inkwell_time_wall_credible_s();
+    held->ends = frame->minutes != 0U && now != 0U ? now + (uint32_t)frame->minutes * 60U : 0U;
+    held->synced = tern->phase == MESH_TERN_SYNCING;
+}
+
+static size_t mesh_tern_card_find(const struct mesh_tern *tern, const uint8_t *address) {
+    for (size_t i = 0; i < tern->card_count; ++i) {
+        if (memcmp(tern->cards[i].address, address, MESH_TERN_ADDRESS_LEN) == 0) {
+            return i;
+        }
+    }
+    return SIZE_MAX;
+}
+
+/* A card the node holds, onto the sender's roster entry beside - never in the place of - any name
+   the user gave it: a card's name is its sender's claim. */
+static void mesh_tern_store_card(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
+    size_t at = mesh_tern_card_find(tern, frame->address);
+    if (at == SIZE_MAX) {
+        if (tern->card_count >= MESH_TERN_MAX_CARDS) {
+            inkwell_log_warn("tern", "Card list full; one not kept");
+            return;
+        }
+        at = tern->card_count++;
+    }
+    struct mesh_tern_card *card = &tern->cards[at];
+    memcpy(card->address, frame->address, MESH_TERN_ADDRESS_LEN);
+    card->heard = mesh_tern_ago(frame->heard);
+    card->synced = card->synced || tern->phase == MESH_TERN_SYNCING;
+    inkwell_text_sanitise((const uint8_t *)frame->text, frame->text_len, card->name,
+                          sizeof card->name);
+    struct mesh_node_summary *node = mesh_tern_node_at(tern, frame->address, false);
+    if (node == NULL) {
+        return;
+    }
+    node->has_card = true;
+    node->card_heard = card->heard;
+    inkwell_str_copy(node->card_name, sizeof node->card_name, card->name);
+    if (card->heard > node->last_heard) {
+        node->last_heard = card->heard;
+    }
+}
+
+static void mesh_tern_drop_card(struct mesh_tern *tern, const uint8_t *address) {
+    const size_t at = mesh_tern_card_find(tern, address);
+    if (at == SIZE_MAX) {
+        return;
+    }
+    tern->cards[at] = tern->cards[--tern->card_count];
+    struct mesh_node_summary *node = mesh_tern_roster_node(tern, mesh_tern_routing_id(address));
+    if (node != NULL) {
+        node->has_card = false;
+        node->card_heard = 0U;
+        node->card_name[0] = '\0';
+    }
+}
+
 /* ---------------------------------------------------------------------------------- news */
 
 static uint32_t mesh_tern_sync_after(const struct mesh_tern *tern);
@@ -827,6 +1042,148 @@ static void mesh_tern_apply_news(struct mesh_tern *tern, const struct mesh_tern_
     case MESH_TERN_INVITE:
         mesh_tern_store_group_item(tern, &frame);
         break;
+    case MESH_TERN_POSITION:
+    case MESH_TERN_GROUP_POSITION:
+        mesh_tern_store_position(tern, &frame);
+        break;
+    case MESH_TERN_SHARING:
+    case MESH_TERN_GROUP_SHARING:
+        mesh_tern_store_sharing(tern, &frame);
+        break;
+    case MESH_TERN_CARD:
+        mesh_tern_store_card(tern, &frame);
+        break;
+    case MESH_TERN_CARD_GONE:
+        mesh_tern_drop_card(tern, frame.address);
+        break;
+    default:
+        break;
+    }
+}
+
+/* ------------------------------------------------------------------------------- updates */
+
+/* An ERROR 10 says the node does not hold what was sent where it was sent: ask where to go on
+   from, but not for ever. */
+#define TERN_UPDATE_TRIES_NOT_THERE 3U
+
+static void mesh_tern_update_finish(struct mesh_tern *tern, enum mesh_tern_update_outcome outcome,
+                                    uint8_t code) {
+    struct mesh_tern_update *update = &tern->update;
+    update->phase = MESH_TERN_UPDATE_FINISHED;
+    update->outcome = outcome;
+    update->code = code;
+    update->image = NULL; /* the caller's again */
+    inkwell_log_info("tern", "Update finished (%d, error %u) with %u of %u bytes held",
+                     (int)outcome, (unsigned)code, (unsigned)update->held, (unsigned)update->size);
+}
+
+static void mesh_tern_update_begin_request(struct mesh_tern *tern) {
+    struct mesh_tern_update *update = &tern->update;
+    if (update->cancel_wanted) {
+        mesh_tern_update_finish(tern, MESH_TERN_UPDATE_CANCELLED, 0U);
+        return;
+    }
+    struct mesh_tern_frame frame = {.type = MESH_TERN_UPDATE_BEGIN, .size = update->size};
+    memcpy(frame.digest, update->digest, sizeof frame.digest);
+    update->phase = MESH_TERN_UPDATE_BEGINNING;
+    if (mesh_tern_enqueue(tern, &frame) < 0) {
+        update->phase = MESH_TERN_UPDATE_WAITING;
+    }
+}
+
+/* The next request of an update the node has just answered: the bytes from what it holds, or
+   UPDATE_END once it holds them all. */
+static void mesh_tern_update_next(struct mesh_tern *tern) {
+    struct mesh_tern_update *update = &tern->update;
+    if (update->cancel_wanted) {
+        mesh_tern_update_finish(tern, MESH_TERN_UPDATE_CANCELLED, 0U);
+        return;
+    }
+    struct mesh_tern_frame frame;
+    memset(&frame, 0, sizeof frame);
+    if (update->held >= update->size) {
+        frame.type = MESH_TERN_UPDATE_END;
+        update->phase = MESH_TERN_UPDATE_ENDING;
+    } else {
+        const uint32_t left = update->size - update->held;
+        frame.type = MESH_TERN_UPDATE_DATA;
+        frame.offset = update->held;
+        frame.data_len = (uint8_t)(left < MESH_TERN_UPDATE_CHUNK ? left : MESH_TERN_UPDATE_CHUNK);
+        memcpy(frame.data, update->image + update->held, frame.data_len);
+        update->phase = MESH_TERN_UPDATE_SENDING;
+    }
+    if (mesh_tern_enqueue(tern, &frame) < 0) {
+        update->phase = MESH_TERN_UPDATE_WAITING;
+    }
+}
+
+/* The answer to an update request, or the ERROR it was refused with (`code`, 0 for an answer). */
+static void mesh_tern_update_answer(struct mesh_tern *tern, uint8_t asked,
+                                    const struct mesh_tern_frame *frame, uint8_t code) {
+    struct mesh_tern_update *update = &tern->update;
+    if (update->phase != MESH_TERN_UPDATE_BEGINNING && update->phase != MESH_TERN_UPDATE_SENDING &&
+        update->phase != MESH_TERN_UPDATE_ENDING) {
+        return;
+    }
+    if (code == MESH_TERN_ERR_NOT_THERE && asked != MESH_TERN_UPDATE_BEGIN) {
+        update->not_there += 1U;
+        if (update->not_there >= TERN_UPDATE_TRIES_NOT_THERE) {
+            mesh_tern_update_finish(tern, MESH_TERN_UPDATE_REFUSED, code);
+        } else {
+            mesh_tern_update_begin_request(tern);
+        }
+        return;
+    }
+    if (code != 0U) {
+        mesh_tern_update_finish(tern, MESH_TERN_UPDATE_REFUSED, code);
+        return;
+    }
+    switch (asked) {
+    case MESH_TERN_UPDATE_BEGIN:
+        if (frame->type != MESH_TERN_UPDATING) {
+            mesh_tern_update_finish(tern, MESH_TERN_UPDATE_CONFUSED, 0U);
+            return;
+        }
+        /* A node holds no more than the image; one that says so is sent UPDATE_END, which finds
+           out what it holds. */
+        update->held = frame->offset < update->size ? frame->offset : update->size;
+        mesh_tern_update_next(tern);
+        return;
+    case MESH_TERN_UPDATE_DATA:
+        if (frame->type != MESH_TERN_OK) {
+            mesh_tern_update_finish(tern, MESH_TERN_UPDATE_CONFUSED, 0U);
+            return;
+        }
+        update->not_there = 0U;
+        {
+            const uint32_t left = update->size - update->held;
+            update->held += left < MESH_TERN_UPDATE_CHUNK ? left : MESH_TERN_UPDATE_CHUNK;
+        }
+        mesh_tern_update_next(tern);
+        return;
+    case MESH_TERN_UPDATE_END:
+        mesh_tern_update_finish(tern,
+                                frame->type == MESH_TERN_OK ? MESH_TERN_UPDATE_RESTARTING
+                                                            : MESH_TERN_UPDATE_CONFUSED,
+                                0U);
+        return;
+    default:
+        return;
+    }
+}
+
+/* The link under an update went, or the conversation started again: an update part of the way
+   waits for the next connection; one whose UPDATE_END was out is never sent it again. */
+static void mesh_tern_update_lost(struct mesh_tern *tern) {
+    switch (tern->update.phase) {
+    case MESH_TERN_UPDATE_BEGINNING:
+    case MESH_TERN_UPDATE_SENDING:
+        tern->update.phase = MESH_TERN_UPDATE_WAITING;
+        break;
+    case MESH_TERN_UPDATE_ENDING:
+        mesh_tern_update_finish(tern, MESH_TERN_UPDATE_UNCONFIRMED, 0U);
+        break;
     default:
         break;
     }
@@ -892,6 +1249,32 @@ static void mesh_tern_synced(struct mesh_tern *tern, const struct mesh_tern_fram
             }
         }
     }
+    /* Positions and sharing likewise from version 5, cards from 6. Sharing the sync sent nothing
+       for is off. */
+    if (mesh_tern_spoken(tern) >= 5U) {
+        for (size_t i = tern->position_count; i > 0U; --i) {
+            if (!tern->positions[i - 1U].synced) {
+                mesh_tern_drop_position(tern, false, i - 1U);
+            }
+        }
+        for (size_t i = tern->group_position_count; i > 0U; --i) {
+            if (!tern->group_positions[i - 1U].synced) {
+                mesh_tern_drop_position(tern, true, i - 1U);
+            }
+        }
+        for (size_t i = tern->sharing_count; i > 0U; --i) {
+            if (!tern->sharing[i - 1U].synced) {
+                tern->sharing[i - 1U] = tern->sharing[--tern->sharing_count];
+            }
+        }
+    }
+    if (mesh_tern_spoken(tern) >= 6U) {
+        for (size_t i = tern->card_count; i > 0U; --i) {
+            if (!tern->cards[i - 1U].synced) {
+                mesh_tern_drop_card(tern, tern->cards[i - 1U].address);
+            }
+        }
+    }
     tern->has_synced_version = true;
     tern->synced_version = mesh_tern_spoken(tern);
     tern->has_missed_since = false;
@@ -901,6 +1284,15 @@ static void mesh_tern_synced(struct mesh_tern *tern, const struct mesh_tern_fram
     if (first) {
         inkwell_log_info("tern", "Synced: %zu contacts, %zu groups, %zu neighbours",
                          tern->contact_count, tern->group_count, tern->neighbour_count);
+    }
+    /* An update the last link dropped goes on from wherever the node says, if this node still
+       speaks updates. */
+    if (tern->update.phase == MESH_TERN_UPDATE_WAITING) {
+        if (mesh_tern_spoken(tern) >= mesh_tern_since(MESH_TERN_UPDATE_BEGIN)) {
+            mesh_tern_update_begin_request(tern);
+        } else {
+            mesh_tern_update_finish(tern, MESH_TERN_UPDATE_REFUSED, MESH_TERN_ERR_UNKNOWN);
+        }
     }
 }
 
@@ -913,6 +1305,18 @@ static void mesh_tern_begin_sync(struct mesh_tern *tern, uint32_t after) {
     }
     for (size_t i = 0; i < tern->group_count; ++i) {
         tern->groups[i].synced = false;
+    }
+    for (size_t i = 0; i < tern->position_count; ++i) {
+        tern->positions[i].synced = false;
+    }
+    for (size_t i = 0; i < tern->group_position_count; ++i) {
+        tern->group_positions[i].synced = false;
+    }
+    for (size_t i = 0; i < tern->sharing_count; ++i) {
+        tern->sharing[i].synced = false;
+    }
+    for (size_t i = 0; i < tern->card_count; ++i) {
+        tern->cards[i].synced = false;
     }
     mesh_tern_request_sync(tern, after);
 }
@@ -946,6 +1350,11 @@ static void mesh_tern_on_answer(struct mesh_tern *tern, const uint8_t *raw, size
         if (asked == MESH_TERN_SEND) {
             mesh_tern_note_queued(tern, ticket, 0U);
         }
+        if (asked == MESH_TERN_UPDATE_BEGIN || asked == MESH_TERN_UPDATE_DATA ||
+            asked == MESH_TERN_UPDATE_END) {
+            mesh_tern_update_answer(tern, asked, &frame,
+                                    frame.code != 0U ? frame.code : MESH_TERN_ERR_UNKNOWN);
+        }
         if (asked == MESH_TERN_HELLO || asked == MESH_TERN_SYNC) {
             /* No conversation without these: drop the link and let it be opened again. */
             tern->gone = true;
@@ -963,6 +1372,8 @@ static void mesh_tern_on_answer(struct mesh_tern *tern, const uint8_t *raw, size
         tern->has_agreed = true;
         tern->agreed = frame.version < tern->version ? frame.version : tern->version;
         inkwell_str_copy(tern->firmware, sizeof tern->firmware, frame.text);
+        inkwell_str_copy(tern->board, sizeof tern->board, frame.board);
+        inkwell_str_copy(tern->release, sizeof tern->release, frame.release);
         inkwell_log_info("tern", "Node speaks version %u (%s); speaking %u",
                          (unsigned)frame.version, tern->firmware, (unsigned)tern->agreed);
         tern->phase = MESH_TERN_SYNCING;
@@ -988,6 +1399,19 @@ static void mesh_tern_on_answer(struct mesh_tern *tern, const uint8_t *raw, size
             mesh_tern_note_queued(tern, ticket, frame.id);
         }
         break;
+    case MESH_TERN_GROUP_LINK:
+        if (frame.type == MESH_TERN_LINK) {
+            inkwell_wipe(tern->link, sizeof tern->link);
+            memcpy(tern->link, frame.text, frame.text_len);
+            tern->has_link = true;
+        }
+        inkwell_wipe(&frame, sizeof frame);
+        break;
+    case MESH_TERN_UPDATE_BEGIN:
+    case MESH_TERN_UPDATE_DATA:
+    case MESH_TERN_UPDATE_END:
+        mesh_tern_update_answer(tern, asked, &frame, 0U);
+        break;
     default:
         break;
     }
@@ -1007,7 +1431,8 @@ static int mesh_tern_refuse(void *ctx, const uint8_t *frame, size_t len, uint32_
 }
 
 static void mesh_tern_reset_link(struct mesh_tern *tern) {
-    memset(tern->queue, 0, sizeof tern->queue);
+    inkwell_wipe(tern->queue, sizeof tern->queue);
+    mesh_tern_update_lost(tern);
     tern->queue_head = 0U;
     tern->queue_count = 0U;
     tern->awaiting = false;
@@ -1340,4 +1765,189 @@ bool mesh_tern_take_queued(struct mesh_tern *tern, struct mesh_tern_queued *out)
     memmove(tern->queued, tern->queued + 1, (tern->queued_count - 1U) * sizeof tern->queued[0]);
     tern->queued_count -= 1U;
     return true;
+}
+
+int mesh_tern_set_value(struct mesh_tern *tern, uint8_t setting, uint32_t value) {
+    if (tern == NULL) {
+        return -EINVAL;
+    }
+    if (mesh_tern_connected(tern) < 0) {
+        return -ENOTCONN;
+    }
+    if (mesh_tern_setting_since(setting) > mesh_tern_spoken(tern)) {
+        return -EOPNOTSUPP;
+    }
+    if (setting == MESH_TERN_SETTING_REGION || setting == MESH_TERN_SETTING_CARD_NAME) {
+        return -EINVAL;
+    }
+    /* The node refuses a value it does not take - a power past its radio, cards neither on nor
+       off - with ERROR 3; the client does not second-guess it. */
+    const struct mesh_tern_frame frame = {.type = MESH_TERN_SET,
+                                          .setting = setting,
+                                          .role = (uint8_t)value,
+                                          .power = (int8_t)(uint8_t)value,
+                                          .passkey = value,
+                                          .cards = (uint8_t)value};
+    return mesh_tern_enqueue(tern, &frame);
+}
+
+int mesh_tern_set_text(struct mesh_tern *tern, uint8_t setting, const char *text) {
+    if (tern == NULL) {
+        return -EINVAL;
+    }
+    if (mesh_tern_connected(tern) < 0) {
+        return -ENOTCONN;
+    }
+    if (mesh_tern_setting_since(setting) > mesh_tern_spoken(tern)) {
+        return -EOPNOTSUPP;
+    }
+    if (setting != MESH_TERN_SETTING_REGION && setting != MESH_TERN_SETTING_CARD_NAME) {
+        return -EINVAL;
+    }
+    struct mesh_tern_frame frame = {.type = MESH_TERN_SET, .setting = setting};
+    const int result = mesh_tern_put_text(&frame, text,
+                                          setting == MESH_TERN_SETTING_REGION ? MESH_TERN_REGION_MAX
+                                                                              : MESH_TERN_NAME_MAX,
+                                          setting == MESH_TERN_SETTING_CARD_NAME);
+    return result < 0 ? result : mesh_tern_enqueue(tern, &frame);
+}
+
+int mesh_tern_set_position(struct mesh_tern *tern, int32_t lat, int32_t lon, int16_t altitude,
+                           uint16_t accuracy, uint16_t age) {
+    if (tern == NULL || lat < -900000000 || lat > 900000000 || lon < -1800000000 ||
+        lon > 1800000000) {
+        return -EINVAL;
+    }
+    if (mesh_tern_connected(tern) < 0) {
+        return -ENOTCONN;
+    }
+    const struct mesh_tern_frame frame = {.type = MESH_TERN_SET_POSITION,
+                                          .lat = lat,
+                                          .lon = lon,
+                                          .altitude = altitude,
+                                          .accuracy = accuracy,
+                                          .age = age};
+    return mesh_tern_enqueue(tern, &frame);
+}
+
+static void mesh_tern_put_share(struct mesh_tern_frame *frame,
+                                const struct mesh_tern_share *share) {
+    frame->precision = share->precision;
+    frame->fields = share->fields;
+    frame->interval = share->interval;
+    frame->minutes = share->minutes;
+}
+
+int mesh_tern_share(struct mesh_tern *tern, uint32_t node, const struct mesh_tern_share *share) {
+    if (tern == NULL || share == NULL) {
+        return -EINVAL;
+    }
+    if (mesh_tern_connected(tern) < 0) {
+        return -ENOTCONN;
+    }
+    struct mesh_tern_frame frame = {.type = MESH_TERN_SHARE};
+    const int result = mesh_tern_address_of(tern, node, frame.address);
+    if (result < 0) {
+        return result;
+    }
+    mesh_tern_put_share(&frame, share);
+    return mesh_tern_enqueue(tern, &frame);
+}
+
+int mesh_tern_share_group(struct mesh_tern *tern, const uint8_t group[MESH_TERN_GROUP_LEN],
+                          const struct mesh_tern_share *share) {
+    if (share == NULL || group == NULL) {
+        return -EINVAL;
+    }
+    struct mesh_tern_frame frame = {.type = MESH_TERN_SHARE_GROUP};
+    mesh_tern_put_share(&frame, share);
+    return mesh_tern_group_request(tern, &frame, group, NULL, 0U, true);
+}
+
+int mesh_tern_group_link(struct mesh_tern *tern, const uint8_t group[MESH_TERN_GROUP_LEN]) {
+    struct mesh_tern_frame frame = {.type = MESH_TERN_GROUP_LINK};
+    if (group == NULL) {
+        return -EINVAL;
+    }
+    const int result = mesh_tern_group_request(tern, &frame, group, NULL, 0U, true);
+    if (result >= 0) {
+        /* A code not yet taken was for another request: never this one's answer. */
+        inkwell_wipe(tern->link, sizeof tern->link);
+        tern->has_link = false;
+    }
+    return result;
+}
+
+bool mesh_tern_take_link(struct mesh_tern *tern, char *out, size_t out_len) {
+    if (tern == NULL || !tern->has_link) {
+        return false;
+    }
+    if (out != NULL && out_len > 0U) {
+        inkwell_str_copy(out, out_len, tern->link);
+    }
+    inkwell_wipe(tern->link, sizeof tern->link);
+    tern->has_link = false;
+    return true;
+}
+
+int mesh_tern_join_link(struct mesh_tern *tern, const char *link) {
+    struct mesh_tern_frame frame = {.type = MESH_TERN_JOIN_LINK};
+    const int result = mesh_tern_group_request(tern, &frame, NULL, link, MESH_TERN_LINK_MAX, false);
+    inkwell_wipe(&frame, sizeof frame);
+    return result;
+}
+
+int mesh_tern_update_start(struct mesh_tern *tern, const uint8_t *image, size_t size) {
+    if (tern == NULL) {
+        return -EINVAL;
+    }
+    if (!mesh_tern_ready(tern)) {
+        return -ENOTCONN;
+    }
+    if (mesh_tern_spoken(tern) < mesh_tern_since(MESH_TERN_UPDATE_BEGIN)) {
+        return -EOPNOTSUPP;
+    }
+    if (image == NULL || size == 0U || (uint64_t)size > (uint64_t)UINT32_MAX) {
+        return -EINVAL;
+    }
+    struct mesh_tern_update *update = &tern->update;
+    if (update->phase != MESH_TERN_UPDATE_IDLE && update->phase != MESH_TERN_UPDATE_FINISHED) {
+        return -EBUSY;
+    }
+    memset(update, 0, sizeof *update);
+    memcpy(update->address, tern->self.address, MESH_TERN_ADDRESS_LEN);
+    update->image = image;
+    update->size = (uint32_t)size;
+    struct inkwell_sha256 sha;
+    inkwell_sha256_init(&sha);
+    inkwell_sha256_update(&sha, image, size);
+    inkwell_sha256_final(&sha, update->digest);
+    mesh_tern_update_begin_request(tern);
+    if (update->phase != MESH_TERN_UPDATE_BEGINNING) {
+        memset(update, 0, sizeof *update); /* never begun: nothing to go on with later */
+        return -ENOBUFS;
+    }
+    return 0;
+}
+
+bool mesh_tern_update_cancel(struct mesh_tern *tern) {
+    if (tern == NULL) {
+        return false;
+    }
+    switch (tern->update.phase) {
+    case MESH_TERN_UPDATE_WAITING:
+        mesh_tern_update_finish(tern, MESH_TERN_UPDATE_CANCELLED, 0U);
+        return true;
+    case MESH_TERN_UPDATE_BEGINNING:
+    case MESH_TERN_UPDATE_SENDING:
+        /* The request out is answered first: one at a time. */
+        tern->update.cancel_wanted = true;
+        return true;
+    default:
+        return false;
+    }
+}
+
+const struct mesh_tern_update *mesh_tern_update_status(const struct mesh_tern *tern) {
+    return tern != NULL ? &tern->update : NULL;
 }

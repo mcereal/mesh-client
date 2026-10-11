@@ -546,6 +546,15 @@ struct mesh_node_summary {
      * starts again with the process.
      */
     uint32_t discovered;
+    /*
+     * A Tern presence card the radio holds from this node: the name its sender put on it - a
+     * claim, never the user's name for the node, so never `long_name` - and when the radio
+     * accepted it, by our clock (0 when none was credible). Tern's alone, and not cached: every
+     * sync sends each card the radio holds.
+     */
+    bool has_card;
+    uint32_t card_heard;
+    char card_name[32];
     struct mesh_node_position position;
     struct mesh_node_metrics metrics;
     struct mesh_node_environment environment;

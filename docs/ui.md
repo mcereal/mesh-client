@@ -1495,6 +1495,7 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `nofix` | take our own radio's fix away |
 | `verified NAME`, `verify waiting\|show\|enter\|compare\|off NAME` | the key-verification bit, and the sheet |
 | `login NAME unsaid\|guest\|read-only\|read-write\|admin` | a MeshCore server's last login answer for that node, five minutes old |
+| `card NAME [TEXT]` | a Tern presence card from that node, carrying TEXT as its name, 21 minutes old |
 | `pin NAME` | pin that node |
 
 Most of those verbs exist because **no press can reach the state**: a Routing reply arrives after
