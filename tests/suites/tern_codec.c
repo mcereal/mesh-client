@@ -36,12 +36,22 @@ static const struct {
     {"SEND_GROUP", MESH_TERN_SEND_GROUP},
     {"SEND_INVITE", MESH_TERN_SEND_INVITE},
     {"JOIN", MESH_TERN_JOIN},
+    {"GROUP_LINK", MESH_TERN_GROUP_LINK},
+    {"JOIN_LINK", MESH_TERN_JOIN_LINK},
+    {"UPDATE_BEGIN", MESH_TERN_UPDATE_BEGIN},
+    {"UPDATE_DATA", MESH_TERN_UPDATE_DATA},
+    {"UPDATE_END", MESH_TERN_UPDATE_END},
+    {"SET_POSITION", MESH_TERN_SET_POSITION},
+    {"SHARE", MESH_TERN_SHARE},
+    {"SHARE_GROUP", MESH_TERN_SHARE_GROUP},
     {"OK", MESH_TERN_OK},
     {"ERROR", MESH_TERN_ERROR},
     {"INFO", MESH_TERN_INFO},
     {"SYNCED", MESH_TERN_SYNCED},
     {"QUEUED", MESH_TERN_QUEUED},
     {"MADE", MESH_TERN_MADE},
+    {"UPDATING", MESH_TERN_UPDATING},
+    {"LINK", MESH_TERN_LINK},
     {"SELF", MESH_TERN_SELF},
     {"CONTACT", MESH_TERN_CONTACT},
     {"CONTACT_GONE", MESH_TERN_CONTACT_GONE},
@@ -56,6 +66,12 @@ static const struct {
     {"GROUP_GONE", MESH_TERN_GROUP_GONE},
     {"GROUP_MESSAGE", MESH_TERN_GROUP_MESSAGE},
     {"INVITE", MESH_TERN_INVITE},
+    {"POSITION", MESH_TERN_POSITION},
+    {"GROUP_POSITION", MESH_TERN_GROUP_POSITION},
+    {"SHARING", MESH_TERN_SHARING},
+    {"GROUP_SHARING", MESH_TERN_GROUP_SHARING},
+    {"CARD", MESH_TERN_CARD},
+    {"CARD_GONE", MESH_TERN_CARD_GONE},
 };
 
 static int type_named(const char *name) {
@@ -104,21 +120,37 @@ static bool read_hex(struct inkwell_json *json, uint8_t *out, size_t out_len, si
     return true;
 }
 
+/* A string of the vectors into one of the frame's string members and its length. */
+static bool read_string(struct inkwell_json *json, char *out, size_t out_len, uint8_t *len) {
+    if (!inkwell_json_read_string(json, out, out_len)) {
+        return false;
+    }
+    *len = (uint8_t)strlen(out);
+    return true;
+}
+
 /* One field of a vector's `fields`, into the member struct mesh_tern_frame keeps it in. */
 static bool read_field(struct inkwell_json *json, const char *key, struct mesh_tern_frame *f) {
-    static const char *const strings[] = {"text", "name", "firmware", "region"};
+    static const char *const strings[] = {"text", "name", "firmware", "region", "link"};
     static const char *const addresses[] = {"to", "address", "contact"};
-    for (size_t i = 0; i < 4U; ++i) {
-        if (strcmp(key, strings[i]) == 0 ||
-            (strcmp(key, "value") == 0 && i == 0U && f->setting == MESH_TERN_SETTING_REGION)) {
-            if (!inkwell_json_read_string(json, f->text, sizeof f->text)) {
-                return false;
-            }
-            f->text_len = (uint8_t)strlen(f->text);
-            return true;
+    const bool string_value =
+        strcmp(key, "value") == 0 &&
+        (f->setting == MESH_TERN_SETTING_REGION || f->setting == MESH_TERN_SETTING_CARD_NAME);
+    for (size_t i = 0; i < sizeof strings / sizeof strings[0]; ++i) {
+        if (strcmp(key, strings[i]) == 0 || (i == 0U && string_value)) {
+            return read_string(json, f->text, sizeof f->text, &f->text_len);
         }
     }
-    for (size_t i = 0; i < 3U; ++i) {
+    if (strcmp(key, "board") == 0) {
+        return read_string(json, f->board, sizeof f->board, &f->board_len);
+    }
+    if (strcmp(key, "release") == 0) {
+        return read_string(json, f->release, sizeof f->release, &f->release_len);
+    }
+    if (strcmp(key, "card_name") == 0) {
+        return read_string(json, f->card_name, sizeof f->card_name, &f->card_name_len);
+    }
+    for (size_t i = 0; i < sizeof addresses / sizeof addresses[0]; ++i) {
         if (strcmp(key, addresses[i]) == 0) {
             size_t len = 0U;
             return read_hex(json, f->address, sizeof f->address, &len) &&
@@ -129,6 +161,16 @@ static bool read_field(struct inkwell_json *json, const char *key, struct mesh_t
         size_t len = 0U;
         return read_hex(json, f->group, sizeof f->group, &len) && len == MESH_TERN_GROUP_LEN;
     }
+    if (strcmp(key, "digest") == 0) {
+        size_t len = 0U;
+        return read_hex(json, f->digest, sizeof f->digest, &len) && len == MESH_TERN_DIGEST_LEN;
+    }
+    if (strcmp(key, "data") == 0) {
+        size_t len = 0U;
+        const bool ok = read_hex(json, f->data, sizeof f->data, &len);
+        f->data_len = (uint8_t)len;
+        return ok;
+    }
     int64_t v = 0;
     if (!read_number(json, &v)) {
         return false;
@@ -136,6 +178,7 @@ static bool read_field(struct inkwell_json *json, const char *key, struct mesh_t
     if (strcmp(key, "value") == 0) {
         key = f->setting == MESH_TERN_SETTING_ROLE    ? "role"
               : f->setting == MESH_TERN_SETTING_POWER ? "power"
+              : f->setting == MESH_TERN_SETTING_CARDS ? "cards"
                                                       : "passkey";
     }
 #define NUMBER(member, cast)                                                                       \
@@ -156,9 +199,21 @@ static bool read_field(struct inkwell_json *json, const char *key, struct mesh_t
     NUMBER(percent, uint8_t);
     NUMBER(why, uint8_t);
     NUMBER(news, uint8_t);
+    NUMBER(cards, uint8_t);
+    NUMBER(precision, uint8_t);
+    NUMBER(fields, uint8_t);
     NUMBER(power, int8_t);
-    NUMBER(heard, uint16_t);
+    NUMBER(altitude, int16_t);
+    NUMBER(accuracy, uint16_t);
+    NUMBER(interval, uint16_t);
+    NUMBER(minutes, uint16_t);
     NUMBER(millivolts, uint16_t);
+    NUMBER(lat, int32_t);
+    NUMBER(lon, int32_t);
+    NUMBER(age, uint32_t);
+    NUMBER(heard, uint32_t);
+    NUMBER(size, uint32_t);
+    NUMBER(offset, uint32_t);
     NUMBER(after, uint32_t);
     NUMBER(time, uint32_t);
     NUMBER(ref, uint32_t);
@@ -182,9 +237,9 @@ static bool read_field(struct inkwell_json *json, const char *key, struct mesh_t
 /* What a case in `frames` or `extended` says: the fields as a struct, the frame, the stream. */
 struct vector {
     struct mesh_tern_frame fields;
-    uint8_t frame[256];
+    uint8_t frame[MESH_TERN_MAX_FRAME + 8U];
     size_t frame_len;
-    uint8_t stream[256];
+    uint8_t stream[MESH_TERN_MAX_FRAME + 8U];
     size_t stream_len;
 };
 
@@ -355,7 +410,7 @@ MESH_TEST_CASE(tern_frames_build_read_and_wrap_as_the_vectors_say, unit) {
     }
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(cases != 54U, "all 54 frame vectors");
+    MESH_TEST_FAIL_IF(cases != 90U, "all 90 frame vectors");
     record_success(test_name);
 }
 
@@ -387,7 +442,7 @@ MESH_TEST_CASE(tern_rejects_what_the_vectors_reject, unit) {
     size_t cases = 0U;
     char failure[160] = "";
     while (failure[0] == '\0' && inkwell_json_next_element(&json)) {
-        uint8_t frame[256];
+        uint8_t frame[MESH_TERN_MAX_FRAME + 8U];
         size_t len = 0U;
         bool answered = false;
         uint64_t answer = 0U;
@@ -422,7 +477,7 @@ MESH_TEST_CASE(tern_rejects_what_the_vectors_reject, unit) {
     }
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(cases != 25U, "all 25 rejected vectors");
+    MESH_TEST_FAIL_IF(cases != 42U, "all 42 rejected vectors");
     record_success(test_name);
 }
 
@@ -519,10 +574,16 @@ MESH_TEST_CASE(tern_refuses_to_write_what_no_frame_holds, unit) {
                       "a name past 31 bytes has no field to go in");
     frame = (struct mesh_tern_frame){.type = MESH_TERN_SET, .setting = 9U};
     MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, MESH_TERN_VERSION, out, sizeof out) >= 0,
-                      "nor a setting version 3 lacks");
-    frame = (struct mesh_tern_frame){.type = 0x26U};
+                      "nor a setting version 7 lacks");
+    frame = (struct mesh_tern_frame){.type = MESH_TERN_SET, .setting = MESH_TERN_SETTING_CARDS};
+    MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, 5U, out, sizeof out) >= 0,
+                      "nor one version 5 lacks");
+    frame = (struct mesh_tern_frame){.type = 0x28U};
     MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, MESH_TERN_VERSION, out, sizeof out) >= 0,
                       "nor a type it lacks");
+    frame = (struct mesh_tern_frame){.type = MESH_TERN_UPDATE_DATA, .data_len = 173U};
+    MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, MESH_TERN_VERSION, out, sizeof out) >= 0,
+                      "nor bytes past UPDATE_CHUNK");
     frame = (struct mesh_tern_frame){.type = MESH_TERN_MAKE_GROUP};
     MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, 1U, out, sizeof out) >= 0,
                       "nor a type a version before it lacks");
@@ -539,7 +600,8 @@ MESH_TEST_CASE(tern_refuses_to_write_what_no_frame_holds, unit) {
 /*
  * Each older connection's frames, read by the version its client speaks: every one reads, and
  * writes back to the same bytes. The SYNCEDs of versions 0 to 2 are two bytes, which version 3
- * would take for cut short.
+ * would take for cut short, and the INFO of a version 7 node is read without its board and
+ * release by a client of version 3 or earlier.
  */
 MESH_TEST_CASE(tern_older_connections_read_by_their_own_version, unit) {
     struct inkwell_json json;
@@ -563,7 +625,7 @@ MESH_TEST_CASE(tern_older_connections_read_by_their_own_version, unit) {
             }
             ok = version <= MESH_TERN_VERSION && inkwell_json_enter_array(&json);
             while (ok && failure[0] == '\0' && inkwell_json_next_element(&json)) {
-                uint8_t frame[256];
+                uint8_t frame[MESH_TERN_MAX_FRAME + 8U];
                 size_t len = 0U;
                 ok = inkwell_json_object_find(&json, "frame") &&
                      read_hex(&json, frame, sizeof frame, &len);
@@ -575,8 +637,9 @@ MESH_TEST_CASE(tern_older_connections_read_by_their_own_version, unit) {
                 if (!ok) {
                     break;
                 }
-                if (mesh_tern_since(frame[0]) > version) {
-                    /* The request version 1's client should not have sent: ERROR 1. */
+                if (mesh_tern_frame_since(frame, len) > version) {
+                    /* The request each client's version lacks, which it should not have sent:
+                       ERROR 1. */
                     if (mesh_tern_decode(frame, len, (uint8_t)version, &decoded) !=
                         MESH_TERN_DECODE_UNKNOWN) {
                         snprintf(failure, sizeof failure, "version %u reads 0x%02x",
@@ -602,7 +665,7 @@ MESH_TEST_CASE(tern_older_connections_read_by_their_own_version, unit) {
     }
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(connections != 3U || frames != 39U, "three connections, 39 frames");
+    MESH_TEST_FAIL_IF(connections != 7U || frames != 88U, "seven connections, 88 frames");
     record_success(test_name);
 }
 
@@ -639,5 +702,90 @@ MESH_TEST_CASE(tern_a_type_later_than_the_version_is_unknown_however_it_reads, u
                               MESH_TERN_DECODE_OK ||
                           decoded.news != 6U,
                       "where version 3 does");
+    record_success(test_name);
+}
+
+/* A frame of a type, or naming a setting, a version does not define: unknown at that version
+   however it reads, which a node answers with ERROR 1 and a client ignores or discards. */
+MESH_TEST_CASE(tern_older_versions_take_later_frames_as_unknown, unit) {
+    struct inkwell_json json;
+    char *document = open_section("tern_companion.json", "unknown_to_older", &json);
+    MESH_TEST_FAIL_IF(document == NULL, "the unknown_to_older cases should be there");
+    size_t cases = 0U;
+    char failure[160] = "";
+    while (failure[0] == '\0' && inkwell_json_next_element(&json)) {
+        uint8_t frame[MESH_TERN_MAX_FRAME + 8U];
+        size_t len = 0U;
+        uint64_t version = 99U;
+        bool answered = false;
+        uint64_t answer = 0U;
+        char key[32];
+        bool ok = inkwell_json_enter_object(&json);
+        while (ok && inkwell_json_next_key(&json, key, sizeof key)) {
+            if (strcmp(key, "frame") == 0) {
+                ok = read_hex(&json, frame, sizeof frame, &len);
+            } else if (strcmp(key, "version") == 0) {
+                ok = inkwell_json_read_u64(&json, &version);
+            } else if (strcmp(key, "answer") == 0) {
+                answered = inkwell_json_read_u64(&json, &answer);
+                ok = answered || inkwell_json_skip_value(&json);
+            } else {
+                ok = inkwell_json_skip_value(&json);
+            }
+        }
+        struct mesh_tern_frame decoded;
+        if (!ok || version >= MESH_TERN_VERSION) {
+            snprintf(failure, sizeof failure, "unknown_to_older case %zu should read", cases);
+        } else if (mesh_tern_decode(frame, len, (uint8_t)version, &decoded) !=
+                   MESH_TERN_DECODE_UNKNOWN) {
+            snprintf(failure, sizeof failure, "case %zu: version %u reads 0x%02x", cases,
+                     (unsigned)version, frame[0]);
+        } else if (mesh_tern_decode(frame, len, MESH_TERN_VERSION, &decoded) !=
+                   MESH_TERN_DECODE_OK) {
+            snprintf(failure, sizeof failure, "case %zu: version 7 does not read 0x%02x", cases,
+                     frame[0]);
+        } else if (answered != MESH_TERN_IS_REQUEST(frame[0]) ||
+                   (answered && answer != MESH_TERN_ERR_UNKNOWN) ||
+                   mesh_tern_frame_since(frame, len) <= version) {
+            snprintf(failure, sizeof failure, "case %zu: a request is ERROR 1, the rest unanswered",
+                     cases);
+        }
+        cases += 1U;
+    }
+    free(document);
+    MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
+    MESH_TEST_FAIL_IF(cases != 18U, "all 18 unknown_to_older vectors");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_a_number_wider_in_one_frame_is_written_clamped_to_the_narrower, unit) {
+    uint8_t out[MESH_TERN_MAX_FRAME];
+    /* A card heard a day ago fits a CARD's four bytes; a neighbour's two say 0xFFFF. */
+    struct mesh_tern_frame frame = {.type = MESH_TERN_NEIGHBOUR, .heard = 86399U};
+    MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, MESH_TERN_VERSION, out, sizeof out) != 10 ||
+                          out[8] != 0xFFU || out[9] != 0xFFU,
+                      "a NEIGHBOUR's heard is at most 0xFFFF");
+    frame = (struct mesh_tern_frame){.type = MESH_TERN_POSITION, .accuracy = 300U, .age = 1U};
+    MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, MESH_TERN_VERSION, out, sizeof out) != 50 ||
+                          out[45] != 0xFFU,
+                      "and a POSITION's accuracy at most 255");
+    struct mesh_tern_frame decoded;
+    static const uint8_t altitude[] = {
+        MESH_TERN_SET_POSITION, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x00, 0, 4, 0, 3};
+    MESH_TEST_FAIL_IF(mesh_tern_decode(altitude, sizeof altitude, MESH_TERN_VERSION, &decoded) !=
+                              MESH_TERN_DECODE_OK ||
+                          decoded.altitude != MESH_TERN_NO_ALTITUDE || decoded.accuracy != 4U ||
+                          decoded.age != 3U,
+                      "an i16 reads signed: -32768 is no altitude");
+    /* A node of version 7 writes INFO's board and release; a client of version 3 reads its
+       INFO by 3, and one of 7 the INFO of a version 3 node by 3. */
+    frame = (struct mesh_tern_frame){.type = MESH_TERN_INFO,
+                                     .version = 3U,
+                                     .text_len = 4U,
+                                     .text = "tern",
+                                     .board_len = 2U,
+                                     .board = "hx"};
+    MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, MESH_TERN_VERSION, out, sizeof out) != 8,
+                      "INFO is written by the version it carries, when that is less");
     record_success(test_name);
 }
