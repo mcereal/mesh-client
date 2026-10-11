@@ -1,3 +1,16 @@
+## [2.76.0](https://github.com/mcereal/mesh-client/compare/v2.75.1...v2.76.0) (2026-10-11)
+
+### Features
+
+* **tern:** speak Tern's companion protocol as a third conversation ([a7fcb1d](https://github.com/mcereal/mesh-client/commit/a7fcb1da05ed0fa1ba9c201f6a230072f497c8de))
+* **tern:** speak version 3 of the companion protocol ([872fc23](https://github.com/mcereal/mesh-client/commit/872fc23222f90a25638a5bb9fad9f6709df72abc))
+
+### Bug Fixes
+
+* **tern:** scope message ids to the node, and apply a gap's news live ([bec3744](https://github.com/mcereal/mesh-client/commit/bec37441ce60de754250b286ef9b55349748f0e0))
+* **waypoint:** an expired place's lock binds nobody ([50d64b5](https://github.com/mcereal/mesh-client/commit/50d64b53e7cab5e3fb231b0afe0b14e0ae85bcb9))
+* **waypoint:** keep a locked place locked against other senders ([c4582f5](https://github.com/mcereal/mesh-client/commit/c4582f5cf7dfdab14e005123ec2421f274388027))
+
 ## [2.75.1](https://github.com/mcereal/mesh-client/compare/v2.75.0...v2.75.1) (2026-10-02)
 
 ### Bug Fixes
