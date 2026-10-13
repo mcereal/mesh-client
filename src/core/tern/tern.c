@@ -1341,7 +1341,14 @@ static void mesh_tern_synced(struct mesh_tern *tern, const struct mesh_tern_fram
     }
     /* Before version 8 the node says nothing of its fix: one from an earlier connection is no
        longer known to be its own, and its receiver is no longer one this client can switch. */
-    if (mesh_tern_spoken(tern) < 8U) {
+    if (mesh_tern_spoken(tern) < 8U && tern->has_fix) {
+        /* SELF put the old fix back on the radio's roster entry as the sync began: take it off
+           with it, or the map goes on showing a position nothing now vouches for. */
+        struct mesh_node_summary *node =
+            tern->has_self ? mesh_tern_roster_node(tern, tern->self_node) : NULL;
+        if (node != NULL) {
+            memset(&node->position, 0, sizeof node->position);
+        }
         tern->has_fix = false;
     }
     tern->has_synced_version = true;

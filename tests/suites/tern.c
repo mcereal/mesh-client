@@ -1361,9 +1361,16 @@ MESH_TEST_CASE(tern_the_nodes_own_fix_is_the_radios_position, unit) {
     MESH_TEST_FAIL_IF(model_node(self_id)->position.valid || !g_tern.has_fix ||
                           g_tern.fix.receiver != MESH_TERN_RECEIVER_ON || g_tern.fix.lat != 0,
                       "no source is no position, and an unnamed receiver state is on");
-    /* A version 7 sync says nothing of a fix: what the last connection said is not kept. */
+    /* A version 7 sync says nothing of a fix: what the last connection said is not kept, on
+       the conversation or on the radio's roster entry, which SELF put it back on. */
+    fix.seq = g_tern.news_expected;
+    fix.source = MESH_TERN_FIX_RECEIVER;
+    news(&protocol, &fix);
+    MESH_TEST_FAIL_IF(!model_node(self_id)->position.valid, "a fix again before the link drops");
     MESH_TEST_FAIL_IF(!reconnect_at(&protocol, &wire, 7U) || g_tern.has_fix,
                       "a node of version 7 has no receiver this client can switch");
+    MESH_TEST_FAIL_IF(model_node(self_id)->position.valid,
+                      "and the last connection's fix is not shown as the radio's position");
     MESH_TEST_FAIL_IF(mesh_tern_set_receiver(&g_tern, false) != -EOPNOTSUPP,
                       "and SET 7 is refused here, not sent");
     MESH_TEST_FAIL_IF(
