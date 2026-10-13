@@ -1496,6 +1496,8 @@ a frame (`key ... 3` emits three). Worked examples are in `devtools/ui_capture/s
 | `verified NAME`, `verify waiting\|show\|enter\|compare\|off NAME` | the key-verification bit, and the sheet |
 | `login NAME unsaid\|guest\|read-only\|read-write\|admin` | a MeshCore server's last login answer for that node, five minutes old |
 | `card NAME [TEXT]` | a Tern presence card from that node, carrying TEXT as its name, 21 minutes old |
+| `protocol meshtastic\|meshcore\|tern [VERSION]` | the protocol on the link, from the table the publish reads; for `tern`, the companion VERSION its features follow |
+| `receiver none\|off\|on\|fixed [SATELLITES]` | a Tern node's satellite receiver and whose fix its position is, as its FIX says; before `protocol tern` |
 | `pin NAME` | pin that node |
 
 Most of those verbs exist because **no press can reach the state**: a Routing reply arrives after

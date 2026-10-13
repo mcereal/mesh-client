@@ -2812,6 +2812,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     mesh_ui_store_tick(&app->ui_store, inkwell_time_monotonic_ms());
     mesh_app_take_tern_sends(app);
+    mesh_app_take_tern_off(app);
     mesh_app_report_delivery(app);
     mesh_app_report_radio_notices(app);
     mesh_app_report_meshcore_answers(app);
@@ -3349,6 +3350,21 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     /* And which protocol the link speaks: the one the transports were handed in app.c. */
     const struct mesh_protocol protocol = mesh_app_protocol(app);
     mesh_ui_protocol_features(&protocol, &ui_settings.protocol, &ui_settings.protocol_lacks);
+    /* A Tern node's features follow the version spoken on the link, and its receiver the node:
+       FIX says whether it has one, and where its position came from. */
+    if (app->tern_bound) {
+        const struct mesh_tern *tern = &app->tern;
+        const bool has_receiver = tern->has_fix && tern->fix.receiver != MESH_TERN_RECEIVER_NONE;
+        ui_settings.protocol_lacks =
+            mesh_ui_protocol_tern_lacks(tern->has_agreed ? tern->agreed : 0U, has_receiver);
+        if (tern->has_fix) {
+            /* Version 8's FIX is what Position is made of, so the section is there once it says. */
+            ui_settings.has_position = true;
+            ui_settings.receiver = tern->fix.receiver;
+            ui_settings.fix_source = tern->fix.source;
+            ui_settings.fix_satellites = tern->fix.satellites;
+        }
+    }
     if (app->meshcore_bound) {
         ui_settings.direct_text_max = (uint16_t)mesh_meshcore_text_max(&app->meshcore, 0U);
         ui_settings.channel_text_max =

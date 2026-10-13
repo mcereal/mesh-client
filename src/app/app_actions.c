@@ -848,7 +848,8 @@ static void on_radio_action(struct mesh_app *app, const struct mesh_ui_action *a
         return;
     }
     /* MeshCore has a reboot and none of the rest; the rows for the rest are not listed for it
-       (MESH_UI_FEATURE_RADIO_MAINTENANCE), so a press that gets here anyway is refused. */
+       (MESH_UI_FEATURE_RADIO_MAINTENANCE, MESH_UI_FEATURE_RADIO_OFF), so a press that gets here
+       anyway is refused. */
     int result = 0;
     /* The three that replace what the radio holds - with its defaults, or with whatever its
        flash copy was - are the ones worth a copy of what it held first. */
@@ -860,6 +861,12 @@ static void on_radio_action(struct mesh_app *app, const struct mesh_ui_action *a
     if (app->meshcore_bound) {
         result =
             row == MESH_UI_SETTINGS_ACTION_REBOOT ? mesh_meshcore_reboot(&app->meshcore) : -ENOTSUP;
+    } else if (app->tern_bound) {
+        /* Tern's one radio verb is OFF (version 9; MESH_UI_FEATURE_RADIO_OFF lists the row). How
+           it ends is said by mesh_app_take_tern_off(); asked twice is the same OFF. */
+        const int off =
+            row == MESH_UI_SETTINGS_ACTION_SHUTDOWN ? mesh_tern_turn_off(&app->tern) : -ENOTSUP;
+        result = off == 0 ? 1 : (off == -EALREADY ? 0 : off);
     } else {
         result = mesh_session_radio_action(&app->session, verb->kind);
     }
@@ -1579,6 +1586,57 @@ static void on_forget_waypoint(struct mesh_app *app, const struct mesh_ui_action
     mesh_app_publish_ui_state(app);
 }
 
+/*
+ * Every transport gets its own arm, and the last one is not an "everything else".
+ * mesh_app_active_transport() can name any of the three, and each of these casts
+ * transport->state to its own struct - so a link routed to the wrong one is not a
+ * disconnect that fails, it is a read of one transport's state through another's type.
+ */
+static int disconnect_transport(struct mesh_transport *transport) {
+    if (transport == mesh_serial_transport()) {
+        return mesh_serial_transport_disconnect(transport);
+    }
+    if (transport == mesh_tcp_transport()) {
+        return mesh_tcp_transport_disconnect(transport);
+    }
+    if (transport == mesh_ble_transport()) {
+        return mesh_ble_transport_disconnect(transport);
+    }
+    return -ENOTCONN;
+}
+
+void mesh_app_take_tern_off(struct mesh_app *app) {
+    if (app == NULL || !app->tern_bound) {
+        return;
+    }
+    uint8_t code = 0U;
+    const enum mesh_tern_off off = mesh_tern_take_off(&app->tern, &code);
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    switch (off) {
+    case MESH_TERN_OFF_DONE:
+        /* The node is turning off and nothing here turns it on again: auto-connect would only
+           spend the next minutes asking an empty room. Held as an explicit disconnect is, and the
+           link stood down now rather than left for a port that may stay open on a cable. */
+        app->autoconnect_held = true;
+        app->ui_report_link_error = false;
+        (void)disconnect_transport(mesh_app_active_transport());
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_RADIO_OFF));
+        inkwell_log_info("ui", "Tern node turned off; auto-connect held");
+        break;
+    case MESH_TERN_OFF_REFUSED:
+        inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_REQUEST_FAILED, (int)code);
+        inkwell_log_warn("ui", "Tern node refused OFF (error %u)", (unsigned)code);
+        break;
+    case MESH_TERN_OFF_UNCONFIRMED:
+        inkwell_str_copy(toast, sizeof toast, inkcell_str(MESH_STR_TOAST_RADIO_OFF_UNCONFIRMED));
+        inkwell_log_warn("ui", "Tern node did not answer OFF");
+        break;
+    default:
+        return;
+    }
+    mesh_ui_store_set_toast(&app->ui_store, inkwell_time_monotonic_ms(), toast);
+}
+
 static void on_disconnect(struct mesh_app *app, const struct mesh_ui_action *action) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const uint64_t now = inkwell_time_monotonic_ms();
@@ -1590,20 +1648,7 @@ static void on_disconnect(struct mesh_app *app, const struct mesh_ui_action *act
              action->identifier[0] != '\0' ? action->identifier
                                            : (identifier != NULL ? identifier : ""));
 
-    /*
-     * Every transport gets its own arm, and the last one is not an "everything else".
-     * mesh_app_active_transport() can name any of the three, and each of these casts
-     * transport->state to its own struct - so a link routed to the wrong one is not a
-     * disconnect that fails, it is a read of one transport's state through another's type.
-     */
-    int result = -ENOTCONN;
-    if (transport == mesh_serial_transport()) {
-        result = mesh_serial_transport_disconnect(transport);
-    } else if (transport == mesh_tcp_transport()) {
-        result = mesh_tcp_transport_disconnect(transport);
-    } else if (transport == mesh_ble_transport()) {
-        result = mesh_ble_transport_disconnect(transport);
-    }
+    const int result = disconnect_transport(transport);
 
     if (result == 0) {
         /* Holding auto-connect is the point of the press: without it the next loop turn

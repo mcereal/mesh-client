@@ -532,8 +532,8 @@ enum mesh_ui_feature {
        the MQTT and ham rows. Without it Settings lists User, LoRa, Position and Channels, each
        cut to what the protocol has. */
     MESH_UI_FEATURE_FULL_CONFIG = 1U << 11,
-    /* The radio's maintenance verbs beyond a reboot: shut down, reset the NodeDB, back up and
-       restore, factory reset. */
+    /* The radio's maintenance verbs beyond a reboot and turning it off: reset the NodeDB, back up
+       and restore, factory reset. */
     MESH_UI_FEATURE_RADIO_MAINTENANCE = 1U << 12,
     /* Taking a node off the radio's list. */
     MESH_UI_FEATURE_NODE_REMOVE = 1U << 13,
@@ -561,10 +561,17 @@ enum mesh_ui_feature {
     MESH_UI_FEATURE_NODE_PATH = 1U << 21,
     /* Sending a contact's advert again to the nodes in earshot: MeshCore's SHARE_CONTACT. */
     MESH_UI_FEATURE_NODE_SHARE = 1U << 22,
+    /* Turning the radio off from here, which only its own button turns on again: Meshtastic's
+       shutdown, and Tern's OFF from companion version 9 (mesh_ui_protocol_tern_lacks()). */
+    MESH_UI_FEATURE_RADIO_OFF = 1U << 23,
+    /* Switching the radio's satellite receiver on and off as a row of its own, with where its
+       position came from beside it: a Tern node with a receiver, from companion version 8.
+       Meshtastic's GPS row is part of MESH_UI_FEATURE_FULL_CONFIG instead. */
+    MESH_UI_FEATURE_RADIO_RECEIVER = 1U << 24,
 };
 
 /* Every bit above: what a protocol this client has no row for lacks. */
-#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_NODE_SHARE << 1) - 1U))
+#define MESH_UI_FEATURES_ALL ((uint32_t)((MESH_UI_FEATURE_RADIO_RECEIVER << 1) - 1U))
 
 /*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so the
@@ -919,6 +926,13 @@ struct mesh_ui_settings {
     bool has_own_altitude;
     int32_t own_altitude; /* metres above sea level */
     uint8_t gps_mode;     /* 0 disabled, 1 enabled, 2 not present */
+    /* A radio that says where its position came from (MESH_UI_FEATURE_RADIO_RECEIVER): its
+       satellite receiver as it is now - 0 none, 1 off, 2 on without a fix, 3 on with one - whose
+       fix the position is - 0 none, 1 the receiver's, 2 one a client gave it - and how many
+       satellites made it, 0 when unsaid. A Tern node's FIX, number for number. */
+    uint8_t receiver;
+    uint8_t fix_source;
+    uint8_t fix_satellites;
     uint32_t position_broadcast_secs;
     bool position_broadcast_smart_enabled;
     bool fixed_position;

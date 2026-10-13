@@ -1785,6 +1785,30 @@ static int mesh_app_meshcore_settings_write(struct mesh_app *app,
     return mesh_meshcore_write_settings(&app->meshcore, &write);
 }
 
+/*
+ * A Tern node's one setting a screen offers: its satellite receiver, in Position. The answer is
+ * the FIX that follows, which the row reads back, so there is nothing to track: 1 once queued,
+ * as an admin write counts its requests, or a negative errno as the save's toast reads them.
+ */
+static int mesh_app_tern_settings_write(struct mesh_app *app, const struct mesh_ui_action *action) {
+    if ((enum mesh_ui_settings_section)action->section != MESH_UI_SETTINGS_POSITION) {
+        return -ENOTSUP;
+    }
+    int sent = 0;
+    for (uint8_t i = 0; i < action->edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
+        const struct mesh_ui_setting_edit *edit = &action->edits[i];
+        if ((enum mesh_ui_setting_field)edit->field != MESH_UI_FIELD_POSITION_RECEIVER) {
+            continue;
+        }
+        const int result = mesh_tern_set_receiver(&app->tern, edit->number != 0U);
+        if (result < 0) {
+            return result == -EOPNOTSUPP ? -ENOTSUP : result;
+        }
+        sent += 1;
+    }
+    return sent > 0 ? sent : -ENOTSUP;
+}
+
 void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *action,
                             uint64_t now) {
     char toast[MESH_UI_NAV_TOAST_MAX];
@@ -1803,6 +1827,15 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
     mesh_app_backup_before(app, MESH_RADIO_BACKUP_BEFORE_WRITE);
     if (app->meshcore_bound) {
         result = mesh_app_meshcore_settings_write(app, action);
+    } else if (app->tern_bound) {
+        result = mesh_app_tern_settings_write(app, action);
+        if (result > 0) {
+            /* Nothing to wait on: the row shows the node's FIX as it comes. */
+            mesh_ui_store_settings_edits_consumed(&app->ui_store, MESH_UI_SETTING_CONSUMER_SECTION);
+            inkcell_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVING_SECTION, section_name);
+            mesh_ui_store_set_toast(&app->ui_store, now, toast);
+            return;
+        }
     } else {
         result =
             mesh_app_build_settings_write(mesh_session_settings(&app->session), action, &write);

@@ -1436,6 +1436,8 @@ MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE_DOUBLE_TAP,           "Lets a double tap on 
 MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_GPS_MODE,           "Whether the radio's own GPS is powered, switched off, or absent from the board. With it off the radio knows only the fixed position typed in by hand.")
 MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_BROADCAST,          "How often the radio sends its position on a plain timer. Every send is airtime on a band everyone shares, so a node that stays in one place rarely needs a short one.")
 MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_GPS_INTERVAL,       "How often the GPS is woken to take a fix. Waking it more often keeps the position fresh and is one of the largest drains on the battery a radio has.")
+/* A Tern node's satellite receiver, which the node keeps on until told otherwise. */
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_RECEIVER,           "Whether the radio runs its own satellite receiver. Off, it takes no new fix and keeps its last. A receiver can draw more than the radio itself, and switching it sends nothing on the air.")
 MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_ALTITUDE,      "Sends how high the radio is along with where it is. Everything under it refines that height, and none of those rows does anything while this one is off.")
 MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_ALTITUDE_MSL,  "Reports height above sea level instead of above the mathematical shape of the earth. The two differ by tens of metres, so a mesh should agree on one.")
 MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FLAG_GEOIDAL,       "Sends the gap between those two ways of measuring height, so a receiver can convert one into the other rather than guessing which was meant.")
@@ -1812,6 +1814,15 @@ MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_SMART,             "Smart broadcast")
 MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_SMART_DISTANCE,    "Smart distance")
 MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_SMART_INTERVAL,    "Smart interval")
 MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_GPS_INTERVAL,      "GPS interval")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_RECEIVER,          "Satellite receiver")
+/* Where the position above came from, on a radio that says (a Tern node's own fix): its own
+   receiver's, with how many satellites when it says; one this client gave it; or none yet. */
+MESH_STR_ENTRY(SETTINGS_POSITION_FIX,                     "Fix")
+MESH_STR_ENTRY(SETTINGS_POSITION_FIX_RECEIVER,            "From its receiver")
+MESH_STR_PLURAL_ENTRY(SETTINGS_POSITION_FIX_SATELLITES,   "From its receiver, %u satellite", "From its receiver, %u satellites")
+MESH_STR_ENTRY(SETTINGS_POSITION_FIX_CLIENT,              "Given by a client")
+MESH_STR_ENTRY(SETTINGS_POSITION_FIX_SEARCHING,           "None yet; searching")
+MESH_STR_ENTRY(SETTINGS_POSITION_FIX_NONE,                "None")
 /* PositionConfig.position_flags, one row per bit. Labels are what the field is rather than
    what the protobuf calls it: SATINVIEW is "Satellites" and SEQ_NO a "Sequence number". */
 MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_FLAG_ALTITUDE,     "Altitude")
@@ -3111,6 +3122,10 @@ MESH_STR_ENTRY(TOAST_REBOOTING,           "Rebooting; reconnecting shortly")
 MESH_STR_ENTRY(TOAST_ADVERT_NEARBY,       "Asked the radio to advert nearby")
 MESH_STR_ENTRY(TOAST_ADVERT_FLOOD,        "Asked the radio to flood an advert")
 MESH_STR_ENTRY(TOAST_SHUTTING_DOWN,       "Shutting down; switch it on by hand")
+/* A radio that said it is turning off, and the one that never answered: auto-connect leaves the
+   first alone until the user connects; the second may have gone off, or may have gone away. */
+MESH_STR_ENTRY(TOAST_RADIO_OFF,           "Radio off; switch it on by hand, then connect")
+MESH_STR_ENTRY(TOAST_RADIO_OFF_UNCONFIRMED, "No answer; the radio may be off")
 MESH_STR_ENTRY(TOAST_NODEDB_RESET,        "Radio DB reset; Brick's list kept (forget it below)")
 MESH_STR_ENTRY(TOAST_FACTORY_CONFIG,      "Factory reset sent; radio restarting")
 MESH_STR_ENTRY(TOAST_FACTORY_DEVICE,      "Factory reset sent; forget it in Devices")

@@ -1,0 +1,37 @@
+# A Tern node's own fix and its satellite receiver (companion version 8), and turning the node off
+# (version 9).
+#
+# Position is where the node takes itself to be - its receiver's fix or the last a client gave it -
+# read here rather than typed, then the receiver as a switch and whose fix it is under it. Off, the
+# last fix stays the node's. The Radio card's details end on Shutdown, the row Meshtastic's
+# shutdown uses, behind the same confirm; for a Tern node the press sends OFF.
+
+scene demo
+scale 4
+delay 300
+config
+receiver fixed 9
+protocol tern 9
+tab settings
+hold 800
+# Position is the second of the four sections a Tern node has.
+key down 1
+key a
+hold 1600
+key down 2
+key right
+hold 1600
+key b
+key b
+tab radio
+hold 900
+# The Radio card's details, and down to Power.
+key down 9
+key up
+key a
+hold 1200
+key down 40
+key up
+hold 1600
+key a
+hold 2400

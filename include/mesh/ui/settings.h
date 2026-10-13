@@ -566,6 +566,9 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_BEACON_TARGET_3_PRESET,
     MESH_UI_FIELD_BEACON_TARGET_3_REGION,
     MESH_UI_FIELD_BEACON_TARGET_3_CHANNEL,
+    /* A Tern node's satellite receiver, on or off (SET 7), listed in Position where the radio
+       has one (MESH_UI_FEATURE_RADIO_RECEIVER). */
+    MESH_UI_FIELD_POSITION_RECEIVER,
     MESH_UI_FIELD_COUNT,
 };
 

@@ -396,6 +396,9 @@ void mesh_app_bind_protocol(struct mesh_app *app, enum mesh_app_protocol protoco
 
 /* Hands each Tern send the node has answered to the delivery watch, or says it was refused. */
 void mesh_app_take_tern_sends(struct mesh_app *app);
+/* How a Tern OFF ended, said once: a node turning off stands the link down and holds
+   auto-connect until the user connects again; one that never answered is said as such. */
+void mesh_app_take_tern_off(struct mesh_app *app);
 
 /*
  * A serial or network link says nothing about the firmware behind it, so it is asked: opened
