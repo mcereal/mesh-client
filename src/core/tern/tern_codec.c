@@ -92,6 +92,7 @@ static const struct {
     {MESH_TERN_PING, 0U, {{0}}},
     {MESH_TERN_SET_TIME, 0U, {F_U32(time)}},
     {MESH_TERN_SET, 0U, {F_U8(setting), F_SET}},
+    {MESH_TERN_OFF, 9U, {{0}}},
     {MESH_TERN_SEND, 0U, {F_U32(ref), F_ADDR, F_STR(MESH_TERN_TEXT_MAX)}},
     {MESH_TERN_READ, 0U, {F_U32(through)}},
     {MESH_TERN_SAVE_CONTACT, 0U, {F_ADDR, F_STR(MESH_TERN_NAME_MAX)}},
@@ -157,6 +158,11 @@ static const struct {
     {MESH_TERN_GROUP_SHARING, 5U, {F_GID, F_SHARING}},
     {MESH_TERN_CARD, 6U, {F_ADDR, F_U32(heard), F_STR(MESH_TERN_NAME_MAX)}},
     {MESH_TERN_CARD_GONE, 6U, {F_ADDR}},
+    /* The node's own fix: accuracy two bytes, as SET_POSITION's, and age four, as POSITION's. */
+    {MESH_TERN_FIX,
+     8U,
+     {F_U8(receiver), F_U8(source), F_I32(lat), F_I32(lon), F_I16(altitude), F_U16(accuracy),
+      F_U32(age), F_U8(satellites)}},
 };
 
 /* The fields of `type` as `version` defines them, or NULL for a type it does not. */
@@ -188,6 +194,8 @@ uint8_t mesh_tern_setting_since(uint8_t setting) {
     case MESH_TERN_SETTING_CARDS:
     case MESH_TERN_SETTING_CARD_NAME:
         return 6U;
+    case MESH_TERN_SETTING_RECEIVER:
+        return 8U;
     }
     return UINT8_MAX;
 }
@@ -227,6 +235,9 @@ static bool mesh_tern_set_field(uint8_t setting, uint8_t version, struct mesh_te
         return true;
     case MESH_TERN_SETTING_CARD_NAME:
         *out = (struct mesh_tern_field)F_STR(MESH_TERN_NAME_MAX);
+        return true;
+    case MESH_TERN_SETTING_RECEIVER:
+        *out = (struct mesh_tern_field)F_U8(receiver);
         return true;
     }
     return false;

@@ -31,7 +31,12 @@
  * no further: the model has no shape for a group that a screen would not take for a channel or a
  * direct message. What they do reach is the sync, which has to know which of their ids may still
  * change. So with a group member's position and with sharing (version 5): kept here. A contact's
- * position and a presence card (version 6) are the node's own, and go on its roster entry too.
+ * position and a presence card (version 6) are the node's own, and go on its roster entry too, as
+ * the node's own fix (version 8) goes on the radio's.
+ *
+ * OFF (version 9) is the one request after which the conversation says nothing more: once the node
+ * answers OK it is TURNED_OFF until the next begin(), so the drop that follows is not taken for a
+ * node gone quiet, and mesh_tern_turned_off() tells the app not to open the link again by itself.
  */
 
 /* Meshtastic's role numbers, which the roster's `role` is read in: a relay forwards like a
@@ -65,6 +70,10 @@ static void mesh_tern_pump(struct mesh_tern *tern) {
                          (unsigned)dropped->frame[0], (unsigned)mesh_tern_spoken(tern));
         if (dropped->ticket != 0U) {
             mesh_tern_note_queued(tern, dropped->ticket, 0U);
+        }
+        if (dropped->frame[0] == MESH_TERN_OFF) {
+            tern->off = MESH_TERN_OFF_REFUSED;
+            tern->off_code = MESH_TERN_ERR_UNKNOWN;
         }
         mesh_tern_pop(tern);
     }
@@ -387,6 +396,7 @@ static void mesh_tern_forget_books(struct mesh_tern *tern) {
     tern->group_position_count = 0U;
     tern->sharing_count = 0U;
     tern->card_count = 0U;
+    tern->has_fix = false;
     tern->newest_id = 0U;
     tern->has_synced_version = false;
     tern->has_missed_since = false;
@@ -395,6 +405,7 @@ static void mesh_tern_forget_books(struct mesh_tern *tern) {
 
 static void mesh_tern_update_finish(struct mesh_tern *tern, enum mesh_tern_update_outcome outcome,
                                     uint8_t code);
+static void mesh_tern_place_self(struct mesh_tern *tern);
 
 static void mesh_tern_store_self(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
     /* An update begun on another node is that node's image: never begun again on this one. */
@@ -432,6 +443,7 @@ static void mesh_tern_store_self(struct mesh_tern *tern, const struct mesh_tern_
     if (now > node->last_heard) {
         node->last_heard = now;
     }
+    mesh_tern_place_self(tern);
 }
 
 static void mesh_tern_store_power(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
@@ -795,6 +807,55 @@ static void mesh_tern_place_node(struct mesh_tern *tern, const uint8_t *address,
     node->position.precision_bits = held->precision;
 }
 
+/*
+ * The node's own fix onto the radio's roster entry, which is where the Map tab centres and where
+ * Settings' Position reads its coordinates: the fix the node shares from, whoever made it. A FIX
+ * with no source takes it off. Before SELF has named the node it waits in `fix` for it.
+ */
+static void mesh_tern_place_self(struct mesh_tern *tern) {
+    struct mesh_node_summary *node =
+        tern->has_self && tern->has_fix ? mesh_tern_roster_node(tern, tern->self_node) : NULL;
+    if (node == NULL) {
+        return;
+    }
+    const struct mesh_tern_fix *fix = &tern->fix;
+    memset(&node->position, 0, sizeof node->position);
+    if (fix->source == MESH_TERN_FIX_NONE) {
+        return;
+    }
+    node->position.valid = true;
+    node->position.latitude_i = fix->lat;
+    node->position.longitude_i = fix->lon;
+    node->position.has_altitude = fix->altitude != MESH_TERN_NO_ALTITUDE;
+    node->position.altitude = node->position.has_altitude ? fix->altitude : 0;
+    node->position.time = fix->fixed;
+    node->position.received =
+        tern->phase == MESH_TERN_SYNCING ? 0U : inkwell_time_wall_credible_s();
+    node->position.sats_in_view = fix->satellites;
+    /* The node's own fix is not rounded to a cell: that happens only on the way to the air. */
+    node->position.precision_bits = 0U;
+}
+
+/* FIX: where the node takes itself to be, and its receiver. A record: it replaces the last. */
+static void mesh_tern_store_fix(struct mesh_tern *tern, const struct mesh_tern_frame *frame) {
+    struct mesh_tern_fix *fix = &tern->fix;
+    memset(fix, 0, sizeof *fix);
+    /* A receiver state this version does not name is one that is on. */
+    fix->receiver = frame->receiver <= MESH_TERN_RECEIVER_FIXED ? frame->receiver
+                                                                : (uint8_t)MESH_TERN_RECEIVER_ON;
+    fix->source = frame->source <= MESH_TERN_FIX_CLIENT ? frame->source : MESH_TERN_FIX_NONE;
+    if (fix->source != MESH_TERN_FIX_NONE) {
+        fix->lat = frame->lat;
+        fix->lon = frame->lon;
+        fix->altitude = frame->altitude;
+        fix->accuracy = frame->accuracy;
+        fix->satellites = frame->source == MESH_TERN_FIX_RECEIVER ? frame->satellites : 0U;
+        fix->fixed = mesh_tern_ago(frame->age);
+    }
+    tern->has_fix = true;
+    mesh_tern_place_self(tern);
+}
+
 static size_t mesh_tern_position_find(const struct mesh_tern_position *list, size_t count,
                                       const struct mesh_tern_frame *frame) {
     for (size_t i = 0; i < count; ++i) {
@@ -1056,6 +1117,9 @@ static void mesh_tern_apply_news(struct mesh_tern *tern, const struct mesh_tern_
     case MESH_TERN_CARD_GONE:
         mesh_tern_drop_card(tern, frame.address);
         break;
+    case MESH_TERN_FIX:
+        mesh_tern_store_fix(tern, &frame);
+        break;
     default:
         break;
     }
@@ -1275,6 +1339,11 @@ static void mesh_tern_synced(struct mesh_tern *tern, const struct mesh_tern_fram
             }
         }
     }
+    /* Before version 8 the node says nothing of its fix: one from an earlier connection is no
+       longer known to be its own, and its receiver is no longer one this client can switch. */
+    if (mesh_tern_spoken(tern) < 8U) {
+        tern->has_fix = false;
+    }
     tern->has_synced_version = true;
     tern->synced_version = mesh_tern_spoken(tern);
     tern->has_missed_since = false;
@@ -1323,6 +1392,23 @@ static void mesh_tern_begin_sync(struct mesh_tern *tern, uint32_t after) {
 
 static int mesh_tern_hello(struct mesh_tern *tern);
 
+/* OK to OFF: the node turns off once its answer has gone. Nothing queued behind the OFF is sent -
+   there is nobody to answer it - and a SEND among it is ended as refused. */
+static void mesh_tern_now_off(struct mesh_tern *tern) {
+    inkwell_log_info("tern", "Node answered OFF; it is turning off");
+    tern->off = MESH_TERN_OFF_DONE;
+    tern->off_taken = false;
+    while (tern->queue_count > 0U) {
+        const uint32_t ticket = tern->queue[tern->queue_head].ticket;
+        if (ticket != 0U) {
+            mesh_tern_note_queued(tern, ticket, 0U);
+        }
+        mesh_tern_pop(tern);
+    }
+    mesh_tern_update_lost(tern);
+    tern->phase = MESH_TERN_TURNED_OFF;
+}
+
 static void mesh_tern_on_answer(struct mesh_tern *tern, const uint8_t *raw, size_t len) {
     if (!tern->awaiting || tern->queue_count == 0U ||
         raw[1] != tern->queue[tern->queue_head].frame[1]) {
@@ -1349,6 +1435,11 @@ static void mesh_tern_on_answer(struct mesh_tern *tern, const uint8_t *raw, size
                          (unsigned)frame.code);
         if (asked == MESH_TERN_SEND) {
             mesh_tern_note_queued(tern, ticket, 0U);
+        }
+        if (asked == MESH_TERN_OFF) {
+            tern->off = MESH_TERN_OFF_REFUSED;
+            tern->off_code = frame.code;
+            tern->off_taken = false;
         }
         if (asked == MESH_TERN_UPDATE_BEGIN || asked == MESH_TERN_UPDATE_DATA ||
             asked == MESH_TERN_UPDATE_END) {
@@ -1412,6 +1503,12 @@ static void mesh_tern_on_answer(struct mesh_tern *tern, const uint8_t *raw, size
     case MESH_TERN_UPDATE_END:
         mesh_tern_update_answer(tern, asked, &frame, 0U);
         break;
+    case MESH_TERN_OFF:
+        if (frame.type == MESH_TERN_OK) {
+            mesh_tern_now_off(tern);
+            return;
+        }
+        break;
     default:
         break;
     }
@@ -1431,6 +1528,11 @@ static int mesh_tern_refuse(void *ctx, const uint8_t *frame, size_t len, uint32_
 }
 
 static void mesh_tern_reset_link(struct mesh_tern *tern) {
+    /* An OFF the link went before answering may or may not have been acted on. */
+    if (tern->off == MESH_TERN_OFF_ASKED) {
+        tern->off = MESH_TERN_OFF_UNCONFIRMED;
+        tern->off_taken = false;
+    }
     inkwell_wipe(tern->queue, sizeof tern->queue);
     mesh_tern_update_lost(tern);
     tern->queue_head = 0U;
@@ -1474,6 +1576,10 @@ static int mesh_tern_begin(void *self) {
         return -ENOTCONN;
     }
     tern->now_ms = inkwell_time_monotonic_ms();
+    /* A new connection: whichever node answers it is on, whatever the last was told. */
+    if (tern->off == MESH_TERN_OFF_DONE) {
+        tern->off = MESH_TERN_OFF_NONE;
+    }
     mesh_session_model_sync_begin(tern->model);
     return mesh_tern_hello(tern);
 }
@@ -1507,13 +1613,20 @@ static void mesh_tern_frame_failed(void *self, uint32_t frame_id) {
 static void mesh_tern_tick(void *self, uint64_t now_ms) {
     struct mesh_tern *tern = self;
     tern->now_ms = now_ms;
-    if (tern->send == NULL || tern->phase == MESH_TERN_IDLE) {
+    if (tern->send == NULL || tern->phase == MESH_TERN_IDLE ||
+        tern->phase == MESH_TERN_TURNED_OFF) {
         return;
     }
     if (tern->awaiting && now_ms >= tern->awaiting_since_ms &&
         now_ms - tern->awaiting_since_ms >= MESH_TERN_ANSWER_WAIT_MS) {
         inkwell_log_warn("tern", "Request 0x%02x unanswered after %u ms; the node has gone",
                          (unsigned)mesh_tern_head_type(tern), (unsigned)MESH_TERN_ANSWER_WAIT_MS);
+        if (mesh_tern_head_type(tern) == MESH_TERN_OFF) {
+            /* A node that is off does not answer; one that is on did not. Either way it is gone,
+               and the user may send OFF again. */
+            tern->off = MESH_TERN_OFF_UNCONFIRMED;
+            tern->off_taken = false;
+        }
         mesh_tern_pop(tern);
         tern->gone = true;
         return;
@@ -1610,7 +1723,10 @@ static int mesh_tern_put_text(struct mesh_tern_frame *frame, const char *text, s
 }
 
 static int mesh_tern_connected(const struct mesh_tern *tern) {
-    return tern->send == NULL || tern->phase == MESH_TERN_IDLE ? -ENOTCONN : 0;
+    return tern->send == NULL || tern->phase == MESH_TERN_IDLE ||
+                   tern->phase == MESH_TERN_TURNED_OFF
+               ? -ENOTCONN
+               : 0;
 }
 
 int mesh_tern_send_text(struct mesh_tern *tern, uint32_t dest, const char *text,
@@ -1738,7 +1854,7 @@ int mesh_tern_mark_read(struct mesh_tern *tern, uint32_t through) {
     if (tern == NULL || through == 0U) {
         return -EINVAL;
     }
-    if (tern->send == NULL || tern->phase == MESH_TERN_IDLE) {
+    if (mesh_tern_connected(tern) < 0) {
         return -ENOTCONN;
     }
     const struct mesh_tern_frame frame = {.type = MESH_TERN_READ,
@@ -1787,8 +1903,53 @@ int mesh_tern_set_value(struct mesh_tern *tern, uint8_t setting, uint32_t value)
                                           .role = (uint8_t)value,
                                           .power = (int8_t)(uint8_t)value,
                                           .passkey = value,
-                                          .cards = (uint8_t)value};
+                                          .cards = (uint8_t)value,
+                                          .receiver = (uint8_t)value};
     return mesh_tern_enqueue(tern, &frame);
+}
+
+int mesh_tern_set_receiver(struct mesh_tern *tern, bool on) {
+    return mesh_tern_set_value(tern, MESH_TERN_SETTING_RECEIVER, on ? 1U : 0U);
+}
+
+int mesh_tern_turn_off(struct mesh_tern *tern) {
+    if (tern == NULL) {
+        return -EINVAL;
+    }
+    if (mesh_tern_connected(tern) < 0) {
+        return -ENOTCONN;
+    }
+    if (mesh_tern_queued(tern, MESH_TERN_OFF)) {
+        return -EALREADY;
+    }
+    /* Marked before it is queued: a request found to be one the version lacks is dropped as it
+       is pumped, and that drop is what says so. */
+    const enum mesh_tern_off was = tern->off;
+    const bool was_taken = tern->off_taken;
+    tern->off = MESH_TERN_OFF_ASKED;
+    tern->off_taken = false;
+    const int result = mesh_tern_request(tern, MESH_TERN_OFF);
+    if (result < 0) {
+        tern->off = was;
+        tern->off_taken = was_taken;
+    }
+    return result;
+}
+
+enum mesh_tern_off mesh_tern_take_off(struct mesh_tern *tern, uint8_t *code) {
+    if (tern == NULL || tern->off_taken || tern->off == MESH_TERN_OFF_NONE ||
+        tern->off == MESH_TERN_OFF_ASKED) {
+        return MESH_TERN_OFF_NONE;
+    }
+    tern->off_taken = true;
+    if (code != NULL) {
+        *code = tern->off_code;
+    }
+    return tern->off;
+}
+
+bool mesh_tern_turned_off(const struct mesh_tern *tern) {
+    return tern != NULL && tern->off == MESH_TERN_OFF_DONE;
 }
 
 int mesh_tern_set_text(struct mesh_tern *tern, uint8_t setting, const char *text) {

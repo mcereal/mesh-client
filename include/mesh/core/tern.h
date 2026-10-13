@@ -14,7 +14,7 @@ struct mesh_session;
 
 /*
  * Tern's companion protocol: what a client says to a node running Tern's firmware, over USB
- * serial, TCP or Bluetooth LE. Version 7 of `draft/companion.md` in ternmesh/spec, checked
+ * serial, TCP or Bluetooth LE. Version 9 of `draft/companion.md` in ternmesh/spec, checked
  * against that repository's `vectors/companion.json` (tests/data/tern_companion.json here).
  *
  * Every frame is a type byte, a sequence byte and big-endian fields in a fixed order. The
@@ -25,7 +25,8 @@ struct mesh_session;
  *
  * Both ends speak the lesser of their two versions, and a frame is read by that version: a type
  * it does not define is unknown however its bytes read, and a field it does not define is not
- * there. Version 1 added END_SESSION and ASKED, version 2 groups, version 3 SYNCED's count.
+ * there. Version 1 added END_SESSION and ASKED, version 2 groups, version 3 SYNCED's count, and
+ * so on to version 9's OFF (docs/protocols.md has the table).
  *
  * Written from the specification alone. Like meshcore.h the file is two halves: the codec is
  * pure - bytes to a struct and back - and the conversation below it is the struct
@@ -33,7 +34,7 @@ struct mesh_session;
  * model (mesh_session_model_sync_begin()).
  */
 
-#define MESH_TERN_VERSION 7U
+#define MESH_TERN_VERSION 9U
 #define MESH_TERN_MAX_FRAME 180U
 #define MESH_TERN_ADDRESS_LEN 32U
 #define MESH_TERN_NAME_MAX 31U
@@ -57,6 +58,7 @@ enum mesh_tern_type {
     MESH_TERN_PING = 0x03,
     MESH_TERN_SET_TIME = 0x04,
     MESH_TERN_SET = 0x05,
+    MESH_TERN_OFF = 0x06, /* version 9 */
     MESH_TERN_SEND = 0x10,
     MESH_TERN_READ = 0x11,
     MESH_TERN_SAVE_CONTACT = 0x18,
@@ -106,6 +108,7 @@ enum mesh_tern_type {
     MESH_TERN_GROUP_SHARING = 0x91,
     MESH_TERN_CARD = 0x92, /* this and CARD_GONE: version 6 */
     MESH_TERN_CARD_GONE = 0x93,
+    MESH_TERN_FIX = 0x94, /* version 8 */
 };
 
 #define MESH_TERN_IS_REQUEST(type) ((type) >= 0x01U && (type) <= 0x3FU)
@@ -119,6 +122,7 @@ enum mesh_tern_setting {
     MESH_TERN_SETTING_PASSKEY = 4,   /* u32: 0..999999, or 0xFFFFFFFF for a random one */
     MESH_TERN_SETTING_CARDS = 5,     /* u8: 1 to send presence cards, 0 not; version 6 */
     MESH_TERN_SETTING_CARD_NAME = 6, /* str up to 31: the name the cards carry; version 6 */
+    MESH_TERN_SETTING_RECEIVER = 7,  /* u8: 1 to run the satellite receiver, 0 off; version 8 */
 };
 
 enum mesh_tern_error {
@@ -175,17 +179,33 @@ enum mesh_tern_reason {
 #define MESH_TERN_SHARE_ACCURACY 0x02U
 #define MESH_TERN_NO_ALTITUDE (-32768)
 
+/* FIX's `receiver` (version 8): the node's satellite receiver as it is now. Any other value is
+   reserved, and read as ON. */
+enum mesh_tern_receiver {
+    MESH_TERN_RECEIVER_NONE = 0, /* the node has none */
+    MESH_TERN_RECEIVER_OFF = 1,  /* SET 7 turned it off */
+    MESH_TERN_RECEIVER_ON = 2,   /* on, without a fix */
+    MESH_TERN_RECEIVER_FIXED = 3,
+};
+
+/* FIX's `source`: whose fix the record is. */
+enum mesh_tern_fix_source {
+    MESH_TERN_FIX_NONE = 0,
+    MESH_TERN_FIX_RECEIVER = 1,
+    MESH_TERN_FIX_CLIENT = 2, /* one a client gave it with SET_POSITION */
+};
+
 /*
  * Any frame, as its fields. Each type fills the members its table in the draft names, under the
  * same names, with a few folded together: the first string a frame carries (text, name, link,
  * firmware, region, or SET's region or card name) is `text`; the one address (to, address,
  * contact) is `address`. A number a frame carries narrower in one type than in another - `wait`, a
  * message's u16 or AIRTIME's u32; `heard`, a NEIGHBOUR's u16 or a CARD's u32; `accuracy` and `age`,
- * wider in one of SET_POSITION and POSITION than the other - is kept in the wider member, and
- * written clamped to the narrower field. SET's value is `text`, `role`, `power`, `passkey` or
- * `cards` as `setting` says. Each string is NUL-terminated after its length, for the reader's
- * convenience; the frame carries no NUL. SYNCED's `news` is read only from version 3, INFO's
- * `board` and `release` from 4, SELF's `cards` and `card_name` from 6.
+ * wider in one of SET_POSITION, POSITION and FIX than another - is kept in the wider member, and
+ * written clamped to the narrower field. SET's value is `text`, `role`, `power`, `passkey`,
+ * `cards` or `receiver` as `setting` says. Each string is NUL-terminated after its length, for the
+ * reader's convenience; the frame carries no NUL. SYNCED's `news` is read only from version 3,
+ * INFO's `board` and `release` from 4, SELF's `cards` and `card_name` from 6.
  */
 struct mesh_tern_frame {
     uint8_t type;
@@ -199,11 +219,14 @@ struct mesh_tern_frame {
     uint8_t state;
     uint8_t reason;
     uint8_t percent;
-    uint8_t why;       /* ASKED */
-    uint8_t news;      /* SYNCED: the node's count as it answers */
-    uint8_t cards;     /* SELF, SET 5: whether the node sends presence cards */
-    uint8_t precision; /* positions and sharing */
-    uint8_t fields;    /* SHARE, SHARING: MESH_TERN_SHARE_* */
+    uint8_t why;        /* ASKED */
+    uint8_t news;       /* SYNCED: the node's count as it answers */
+    uint8_t cards;      /* SELF, SET 5: whether the node sends presence cards */
+    uint8_t precision;  /* positions and sharing */
+    uint8_t fields;     /* SHARE, SHARING: MESH_TERN_SHARE_* */
+    uint8_t receiver;   /* FIX, SET 7: enum mesh_tern_receiver; SET's 1 on, 0 off */
+    uint8_t source;     /* FIX: enum mesh_tern_fix_source */
+    uint8_t satellites; /* FIX: those the receiver's fix was made from, 0 if unsaid */
     int8_t power;
     int8_t snr;        /* quarter dB */
     int16_t altitude;  /* metres; MESH_TERN_NO_ALTITUDE for none */
@@ -420,6 +443,30 @@ struct mesh_tern_card {
     char name[MESH_TERN_NAME_MAX + 1U];
 };
 
+/* FIX, as the node last sent it (version 8): where the node takes itself to be - its receiver's
+   fix or the last a client gave it, whichever is the more recent - and its receiver. `fixed` is
+   when the fix was taken, by this client's clock from the record's `age`, or 0 with no credible
+   clock. With `source` NONE the rest but `receiver` is 0. */
+struct mesh_tern_fix {
+    uint8_t receiver; /* enum mesh_tern_receiver */
+    uint8_t source;   /* enum mesh_tern_fix_source */
+    uint8_t satellites;
+    int32_t lat; /* 10^-7 degree */
+    int32_t lon;
+    int16_t altitude;  /* MESH_TERN_NO_ALTITUDE for none */
+    uint16_t accuracy; /* metres, 0 for none */
+    uint32_t fixed;
+};
+
+/* OFF (version 9), asked at the user's word: where it stands. */
+enum mesh_tern_off {
+    MESH_TERN_OFF_NONE = 0,
+    MESH_TERN_OFF_ASKED,       /* queued or on the wire */
+    MESH_TERN_OFF_DONE,        /* answered OK: the node is turning off, and nothing more is sent */
+    MESH_TERN_OFF_REFUSED,     /* answered ERROR `off_code` */
+    MESH_TERN_OFF_UNCONFIRMED, /* given up on: the node may be off, and may be sent OFF again */
+};
+
 /* A firmware update over the companion link (version 4), one image at a time. */
 enum mesh_tern_update_phase {
     MESH_TERN_UPDATE_IDLE = 0,
@@ -468,6 +515,9 @@ enum mesh_tern_phase {
     MESH_TERN_HELLO_SENT,
     MESH_TERN_SYNCING,
     MESH_TERN_READY,
+    /* OFF answered OK: the node is turning off. Nothing is sent, not even a PING, and the link is
+       not called gone - the drop that follows is the one asked for. Until the next begin(). */
+    MESH_TERN_TURNED_OFF,
 };
 
 struct mesh_tern_request {
@@ -562,6 +612,15 @@ struct mesh_tern {
     char link[MESH_TERN_LINK_MAX + 1U];
 
     struct mesh_tern_update update;
+
+    /* Version 8: the node's own fix and its receiver, once a FIX has said them. */
+    bool has_fix;
+    struct mesh_tern_fix fix;
+
+    /* Version 9: an OFF the user asked for, and whether its end has been handed out. */
+    enum mesh_tern_off off;
+    uint8_t off_code;
+    bool off_taken;
 
     /* The last first contact the node refused (ASKED), for a screen that offers to save it. */
     bool has_asked;
@@ -671,6 +730,31 @@ int mesh_tern_share_group(struct mesh_tern *tern, const uint8_t group[MESH_TERN_
 int mesh_tern_group_link(struct mesh_tern *tern, const uint8_t group[MESH_TERN_GROUP_LEN]);
 bool mesh_tern_take_link(struct mesh_tern *tern, char *out, size_t out_len);
 int mesh_tern_join_link(struct mesh_tern *tern, const char *link);
+
+/*
+ * Version 8: the node's satellite receiver, on (true) or off - SET 7, only at the user's word.
+ * Its state comes back as FIX news (mesh_tern.fix). 0 once queued, -EOPNOTSUPP below version 8,
+ * else as mesh_tern_send_text(). A node with no receiver answers OK to off and ERROR 3 to on.
+ */
+int mesh_tern_set_receiver(struct mesh_tern *tern, bool on);
+
+/*
+ * Version 9: OFF - turns the node off, which only the node itself (its button, its reset or its
+ * power) turns on again. Never sent but at the user's word, and only after they were told so.
+ * 0 once queued, -EALREADY with an OFF already asked and unanswered, -EOPNOTSUPP below version 9,
+ * else as mesh_tern_send_text(). Once the node answers OK the conversation is TURNED_OFF: nothing
+ * more is sent, the drop that follows is not silence, and the link should not be opened again
+ * until the user asks. One given up on may be sent again.
+ */
+int mesh_tern_turn_off(struct mesh_tern *tern);
+
+/* How the last OFF ended - DONE, REFUSED (with its error in `code`, may be NULL) or UNCONFIRMED -
+   handed out once; NONE when there is no end not yet handed out. */
+enum mesh_tern_off mesh_tern_take_off(struct mesh_tern *tern, uint8_t *code);
+
+/* Whether the node answered OK to OFF on the connection now ending or ended: until the next
+   begin(), the link should not be opened again by itself. */
+bool mesh_tern_turned_off(const struct mesh_tern *tern);
 
 /*
  * Version 4: a firmware update over the companion link. `image` stays the caller's, unchanged,

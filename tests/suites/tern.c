@@ -206,11 +206,19 @@ static int act(const struct mesh_tern_frame *want) {
             want->setting == MESH_TERN_SETTING_CARD_NAME) {
             return mesh_tern_set_text(&g_tern, want->setting, want->text);
         }
+        /* The receiver's 1 and 0 are mesh_tern_set_receiver()'s; the exchange's 2, which the node
+           refuses, only a raw SET can say. */
+        if (want->setting == MESH_TERN_SETTING_RECEIVER && want->receiver <= 1U) {
+            return mesh_tern_set_receiver(&g_tern, want->receiver != 0U);
+        }
         return mesh_tern_set_value(&g_tern, want->setting,
                                    want->setting == MESH_TERN_SETTING_ROLE    ? want->role
                                    : want->setting == MESH_TERN_SETTING_POWER ? (uint8_t)want->power
                                    : want->setting == MESH_TERN_SETTING_CARDS ? want->cards
-                                                                              : want->passkey);
+                                   : want->setting == MESH_TERN_SETTING_RECEIVER ? want->receiver
+                                                                                 : want->passkey);
+    case MESH_TERN_OFF:
+        return mesh_tern_turn_off(&g_tern);
     case MESH_TERN_SET_POSITION:
         return mesh_tern_set_position(&g_tern, want->lat, want->lon, want->altitude, want->accuracy,
                                       (uint16_t)want->age);
@@ -320,7 +328,7 @@ static size_t group_item_at(uint32_t id) {
     return SIZE_MAX;
 }
 
-/* The vectors' exchange, as the client of version 7 it is. */
+/* The vectors' exchange, as the client of version 9 it is. */
 MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
     size_t doc_len = 0U;
     char *document = mesh_test_data_read("tern_companion.json", &doc_len);
@@ -338,9 +346,9 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
     replay(&json, &protocol, &wire, &steps, failure, sizeof failure);
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(steps != 89U, "all 89 steps");
-    MESH_TEST_FAIL_IF(g_tern.agreed != 7U || g_tern.missed_news || g_tern.news_expected != 37U,
-                      "version 7 throughout, every news frame counted and none missed");
+    MESH_TEST_FAIL_IF(steps != 102U, "all 102 steps");
+    MESH_TEST_FAIL_IF(g_tern.agreed != 9U || g_tern.missed_news || g_tern.news_expected != 42U,
+                      "version 9 throughout, every news frame counted and none missed");
     MESH_TEST_FAIL_IF(strcmp(g_tern.board, "heltec-v3") != 0 ||
                           strcmp(g_tern.release, "0.2.0") != 0,
                       "INFO names the board and the release, which an update is found by");
@@ -348,8 +356,19 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
     /* And what it learned. */
     const uint32_t self_id = mesh_tern_routing_id(k_node);
     const uint32_t bob_id = mesh_tern_routing_id(k_bob);
-    MESH_TEST_FAIL_IF(!mesh_tern_ready(&g_tern) || g_model.handshake.my_info.my_node_num != self_id,
+    MESH_TEST_FAIL_IF(g_model.handshake.my_info.my_node_num != self_id,
                       "the node is the radio, known by its routing id");
+    /* The exchange ends with OFF answered OK: the node is turning off. */
+    const size_t sent = wire.count;
+    mesh_protocol_tick(&protocol,
+                       g_tern.answered_ms + MESH_TERN_IDLE_MS + MESH_TERN_ANSWER_WAIT_MS);
+    MESH_TEST_FAIL_IF(mesh_tern_ready(&g_tern) || g_tern.phase != MESH_TERN_TURNED_OFF ||
+                          !mesh_tern_turned_off(&g_tern) || wire.count != sent ||
+                          mesh_protocol_silent(&protocol),
+                      "OFF answered: nothing more is sent, not even a PING, and nothing is gone");
+    MESH_TEST_FAIL_IF(mesh_tern_take_off(&g_tern, NULL) != MESH_TERN_OFF_DONE ||
+                          mesh_tern_take_off(&g_tern, NULL) != MESH_TERN_OFF_NONE,
+                      "and the app is told once");
     const struct mesh_node_summary *bob = model_node(bob_id);
     MESH_TEST_FAIL_IF(bob == NULL || strcmp(bob->long_name, "Bob") != 0 || !bob->in_nodedb ||
                           bob->public_key_len != 32U || memcmp(bob->public_key, k_bob, 32U) != 0,
@@ -442,13 +461,24 @@ MESH_TEST_CASE(tern_replays_the_specifications_exchange, unit) {
                           strncmp(link, "HTTPS://TERNMESH.ORG/G#", 23U) != 0 ||
                           mesh_tern_take_link(&g_tern, link, sizeof link),
                       "the join code asked for, had once");
+    /* The receiver turned off, on again, and its last fix still the node's, 40 s old. */
+    MESH_TEST_FAIL_IF(!g_tern.has_fix || g_tern.fix.receiver != MESH_TERN_RECEIVER_ON ||
+                          g_tern.fix.source != MESH_TERN_FIX_RECEIVER ||
+                          g_tern.fix.satellites != 9U || g_tern.fix.accuracy != 3U,
+                      "the node's own fix, its receiver's, from nine satellites");
+    MESH_TEST_FAIL_IF(!self->position.valid || self->position.latitude_i != 458325412 ||
+                          self->position.longitude_i != 68643871 || !self->position.has_altitude ||
+                          self->position.altitude != 4809 || self->position.sats_in_view != 9U ||
+                          self->position.time != EXCHANGE_TIME - 40U ||
+                          self->position.precision_bits != 0U,
+                      "on the radio's roster entry, which the map and Settings read");
     inkwell_time_wall_set_fixed(0U);
     record_success(test_name);
 }
 
 /*
  * Each older connection, as the client of its version, against the same node. The node's INFO
- * says 7 throughout; the client speaks its own. The client of version 0 has synced message 17
+ * says 9 throughout; the client speaks its own. The client of version 0 has synced message 17
  * at version 0 before, which is why it asks after it.
  */
 MESH_TEST_CASE(tern_replays_the_older_clients_connections, unit) {
@@ -496,10 +526,12 @@ MESH_TEST_CASE(tern_replays_the_older_clients_connections, unit) {
     }
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(connections != 7U || steps != 88U, "seven connections, 88 steps");
-    MESH_TEST_FAIL_IF(g_tern.synced_version != 6U || g_tern.has_missed_since ||
-                          g_tern.card_count != 1U,
-                      "the last, version 6's, synced with the card it is sent");
+    MESH_TEST_FAIL_IF(connections != 9U || steps != 115U, "nine connections, 115 steps");
+    MESH_TEST_FAIL_IF(g_tern.synced_version != 8U || g_tern.has_missed_since ||
+                          g_tern.card_count != 1U || !g_tern.has_fix ||
+                          g_tern.off != MESH_TERN_OFF_NONE,
+                      "the last, version 8's, synced with the card and the fix it is sent, and "
+                      "never sent OFF");
     inkwell_time_wall_set_fixed(0U);
     record_success(test_name);
 }
@@ -559,7 +591,7 @@ MESH_TEST_CASE(tern_replays_the_specifications_update_over_two_connections, unit
     }
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(connections != 2U || steps != 30U, "two connections, 30 steps");
+    MESH_TEST_FAIL_IF(connections != 2U || steps != 32U, "two connections, 32 steps");
     const struct mesh_tern_update *update = mesh_tern_update_status(&g_tern);
     MESH_TEST_FAIL_IF(update->phase != MESH_TERN_UPDATE_FINISHED ||
                           update->outcome != MESH_TERN_UPDATE_RESTARTING || update->held != 400U ||
@@ -1295,6 +1327,124 @@ MESH_TEST_CASE(tern_a_later_version_than_the_last_sync_asks_from_0_once, unit) {
                               MESH_TERN_DECODE_OK ||
                           sync.after != 8U,
                       "once: then after the newest held");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+/* The node's own fix (version 8): on the radio's roster entry while it has one, off it when the
+   node says it has none, and a receiver state no version names is one that is on. */
+MESH_TEST_CASE(tern_the_nodes_own_fix_is_the_radios_position, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake should reach READY");
+    const uint32_t self_id = mesh_tern_routing_id(k_node);
+    struct mesh_tern_frame fix = {.type = MESH_TERN_FIX,
+                                  .seq = g_tern.news_expected,
+                                  .receiver = MESH_TERN_RECEIVER_ON,
+                                  .source = MESH_TERN_FIX_CLIENT,
+                                  .lat = -336183000,
+                                  .lon = -704517000,
+                                  .altitude = MESH_TERN_NO_ALTITUDE,
+                                  .age = 600U,
+                                  .satellites = 4U};
+    news(&protocol, &fix);
+    const struct mesh_node_summary *self = model_node(self_id);
+    MESH_TEST_FAIL_IF(
+        self == NULL || !self->position.valid || self->position.latitude_i != -336183000 ||
+            self->position.has_altitude || self->position.sats_in_view != 0U ||
+            self->position.time != EXCHANGE_TIME - 600U || self->position.received != EXCHANGE_TIME,
+        "a fix a client gave is the radio's position, with no satellites to it");
+    fix.seq = g_tern.news_expected;
+    fix.receiver = 7U; /* reserved */
+    fix.source = MESH_TERN_FIX_NONE;
+    news(&protocol, &fix);
+    MESH_TEST_FAIL_IF(model_node(self_id)->position.valid || !g_tern.has_fix ||
+                          g_tern.fix.receiver != MESH_TERN_RECEIVER_ON || g_tern.fix.lat != 0,
+                      "no source is no position, and an unnamed receiver state is on");
+    /* A version 7 sync says nothing of a fix: what the last connection said is not kept. */
+    MESH_TEST_FAIL_IF(!reconnect_at(&protocol, &wire, 7U) || g_tern.has_fix,
+                      "a node of version 7 has no receiver this client can switch");
+    MESH_TEST_FAIL_IF(mesh_tern_set_receiver(&g_tern, false) != -EOPNOTSUPP,
+                      "and SET 7 is refused here, not sent");
+    MESH_TEST_FAIL_IF(
+        !reconnect_at(&protocol, &wire, 8U) || mesh_tern_set_receiver(&g_tern, false) != 0 ||
+            wire_last(&wire)[0] != MESH_TERN_SET ||
+            wire_last(&wire)[2] != MESH_TERN_SETTING_RECEIVER || wire_last(&wire)[3] != 0U,
+        "where version 8 sends SET 7 with 0");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(tern_off_is_version_9s_and_never_sent_below_it, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake_at(&protocol, &wire, 8U), "the handshake should reach READY");
+    const size_t before = wire.count;
+    MESH_TEST_FAIL_IF(mesh_tern_turn_off(&g_tern) != -EOPNOTSUPP || wire.count != before ||
+                          g_tern.off != MESH_TERN_OFF_NONE,
+                      "a node of version 8 is never sent OFF");
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake should reach READY");
+    MESH_TEST_FAIL_IF(mesh_tern_turn_off(&g_tern) != 0 || wire_last(&wire)[0] != MESH_TERN_OFF ||
+                          wire.lens[wire.count - 1U] != 2U,
+                      "version 9's OFF is two bytes");
+    MESH_TEST_FAIL_IF(mesh_tern_turn_off(&g_tern) != -EALREADY, "and asked once at a time");
+    refuse(&protocol, &wire, MESH_TERN_ERR_NOT_NOW);
+    uint8_t code = 0U;
+    MESH_TEST_FAIL_IF(mesh_tern_take_off(&g_tern, &code) != MESH_TERN_OFF_REFUSED ||
+                          code != MESH_TERN_ERR_NOT_NOW || !mesh_tern_ready(&g_tern) ||
+                          mesh_tern_turned_off(&g_tern),
+                      "a refusal is said, and the conversation goes on");
+
+    /* Given up on: the node may be off. It is gone, and OFF may go again next time. */
+    MESH_TEST_FAIL_IF(mesh_tern_turn_off(&g_tern) != 0, "OFF again");
+    mesh_protocol_tick(&protocol, g_tern.awaiting_since_ms + MESH_TERN_ANSWER_WAIT_MS);
+    MESH_TEST_FAIL_IF(!mesh_protocol_silent(&protocol) ||
+                          mesh_tern_take_off(&g_tern, NULL) != MESH_TERN_OFF_UNCONFIRMED ||
+                          mesh_tern_turned_off(&g_tern),
+                      "unanswered: gone, unconfirmed, and not taken for off");
+    MESH_TEST_FAIL_IF(!reconnect_at(&protocol, &wire, 9U) || mesh_tern_turn_off(&g_tern) != 0,
+                      "one given up on may be sent again");
+    inkwell_time_wall_set_fixed(0U);
+    record_success(test_name);
+}
+
+/* OK to OFF: the node turns off. Nothing behind the OFF goes, no PING follows, the drop is not
+   silence, and the conversation says so until the next connection begins. */
+MESH_TEST_CASE(tern_after_off_nothing_is_sent_and_nothing_reconnects, unit) {
+    struct wire wire;
+    struct mesh_protocol protocol;
+    MESH_TEST_FAIL_IF(!handshake(&protocol, &wire), "the handshake should reach READY");
+    uint32_t ticket = 0U;
+    struct mesh_tern_frame contact = {
+        .type = MESH_TERN_CONTACT, .seq = g_tern.news_expected, .text_len = 3U, .text = "Bob"};
+    memcpy(contact.address, k_bob, sizeof k_bob);
+    news(&protocol, &contact);
+    MESH_TEST_FAIL_IF(
+        mesh_tern_turn_off(&g_tern) != 0 ||
+            mesh_tern_send_text(&g_tern, mesh_tern_routing_id(k_bob), "bye", &ticket) != 0,
+        "OFF on the wire, a SEND queued behind it");
+    const size_t sent = wire.count;
+    answer(&protocol, &wire, MESH_TERN_OK);
+    struct mesh_tern_queued queued;
+    MESH_TEST_FAIL_IF(wire.count != sent || g_tern.queue_count != 0U ||
+                          !mesh_tern_take_queued(&g_tern, &queued) || queued.ticket != ticket ||
+                          queued.id != 0U,
+                      "the SEND never goes, and ends as refused");
+    MESH_TEST_FAIL_IF(mesh_tern_send_text(&g_tern, mesh_tern_routing_id(k_bob), "hi", NULL) !=
+                              -ENOTCONN ||
+                          mesh_tern_mark_read(&g_tern, 1U) != -ENOTCONN ||
+                          mesh_tern_turn_off(&g_tern) != -ENOTCONN,
+                      "nor anything asked after");
+    mesh_protocol_tick(&protocol, g_tern.answered_ms + 10U * MESH_TERN_IDLE_MS);
+    MESH_TEST_FAIL_IF(wire.count != sent || mesh_protocol_silent(&protocol),
+                      "no PING, and the quiet that follows is not a node gone");
+    /* The node drops the link as it turns off. */
+    mesh_protocol_detach(&protocol);
+    MESH_TEST_FAIL_IF(!mesh_tern_turned_off(&g_tern) ||
+                          mesh_tern_take_off(&g_tern, NULL) != MESH_TERN_OFF_DONE,
+                      "after the drop it is still a node turned off, which nothing reopens");
+    MESH_TEST_FAIL_IF(!reconnect_at(&protocol, &wire, 9U) || mesh_tern_turned_off(&g_tern),
+                      "until the user connects again, to a node turned on by hand");
     inkwell_time_wall_set_fixed(0U);
     record_success(test_name);
 }

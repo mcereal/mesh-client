@@ -25,6 +25,7 @@ static const struct {
     {"PING", MESH_TERN_PING},
     {"SET_TIME", MESH_TERN_SET_TIME},
     {"SET", MESH_TERN_SET},
+    {"OFF", MESH_TERN_OFF},
     {"SEND", MESH_TERN_SEND},
     {"READ", MESH_TERN_READ},
     {"SAVE_CONTACT", MESH_TERN_SAVE_CONTACT},
@@ -72,6 +73,7 @@ static const struct {
     {"GROUP_SHARING", MESH_TERN_GROUP_SHARING},
     {"CARD", MESH_TERN_CARD},
     {"CARD_GONE", MESH_TERN_CARD_GONE},
+    {"FIX", MESH_TERN_FIX},
 };
 
 static int type_named(const char *name) {
@@ -176,10 +178,11 @@ static bool read_field(struct inkwell_json *json, const char *key, struct mesh_t
         return false;
     }
     if (strcmp(key, "value") == 0) {
-        key = f->setting == MESH_TERN_SETTING_ROLE    ? "role"
-              : f->setting == MESH_TERN_SETTING_POWER ? "power"
-              : f->setting == MESH_TERN_SETTING_CARDS ? "cards"
-                                                      : "passkey";
+        key = f->setting == MESH_TERN_SETTING_ROLE       ? "role"
+              : f->setting == MESH_TERN_SETTING_POWER    ? "power"
+              : f->setting == MESH_TERN_SETTING_CARDS    ? "cards"
+              : f->setting == MESH_TERN_SETTING_RECEIVER ? "receiver"
+                                                         : "passkey";
     }
 #define NUMBER(member, cast)                                                                       \
     do {                                                                                           \
@@ -202,6 +205,9 @@ static bool read_field(struct inkwell_json *json, const char *key, struct mesh_t
     NUMBER(cards, uint8_t);
     NUMBER(precision, uint8_t);
     NUMBER(fields, uint8_t);
+    NUMBER(receiver, uint8_t);
+    NUMBER(source, uint8_t);
+    NUMBER(satellites, uint8_t);
     NUMBER(power, int8_t);
     NUMBER(altitude, int16_t);
     NUMBER(accuracy, uint16_t);
@@ -410,7 +416,7 @@ MESH_TEST_CASE(tern_frames_build_read_and_wrap_as_the_vectors_say, unit) {
     }
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(cases != 90U, "all 90 frame vectors");
+    MESH_TEST_FAIL_IF(cases != 101U, "all 101 frame vectors");
     record_success(test_name);
 }
 
@@ -477,7 +483,7 @@ MESH_TEST_CASE(tern_rejects_what_the_vectors_reject, unit) {
     }
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(cases != 42U, "all 42 rejected vectors");
+    MESH_TEST_FAIL_IF(cases != 44U, "all 44 rejected vectors");
     record_success(test_name);
 }
 
@@ -574,10 +580,18 @@ MESH_TEST_CASE(tern_refuses_to_write_what_no_frame_holds, unit) {
                       "a name past 31 bytes has no field to go in");
     frame = (struct mesh_tern_frame){.type = MESH_TERN_SET, .setting = 9U};
     MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, MESH_TERN_VERSION, out, sizeof out) >= 0,
-                      "nor a setting version 7 lacks");
+                      "nor a setting version 9 lacks");
     frame = (struct mesh_tern_frame){.type = MESH_TERN_SET, .setting = MESH_TERN_SETTING_CARDS};
     MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, 5U, out, sizeof out) >= 0,
                       "nor one version 5 lacks");
+    frame = (struct mesh_tern_frame){.type = MESH_TERN_SET, .setting = MESH_TERN_SETTING_RECEIVER};
+    MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, 7U, out, sizeof out) >= 0 ||
+                          mesh_tern_encode(&frame, 8U, out, sizeof out) != 4,
+                      "the receiver is version 8's setting");
+    frame = (struct mesh_tern_frame){.type = MESH_TERN_OFF};
+    MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, 8U, out, sizeof out) >= 0 ||
+                          mesh_tern_encode(&frame, 9U, out, sizeof out) != 2,
+                      "and OFF version 9's request, two bytes and no field");
     frame = (struct mesh_tern_frame){.type = 0x28U};
     MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, MESH_TERN_VERSION, out, sizeof out) >= 0,
                       "nor a type it lacks");
@@ -665,7 +679,7 @@ MESH_TEST_CASE(tern_older_connections_read_by_their_own_version, unit) {
     }
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(connections != 7U || frames != 88U, "seven connections, 88 frames");
+    MESH_TEST_FAIL_IF(connections != 9U || frames != 115U, "nine connections, 115 frames");
     record_success(test_name);
 }
 
@@ -742,8 +756,8 @@ MESH_TEST_CASE(tern_older_versions_take_later_frames_as_unknown, unit) {
                      (unsigned)version, frame[0]);
         } else if (mesh_tern_decode(frame, len, MESH_TERN_VERSION, &decoded) !=
                    MESH_TERN_DECODE_OK) {
-            snprintf(failure, sizeof failure, "case %zu: version 7 does not read 0x%02x", cases,
-                     frame[0]);
+            snprintf(failure, sizeof failure, "case %zu: version %u does not read 0x%02x", cases,
+                     (unsigned)MESH_TERN_VERSION, frame[0]);
         } else if (answered != MESH_TERN_IS_REQUEST(frame[0]) ||
                    (answered && answer != MESH_TERN_ERR_UNKNOWN) ||
                    mesh_tern_frame_since(frame, len) <= version) {
@@ -754,7 +768,7 @@ MESH_TEST_CASE(tern_older_versions_take_later_frames_as_unknown, unit) {
     }
     free(document);
     MESH_TEST_FAIL_IF(failure[0] != '\0', failure);
-    MESH_TEST_FAIL_IF(cases != 18U, "all 18 unknown_to_older vectors");
+    MESH_TEST_FAIL_IF(cases != 21U, "all 21 unknown_to_older vectors");
     record_success(test_name);
 }
 
@@ -769,6 +783,11 @@ MESH_TEST_CASE(tern_a_number_wider_in_one_frame_is_written_clamped_to_the_narrow
     MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, MESH_TERN_VERSION, out, sizeof out) != 50 ||
                           out[45] != 0xFFU,
                       "and a POSITION's accuracy at most 255");
+    frame = (struct mesh_tern_frame){.type = MESH_TERN_FIX, .accuracy = 300U, .age = 70000U};
+    MESH_TEST_FAIL_IF(mesh_tern_encode(&frame, MESH_TERN_VERSION, out, sizeof out) != 21 ||
+                          out[14] != 0x01U || out[15] != 0x2CU || out[17] != 0x01U ||
+                          out[18] != 0x11U || out[19] != 0x70U,
+                      "where a FIX carries accuracy in two bytes and age in four");
     struct mesh_tern_frame decoded;
     static const uint8_t altitude[] = {
         MESH_TERN_SET_POSITION, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x00, 0, 4, 0, 3};
