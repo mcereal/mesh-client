@@ -2596,7 +2596,56 @@ static void build_security(const struct mesh_ui_settings *s, struct item_list *l
     item_field(list, MESH_UI_FIELD_SECURITY_DEBUG_LOG, s->debug_log_api_enabled ? 1U : 0U, NULL);
 }
 
+/* Whose the coordinates above are, in words: the receiver's, with its satellites when it says;
+   one a client gave; none yet while the receiver looks; or none. */
+static void receiver_fix_text(const struct mesh_ui_settings *s, char *out, size_t out_len) {
+    if (s->fix_source == 1U && s->fix_satellites > 0U) {
+        inkcell_str_format_plural(out, out_len, MESH_STR_SETTINGS_POSITION_FIX_SATELLITES_ONE,
+                                  s->fix_satellites, (unsigned)s->fix_satellites);
+    } else if (s->fix_source == 1U) {
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_SETTINGS_POSITION_FIX_RECEIVER));
+    } else if (s->fix_source == 2U) {
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_SETTINGS_POSITION_FIX_CLIENT));
+    } else if (s->receiver >= 2U) {
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_SETTINGS_POSITION_FIX_SEARCHING));
+    } else {
+        inkwell_str_copy(out, out_len, inkcell_str(MESH_STR_SETTINGS_POSITION_FIX_NONE));
+    }
+}
+
+/* A radio's own satellite receiver, where it is a switch of its own (a Tern node with one): on
+   while the radio runs it, with or without a fix, and where the position came from under it. */
+static void build_receiver(const struct mesh_ui_settings *s, struct item_list *list) {
+    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_RADIO_RECEIVER)) {
+        return;
+    }
+    item_field(list, MESH_UI_FIELD_POSITION_RECEIVER, s->receiver >= 2U ? 1U : 0U, NULL);
+    char fix[MESH_UI_SETTINGS_VALUE_MAX];
+    receiver_fix_text(s, fix, sizeof fix);
+    item_text(list, MESH_STR_SETTINGS_POSITION_FIX, INKSTAND_FORM_INFO, fix);
+}
+
+/*
+ * A Tern node's Position: where the node takes itself to be, which is its own fix - its
+ * receiver's, or the last a client gave it - and so read here rather than typed, then its
+ * receiver. Giving it a position of this client's is SET_POSITION, which no row sends yet.
+ */
+static void build_tern_position(const struct mesh_ui_settings *s, struct item_list *list) {
+    if (s->has_own_position) {
+        char coord[MESH_UI_SETTINGS_VALUE_MAX];
+        mesh_ui_settings_coord_text(s->own_latitude_i, coord, sizeof coord);
+        item_text(list, MESH_STR_SETTINGS_FIELD_POSITION_LATITUDE, INKSTAND_FORM_INFO, coord);
+        mesh_ui_settings_coord_text(s->own_longitude_i, coord, sizeof coord);
+        item_text(list, MESH_STR_SETTINGS_FIELD_POSITION_LONGITUDE, INKSTAND_FORM_INFO, coord);
+    }
+    build_receiver(s, list);
+}
+
 static void build_position(const struct mesh_ui_settings *s, struct item_list *list) {
+    if (s->protocol == (uint8_t)MESH_UI_PROTOCOL_TERN) {
+        build_tern_position(s, list);
+        return;
+    }
     /* A protocol whose position is only ever the one typed in: the two coordinates and the
        row that sets them, which is all it advertises. */
     if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_FULL_CONFIG)) {
@@ -3293,13 +3342,15 @@ static void build_power_verbs(const struct mesh_ui_settings *s, bool connected,
                               struct item_list *list) {
     item_heading(list, MESH_STR_HEAD_POWER);
     item_radio_action(list, MESH_STR_ACTION_REBOOT, MESH_UI_SETTINGS_ACTION_REBOOT, connected);
-    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_RADIO_MAINTENANCE)) {
+    if (!mesh_ui_settings_supports(s, MESH_UI_FEATURE_RADIO_OFF)) {
         return;
     }
     /* DeviceMetadata says whether the hardware can cut its own power; on a board that cannot,
        the request is simply ignored, so the row says so rather than lying about what A does.
-       Until the metadata arrives the row is offered: the radio is the authority, not us. */
-    if (s->has_metadata && !s->can_shutdown) {
+       Until the metadata arrives the row is offered: the radio is the authority, not us. The
+       metadata is Meshtastic's: a Tern node that speaks OFF answers it and turns off, any board. */
+    if (s->protocol == (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC && s->has_metadata &&
+        !s->can_shutdown) {
         item_action_off(list, MESH_STR_ACTION_SHUTDOWN, MESH_STR_ACTION_SHUTDOWN_UNSUPPORTED,
                         MESH_UI_SETTINGS_ACTION_SHUTDOWN);
     } else {

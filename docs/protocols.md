@@ -361,7 +361,7 @@ end.
 
 Tern's companion protocol is the third conversation: `include/mesh/core/tern.h`, with the codec
 in `src/core/tern/tern_codec.c`, the conversation in `tern.c` and the stream framing in
-`src/proto/tern_framing.c`. Written from version 7 of `draft/companion.md` in
+`src/proto/tern_framing.c`. Written from version 9 of `draft/companion.md` in
 [ternmesh/spec](https://github.com/ternmesh/spec) alone - nothing of the Meshtastic or MeshCore
 code here goes the other way - and checked against that repository's vectors, which
 `tests/data/tern_companion.json` and `tern_routing.json` carry verbatim.
@@ -370,7 +370,7 @@ code here goes the other way - and checked against that repository's vectors, wh
   bytes. The codec is one table, a row per type, which reading and writing both walk. A reader
   ignores bytes past the fields it knows; a request the client cannot read is the node's
   problem, news of a type it does not know is ignored.
-- **Versions.** HELLO carries the client's (`MESH_TERN_VERSION`, 7) and INFO the node's, and both
+- **Versions.** HELLO carries the client's (`MESH_TERN_VERSION`, 9) and INFO the node's, and both
   ends speak the lesser. Every frame is read by that version - each row and field of the table,
   and each SET setting, carries the version that defines it - so a version 2 node's SYNCED is its
   two bytes, and news of a type the version does not define is unknown before its bytes are
@@ -387,6 +387,8 @@ code here goes the other way - and checked against that repository's vectors, wh
   | 5 | positions: SET_POSITION, SHARE, SHARE_GROUP, error 12, POSITION, GROUP_POSITION, SHARING, GROUP_SHARING |
   | 6 | presence cards: SET 5 and 6, SELF's cards and card name, CARD, CARD_GONE |
   | 7 | join codes: GROUP_LINK, JOIN_LINK, LINK |
+  | 8 | the node's own fix: SET 7 (its satellite receiver), FIX |
+  | 9 | turning the node off: OFF |
 
 - **Serial and TCP** frame as `0xF5 0x54`, a big-endian length, the frame and a CRC-16/IBM-3740
   over the length and the frame: `mesh_stream_framing_tern`. `0xF5` never occurs in UTF-8, so
@@ -458,6 +460,20 @@ code here goes the other way - and checked against that repository's vectors, wh
   taken; `mesh_tern_join_link()` hands the node
   a code, and its request is wiped from the queue once answered. The client never reads the
   secret out of the link and keeps neither.
+- **The node's own fix** (version 8). FIX is kept whole on `mesh_tern.fix` - the receiver's state,
+  whose fix it is, and the fix - and goes on the radio's own roster entry, so the Map tab centres
+  on it, the radio's detail shows it and Settings' Position reads it; a FIX with no source takes
+  it off. It is the fix the node shares from, its receiver's or the last a client gave it, unrounded
+  (`precision_bits` 0): only what goes on the air is a cell. A receiver state no version names reads
+  as on. One FIX comes in every sync, and a sync below version 8 drops the one held.
+  `mesh_tern_set_receiver()` is SET 7.
+- **Turning the node off** (version 9). `mesh_tern_turn_off()` is OFF, sent only from the Shutdown
+  row behind its confirm. OK to it leaves the conversation `TURNED_OFF`: nothing queued behind it
+  goes (a SEND ends refused), no PING follows, and the drop that comes is not taken for silence.
+  `mesh_tern_take_off()` hands the app its end once - the app then holds auto-connect as an
+  explicit disconnect does, stands the link down and says so; only a connect the user asks for
+  opens it again. An ERROR is said as a refusal; an OFF given up on (or lost with the link) is
+  unconfirmed - the node may be off or gone - and may be sent again.
 - **Firmware updates** (version 4). INFO's `board` and `release` are kept. `mesh_tern_update_start()`
   sends an image the caller holds: UPDATE_BEGIN, UPDATE_CHUNK (172) bytes at a time from the offset
   the node gives, then UPDATE_END. ERROR 10 asks UPDATE_BEGIN again (three times at most); a
@@ -467,9 +483,13 @@ code here goes the other way - and checked against that repository's vectors, wh
   INFO's release says. `mesh_tern_update_status()` is where it stands.
 
 The `tern` row in `src/ui/tables/protocols.c` lacks every feature: the protocol has no
-channels and no contact link. **Spoken but not yet on a screen:** groups, group messages and
-invites; join codes (showing one, and joining from one typed in); sharing this node's position
-and giving it ours; turning cards on and naming them; region, role, power and passkey (SET);
+channels and no contact link. Two follow the version spoken, through
+`mesh_ui_protocol_tern_lacks()`: from version 8 a node with a receiver has it as a switch in
+Position, under the coordinates of its own fix and beside whose fix it is, and from version 9 the
+Radio card's details offer Shutdown, which sends OFF. **Spoken but not yet on a screen:** groups,
+group messages and invites; join codes (showing one, and joining from one typed in); sharing this
+node's position and giving it ours; turning cards on and naming them; region, role, power and
+passkey (SET);
 SAVE_CONTACT, END_SESSION and READ; ASKED; and firmware updates, for which this client has
 neither a release feed for Tern boards nor an install flow over the companion link.
 REMOVE_CONTACT is in the codec and has no call.

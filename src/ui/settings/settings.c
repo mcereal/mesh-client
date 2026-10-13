@@ -1644,6 +1644,11 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
           MESH_STR_SETTINGS_NOTE_POSITION_GPS_INTERVAL},
          MESH_STR_ZERO_DEFAULT,
          NULL},
+    [MESH_UI_FIELD_POSITION_RECEIVER] = {{MESH_STR_SETTINGS_FIELD_POSITION_RECEIVER,
+                                          INKSTAND_FORM_TOGGLE, MESH_UI_SETTINGS_POSITION, 0U, NULL,
+                                          NO_PRESETS, 0U, MESH_STR_SETTINGS_NOTE_POSITION_RECEIVER},
+                                         INKCELL_STR_NONE,
+                                         NULL},
     /*
      * PositionConfig.position_flags, ten rows over one word. `limit` is the row's own bit,
      * written as a literal because the UI layer is the nanopb-free side of the fence - the

@@ -5,11 +5,13 @@
 #include <string.h>
 
 /* Everything but what is asked of a MeshCore repeater or room server: a login, a status, its
-   neighbours and its commands. */
+   neighbours and its commands; and a receiver row of its own, which Meshtastic's GPS row in
+   Position is instead. */
 #define MESHTASTIC_LACKS                                                                           \
     ((uint32_t)(MESH_UI_FEATURE_NODE_LOGIN | MESH_UI_FEATURE_NODE_STATUS |                         \
                 MESH_UI_FEATURE_NODE_NEIGHBORS | MESH_UI_FEATURE_NODE_COMMANDS |                   \
-                MESH_UI_FEATURE_NODE_PATH | MESH_UI_FEATURE_NODE_SHARE))
+                MESH_UI_FEATURE_NODE_PATH | MESH_UI_FEATURE_NODE_SHARE |                           \
+                MESH_UI_FEATURE_RADIO_RECEIVER))
 
 static const struct {
     const char *name; /* mesh_protocol_ops.name */
@@ -30,14 +32,30 @@ static const struct {
      MESH_UI_FEATURE_WAYPOINTS | MESH_UI_FEATURE_NODE_REQUESTS | MESH_UI_FEATURE_NODE_FLAGS |
          MESH_UI_FEATURE_REMOTE_ADMIN | MESH_UI_FEATURE_KEY_VERIFICATION | MESH_UI_FEATURE_MODULES |
          MESH_UI_FEATURE_REACTIONS | MESH_UI_FEATURE_FULL_CONFIG |
-         MESH_UI_FEATURE_RADIO_MAINTENANCE},
+         MESH_UI_FEATURE_RADIO_MAINTENANCE | MESH_UI_FEATURE_RADIO_OFF |
+         MESH_UI_FEATURE_RADIO_RECEIVER},
     /* Direct messages to a contact or a neighbour, with their delivery state; a contact's
-       position on the map and a node's presence card on its detail, which need no verb. Version
-       7 of its companion protocol has groups, join codes and firmware updates, which this client
-       speaks but no screen offers yet (docs/protocols.md), no channels, no contact link and none
-       of the per-node verbs. */
+       position on the map, the node's own, and a node's presence card on its detail, which need
+       no verb. Its companion protocol has groups, join codes and firmware updates, which this
+       client speaks but no screen offers yet (docs/protocols.md), no channels, no contact link
+       and none of the per-node verbs. What it has by version is mesh_ui_protocol_tern_lacks(). */
     {"tern", MESH_UI_PROTOCOL_TERN, MESH_UI_FEATURES_ALL},
 };
+
+/* The companion version each of a Tern node's features is had from. */
+#define TERN_RECEIVER_SINCE 8U
+#define TERN_OFF_SINCE 9U
+
+uint32_t mesh_ui_protocol_tern_lacks(uint8_t version, bool has_receiver) {
+    uint32_t lacks = MESH_UI_FEATURES_ALL;
+    if (version >= TERN_RECEIVER_SINCE && has_receiver) {
+        lacks &= ~(uint32_t)MESH_UI_FEATURE_RADIO_RECEIVER;
+    }
+    if (version >= TERN_OFF_SINCE) {
+        lacks &= ~(uint32_t)MESH_UI_FEATURE_RADIO_OFF;
+    }
+    return lacks;
+}
 
 void mesh_ui_protocol_features(const struct mesh_protocol *protocol, uint8_t *out_protocol,
                                uint32_t *out_lacks) {

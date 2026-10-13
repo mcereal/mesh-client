@@ -2877,6 +2877,8 @@ static int verb_units(struct inkstand_scene *scene, char *rest, void *userdata) 
  * The protocol on the link, as the publish words it: `protocol meshcore` hides what MeshCore
  * lacks and offers what only it has, from the same table the app reads (src/ui/tables/protocols.c).
  * No conversation stands behind it - the table is keyed by the protocol's name and nothing else.
+ * `protocol tern 9` names the companion version too, which a Tern node's features follow
+ * (mesh_ui_protocol_tern_lacks()); its receiver is whatever `receiver` said before it.
  */
 static int verb_protocol(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
@@ -2896,6 +2898,41 @@ static int verb_protocol(struct inkstand_scene *scene, char *rest, void *userdat
     const struct mesh_protocol protocol = {named, &bound};
     struct mesh_ui_settings settings = cap->store.settings;
     mesh_ui_protocol_features(&protocol, &settings.protocol, &settings.protocol_lacks);
+    const char *version = inkstand_scene_word(&rest);
+    if (version != NULL && settings.protocol == (uint8_t)MESH_UI_PROTOCOL_TERN) {
+        settings.protocol_lacks =
+            mesh_ui_protocol_tern_lacks((uint8_t)atoi(version), settings.receiver != 0U);
+    }
+    mesh_ui_store_set_settings(&cap->store, &settings);
+    return 0;
+}
+
+/*
+ * A radio's own satellite receiver and whose fix its position is, as a Tern node's FIX says them:
+ * `receiver fixed 9` is on with a fix of its own from nine satellites, `receiver off` off with
+ * its last fix kept, `receiver on` on and still searching, `receiver none` a board without one.
+ */
+static int verb_receiver(struct inkstand_scene *scene, char *rest, void *userdata) {
+    struct uicap *cap = userdata;
+    static const char *const k_states[] = {"none", "off", "on", "fixed"};
+    const char *state = inkstand_scene_word(&rest);
+    uint8_t receiver = UINT8_MAX;
+    for (uint8_t i = 0; state != NULL && i < sizeof k_states / sizeof k_states[0]; ++i) {
+        if (strcmp(state, k_states[i]) == 0) {
+            receiver = i;
+        }
+    }
+    if (receiver == UINT8_MAX) {
+        return inkstand_scene_fail(scene, "'receiver' is none, off, on or fixed [SATELLITES]");
+    }
+    const char *satellites = inkstand_scene_word(&rest);
+    struct mesh_ui_settings settings = cap->store.settings;
+    settings.has_position = true;
+    settings.receiver = receiver;
+    /* On and searching has no fix of its own yet; the others keep the receiver's last. */
+    settings.fix_source = receiver == 2U || receiver == 0U ? 0U : 1U;
+    settings.fix_satellites = satellites != NULL ? (uint8_t)atoi(satellites) : 0U;
+    settings.has_own_position = settings.fix_source != 0U;
     mesh_ui_store_set_settings(&cap->store, &settings);
     return 0;
 }
@@ -3490,6 +3527,7 @@ static const struct inkstand_scene_verb uicap_verbs[] = {
     {"firmware-silent", 0U, verb_firmware_silent},
     {"units", 0U, verb_units},
     {"protocol", 0U, verb_protocol},
+    {"receiver", 0U, verb_receiver},
     {"repeater", 0U, verb_repeater},
     {"reboots", 0U, verb_reboots},
     {"message", 0U, verb_message},

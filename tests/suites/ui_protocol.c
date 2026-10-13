@@ -83,13 +83,15 @@ MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
         (uint32_t)(MESH_UI_FEATURE_NODE_LOGIN | MESH_UI_FEATURE_NODE_STATUS |
                    MESH_UI_FEATURE_NODE_NEIGHBORS | MESH_UI_FEATURE_NODE_COMMANDS |
                    MESH_UI_FEATURE_NODE_PATH | MESH_UI_FEATURE_NODE_SHARE);
+    /* And a receiver row of its own, which Meshtastic's GPS row in Position is instead. */
+    const uint32_t k_meshtastic_lacks = k_meshcore_only | (uint32_t)MESH_UI_FEATURE_RADIO_RECEIVER;
     static struct mesh_session session;
     mesh_session_init(&session);
     const struct mesh_protocol meshtastic = mesh_session_protocol(&session);
     uint8_t id = 0xFFU;
     uint32_t lacks = 0xFFFFFFFFU;
     mesh_ui_protocol_features(&meshtastic, &id, &lacks);
-    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC || lacks != k_meshcore_only,
+    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC || lacks != k_meshtastic_lacks,
                       "the Meshtastic session has every feature but what MeshCore asks of a "
                       "repeater");
 
@@ -119,7 +121,7 @@ MESH_TEST_CASE(ui_protocol_features_by_protocol, unit) {
 
     const struct mesh_protocol none = {NULL, NULL};
     mesh_ui_protocol_features(&none, &id, &lacks);
-    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC || lacks != k_meshcore_only,
+    MESH_TEST_FAIL_IF(id != (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC || lacks != k_meshtastic_lacks,
                       "nothing on the link is the Meshtastic the cache was written by");
 
     struct mesh_ui_settings zeroed;
@@ -1107,6 +1109,82 @@ cleanup:
 /* The field on each row of a section, in order, up to `cap`. */
 static size_t section_fields(const struct mesh_ui_settings *settings,
                              const struct mesh_ui_handshake_state *handshake,
+                             enum mesh_ui_settings_section section, uint16_t *fields, size_t cap);
+
+/*
+ * A Tern node's features follow the companion version both ends speak: its receiver is a row
+ * from version 8 on a node that has one, and turning it off is version 9's - the Shutdown row,
+ * behind its confirm, which the app routes to OFF.
+ */
+MESH_TEST_CASE(ui_protocol_tern_features_follow_the_companion_version, unit) {
+    MESH_TEST_FAIL_IF(mesh_ui_protocol_tern_lacks(0U, true) != MESH_UI_FEATURES_ALL ||
+                          mesh_ui_protocol_tern_lacks(7U, true) != MESH_UI_FEATURES_ALL,
+                      "before the node says, and at version 7, a Tern node lacks every feature");
+    MESH_TEST_FAIL_IF(mesh_ui_protocol_tern_lacks(8U, false) != MESH_UI_FEATURES_ALL,
+                      "a node with no receiver has no receiver row");
+    MESH_TEST_FAIL_IF(mesh_ui_protocol_tern_lacks(8U, true) !=
+                          (MESH_UI_FEATURES_ALL & ~(uint32_t)MESH_UI_FEATURE_RADIO_RECEIVER),
+                      "version 8 switches its receiver");
+    MESH_TEST_FAIL_IF(mesh_ui_protocol_tern_lacks(9U, false) !=
+                          (MESH_UI_FEATURES_ALL & ~(uint32_t)MESH_UI_FEATURE_RADIO_OFF),
+                      "version 9 turns it off");
+
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.protocol = (uint8_t)MESH_UI_PROTOCOL_TERN;
+    settings.has_position = true;
+    settings.has_own_position = true;
+    settings.own_latitude_i = 458325412;
+    settings.own_longitude_i = 68643871;
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.link_up = true;
+
+    settings.protocol_lacks = mesh_ui_protocol_tern_lacks(8U, true);
+    MESH_TEST_FAIL_IF(section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                     MESH_UI_SETTINGS_ACTION_SHUTDOWN),
+                      "no Shutdown for a node of version 8");
+    settings.receiver = 3U; /* on, with a fix */
+    settings.fix_source = 1U;
+    settings.fix_satellites = 9U;
+    uint16_t fields[16];
+    size_t n = section_fields(&settings, &handshake, MESH_UI_SETTINGS_POSITION, fields, 16U);
+    struct mesh_ui_settings_item items[16];
+    uint32_t count =
+        mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_POSITION,
+                               MESH_UI_SETTINGS_NO_CHANNEL, items, 16U);
+    MESH_TEST_FAIL_IF(n != 4U || n != count || items[0].kind != INKSTAND_FORM_INFO ||
+                          items[1].kind != INKSTAND_FORM_INFO ||
+                          fields[2] != MESH_UI_FIELD_POSITION_RECEIVER || items[2].number != 1U ||
+                          items[3].kind != INKSTAND_FORM_INFO,
+                      "Position is where the node is, read rather than typed, then the receiver, "
+                      "on, and where the fix came from");
+    char want[64];
+    inkcell_str_format_plural(want, sizeof want, MESH_STR_SETTINGS_POSITION_FIX_SATELLITES_ONE, 9U,
+                              9U);
+    MESH_TEST_FAIL_IF(strcmp(items[n - 1U].value, want) != 0,
+                      "its receiver's, from nine satellites");
+    settings.receiver = 1U; /* off; the last fix is still the node's */
+    count = mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_POSITION,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, items, 16U);
+    MESH_TEST_FAIL_IF(count != n || items[n - 2U].number != 0U, "off is the switch off");
+
+    settings.protocol_lacks = mesh_ui_protocol_tern_lacks(7U, true);
+    MESH_TEST_FAIL_IF(
+        section_fields(&settings, &handshake, MESH_UI_SETTINGS_POSITION, fields, 16U) != n - 2U,
+        "a node of version 7 has neither row");
+    settings.protocol_lacks = mesh_ui_protocol_tern_lacks(9U, false);
+    MESH_TEST_FAIL_IF(!section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                      MESH_UI_SETTINGS_ACTION_SHUTDOWN) ||
+                          section_offers(&settings, &handshake, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                         MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE),
+                      "version 9 offers Shutdown, and none of Meshtastic's other maintenance");
+    record_success(test_name);
+}
+
+static size_t section_fields(const struct mesh_ui_settings *settings,
+                             const struct mesh_ui_handshake_state *handshake,
                              enum mesh_ui_settings_section section, uint16_t *fields, size_t cap) {
     struct mesh_ui_settings_item items[64];
     const uint32_t count =
@@ -1214,8 +1292,8 @@ MESH_TEST_CASE(ui_protocol_settings_follow_a_plain_configuration, unit) {
     settings.has_metadata = true;
     settings.protocol = (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
     settings.protocol_lacks = MESH_UI_FEATURE_FULL_CONFIG | MESH_UI_FEATURE_RADIO_MAINTENANCE |
-                              MESH_UI_FEATURE_MODULES | MESH_UI_FEATURE_CONTACT_LINKS |
-                              MESH_UI_FEATURE_RADIO_FIRMWARE;
+                              MESH_UI_FEATURE_RADIO_OFF | MESH_UI_FEATURE_MODULES |
+                              MESH_UI_FEATURE_CONTACT_LINKS | MESH_UI_FEATURE_RADIO_FIRMWARE;
     struct mesh_ui_handshake_state handshake;
     memset(&handshake, 0, sizeof handshake);
     handshake.has_my_info = true;
