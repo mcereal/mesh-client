@@ -65,7 +65,7 @@ Meshtastic, and each is where a second protocol has work to do:
 | `src/app/app_publish.c`, `app_actions.c`, `app_settings.c` | Translating between the session and the UI store, and between a UI action and a session call. This is where a second protocol's publish and dispatch would sit beside Meshtastic's |
 | `include/mesh/ui/store_*.h` | A node is a 32-bit `node_id`. Channel roles, device roles, the settings sections and several enums are Meshtastic's ranges, carried as bytes so the UI does not include nanopb |
 | `src/proto/channel_url.c`, `contact_url.c` | `meshtastic.org/e/#` and `/v/#` links |
-| `src/app/app_mqtt.c`, `src/core/firmware/firmware_catalog.c` | Meshtastic's MQTT client proxy and its firmware release feed (MeshCore's feed is `firmware_meshcore.c`) |
+| `src/app/app_mqtt.c`, `src/core/firmware/firmware_catalog.c` | Meshtastic's MQTT client proxy and its firmware release feed (MeshCore's feed is `firmware_meshcore.c`, Tern's `firmware_tern.c`) |
 
 The UI's renderers, the nav, inkcell, inkstand and inkwell do not know which protocol is on the
 other end. They read the store.
@@ -481,19 +481,37 @@ code here goes the other way - and checked against that repository's vectors, wh
   on the node it was begun on only; SELF from another node finishes it, nothing sent.
   An UPDATE_END given up on is never sent again - the outcome is unconfirmed, and the next
   INFO's release says. `mesh_tern_update_status()` is where it stands.
+- **Firmware from the project's feed.** `mesh_firmware_check_tern()` reads
+  `ternmesh.org/firmware/latest.json` (`MESHCLIENT_FIRMWARE_TERN_URL` overrides it) - the feed
+  the phone apps read - and takes the image for INFO's `board` in SELF's `region`, both matched
+  ignoring case; a node with either empty is offered none, and a feed that is not there (404)
+  is nothing to update to. Releases order as SemVer, prereleases below their release. The board
+  it answers with has `MESH_FIRMWARE_PATH_LINK`: the install goes over the link itself, on
+  whichever bus or network it runs, so no bus is refused. `mesh_firmware_update_start()` on
+  that path downloads the `-app.bin` beside the feed, holds it to the feed's size and SHA-256,
+  waits for the link to be synced, and hands it to `mesh_tern_update_start()`. The job is
+  WRITING while the node takes chunks (its progress is what the node holds), WAITING while a
+  dropped link is away, and RESTARTING once UPDATE_END is answered or given up on; it is DONE
+  when the link has been down and the node is back saying the new release, and fails naming
+  the release it came back on otherwise. An ERROR 11 is the wrong image. Nothing is armed and
+  the link is never released, so auto-connect is free to bring the node back.
 
 The `tern` row in `src/ui/tables/protocols.c` lacks every feature: the protocol has no
-channels and no contact link. Two follow the version spoken, through
-`mesh_ui_protocol_tern_lacks()`: from version 8 a node with a receiver has it as a switch in
-Position, under the coordinates of its own fix and beside whose fix it is, and from version 9 the
-Radio card's details offer Shutdown, which sends OFF. **Spoken but not yet on a screen:** groups,
+channels and no contact link. Three follow the version spoken, through
+`mesh_ui_protocol_tern_lacks()`: from version 4 the Radio card's details check for and install
+firmware - one Install row, `INSTALL_FIRMWARE_LINK`, under a sheet that says the node keeps
+everything and stays on the mesh, with no release list to choose; from version 8 a node with a
+receiver has it as a switch in Position, under the coordinates of its own fix and beside whose
+fix it is; and from version 9 the details offer Shutdown, which sends OFF. INFO's release and
+board are the details' Firmware and Hardware rows. **Spoken but not yet on a screen:** groups,
 group messages and invites; join codes (showing one, and joining from one typed in); sharing this
 node's position and giving it ours; turning cards on and naming them; region, role, power and
 passkey (SET);
-SAVE_CONTACT, END_SESSION and READ; ASKED; and firmware updates, for which this client has
-neither a release feed for Tern boards nor an install flow over the companion link.
+SAVE_CONTACT, END_SESSION and READ; and ASKED.
 REMOVE_CONTACT is in the codec and has no call.
 `tests/suites/tern_codec.c` runs every companion vector but `group_ids` (a client never holds a
 group's secret) and `refusals` (a node's answers to requests a client does not make);
 `tests/suites/tern.c` replays the spec's exchange, its older clients' connections and its update
-over two connections through the conversation, and holds the rules around them.
+over two connections through the conversation, and holds the rules around them;
+`tests/suites/firmware_tern.c` holds the feed's parser to what the apps accept, and runs the check
+and the install against a feed and an image on loopback and a node played frame by frame.
