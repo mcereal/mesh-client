@@ -244,3 +244,36 @@ MESH_TEST_CASE(ui_firmware_screen_does_not_follow_the_reader_to_another_tab, uni
     MESH_TEST_FAIL_IF(opened, "an install should not pull the reader off another tab");
     record_success(test_name);
 }
+
+/* A Tern node's update goes over its own link: the screen says to keep it connected, a dropped
+   link is the radio being waited for rather than an updater, and a failure leaves it as it was
+   - or, when it was not there to say, asks for it back. */
+MESH_TEST_CASE(ui_firmware_progress_speaks_for_an_update_over_the_link, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.fw_link = true;
+    settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_BLE;
+    struct mesh_ui_firmware_progress p;
+
+    settings.fw_update_state = (uint8_t)MESH_FIRMWARE_UPDATE_WRITING;
+    mesh_ui_firmware_progress_of(&settings, &p);
+    MESH_TEST_FAIL_IF(p.hint != MESH_STR_FW_SCREEN_HINT_LINK,
+                      "over the link, whatever the bus, the radio stays connected");
+    settings.fw_update_state = (uint8_t)MESH_FIRMWARE_UPDATE_WAITING;
+    mesh_ui_firmware_progress_of(&settings, &p);
+    MESH_TEST_FAIL_IF(p.status != MESH_STR_FW_SCREEN_READY ||
+                          p.stage != MESH_UI_FIRMWARE_STAGE_INSTALL,
+                      "a dropped link waits for the radio part of the way through the install");
+
+    settings.fw_update_state = (uint8_t)MESH_FIRMWARE_UPDATE_FAILED;
+    settings.fw_update_error = (uint8_t)MESH_FIRMWARE_UPDATE_ERROR_HANDOVER;
+    mesh_ui_firmware_progress_of(&settings, &p);
+    MESH_TEST_FAIL_IF(
+        p.hint != MESH_STR_FW_SCREEN_HINT_UNTOUCHED,
+        "a node switches only to a whole, checked image: a failure left it as it was");
+    settings.fw_update_error = (uint8_t)MESH_FIRMWARE_UPDATE_ERROR_NO_RADIO;
+    mesh_ui_firmware_progress_of(&settings, &p);
+    MESH_TEST_FAIL_IF(p.hint != MESH_STR_FW_SCREEN_HINT_RECONNECT,
+                      "a node that was not there to say asks to be connected again");
+    record_success(test_name);
+}

@@ -28,6 +28,7 @@
 #include "inkwell/net/fetch.h"
 #include "mesh/core/firmware_catalog.h"
 #include "mesh/core/firmware_meshcore.h"
+#include "mesh/core/firmware_tern.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -99,6 +100,9 @@ enum mesh_firmware_source {
     MESH_FIRMWARE_SOURCE_MESHTASTIC = 0,
     /* MeshCore's flasher list and its GitHub releases, keyed on DEVICE_INFO's model string. */
     MESH_FIRMWARE_SOURCE_MESHCORE,
+    /* ternmesh.org's release feed, keyed on INFO's board and SELF's region. No switch reads
+       it: Tern has no twin table, and its images are applications for a node already on it. */
+    MESH_FIRMWARE_SOURCE_TERN,
     MESH_FIRMWARE_SOURCE_COUNT,
 };
 
@@ -136,6 +140,8 @@ struct mesh_firmware {
        is the build a write keeps it on. */
     char model[MESH_FIRMWARE_BOARD_NAME_MAX];
     bool usb_build;
+    /* A Tern node's region, which picks its image as much as its board (in `model`) does. */
+    char region[MESH_FIRMWARE_TERN_REGION_MAX];
     /* The answer is the radio's other companion build - Bluetooth, for a radio on a USB cable -
        so `usb_build` is not the build the bus says it runs. Same firmware, same settings: the
        application is written and nothing else. */
@@ -231,6 +237,16 @@ int mesh_firmware_check_meshcore(struct mesh_firmware *firmware, const char *mod
                                  const char *running, bool usb_build, uint64_t now_ms);
 
 /*
+ * The same check for a Tern node, described by INFO's `board` ("heltec-v3", empty for a build
+ * that cannot be updated over its link) and `release` ("0.4.0-alpha.1"), and SELF's `region`.
+ * One document, the project's feed, ordered as SemVer; the channel is not read, since the feed
+ * is one line of releases. A feed that is not there (404) is the project saying there is
+ * nothing to update to, and ends up to date. Returns as mesh_firmware_check().
+ */
+int mesh_firmware_check_tern(struct mesh_firmware *firmware, const char *board, const char *region,
+                             const char *running, uint64_t now_ms);
+
+/*
  * The same radio's Bluetooth companion build, asked over the USB cable it answers on: the newest
  * release whatever the radio runs, since what is news is the build and not the version. The
  * install writes the application only, so the radio keeps its identity, contacts and channels,
@@ -297,6 +313,11 @@ bool mesh_firmware_answers_for(const struct mesh_firmware *firmware, uint32_t hw
    about the radio it was asked for, whichever documents it read. */
 bool mesh_firmware_answers_for_meshcore(const struct mesh_firmware *firmware, const char *model,
                                         const char *running, bool usb_build);
+
+/* The same question about a Tern node, which names itself by board and region and says its
+   release: any of the three moving makes the answer another node's. */
+bool mesh_firmware_answers_for_tern(const struct mesh_firmware *firmware, const char *board,
+                                    const char *region, const char *running);
 
 /*
  * Which of upstream's two release lists to read.

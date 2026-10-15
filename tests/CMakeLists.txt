@@ -41,6 +41,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/firmware.c
     suites/firmware_catalog.c
     suites/firmware_meshcore.c
+    suites/firmware_tern.c
     suites/firmware_dfu.c
     suites/firmware_fetch.c
     suites/firmware_install.c

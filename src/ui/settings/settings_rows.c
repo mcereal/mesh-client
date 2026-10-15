@@ -1779,7 +1779,10 @@ static void build_radio_firmware_linked(const struct mesh_ui_settings *s, struct
                                              : s->protocol != (uint8_t)MESH_UI_PROTOCOL_MESHCORE;
     /* MeshCore publishes one line of companion releases, so there is no list to choose - and
        the list that matters is the one of the firmware the answer is about. */
-    const bool channels = s->fw_switching ? !to_meshcore : to_meshcore;
+    /* Tern's feed is one line of releases too. */
+    const bool channels = s->fw_switching
+                              ? !to_meshcore
+                              : to_meshcore && s->protocol != (uint8_t)MESH_UI_PROTOCOL_TERN;
     if (s->fw_busy) {
         if (channels) {
             item_text(list, MESH_STR_FW_CHANNEL, INKSTAND_FORM_INFO, s->fw_channel);
@@ -1890,6 +1893,11 @@ static void build_radio_firmware_linked(const struct mesh_ui_settings *s, struct
     if (s->fw_other_build) {
         item_verb(list, MESH_STR_FW_BLUETOOTH_INSTALL,
                   MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH);
+        return;
+    }
+    /* Over the link itself, whatever it runs on: a network cable as well as either bus. */
+    if (s->fw_link) {
+        item_verb(list, MESH_STR_FW_INSTALL, MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_LINK);
         return;
     }
     item_verb(list, MESH_STR_FW_INSTALL,

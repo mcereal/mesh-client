@@ -1391,6 +1391,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_TITLE_HAM_MODE] = "¿Pasar a modo ham?",
     [MESH_STR_CONFIRM_TITLE_FW_USB] = "¿Actualizar la radio por USB?",
     [MESH_STR_CONFIRM_TITLE_FW_BLE] = "¿Actualizar la radio por Bluetooth?",
+    [MESH_STR_CONFIRM_TITLE_FW_LINK] = "¿Actualizar la radio?",
     [MESH_STR_CONFIRM_TITLE_FW_SWITCH] = "¿Cambiar el firmware de la radio?",
     [MESH_STR_CONFIRM_TITLE_FW_BLUETOOTH] = "¿Pasar la radio a Bluetooth?",
     [MESH_STR_CONFIRM_TITLE_CLEAR_CHAN] = "¿Vaciar el canal %u?",
@@ -1415,6 +1416,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_CONFIRM_ACCEPT_HAM_MODE] = "Pasar a modo ham",
     [MESH_STR_CONFIRM_ACCEPT_FW_USB] = "Actualizar por USB",
     [MESH_STR_CONFIRM_ACCEPT_FW_BLE] = "Actualizar por Bluetooth",
+    [MESH_STR_CONFIRM_ACCEPT_FW_LINK] = "Actualizar",
     [MESH_STR_CONFIRM_ACCEPT_FW_SWITCH] = "Borrar y cambiar",
     [MESH_STR_CONFIRM_ACCEPT_FW_BLUETOOTH] = "Instalar",
     [MESH_STR_CONFIRM_ACCEPT_SAVE] = "Guardar en la radio",
@@ -1471,6 +1473,10 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
         "Se descarga la imagen, la radio se reinicia en su gestor de arranque y los bloques se "
         "escriben por el cable. No lo desconectes: una escritura interrumpida deja el gestor de "
         "arranque en marcha y se reintenta escribiendo otra vez.",
+    [MESH_STR_CONFIRM_TEXT_FW_LINK] =
+        "Se descarga la imagen y pasa a la radio por esta conexión sin que salga de la malla. "
+        "Conserva su dirección, claves, contactos y ajustes, y se reinicia con la imagen una vez "
+        "comprobada. Si la conexión se corta, sigue desde donde se quedó.",
     [MESH_STR_CONFIRM_TEXT_FW_BLE] =
         "Se descarga la imagen, la radio sale de la malla y se reinicia en su cargador de "
         "actualización. De ahí solo se sale terminando, lo que tarda unos cuatro minutos. Manten "
@@ -2295,6 +2301,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_FW_SCREEN_FAILED] = "La actualización falló",
     [MESH_STR_FW_SCREEN_HINT_USB] = "Mantén la radio conectada hasta que termine.",
     [MESH_STR_FW_SCREEN_HINT_BLE] = "Mantén la radio cerca hasta que termine.",
+    [MESH_STR_FW_SCREEN_HINT_LINK] = "Mantén la radio conectada hasta que termine.",
+    [MESH_STR_FW_SCREEN_HINT_RECONNECT] = "Vuelve a conectar la radio para ver qué firmware tiene.",
     [MESH_STR_FW_SCREEN_HINT_DONE] = "La radio ya usa el nuevo firmware.",
     [MESH_STR_FW_SCREEN_HINT_UNTOUCHED] = "La radio no cambió. Puedes volver a intentarlo.",
     [MESH_STR_FW_SCREEN_HINT_HANDOVER] =

@@ -565,6 +565,7 @@ void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
         action->number = which == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE         ? 1U
                          : which == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_SWITCH    ? 2U
                          : which == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH ? 3U
+                         : which == MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_LINK      ? 4U
                                                                                        : 0U;
         return;
     }

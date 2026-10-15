@@ -6,6 +6,7 @@
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 #include "inkwell/base/time.h"
+#include "inkwell/codec/sha256.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -408,6 +409,28 @@ static void fetch_check_direct(struct mesh_firmware_fetch *fetch) {
                    "the image is not the length its release describes");
         return;
     }
+    if (fetch->expect_sha256[0] != '\0') {
+        struct inkwell_sha256 sha;
+        uint8_t digest[INKWELL_SHA256_DIGEST_LEN];
+        char hex[INKWELL_SHA256_DIGEST_LEN * 2U + 1U];
+        inkwell_sha256_init(&sha);
+        inkwell_sha256_update(&sha, bytes, len);
+        inkwell_sha256_final(&sha, digest);
+        inkwell_sha256_hex(digest, hex, sizeof hex);
+        if (strcmp(hex, fetch->expect_sha256) != 0) {
+            free(bytes);
+            fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_WRONG_IMAGE,
+                       "the image is not the one its release describes");
+            return;
+        }
+    }
+    /* Over the link the node is the one that reads it, and refuses what is not for it. */
+    if (fetch->bus == MESH_FIRMWARE_PATH_LINK) {
+        free(bytes);
+        inkwell_log_info("firmware", "The image is %zu bytes and its digest matches", len);
+        fetch_finish(fetch, MESH_FIRMWARE_FETCH_READY, MESH_FIRMWARE_FETCH_ERROR_NONE, "");
+        return;
+    }
     if (!mesh_firmware_architecture_uses_esp_rom(fetch->expect_architecture)) {
         free(bytes);
         fetch_check_image(fetch);
@@ -485,7 +508,8 @@ int mesh_firmware_fetch_start_direct(struct mesh_firmware_fetch *fetch,
     if (!inkwell_fetch_available(fetcher)) {
         return -ENOTSUP;
     }
-    if (!mesh_firmware_architecture_takes(expect_architecture, bus)) {
+    if (bus != MESH_FIRMWARE_PATH_LINK &&
+        !mesh_firmware_architecture_takes(expect_architecture, bus)) {
         return -ENOTSUP;
     }
 
@@ -530,6 +554,24 @@ int mesh_firmware_fetch_start_direct(struct mesh_firmware_fetch *fetch,
     }
     inkwell_log_info("firmware", "Fetching %s, %llu bytes", image_name, (unsigned long long)bytes);
     return 0;
+}
+
+int mesh_firmware_fetch_start_link(struct mesh_firmware_fetch *fetch, struct inkwell_fetch *fetcher,
+                                   const char *image_url, const char *image_name, uint64_t bytes,
+                                   const char *sha256, const char *staging_dir,
+                                   mesh_firmware_fetch_done_fn on_done, void *userdata) {
+    if (sha256 == NULL || strlen(sha256) != MESH_FIRMWARE_SHA256_HEX) {
+        return -EINVAL;
+    }
+    const int started = mesh_firmware_fetch_start_direct(fetch, fetcher, image_url, image_name,
+                                                         bytes, "", MESH_FIRMWARE_PATH_LINK, false,
+                                                         staging_dir, on_done, userdata);
+    /* After the start, which clears the struct; the digest is first read when the download
+       lands, on a later turn of the loop. */
+    if (started == 0) {
+        inkwell_str_copy(fetch->expect_sha256, sizeof fetch->expect_sha256, sha256);
+    }
+    return started;
 }
 
 /* ---- the public half ----------------------------------------------------------------------*/

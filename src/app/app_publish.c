@@ -1520,8 +1520,10 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     /* An answer from the other protocol's documents is about another radio whatever it said,
        and is dropped the moment the link speaks the other one - not once the new radio has
        described itself, which leaves the old image installable through the handshake. */
-    const enum mesh_firmware_source speaking =
-        app->meshcore_bound ? MESH_FIRMWARE_SOURCE_MESHCORE : MESH_FIRMWARE_SOURCE_MESHTASTIC;
+    const enum mesh_firmware_source speaking = app->tern_bound ? MESH_FIRMWARE_SOURCE_TERN
+                                               : app->meshcore_bound
+                                                   ? MESH_FIRMWARE_SOURCE_MESHCORE
+                                                   : MESH_FIRMWARE_SOURCE_MESHTASTIC;
     /* A silent radio's answer holds no link to anything, only the port: it lasts as long as
        that port is there and still says nothing. */
     const struct inkwell_serial_port_info *const silent = mesh_app_firmware_silent_port(app);
@@ -1532,6 +1534,14 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     } else if (firmware->state != MESH_FIRMWARE_IDLE &&
                mesh_firmware_radio_source(firmware) != speaking) {
         mesh_firmware_forget(firmware);
+    } else if (app->tern_bound) {
+        /* A Tern node names itself in INFO and SELF; until both have arrived there is nothing
+           to hold an answer against. */
+        if (app->tern.has_self &&
+            !mesh_firmware_answers_for_tern(firmware, app->tern.board, app->tern.self.region,
+                                            app->tern.release)) {
+            mesh_firmware_forget(firmware);
+        }
     } else if (app->meshcore_bound) {
         /* A MeshCore radio names itself in DEVICE_INFO, and until it has there is nothing to
            hold an answer against. */
@@ -1580,6 +1590,10 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
        confirm sheet and the action bar cannot each decide it differently. */
     const struct mesh_firmware_update *const update = &app->firmware_update;
     dst->fw_bus = (uint8_t)firmware->bus;
+    /* Over the link itself, whichever bus that is: the press and its sheet are the link's. */
+    dst->fw_link = update->state != MESH_FIRMWARE_UPDATE_IDLE
+                       ? update->path == MESH_FIRMWARE_PATH_LINK
+                       : board != NULL && board->path == MESH_FIRMWARE_PATH_LINK;
     dst->fw_update_state = (uint8_t)update->state;
     dst->fw_update_error = (uint8_t)update->error;
     dst->fw_update_progress = (uint8_t)mesh_firmware_update_progress(update);
@@ -3376,6 +3390,14 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_profile_publish(app, &ui_settings.profiles);
     /* MeshCore's DEVICE_INFO is its DeviceMetadata: which firmware, on which board. After the
        firmware's own flatten, which would otherwise have the last word on `fw_board`. */
+    /* A Tern node's INFO is the same two facts: its release, and the board it is built for -
+       which is also the name its images go by. */
+    if (app->tern_bound && app->tern.has_agreed) {
+        ui_settings.has_metadata = true;
+        inkwell_str_copy(ui_settings.firmware_version, sizeof ui_settings.firmware_version,
+                         app->tern.release);
+        inkwell_str_copy(ui_settings.fw_board, sizeof ui_settings.fw_board, app->tern.board);
+    }
     if (app->meshcore_bound && app->meshcore.has_device) {
         ui_settings.has_metadata = true;
         inkwell_str_copy(ui_settings.firmware_version, sizeof ui_settings.firmware_version,

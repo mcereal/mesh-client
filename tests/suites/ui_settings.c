@@ -16,6 +16,7 @@
 #include "mesh/core/updater.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/protocols.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 
@@ -5344,6 +5345,67 @@ MESH_TEST_CASE(node_detail_speaks_the_readers_terms, unit) {
                                       MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(strcmp(node_detail_value(items, count, "Latitude"), "47.6205") != 0,
                       "a fix rounded finer than the settings table keeps four decimals");
+    record_success(test_name);
+}
+
+/* A Tern node's update is one press over its own link, on a network cable as on either bus,
+   under the link's own sheet - and with no release list to pick, since the feed is one line. */
+MESH_TEST_CASE(ui_settings_radio_details_updates_a_tern_node_over_its_link, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.fw_supported = true;
+    settings.protocol = (uint8_t)MESH_UI_PROTOCOL_TERN;
+    settings.protocol_lacks = mesh_ui_protocol_tern_lacks(9U, false);
+    settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_NONE;
+    settings.fw_link = true;
+    settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
+    settings.fw_can_install = true;
+    snprintf(settings.fw_message, sizeof settings.fw_message, "0.5.0-alpha.1");
+
+    struct mesh_ui_settings_item item;
+    bool install = false;
+    bool check = false;
+    const uint32_t count = mesh_ui_settings_item_count(
+        &settings, NULL, MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL);
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
+            continue;
+        }
+        install = install || item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_LINK;
+        check = check || item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE;
+        MESH_TEST_FAIL_IF(item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB ||
+                              item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLE,
+                          "a Tern node is never offered a bus's own install");
+        MESH_TEST_FAIL_IF(item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL,
+                          "nor a release list to choose");
+    }
+    MESH_TEST_FAIL_IF(!check || !install, "it is checked, and updated over the link");
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_settings_action_is_install_firmware(MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_LINK),
+        "and the update is one of the installs, with a sheet in front of it");
+    char title[96];
+    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL,
+                                   MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_LINK, title,
+                                   sizeof title);
+    MESH_TEST_FAIL_IF(
+        strcmp(title, inkcell_str(MESH_STR_CONFIRM_TITLE_FW_LINK)) != 0 ||
+            strcmp(mesh_ui_settings_confirm_accept(MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_LINK),
+                   inkcell_str(MESH_STR_CONFIRM_ACCEPT_FW_LINK)) != 0,
+        "the sheet is the link's own");
+
+    settings.protocol_lacks = mesh_ui_protocol_tern_lacks(3U, false);
+    const uint32_t old = mesh_ui_settings_item_count(
+        &settings, NULL, MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL);
+    for (uint32_t i = 0; i < old; ++i) {
+        MESH_TEST_FAIL_IF(mesh_ui_settings_item(&settings, NULL, NULL, 0U,
+                                                MESH_UI_SETTINGS_RADIO_DETAILS,
+                                                MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+                              item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE,
+                          "a node of version 3 has no updates to check for");
+    }
     record_success(test_name);
 }
 

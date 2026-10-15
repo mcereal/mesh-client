@@ -130,6 +130,8 @@ struct mesh_firmware_fetch {
     bool direct;
     char direct_url[MESH_FIRMWARE_URL_MAX];
     char direct_path[INKWELL_FETCH_PATH_MAX];
+    /* The digest a direct download is held to, as 64 lowercase hex digits, or empty. */
+    char expect_sha256[MESH_FIRMWARE_SHA256_HEX + 1U];
 
     mesh_firmware_fetch_done_fn on_done;
     void *userdata;
@@ -185,6 +187,20 @@ int mesh_firmware_fetch_start_direct(struct mesh_firmware_fetch *fetch,
                                      const char *expect_architecture, enum mesh_firmware_path bus,
                                      bool whole, const char *staging_dir,
                                      mesh_firmware_fetch_done_fn on_done, void *userdata);
+
+/*
+ * Fetches an image that goes over the link itself - a Tern node's application - as
+ * mesh_firmware_fetch_start_direct() does, and holds it to `bytes` and to `sha256` (64 hex
+ * digits, required) and to nothing about the chip: the node reads the image itself, and
+ * refuses one that is not for it before it restarts. `bus` is MESH_FIRMWARE_PATH_LINK
+ * afterwards.
+ *
+ * Returns as mesh_firmware_fetch_start().
+ */
+int mesh_firmware_fetch_start_link(struct mesh_firmware_fetch *fetch, struct inkwell_fetch *fetcher,
+                                   const char *image_url, const char *image_name, uint64_t bytes,
+                                   const char *sha256, const char *staging_dir,
+                                   mesh_firmware_fetch_done_fn on_done, void *userdata);
 
 /* Drives the download's own tick. Call every loop turn. */
 void mesh_firmware_fetch_tick(struct mesh_firmware_fetch *fetch, uint64_t now_ms);

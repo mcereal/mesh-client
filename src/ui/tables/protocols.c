@@ -36,18 +36,23 @@ static const struct {
          MESH_UI_FEATURE_RADIO_RECEIVER},
     /* Direct messages to a contact or a neighbour, with their delivery state; a contact's
        position on the map, the node's own, and a node's presence card on its detail, which need
-       no verb. Its companion protocol has groups, join codes and firmware updates, which this
-       client speaks but no screen offers yet (docs/protocols.md), no channels, no contact link
-       and none of the per-node verbs. What it has by version is mesh_ui_protocol_tern_lacks(). */
+       no verb. Its companion protocol has groups and join codes, which this client speaks but
+       no screen offers yet (docs/protocols.md), no channels, no contact link and none of the
+       per-node verbs. What it has by version is mesh_ui_protocol_tern_lacks(). */
     {"tern", MESH_UI_PROTOCOL_TERN, MESH_UI_FEATURES_ALL},
 };
 
 /* The companion version each of a Tern node's features is had from. */
+#define TERN_UPDATE_SINCE 4U
 #define TERN_RECEIVER_SINCE 8U
 #define TERN_OFF_SINCE 9U
 
 uint32_t mesh_ui_protocol_tern_lacks(uint8_t version, bool has_receiver) {
     uint32_t lacks = MESH_UI_FEATURES_ALL;
+    /* An update over the link, from the project's release feed. */
+    if (version >= TERN_UPDATE_SINCE) {
+        lacks &= ~(uint32_t)MESH_UI_FEATURE_RADIO_FIRMWARE;
+    }
     if (version >= TERN_RECEIVER_SINCE && has_receiver) {
         lacks &= ~(uint32_t)MESH_UI_FEATURE_RADIO_RECEIVER;
     }
