@@ -1,0 +1,47 @@
+# Radio > details on a Tern node: its firmware from the project's feed, installed over the link.
+#
+# One press, whichever bus or network the link is on, under a sheet of its own: the node keeps
+# everything it holds and stays on the mesh while it takes the image, and a dropped link picks
+# up where it stopped. There is no release list to choose - the feed is one line - and the
+# screen's hint is the link's, not a bus's.
+scene demo
+clock 2026-10-14 14:20
+delay 1800
+config
+protocol tern 9
+
+tab radio
+key down 9
+key up
+key a
+
+# Firmware, Hardware, what the check found, the check, and the press under them.
+firmware-install idle link
+key down 4
+hold 2000
+
+key a
+hold 3000
+key b
+hold 900
+
+firmware-install downloading link 62
+hold 1600
+firmware-install arming link
+hold 1200
+firmware-install writing link 43
+hold 1600
+firmware-install waiting link
+hold 1600
+firmware-install writing link 81
+hold 1200
+firmware-install restarting link
+hold 1400
+firmware-install done link
+hold 2400
+key b
+hold 900
+
+firmware-install resolving link
+firmware-install failed link
+hold 2400
