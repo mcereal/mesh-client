@@ -53,6 +53,15 @@
     "https://api.github.com/repos/meshcore-dev/MeshCore/releases/tags/"
 #endif
 
+/*
+ * Tern's one. It is a few hundred bytes per board and region - nine regions of one board today,
+ * a dozen boards one day - and the images it names sit in the same directory.
+ */
+#ifndef MESHCLIENT_FIRMWARE_TERN_URL
+#define MESHCLIENT_FIRMWARE_TERN_URL "https://ternmesh.org/firmware/latest.json"
+#endif
+#define MESH_FIRMWARE_TERN_MAX (256U * 1024U)
+
 #define MESH_FIRMWARE_MESHCORE_CONFIG_MAX (512U * 1024U)
 #define MESH_FIRMWARE_MESHCORE_TAGS_MAX (128U * 1024U)
 #define MESH_FIRMWARE_MESHCORE_RELEASE_MAX (2U * 1024U * 1024U)
@@ -169,6 +178,10 @@ static enum mesh_firmware_blocker firmware_blocker(const struct mesh_firmware *f
     }
     if (board->path == MESH_FIRMWARE_PATH_NONE) {
         return MESH_FIRMWARE_BLOCKER_NO_PATH;
+    }
+    /* Over the link itself, so whichever bus that is runs it - a network cable included. */
+    if (board->path == MESH_FIRMWARE_PATH_LINK) {
+        return MESH_FIRMWARE_BLOCKER_NONE;
     }
     if (firmware->blank) {
         return MESH_FIRMWARE_BLOCKER_NONE;
@@ -371,8 +384,12 @@ static void firmware_conclude(struct mesh_firmware *firmware) {
      * it with. The same version and never an older one: a downgrade is a different question,
      * with a filesystem the older firmware may not read.
      */
+    /* Tern's releases are SemVer, prereleases and all; Meshtastic's and MeshCore's end in a
+       build hash that orders nothing. */
     const int compared =
-        mesh_firmware_version_compare(firmware->running, firmware->release.version);
+        firmware->source == MESH_FIRMWARE_SOURCE_TERN
+            ? mesh_firmware_tern_version_compare(firmware->running, firmware->release.version)
+            : mesh_firmware_version_compare(firmware->running, firmware->release.version);
     if (compared > 0 ||
         (compared == 0 && !inkwell_env_bool("FIRMWARE_REINSTALL", "firmware reinstall", false))) {
         firmware_set(firmware, MESH_FIRMWARE_UP_TO_DATE, inkcell_str(MESH_STR_FW_STATE_UP_TO_DATE));
@@ -486,6 +503,17 @@ bool mesh_firmware_answers_for_meshcore(const struct mesh_firmware *firmware, co
            strcmp(firmware->running, running != NULL ? running : "") == 0;
 }
 
+bool mesh_firmware_answers_for_tern(const struct mesh_firmware *firmware, const char *board,
+                                    const char *region, const char *running) {
+    if (firmware == NULL || firmware->state == MESH_FIRMWARE_IDLE) {
+        return true;
+    }
+    return mesh_firmware_radio_source(firmware) == MESH_FIRMWARE_SOURCE_TERN &&
+           strcmp(firmware->model, board != NULL ? board : "") == 0 &&
+           strcmp(firmware->region, region != NULL ? region : "") == 0 &&
+           strcmp(firmware->running, running != NULL ? running : "") == 0;
+}
+
 void mesh_firmware_forget(struct mesh_firmware *firmware) {
     if (firmware == NULL || mesh_firmware_busy(firmware)) {
         return;
@@ -495,6 +523,7 @@ void mesh_firmware_forget(struct mesh_firmware *firmware) {
     firmware->hw_model = 0U;
     firmware->running[0] = '\0';
     firmware->model[0] = '\0';
+    firmware->region[0] = '\0';
     firmware->tag[0] = '\0';
     firmware->switching = false;
     firmware->other_build = false;
@@ -644,6 +673,7 @@ static void firmware_begin(struct mesh_firmware *firmware, enum mesh_firmware_so
     firmware->hw_model = hw_model;
     inkwell_str_copy(firmware->model, sizeof firmware->model, model != NULL ? model : "");
     inkwell_str_copy(firmware->running, sizeof firmware->running, running != NULL ? running : "");
+    firmware->region[0] = '\0';
     firmware->tag[0] = '\0';
     firmware->switching = false;
     firmware->other_build = false;
@@ -679,6 +709,69 @@ int mesh_firmware_check_meshcore(struct mesh_firmware *firmware, const char *mod
         return -EIO;
     }
     firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING, inkcell_str(MESH_STR_FW_STATE_IDENTIFYING));
+    return 0;
+}
+
+/* ---- Tern's one document -------------------------------------------------------------------- */
+
+static void firmware_on_tern(void *userdata, const struct inkwell_fetch_result *result) {
+    struct mesh_firmware *firmware = (struct mesh_firmware *)userdata;
+    if (firmware == NULL || firmware->state != MESH_FIRMWARE_CHECKING) {
+        return;
+    }
+    /* No feed is no release: the project says so by not publishing one, and the node is as
+       up to date as there is. */
+    if (result->outcome == INKWELL_FETCH_HTTP_STATUS && result->status == 404) {
+        inkwell_log_info("firmware", "The Tern feed lists no release");
+        firmware_recompute_blocker(firmware);
+        firmware_set(firmware, MESH_FIRMWARE_UP_TO_DATE, inkcell_str(MESH_STR_FW_STATE_UP_TO_DATE));
+        return;
+    }
+    if (result->outcome != INKWELL_FETCH_OK || result->body == NULL) {
+        firmware_fetch_failed(firmware, result, MESH_STR_FW_INDEX_UNREADABLE);
+        return;
+    }
+    /* The images sit beside the feed, so their URLs are its directory's. */
+    const char *const url =
+        firmware_url("MESHCLIENT_FIRMWARE_TERN_URL", MESHCLIENT_FIRMWARE_TERN_URL);
+    char base[MESH_FIRMWARE_URL_MAX];
+    inkwell_str_copy(base, sizeof base, url);
+    char *const slash = strrchr(base, '/');
+    if (slash != NULL) {
+        slash[1] = '\0';
+    }
+    if (!mesh_firmware_tern_parse(result->body, result->len, firmware->model, firmware->region,
+                                  base, &firmware->boards, &firmware->release)) {
+        firmware_set(firmware, MESH_FIRMWARE_FAILED, inkcell_str(MESH_STR_FW_INDEX_UNREADABLE));
+        return;
+    }
+    inkwell_log_info(
+        "firmware", "newest Tern release is %s (node has %s); %u images for %s %s",
+        firmware->release.version, firmware->running[0] != '\0' ? firmware->running : "?",
+        (unsigned)firmware->boards.found, firmware->model[0] != '\0' ? firmware->model : "?",
+        firmware->region[0] != '\0' ? firmware->region : "?");
+    firmware_conclude(firmware);
+}
+
+int mesh_firmware_check_tern(struct mesh_firmware *firmware, const char *board, const char *region,
+                             const char *running, uint64_t now_ms) {
+    if (firmware == NULL) {
+        return -EINVAL;
+    }
+    if (!mesh_firmware_available(firmware)) {
+        return -ENOTSUP;
+    }
+    if (mesh_firmware_busy(firmware)) {
+        return -EBUSY;
+    }
+    firmware_begin(firmware, MESH_FIRMWARE_SOURCE_TERN, 0U, board, running, now_ms);
+    inkwell_str_copy(firmware->region, sizeof firmware->region, region != NULL ? region : "");
+    if (firmware_get(firmware,
+                     firmware_url("MESHCLIENT_FIRMWARE_TERN_URL", MESHCLIENT_FIRMWARE_TERN_URL),
+                     "Accept: application/json", MESH_FIRMWARE_TERN_MAX, firmware_on_tern) != 0) {
+        return -EIO;
+    }
+    firmware_set(firmware, MESH_FIRMWARE_CHECKING, inkcell_str(MESH_STR_FW_STATE_CHECKING));
     return 0;
 }
 

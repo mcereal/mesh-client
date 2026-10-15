@@ -1117,16 +1117,21 @@ static size_t section_fields(const struct mesh_ui_settings *settings,
  * behind its confirm, which the app routes to OFF.
  */
 MESH_TEST_CASE(ui_protocol_tern_features_follow_the_companion_version, unit) {
+    /* Firmware updates came at version 4, and every version since has them. */
+    const uint32_t updates = MESH_UI_FEATURES_ALL & ~(uint32_t)MESH_UI_FEATURE_RADIO_FIRMWARE;
     MESH_TEST_FAIL_IF(mesh_ui_protocol_tern_lacks(0U, true) != MESH_UI_FEATURES_ALL ||
-                          mesh_ui_protocol_tern_lacks(7U, true) != MESH_UI_FEATURES_ALL,
-                      "before the node says, and at version 7, a Tern node lacks every feature");
-    MESH_TEST_FAIL_IF(mesh_ui_protocol_tern_lacks(8U, false) != MESH_UI_FEATURES_ALL,
+                          mesh_ui_protocol_tern_lacks(3U, true) != MESH_UI_FEATURES_ALL,
+                      "before the node says, and below version 4, a Tern node lacks every feature");
+    MESH_TEST_FAIL_IF(mesh_ui_protocol_tern_lacks(4U, true) != updates ||
+                          mesh_ui_protocol_tern_lacks(7U, true) != updates,
+                      "from version 4 a Tern node takes firmware, and nothing else");
+    MESH_TEST_FAIL_IF(mesh_ui_protocol_tern_lacks(8U, false) != updates,
                       "a node with no receiver has no receiver row");
     MESH_TEST_FAIL_IF(mesh_ui_protocol_tern_lacks(8U, true) !=
-                          (MESH_UI_FEATURES_ALL & ~(uint32_t)MESH_UI_FEATURE_RADIO_RECEIVER),
+                          (updates & ~(uint32_t)MESH_UI_FEATURE_RADIO_RECEIVER),
                       "version 8 switches its receiver");
     MESH_TEST_FAIL_IF(mesh_ui_protocol_tern_lacks(9U, false) !=
-                          (MESH_UI_FEATURES_ALL & ~(uint32_t)MESH_UI_FEATURE_RADIO_OFF),
+                          (updates & ~(uint32_t)MESH_UI_FEATURE_RADIO_OFF),
                       "version 9 turns it off");
 
     struct mesh_ui_settings settings;

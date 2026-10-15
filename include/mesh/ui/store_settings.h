@@ -1232,6 +1232,12 @@ struct mesh_ui_settings {
     /* Which bus the radio is on, as enum mesh_firmware_path spells it - so the row can name the
        install it is offering without asking the device list what kind of link this is. */
     uint8_t fw_bus;
+    /* The board the check found takes its install over the link itself - a Tern node's -
+       whichever bus that is, so the press and its sheet are the link's rather than the bus's. */
+    bool fw_link;
+    /* The install job, running or last run, went over the link: what the progress screen says,
+       which is about that job and not about whatever the check has found since. */
+    bool fw_update_link;
     uint8_t fw_update_state;    /* enum mesh_firmware_update_state (mesh/core/firmware_update.h) */
     uint8_t fw_update_error;    /* enum mesh_firmware_update_error */
     uint8_t fw_update_progress; /* 0-100 over the step that has a fraction; 0 for the rest */

@@ -720,6 +720,12 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_CHECK_FIRMWARE_BLUETOOTH,
     MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_BLUETOOTH,
     /*
+     * A Tern node's update, over whichever connection the radio is on: the companion protocol
+     * carries the image itself. Reaches the app as MESH_UI_ACTION_INSTALL_RADIO_FIRMWARE with
+     * `number` 4, under a sheet that says the radio keeps everything and stays on the mesh.
+     */
+    MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_LINK,
+    /*
      * Channel sharing, at the foot of the Channels list: this radio's set as a link, and a
      * link typed in.
      *

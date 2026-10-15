@@ -2783,8 +2783,11 @@ static int verb_firmware_silent(struct inkstand_scene *scene, char *rest, void *
  * it. The rest are the ladder, and `percent` fills the meter for the two steps that have a
  * fraction.
  *
+ * `link` is a Tern node's update, over the link itself whichever bus that is: its own press,
+ * sheet and hint, from 0.4.0-alpha.1 to 0.5.0-alpha.1 on a heltec-v3.
+ *
  *   firmware-install idle|resolving|downloading|ready|arming|waiting|writing|restarting|
- *                    done|failed [usb|ble] [percent]
+ *                    done|failed [usb|ble|link] [percent]
  */
 static int verb_firmware_install(struct inkstand_scene *scene, char *rest, void *userdata) {
     struct uicap *cap = userdata;
@@ -2818,6 +2821,17 @@ static int verb_firmware_install(struct inkstand_scene *scene, char *rest, void 
     struct mesh_ui_settings settings = cap->store.settings;
     settings.fw_supported = true;
     settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
+    const bool link = bus != NULL && strcmp(bus, "link") == 0;
+    settings.fw_link = link;
+    settings.fw_update_link = link && state != MESH_FIRMWARE_UPDATE_IDLE;
+    if (link && strcmp(settings.fw_latest, "0.5.0-alpha.1") != 0) {
+        settings.has_metadata = true;
+        inkwell_str_copy(settings.firmware_version, sizeof settings.firmware_version,
+                         "0.4.0-alpha.1");
+        inkwell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "0.5.0-alpha.1");
+        inkwell_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
+        inkwell_str_copy(settings.fw_board, sizeof settings.fw_board, "heltec-v3");
+    }
     if (settings.fw_latest[0] == '\0') {
         inkwell_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
         inkwell_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
@@ -2830,6 +2844,9 @@ static int verb_firmware_install(struct inkstand_scene *scene, char *rest, void 
     settings.fw_blocker_reason[0] = '\0';
     settings.fw_bus = (uint8_t)((bus != NULL && strcmp(bus, "ble") == 0) ? MESH_FIRMWARE_PATH_BLE
                                                                          : MESH_FIRMWARE_PATH_USB);
+    if (link) {
+        settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_BLE;
+    }
     settings.fw_update_state = (uint8_t)state;
     settings.fw_update_progress =
         percent != NULL ? (uint8_t)strtoul(percent, NULL, 10) : (uint8_t)0U;
@@ -2842,12 +2859,12 @@ static int verb_firmware_install(struct inkstand_scene *scene, char *rest, void 
     if (state == MESH_FIRMWARE_UPDATE_FAILED) {
         settings.fw_update_error = (uint8_t)MESH_FIRMWARE_UPDATE_ERROR_REFUSED;
         inkwell_str_copy(settings.fw_update_detail, sizeof settings.fw_update_detail,
-                         "No OTA partition");
+                         link ? "the node refused the update (error 5)" : "No OTA partition");
     }
     /* And a radio left in its loader is what raises the banner, which is the one state of
        this feature that is visible from every other screen. */
-    settings.fw_radio_in_loader =
-        state == MESH_FIRMWARE_UPDATE_FAILED && settings.fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE;
+    settings.fw_radio_in_loader = state == MESH_FIRMWARE_UPDATE_FAILED && !link &&
+                                  settings.fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE;
     mesh_ui_store_set_settings(&cap->store, &settings);
     return 0;
 }

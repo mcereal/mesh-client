@@ -53,6 +53,8 @@ extern "C" {
 #define MESH_FIRMWARE_FILE_NAME_MAX 80U
 /* An md5 as the manifest spells it: 32 lowercase hex digits. */
 #define MESH_FIRMWARE_MD5_HEX 32U
+/* A SHA-256 as Tern's release feed spells it: 64 lowercase hex digits. */
+#define MESH_FIRMWARE_SHA256_HEX 64U
 /* "spiffs", "coredump". */
 #define MESH_FIRMWARE_PART_MAX 12U
 /*
@@ -78,6 +80,10 @@ enum mesh_firmware_path {
     MESH_FIRMWARE_PATH_NONE = 0,
     MESH_FIRMWARE_PATH_USB, /* a UF2 written to the bootloader's mass storage */
     MESH_FIRMWARE_PATH_BLE, /* the ESP32 unified OTA loader, or an nRF52's DFU bootloader */
+    /* The link itself, whatever it runs over: a Tern node takes its application in the
+       companion protocol's own update frames, over USB, Bluetooth or a network alike, and
+       checks the image itself before it restarts into it. A board's path and never a bus. */
+    MESH_FIRMWARE_PATH_LINK,
     MESH_FIRMWARE_PATH_COUNT,
 };
 
@@ -134,6 +140,9 @@ struct mesh_firmware_release {
     char image_name[MESH_FIRMWARE_FILE_NAME_MAX];
     char image_url[MESH_FIRMWARE_URL_MAX];
     uint64_t image_bytes;
+    /* That image's SHA-256, for a release that publishes one - Tern's - and the download is
+       then held to it. Empty for the others, which are checked another way. */
+    char image_sha256[MESH_FIRMWARE_SHA256_HEX + 1U];
     /*
      * The install is the whole flash rather than the application: the image the other firmware
      * would be moved onto the board with (a `-merged.bin` or a `.factory.bin` on an ESP32),

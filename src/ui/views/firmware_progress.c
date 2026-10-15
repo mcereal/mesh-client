@@ -87,7 +87,15 @@ void mesh_ui_firmware_progress_of(const struct mesh_ui_settings *settings,
                      ? MESH_STR_FW_SCREEN_TITLE_SWITCH
                      : MESH_STR_FW_SCREEN_TITLE;
     const bool ble = settings->fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE;
-    out->hint = ble ? MESH_STR_FW_SCREEN_HINT_BLE : MESH_STR_FW_SCREEN_HINT_USB;
+    out->hint = settings->fw_update_link ? MESH_STR_FW_SCREEN_HINT_LINK
+                : ble                    ? MESH_STR_FW_SCREEN_HINT_BLE
+                                         : MESH_STR_FW_SCREEN_HINT_USB;
+    /* Over the link there is no updater to wait for: WAITING is the connection gone part of the
+       way, and the update goes on once the radio is back. */
+    if (settings->fw_update_link && state == MESH_FIRMWARE_UPDATE_WAITING) {
+        out->stage = MESH_UI_FIRMWARE_STAGE_INSTALL;
+        out->status = MESH_STR_FW_SCREEN_READY;
+    }
 
     /* The two rungs with a fraction fill the dial; `firmware_update.c` answers 0 on the rest,
        and a ring drawn empty through a forty-second wait says the job stalled. */
@@ -110,7 +118,13 @@ void mesh_ui_firmware_progress_of(const struct mesh_ui_settings *settings,
             firmware_failed_stage((enum mesh_firmware_update_error)settings->fw_update_error);
         /* The one failure that leaves the radio somewhere it cannot leave on its own gets the
            banner's own way out; every other one left the radio as it was. */
+        /* A Tern node takes the image beside the firmware it runs and switches only once the
+           image is whole and checked, so a failure over the link leaves it as it was. */
         out->hint = settings->fw_radio_in_loader ? MESH_STR_FW_SCREEN_HINT_LOADER
+                    : settings->fw_update_link
+                        ? (settings->fw_update_error == (uint8_t)MESH_FIRMWARE_UPDATE_ERROR_NO_RADIO
+                               ? MESH_STR_FW_SCREEN_HINT_RECONNECT
+                               : MESH_STR_FW_SCREEN_HINT_UNTOUCHED)
                     : settings->fw_update_error == (uint8_t)MESH_FIRMWARE_UPDATE_ERROR_HANDOVER
                         ? MESH_STR_FW_SCREEN_HINT_HANDOVER
                         : MESH_STR_FW_SCREEN_HINT_UNTOUCHED;

@@ -115,6 +115,12 @@ static bool mesh_app_firmware_radio_ready(void *userdata) {
     struct mesh_app *const app = (struct mesh_app *)userdata;
     const struct mesh_firmware_update *const update = &app->firmware_update;
     const char *const identifier = mesh_app_connected_identifier();
+    /* A Tern node over its own link: the one whose INFO named the board the image is for. The
+       link itself holds the update to the node it began on, by address. */
+    if (update->path == MESH_FIRMWARE_PATH_LINK) {
+        return identifier != NULL && app->tern_bound &&
+               strcasecmp(app->tern.board, update->board.target) == 0;
+    }
     /* The *link's* metadata, not the Settings tab's: what this asks is whether the radio now on
        the other end is the one the image was chosen for, and the tab may be describing a node
        over the mesh that has nothing to do with this cable. */
@@ -213,6 +219,7 @@ struct mesh_firmware_update_hooks mesh_app_firmware_hooks(struct mesh_app *app) 
         .radio_ready = mesh_app_firmware_radio_ready,
         .release_link = mesh_app_firmware_release_link,
         .request_interval = mesh_app_firmware_interval,
+        .tern = &app->tern,
         .userdata = app,
     };
     return hooks;
@@ -2302,8 +2309,13 @@ static void on_check_radio_firmware(struct mesh_app *app, const struct mesh_ui_a
         mesh_radio_settings_link_metadata(mesh_session_settings(&app->session));
     /* A MeshCore radio says the same two things in DEVICE_INFO, in words: its board's name
        and its version. The build it runs is the one for the bus it answers on. */
+    /* A Tern node says which board its firmware is built for in INFO, and the region its image
+       is built for in SELF; its release is SemVer. */
     const int result =
-        app->meshcore_bound
+        app->tern_bound ? mesh_firmware_check_tern(&app->firmware, app->tern.board,
+                                                   app->tern.has_self ? app->tern.self.region : "",
+                                                   app->tern.release, now)
+        : app->meshcore_bound
             ? mesh_firmware_check_meshcore(
                   &app->firmware, app->meshcore.has_device ? app->meshcore.device.model : "",
                   app->meshcore.has_device ? app->meshcore.device.version : "",
@@ -2613,8 +2625,9 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
      * have somebody agree to the mild warning and get the severe one. Refused rather than
      * re-asked: the row is still there, and it will be offering the right sheet.
      */
-    const enum mesh_firmware_path agreed =
-        action->number == 1U ? MESH_FIRMWARE_PATH_BLE : MESH_FIRMWARE_PATH_USB;
+    const enum mesh_firmware_path agreed = action->number == 1U   ? MESH_FIRMWARE_PATH_BLE
+                                           : action->number == 4U ? MESH_FIRMWARE_PATH_LINK
+                                                                  : MESH_FIRMWARE_PATH_USB;
     /* And the sheet for a switch - the one that says everything on the radio goes - against
        whether the answer is one: an update agreed to must never write the whole flash, nor a
        switch go ahead on the milder sheet. */
@@ -2632,12 +2645,16 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
         firmware_install_blank(app, board, now);
         return;
     }
-    if (!mesh_firmware_board_takes(board, agreed) || app->firmware.bus != agreed) {
+    /* Over the link the bus is whichever one the link is on, so only the board is asked. */
+    if (!mesh_firmware_board_takes(board, agreed) ||
+        (agreed != MESH_FIRMWARE_PATH_LINK && app->firmware.bus != agreed)) {
         mesh_ui_store_set_toast(&app->ui_store, now, inkcell_str(MESH_STR_TOAST_CHECK_FIRST));
         inkwell_log_warn("ui",
                          "Refusing a firmware install: the sheet said %s and the radio is "
                          "on %s",
-                         agreed == MESH_FIRMWARE_PATH_BLE ? "BLE" : "USB",
+                         agreed == MESH_FIRMWARE_PATH_BLE    ? "BLE"
+                         : agreed == MESH_FIRMWARE_PATH_LINK ? "the link"
+                                                             : "USB",
                          app->firmware.bus == MESH_FIRMWARE_PATH_BLE ? "BLE" : "USB");
         return;
     }
@@ -2649,7 +2666,7 @@ static void on_install_radio_firmware(struct mesh_app *app, const struct mesh_ui
      * Read now rather than when the handover starts, because the download takes the link
      * down: by the time the image has landed there is nothing to ask.
      */
-    const char *where = mesh_app_connected_identifier();
+    const char *where = agreed == MESH_FIRMWARE_PATH_LINK ? "" : mesh_app_connected_identifier();
     if (agreed == MESH_FIRMWARE_PATH_USB) {
         /*
          * The transport's own id, not the identifier the device row carries. That field is a

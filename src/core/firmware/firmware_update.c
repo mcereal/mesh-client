@@ -2,6 +2,7 @@
 
 #include "mesh/core/firmware_update.h"
 
+#include "inkwell/base/file.h"
 #include "inkwell/base/log.h"
 #include "inkwell/base/text.h"
 
@@ -10,6 +11,7 @@
 #include "mesh/transport/ble_hci.h"
 
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -23,6 +25,17 @@
  * and pressing again skips straight past the download because the release has not moved.
  */
 #define MESH_FIRMWARE_UPDATE_READY_TIMEOUT_MS 30000U
+
+/*
+ * How long a Tern node has to come back on its new release once it has taken the image. It
+ * checks the image, restarts and is reached again by auto-connect's own backoff - over
+ * Bluetooth that is a scan and a pairing as well - so this is generous: what it ends in is a
+ * row saying the node never said, not a node that is any worse off.
+ */
+#define MESH_FIRMWARE_UPDATE_LINK_RESTART_TIMEOUT_MS 180000U
+/* And how long READY waits for the link to be synced again after the download, which over
+   Bluetooth is a reconnect and a whole sync rather than a handshake. */
+#define MESH_FIRMWARE_UPDATE_LINK_READY_TIMEOUT_MS 60000U
 
 static const char *firmware_update_staging_default(void) {
 #if defined(_WIN32)
@@ -133,8 +146,24 @@ static void update_release_link(struct mesh_firmware_update *update) {
     }
 }
 
+/*
+ * The link path's copy of the image, once the Tern link has finished borrowing it. Kept while
+ * it still is - an update cancelled after its UPDATE_END, which the node may be restarting
+ * into - and freed by whichever later call finds it returned.
+ */
+static void update_free_link_image(struct mesh_firmware_update *update) {
+    if (update->link_image != NULL && update->hooks.tern != NULL &&
+        mesh_tern_update_status(update->hooks.tern)->image == update->link_image) {
+        return;
+    }
+    free(update->link_image);
+    update->link_image = NULL;
+    update->link_size = 0U;
+}
+
 static void update_finish(struct mesh_firmware_update *update,
                           enum mesh_firmware_update_error error, const char *detail) {
+    update_free_link_image(update);
     update->error = error;
     update_set(update,
                error == MESH_FIRMWARE_UPDATE_ERROR_NONE ? MESH_FIRMWARE_UPDATE_DONE
@@ -502,6 +531,169 @@ static void update_tick_serial(struct mesh_firmware_update *update, uint64_t now
     update_finish(update, update_error_of_serial(&update->serial), update->serial.reason);
 }
 
+/* ---- over the link itself ------------------------------------------------------------------ */
+
+/*
+ * A Tern node's path: the image goes down the link it is already answering on, in the companion
+ * protocol's update frames. Nothing to arm and no link to release - the node takes it while it
+ * goes on being a node, and says so frame by frame.
+ */
+static void update_begin_link(struct mesh_firmware_update *update, const char *image_path,
+                              uint64_t now_ms) {
+    (void)now_ms;
+    /* A copy the link may still be borrowing: an update cancelled after its UPDATE_END went
+       out, which the node may yet be restarting into. */
+    const enum mesh_tern_update_phase phase = mesh_tern_update_status(update->hooks.tern)->phase;
+    if (phase != MESH_TERN_UPDATE_IDLE && phase != MESH_TERN_UPDATE_FINISHED) {
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_HANDOVER,
+                      "an update is already under way on this link");
+        return;
+    }
+    size_t len = 0U;
+    update_free_link_image(update);
+    update->link_image = inkwell_file_read(image_path, MESH_FIRMWARE_TERN_IMAGE_MAX, &len);
+    if (update->link_image == NULL || (uint64_t)len != update->release.image_bytes) {
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_DOWNLOAD,
+                      inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_IMAGE));
+        return;
+    }
+    update->link_size = len;
+    update->link_dropped = false;
+    const int started = mesh_tern_update_start(update->hooks.tern, update->link_image, len);
+    if (started == 0) {
+        update_set(update, MESH_FIRMWARE_UPDATE_ARMING, NULL);
+        return;
+    }
+    char detail[MESH_FIRMWARE_UPDATE_DETAIL_MAX];
+    switch (started) {
+    case -ENOTCONN:
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NO_RADIO,
+                      inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_RADIO));
+        return;
+    case -EOPNOTSUPP:
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_UNAVAILABLE,
+                      "the node's companion protocol has no updates");
+        return;
+    case -EBUSY:
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_HANDOVER,
+                      "an update is already under way on this link");
+        return;
+    default:
+        snprintf(detail, sizeof detail, "the update could not begin (%d)", started);
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_HANDOVER, detail);
+        return;
+    }
+}
+
+/* The link is synced to the node the press was for, in the region its image was chosen for. */
+static bool update_link_is_the_node(const struct mesh_firmware_update *update) {
+    const struct mesh_tern *const tern = update->hooks.tern;
+    return mesh_tern_ready(tern) && tern->has_self &&
+           memcmp(tern->self.address, update->link_address, sizeof update->link_address) == 0 &&
+           strcmp(tern->self.region, update->link_region) == 0;
+}
+
+/* What the link said it has got to, as the ladder says it. */
+static void update_tick_link(struct mesh_firmware_update *update, uint64_t now_ms) {
+    struct mesh_tern *const tern = update->hooks.tern;
+    const struct mesh_tern_update *const status = mesh_tern_update_status(tern);
+    const bool ready = mesh_tern_ready(tern);
+
+    if (update->state == MESH_FIRMWARE_UPDATE_RESTARTING) {
+        /*
+         * Done when the node is back saying the release it was given - and only once the link
+         * has been down in between, because until it has, the INFO on hand is the one the node
+         * sent before it took the image and still names the old release.
+         */
+        /* And only the node it was given to: another that the link comes back to says nothing
+           about this one, and the wait goes on. */
+        if (!ready) {
+            update->link_dropped = true;
+        } else if (update->link_dropped && update_link_is_the_node(update)) {
+            if (strcmp(tern->release, update->release.version) == 0) {
+                update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NONE, update->release.version);
+            } else {
+                char detail[MESH_FIRMWARE_UPDATE_DETAIL_MAX];
+                snprintf(detail, sizeof detail, "the node came back on %s",
+                         tern->release[0] != '\0' ? tern->release : "no release");
+                update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_HANDOVER, detail);
+            }
+            return;
+        }
+        if (now_ms >= update->deadline_ms) {
+            update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NO_RADIO,
+                          "the node did not come back on the new release");
+        }
+        return;
+    }
+
+    switch (status->phase) {
+    case MESH_TERN_UPDATE_BEGINNING:
+        update_set(update, MESH_FIRMWARE_UPDATE_ARMING, NULL);
+        return;
+    case MESH_TERN_UPDATE_SENDING:
+    case MESH_TERN_UPDATE_ENDING:
+        if (update->state != MESH_FIRMWARE_UPDATE_WRITING) {
+            update_set(update, MESH_FIRMWARE_UPDATE_WRITING, NULL);
+        }
+        return;
+    case MESH_TERN_UPDATE_WAITING:
+        /* The link went part of the way; it goes on after the next sync, from where the node
+           says. */
+        if (update->state != MESH_FIRMWARE_UPDATE_WAITING) {
+            update_set(update, MESH_FIRMWARE_UPDATE_WAITING, NULL);
+        }
+        return;
+    case MESH_TERN_UPDATE_FINISHED:
+        break;
+    case MESH_TERN_UPDATE_IDLE:
+    default:
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_HANDOVER,
+                      "the link has no update under way");
+        return;
+    }
+
+    char detail[MESH_FIRMWARE_UPDATE_DETAIL_MAX];
+    switch (status->outcome) {
+    case MESH_TERN_UPDATE_RESTARTING:
+    case MESH_TERN_UPDATE_UNCONFIRMED:
+        /* Taken - or, unconfirmed, perhaps taken: the release the node comes back on says. The
+           link has finished with the image either way. */
+        update_free_link_image(update);
+        update->link_dropped = !ready;
+        update->deadline_ms = now_ms + MESH_FIRMWARE_UPDATE_LINK_RESTART_TIMEOUT_MS;
+        update_set(update, MESH_FIRMWARE_UPDATE_RESTARTING, NULL);
+        return;
+    case MESH_TERN_UPDATE_REFUSED:
+        /* 11 is the node reading the image and finding it is not one for it - or not the
+           digest it was promised; 5 a build with no room for one. Untouched either way. */
+        if (status->code == 11U) {
+            snprintf(detail, sizeof detail, "the node refused the image (error %u)",
+                     (unsigned)status->code);
+            update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_WRONG_IMAGE, detail);
+        } else {
+            snprintf(detail, sizeof detail, "the node refused the update (error %u)",
+                     (unsigned)status->code);
+            update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_REFUSED, detail);
+        }
+        return;
+    case MESH_TERN_UPDATE_ANOTHER_NODE:
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NO_RADIO,
+                      "the link came back to another node");
+        return;
+    case MESH_TERN_UPDATE_CANCELLED:
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_HANDOVER,
+                      inkcell_str(MESH_STR_FW_UPDATE_ERR_CANCELLED));
+        return;
+    case MESH_TERN_UPDATE_CONFUSED:
+    case MESH_TERN_UPDATE_NONE:
+    default:
+        update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_HANDOVER,
+                      "the node answered the update with something else");
+        return;
+    }
+}
+
 /* The image has landed and been checked. From here the two buses part company for good. */
 static void update_begin_handover(struct mesh_firmware_update *update, uint64_t now_ms) {
     char image_path[INKWELL_FETCH_PATH_MAX];
@@ -510,7 +702,9 @@ static void update_begin_handover(struct mesh_firmware_update *update, uint64_t 
                       inkcell_str(MESH_STR_FW_UPDATE_ERR_NO_IMAGE));
         return;
     }
-    if (update->path == MESH_FIRMWARE_PATH_USB && update->esp_serial) {
+    if (update->path == MESH_FIRMWARE_PATH_LINK) {
+        update_begin_link(update, image_path, now_ms);
+    } else if (update->path == MESH_FIRMWARE_PATH_USB && update->esp_serial) {
         update_begin_serial(update, image_path, now_ms);
     } else if (update->path == MESH_FIRMWARE_PATH_USB) {
         update_begin_usb(update, image_path);
@@ -621,10 +815,16 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
      * module that trusted its caller about which board this is would be the one place a wrong
      * image could get through.
      */
+    /* Over the link, only for a board whose path it is, with the digest it will be held to and
+       a link to send it down. */
+    const bool link = bus == MESH_FIRMWARE_PATH_LINK;
     if (!mesh_firmware_update_available(update) || release->version[0] == '\0' ||
         (release->manifest_url[0] == '\0' && release->image_url[0] == '\0') ||
         board->target[0] == '\0' || !mesh_firmware_board_takes(board, bus) ||
-        (release->wipe && bus != MESH_FIRMWARE_PATH_USB)) {
+        (release->wipe && bus != MESH_FIRMWARE_PATH_USB) ||
+        (link &&
+         (release->image_url[0] == '\0' || release->image_sha256[0] == '\0' ||
+          hooks->tern == NULL || !mesh_tern_ready(hooks->tern) || !hooks->tern->has_self))) {
         update->error = MESH_FIRMWARE_UPDATE_ERROR_UNAVAILABLE;
         update_set(update, MESH_FIRMWARE_UPDATE_FAILED,
                    inkcell_str(MESH_STR_FW_UPDATE_ERR_UNAVAILABLE));
@@ -642,13 +842,21 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
     inkwell_str_copy(update->where, sizeof update->where, where != NULL ? where : "");
     inkwell_str_copy(update->staging, sizeof update->staging, mesh_firmware_update_staging());
     update->hooks = *hooks;
+    if (link) {
+        memcpy(update->link_address, hooks->tern->self.address, sizeof update->link_address);
+        inkwell_str_copy(update->link_region, sizeof update->link_region, hooks->tern->self.region);
+    }
     update->on_done = on_done;
     update->userdata = userdata;
 
     /* Through the release's manifest, or - for a release that names its file, as MeshCore's
        do - straight to the file. */
     const int started =
-        release->manifest_url[0] != '\0'
+        link ? mesh_firmware_fetch_start_link(&update->image, &update->fetch, release->image_url,
+                                              release->image_name, release->image_bytes,
+                                              release->image_sha256, update->staging,
+                                              update_image_done, update)
+        : release->manifest_url[0] != '\0'
             ? mesh_firmware_fetch_start(&update->image, &update->fetch, board->target,
                                         release->version, release->manifest_url,
                                         board->architecture, bus, release->wipe, update->staging,
@@ -663,7 +871,8 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
         return started;
     }
     inkwell_log_info("firmware-update", "Installing %s %s over %s", board->target, release->version,
-                     update->path == MESH_FIRMWARE_PATH_USB
+                     link ? "the companion link"
+                     : update->path == MESH_FIRMWARE_PATH_USB
                          ? (update->esp_serial ? "USB (ROM bootloader)" : "USB")
                          : (update->nordic_dfu ? "BLE (Nordic DFU)" : "BLE"));
     update_set(update, MESH_FIRMWARE_UPDATE_RESOLVING, release->version);
@@ -687,6 +896,13 @@ void mesh_firmware_update_cancel(struct mesh_firmware_update *update) {
     mesh_firmware_dfu_cancel(&update->dfu);
     mesh_firmware_serial_cancel(&update->serial);
     update_close_bluez(update);
+    /* Before UPDATE_END the link stops sending; after it there is nothing to stop, and the node
+       may already be restarting into the image. Either way the link is done with the copy. */
+    if (update->path == MESH_FIRMWARE_PATH_LINK && update->hooks.tern != NULL &&
+        update->link_image != NULL) {
+        (void)mesh_tern_update_cancel(update->hooks.tern);
+        update_free_link_image(update);
+    }
     if (mesh_firmware_update_busy(update)) {
         update->error = MESH_FIRMWARE_UPDATE_ERROR_HANDOVER;
         update_set(update, MESH_FIRMWARE_UPDATE_FAILED,
@@ -735,12 +951,18 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
          * firmware.c keeps the caller's.
          */
         if (update->deadline_ms == 0U) {
-            update->deadline_ms = now_ms + MESH_FIRMWARE_UPDATE_READY_TIMEOUT_MS;
+            update->deadline_ms = now_ms + (update->path == MESH_FIRMWARE_PATH_LINK
+                                                ? MESH_FIRMWARE_UPDATE_LINK_READY_TIMEOUT_MS
+                                                : MESH_FIRMWARE_UPDATE_READY_TIMEOUT_MS);
         }
+        /* Over the link there is no adapter of this job's own to wait for: the link's sync is
+           the readiness, and the hook says it is still the node the image was chosen for. */
+        const bool link = update->path == MESH_FIRMWARE_PATH_LINK;
         const bool bluetooth =
-            update->path == MESH_FIRMWARE_PATH_USB || update_bluetooth_ready(update);
-        const bool ready = bluetooth && (update->hooks.radio_ready == NULL ||
-                                         update->hooks.radio_ready(update->hooks.userdata));
+            update->path == MESH_FIRMWARE_PATH_USB || link || update_bluetooth_ready(update);
+        const bool ready = bluetooth && (!link || update_link_is_the_node(update)) &&
+                           (update->hooks.radio_ready == NULL ||
+                            update->hooks.radio_ready(update->hooks.userdata));
         if (ready) {
             update_begin_handover(update, now_ms);
         } else if (now_ms >= update->deadline_ms) {
@@ -759,6 +981,10 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
     case MESH_FIRMWARE_UPDATE_WAITING:
     case MESH_FIRMWARE_UPDATE_WRITING:
     case MESH_FIRMWARE_UPDATE_RESTARTING: {
+        if (update->path == MESH_FIRMWARE_PATH_LINK) {
+            update_tick_link(update, now_ms);
+            break;
+        }
         if (update->path == MESH_FIRMWARE_PATH_USB && update->esp_serial) {
             update_tick_serial(update, now_ms);
             break;
@@ -857,6 +1083,13 @@ unsigned mesh_firmware_update_progress(const struct mesh_firmware_update *update
     case MESH_FIRMWARE_UPDATE_DOWNLOADING:
         return mesh_firmware_fetch_progress(&update->image);
     case MESH_FIRMWARE_UPDATE_WRITING:
+        if (update->path == MESH_FIRMWARE_PATH_LINK) {
+            const struct mesh_tern_update *const status =
+                update->hooks.tern != NULL ? mesh_tern_update_status(update->hooks.tern) : NULL;
+            return status != NULL && status->size != 0U
+                       ? (unsigned)(((uint64_t)status->held * 100U) / status->size)
+                       : 0U;
+        }
         if (update->path == MESH_FIRMWARE_PATH_USB) {
             return update->esp_serial ? mesh_firmware_serial_progress(&update->serial)
                                       : mesh_firmware_install_progress(&update->usb);
