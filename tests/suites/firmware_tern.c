@@ -225,8 +225,10 @@ static void tern_node_answers(struct tern_harness *harness, uint8_t type) {
     mesh_protocol_receive(&harness->protocol, frame, sizeof frame);
 }
 
-/* HELLO answered as a heltec-v3 on `release`, in EU868: INFO, SET_TIME, a sync of SELF alone. */
-static bool tern_node_greets(struct tern_harness *harness, const char *release) {
+/* HELLO answered as the heltec-v3 at `address`, on `release`, in `region`: INFO, SET_TIME, a
+   sync of SELF alone - asked again from 0 when SELF is another node's than the last. */
+static bool tern_node_greets_as(struct tern_harness *harness, uint8_t address, const char *release,
+                                const char *region) {
     if (harness->wire.last[0] != MESH_TERN_HELLO) {
         return false;
     }
@@ -244,22 +246,37 @@ static bool tern_node_greets(struct tern_harness *harness, const char *release) 
         return false;
     }
     struct mesh_tern_frame self = {.type = MESH_TERN_SELF, .seq = g_tern.news_expected};
-    memset(self.address, 0x5a, sizeof self.address);
-    inkwell_str_copy(self.text, sizeof self.text, "EU868");
+    memset(self.address, address, sizeof self.address);
+    inkwell_str_copy(self.text, sizeof self.text, region);
     self.text_len = (uint8_t)strlen(self.text);
     tern_node_says(harness, &self);
-    const struct mesh_tern_frame synced = {
-        .type = MESH_TERN_SYNCED, .seq = harness->wire.last[1], .news = g_tern.news_expected};
-    tern_node_says(harness, &synced);
+    for (int sync = 0; sync < 2 && !mesh_tern_ready(&g_tern); ++sync) {
+        const struct mesh_tern_frame synced = {
+            .type = MESH_TERN_SYNCED, .seq = harness->wire.last[1], .news = g_tern.news_expected};
+        tern_node_says(harness, &synced);
+    }
     return mesh_tern_ready(&g_tern);
+}
+
+#define TERN_NODE 0x5aU
+#define TERN_OTHER_NODE 0x5bU
+
+static bool tern_node_greets(struct tern_harness *harness, const char *release) {
+    return tern_node_greets_as(harness, TERN_NODE, release, "EU868");
+}
+
+/* The link comes up again, to the node at `address`, on `release` in `region`. */
+static bool tern_link_comes_back_to(struct tern_harness *harness, uint8_t address,
+                                    const char *release, const char *region) {
+    memset(&harness->wire, 0, sizeof harness->wire);
+    mesh_protocol_attach(&harness->protocol, tern_wire_send, &harness->wire);
+    (void)mesh_protocol_begin(&harness->protocol);
+    return tern_node_greets_as(harness, address, release, region);
 }
 
 /* The link comes up again to the same node, now on `release`. */
 static bool tern_node_reconnects(struct tern_harness *harness, const char *release) {
-    memset(&harness->wire, 0, sizeof harness->wire);
-    mesh_protocol_attach(&harness->protocol, tern_wire_send, &harness->wire);
-    (void)mesh_protocol_begin(&harness->protocol);
-    return tern_node_greets(harness, release);
+    return tern_link_comes_back_to(harness, TERN_NODE, release, "EU868");
 }
 
 /*
@@ -710,6 +727,115 @@ MESH_TEST_CASE(firmware_tern_update_refusals_leave_the_node_as_it_was, unit) {
         probe.error != MESH_FIRMWARE_UPDATE_ERROR_HANDOVER ||
         strstr(harness.update.detail, "0.4.0-alpha.1") == NULL) {
         failure = "a node back on its old release says which, and the job failed";
+        goto cleanup;
+    }
+
+cleanup:
+    tern_harness_down(&harness);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
+/*
+ * The image is for the node the press was for. The download can take the link down, and the
+ * link may come back to another node of the same board - or the same node in another region: the
+ * job waits for its own node rather than sending the image to whichever answered, and a node
+ * that is not its own coming back on the new release does not finish it.
+ */
+MESH_TEST_CASE(firmware_tern_update_goes_only_to_the_node_it_was_for, unit) {
+    struct tern_harness harness;
+    struct tern_probe probe;
+    memset(&probe, 0, sizeof probe);
+    const char *failure = NULL;
+    if (!tern_harness_up(&harness)) {
+        failure = "the harness should come up with a fetcher and a node";
+        goto cleanup;
+    }
+    struct mesh_firmware_update_hooks hooks;
+    memset(&hooks, 0, sizeof hooks);
+    hooks.tern = &g_tern;
+    if (mesh_firmware_check_tern(&harness.firmware, "heltec-v3", "EU868", "0.4.0-alpha.1", 0U) !=
+            0 ||
+        !tern_check_settles(&harness) || mesh_firmware_board(&harness.firmware) == NULL) {
+        failure = "the check should name the image";
+        goto cleanup;
+    }
+    mesh_protocol_detach(&harness.protocol);
+    if (mesh_firmware_update_start(&harness.update, mesh_firmware_board(&harness.firmware),
+                                   &harness.firmware.release, MESH_FIRMWARE_PATH_LINK, "", &hooks,
+                                   tern_probe_done, &probe) != -ENOTSUP) {
+        failure = "a press with no node synced on the link has no node to be for";
+        goto cleanup;
+    }
+    if (!tern_node_reconnects(&harness, "0.4.0-alpha.1") ||
+        mesh_firmware_update_start(&harness.update, mesh_firmware_board(&harness.firmware),
+                                   &harness.firmware.release, MESH_FIRMWARE_PATH_LINK, "", &hooks,
+                                   tern_probe_done, &probe) != 0) {
+        failure = "the press should start on the node that was checked";
+        goto cleanup;
+    }
+    /* The download takes the link down, and it comes back to another heltec-v3. */
+    mesh_protocol_detach(&harness.protocol);
+    if (!tern_link_comes_back_to(&harness, TERN_OTHER_NODE, "0.4.0-alpha.1", "EU868") ||
+        !tern_update_reaches(&harness, MESH_FIRMWARE_UPDATE_READY)) {
+        failure = "the image should land with another node on the link";
+        goto cleanup;
+    }
+    for (int turn = 0; turn < 20; ++turn) {
+        mesh_firmware_update_tick(&harness.update, ++harness.now_ms);
+    }
+    if (harness.update.state != MESH_FIRMWARE_UPDATE_READY || harness.wire.updates != 0U) {
+        failure = "another node of the same board is never sent the image";
+        goto cleanup;
+    }
+    /* The same node, in another region: its image is another file. */
+    mesh_protocol_detach(&harness.protocol);
+    if (!tern_link_comes_back_to(&harness, TERN_NODE, "0.4.0-alpha.1", "US915")) {
+        failure = "the node should come back in another region";
+        goto cleanup;
+    }
+    mesh_firmware_update_tick(&harness.update, ++harness.now_ms);
+    if (harness.update.state != MESH_FIRMWARE_UPDATE_READY || harness.wire.updates != 0U) {
+        failure = "nor is the same node once its region is not the image's";
+        goto cleanup;
+    }
+    /* Its own node, as it was: the image goes. */
+    mesh_protocol_detach(&harness.protocol);
+    if (!tern_node_reconnects(&harness, "0.4.0-alpha.1")) {
+        failure = "the node should come back";
+        goto cleanup;
+    }
+    mesh_firmware_update_tick(&harness.update, ++harness.now_ms);
+    if (harness.update.state != MESH_FIRMWARE_UPDATE_ARMING ||
+        harness.wire.last[0] != MESH_TERN_UPDATE_BEGIN) {
+        failure = "its own node is sent the image";
+        goto cleanup;
+    }
+    tern_node_takes_updates(&harness, 0U);
+    mesh_firmware_update_tick(&harness.update, ++harness.now_ms);
+    mesh_protocol_detach(&harness.protocol);
+    mesh_firmware_update_tick(&harness.update, ++harness.now_ms);
+    if (!tern_link_comes_back_to(&harness, TERN_OTHER_NODE, "0.5.0-alpha.1", "EU868")) {
+        failure = "another node should come back on the new release";
+        goto cleanup;
+    }
+    mesh_firmware_update_tick(&harness.update, ++harness.now_ms);
+    if (probe.calls != 0U || harness.update.state != MESH_FIRMWARE_UPDATE_RESTARTING) {
+        failure = "another node on the new release says nothing about this one";
+        goto cleanup;
+    }
+    mesh_protocol_detach(&harness.protocol);
+    mesh_firmware_update_tick(&harness.update, ++harness.now_ms);
+    if (!tern_node_reconnects(&harness, "0.5.0-alpha.1")) {
+        failure = "its own node should come back";
+        goto cleanup;
+    }
+    mesh_firmware_update_tick(&harness.update, ++harness.now_ms);
+    if (probe.calls != 1U || probe.state != MESH_FIRMWARE_UPDATE_DONE) {
+        failure = "its own node back on the new release is done";
         goto cleanup;
     }
 

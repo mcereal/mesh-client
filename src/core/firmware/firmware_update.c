@@ -585,6 +585,14 @@ static void update_begin_link(struct mesh_firmware_update *update, const char *i
     }
 }
 
+/* The link is synced to the node the press was for, in the region its image was chosen for. */
+static bool update_link_is_the_node(const struct mesh_firmware_update *update) {
+    const struct mesh_tern *const tern = update->hooks.tern;
+    return mesh_tern_ready(tern) && tern->has_self &&
+           memcmp(tern->self.address, update->link_address, sizeof update->link_address) == 0 &&
+           strcmp(tern->self.region, update->link_region) == 0;
+}
+
 /* What the link said it has got to, as the ladder says it. */
 static void update_tick_link(struct mesh_firmware_update *update, uint64_t now_ms) {
     struct mesh_tern *const tern = update->hooks.tern;
@@ -597,9 +605,11 @@ static void update_tick_link(struct mesh_firmware_update *update, uint64_t now_m
          * has been down in between, because until it has, the INFO on hand is the one the node
          * sent before it took the image and still names the old release.
          */
+        /* And only the node it was given to: another that the link comes back to says nothing
+           about this one, and the wait goes on. */
         if (!ready) {
             update->link_dropped = true;
-        } else if (update->link_dropped) {
+        } else if (update->link_dropped && update_link_is_the_node(update)) {
             if (strcmp(tern->release, update->release.version) == 0) {
                 update_finish(update, MESH_FIRMWARE_UPDATE_ERROR_NONE, update->release.version);
             } else {
@@ -812,8 +822,9 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
         (release->manifest_url[0] == '\0' && release->image_url[0] == '\0') ||
         board->target[0] == '\0' || !mesh_firmware_board_takes(board, bus) ||
         (release->wipe && bus != MESH_FIRMWARE_PATH_USB) ||
-        (link && (release->image_url[0] == '\0' || release->image_sha256[0] == '\0' ||
-                  hooks->tern == NULL))) {
+        (link &&
+         (release->image_url[0] == '\0' || release->image_sha256[0] == '\0' ||
+          hooks->tern == NULL || !mesh_tern_ready(hooks->tern) || !hooks->tern->has_self))) {
         update->error = MESH_FIRMWARE_UPDATE_ERROR_UNAVAILABLE;
         update_set(update, MESH_FIRMWARE_UPDATE_FAILED,
                    inkcell_str(MESH_STR_FW_UPDATE_ERR_UNAVAILABLE));
@@ -831,6 +842,10 @@ int mesh_firmware_update_start(struct mesh_firmware_update *update,
     inkwell_str_copy(update->where, sizeof update->where, where != NULL ? where : "");
     inkwell_str_copy(update->staging, sizeof update->staging, mesh_firmware_update_staging());
     update->hooks = *hooks;
+    if (link) {
+        memcpy(update->link_address, hooks->tern->self.address, sizeof update->link_address);
+        inkwell_str_copy(update->link_region, sizeof update->link_region, hooks->tern->self.region);
+    }
     update->on_done = on_done;
     update->userdata = userdata;
 
@@ -945,7 +960,7 @@ void mesh_firmware_update_tick(struct mesh_firmware_update *update, uint64_t now
         const bool link = update->path == MESH_FIRMWARE_PATH_LINK;
         const bool bluetooth =
             update->path == MESH_FIRMWARE_PATH_USB || link || update_bluetooth_ready(update);
-        const bool ready = bluetooth && (!link || mesh_tern_ready(update->hooks.tern)) &&
+        const bool ready = bluetooth && (!link || update_link_is_the_node(update)) &&
                            (update->hooks.radio_ready == NULL ||
                             update->hooks.radio_ready(update->hooks.userdata));
         if (ready) {

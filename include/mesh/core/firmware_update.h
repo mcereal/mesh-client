@@ -241,6 +241,13 @@ struct mesh_firmware_update {
     /* The link has gone down since the node took the image, so the next INFO is the restarted
        node's rather than the one that was answering before. */
     bool link_dropped;
+    /*
+     * The node the press was for, by its address and the region its image was chosen for. The
+     * download can take the link down, and auto-connect may come back to another node of the
+     * same board: the image goes only to this one, in this region.
+     */
+    uint8_t link_address[MESH_TERN_ADDRESS_LEN];
+    char link_region[MESH_FIRMWARE_TERN_REGION_MAX];
 
     struct mesh_firmware_update_hooks hooks;
     mesh_firmware_update_done_fn on_done;
@@ -281,8 +288,9 @@ bool mesh_firmware_update_can_resume(const struct mesh_firmware_update *update);
  * "any" rather than "none".
  *
  * Over MESH_FIRMWARE_PATH_LINK - a Tern board, whose `path` it is, with `bus` the same - the
- * release must carry `image_sha256`, the download is held to it, and `hooks->tern` carries the
- * image once READY finds the link synced. Nothing is armed and nothing is released: the node
+ * release must carry `image_sha256`, the download is held to it, and `hooks->tern` - synced,
+ * on the node the press is for - carries the image once READY finds the link synced to that
+ * same node again, by address and region. Nothing is armed and nothing is released: the node
  * takes the image while it goes on answering, restarts into it, and is DONE once it is back
  * saying the new release. A link that drops part of the way leaves the job WAITING for the
  * next connection, not failed.
