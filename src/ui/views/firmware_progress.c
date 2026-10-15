@@ -87,12 +87,12 @@ void mesh_ui_firmware_progress_of(const struct mesh_ui_settings *settings,
                      ? MESH_STR_FW_SCREEN_TITLE_SWITCH
                      : MESH_STR_FW_SCREEN_TITLE;
     const bool ble = settings->fw_bus == (uint8_t)MESH_FIRMWARE_PATH_BLE;
-    out->hint = settings->fw_link ? MESH_STR_FW_SCREEN_HINT_LINK
-                : ble             ? MESH_STR_FW_SCREEN_HINT_BLE
-                                  : MESH_STR_FW_SCREEN_HINT_USB;
+    out->hint = settings->fw_update_link ? MESH_STR_FW_SCREEN_HINT_LINK
+                : ble                    ? MESH_STR_FW_SCREEN_HINT_BLE
+                                         : MESH_STR_FW_SCREEN_HINT_USB;
     /* Over the link there is no updater to wait for: WAITING is the connection gone part of the
        way, and the update goes on once the radio is back. */
-    if (settings->fw_link && state == MESH_FIRMWARE_UPDATE_WAITING) {
+    if (settings->fw_update_link && state == MESH_FIRMWARE_UPDATE_WAITING) {
         out->stage = MESH_UI_FIRMWARE_STAGE_INSTALL;
         out->status = MESH_STR_FW_SCREEN_READY;
     }
@@ -121,7 +121,7 @@ void mesh_ui_firmware_progress_of(const struct mesh_ui_settings *settings,
         /* A Tern node takes the image beside the firmware it runs and switches only once the
            image is whole and checked, so a failure over the link leaves it as it was. */
         out->hint = settings->fw_radio_in_loader ? MESH_STR_FW_SCREEN_HINT_LOADER
-                    : settings->fw_link
+                    : settings->fw_update_link
                         ? (settings->fw_update_error == (uint8_t)MESH_FIRMWARE_UPDATE_ERROR_NO_RADIO
                                ? MESH_STR_FW_SCREEN_HINT_RECONNECT
                                : MESH_STR_FW_SCREEN_HINT_UNTOUCHED)

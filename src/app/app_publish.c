@@ -1591,9 +1591,9 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     const struct mesh_firmware_update *const update = &app->firmware_update;
     dst->fw_bus = (uint8_t)firmware->bus;
     /* Over the link itself, whichever bus that is: the press and its sheet are the link's. */
-    dst->fw_link = update->state != MESH_FIRMWARE_UPDATE_IDLE
-                       ? update->path == MESH_FIRMWARE_PATH_LINK
-                       : board != NULL && board->path == MESH_FIRMWARE_PATH_LINK;
+    dst->fw_link = board != NULL && board->path == MESH_FIRMWARE_PATH_LINK;
+    dst->fw_update_link =
+        update->state != MESH_FIRMWARE_UPDATE_IDLE && update->path == MESH_FIRMWARE_PATH_LINK;
     dst->fw_update_state = (uint8_t)update->state;
     dst->fw_update_error = (uint8_t)update->error;
     dst->fw_update_progress = (uint8_t)mesh_firmware_update_progress(update);

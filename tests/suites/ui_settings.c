@@ -5383,6 +5383,40 @@ MESH_TEST_CASE(ui_settings_radio_details_updates_a_tern_node_over_its_link, unit
                           "nor a release list to choose");
     }
     MESH_TEST_FAIL_IF(!check || !install, "it is checked, and updated over the link");
+
+    /* The row follows the board just checked, whatever the last job went over: a USB job that
+       failed earlier leaves a Tern node's press the link's, and a link job a Meshtastic
+       board's press its bus's. */
+    struct mesh_ui_settings after = settings;
+    after.fw_update_state = (uint8_t)MESH_FIRMWARE_UPDATE_FAILED;
+    after.fw_update_link = false;
+    struct mesh_ui_settings other = settings;
+    other.protocol = (uint8_t)MESH_UI_PROTOCOL_MESHTASTIC;
+    other.protocol_lacks = 0U;
+    other.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_USB;
+    other.fw_link = false;
+    other.fw_update_state = (uint8_t)MESH_FIRMWARE_UPDATE_FAILED;
+    other.fw_update_link = true;
+    bool after_link = false;
+    bool other_usb = false;
+    const uint32_t after_count = mesh_ui_settings_item_count(
+        &after, NULL, MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL);
+    for (uint32_t i = 0; i < after_count; ++i) {
+        after_link = after_link ||
+                     (mesh_ui_settings_item(&after, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                            MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+                      item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_LINK);
+    }
+    const uint32_t other_count = mesh_ui_settings_item_count(
+        &other, NULL, MESH_UI_SETTINGS_RADIO_DETAILS, MESH_UI_SETTINGS_NO_CHANNEL);
+    for (uint32_t i = 0; i < other_count; ++i) {
+        other_usb = other_usb ||
+                    (mesh_ui_settings_item(&other, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_DETAILS,
+                                           MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+                     item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_USB);
+    }
+    MESH_TEST_FAIL_IF(!after_link || !other_usb,
+                      "the press is the checked board's, not the last job's");
     MESH_TEST_FAIL_IF(
         !mesh_ui_settings_action_is_install_firmware(MESH_UI_SETTINGS_ACTION_INSTALL_FIRMWARE_LINK),
         "and the update is one of the installs, with a sheet in front of it");

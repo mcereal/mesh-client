@@ -251,7 +251,7 @@ MESH_TEST_CASE(ui_firmware_screen_does_not_follow_the_reader_to_another_tab, uni
 MESH_TEST_CASE(ui_firmware_progress_speaks_for_an_update_over_the_link, unit) {
     struct mesh_ui_settings settings;
     memset(&settings, 0, sizeof settings);
-    settings.fw_link = true;
+    settings.fw_update_link = true;
     settings.fw_bus = (uint8_t)MESH_FIRMWARE_PATH_BLE;
     struct mesh_ui_firmware_progress p;
 

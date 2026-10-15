@@ -2823,6 +2823,7 @@ static int verb_firmware_install(struct inkstand_scene *scene, char *rest, void 
     settings.fw_state = (uint8_t)MESH_FIRMWARE_AVAILABLE;
     const bool link = bus != NULL && strcmp(bus, "link") == 0;
     settings.fw_link = link;
+    settings.fw_update_link = link && state != MESH_FIRMWARE_UPDATE_IDLE;
     if (link && strcmp(settings.fw_latest, "0.5.0-alpha.1") != 0) {
         settings.has_metadata = true;
         inkwell_str_copy(settings.firmware_version, sizeof settings.firmware_version,
