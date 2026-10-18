@@ -1,3 +1,26 @@
+## [2.77.0](https://github.com/mcereal/mesh-client/compare/v2.76.0...v2.77.0) (2026-10-18)
+
+### Features
+
+* **firmware:** install a Tern node's firmware from the project's feed ([31de0d4](https://github.com/mcereal/mesh-client/commit/31de0d49025fb85c8222f23ab3f9cf4bcbef001d))
+* **tern:** speak version 7 of the companion protocol ([80b397d](https://github.com/mcereal/mesh-client/commit/80b397dfeaef4b43a76fc30fb74306debe932b86))
+* **tern:** speak version 9 of the companion protocol ([069b181](https://github.com/mcereal/mesh-client/commit/069b1811c2b80d5fbe043c53e2419de3059b2978)), closes [ternmesh/spec#46](https://github.com/ternmesh/spec/issues/46) [ternmesh/spec#50](https://github.com/ternmesh/spec/issues/50)
+* **ui:** show a Tern node's own fix and receiver, and turn it off ([37c1305](https://github.com/mcereal/mesh-client/commit/37c1305463b8823b5201881e57af748ed17bfb87))
+* **ui:** show a Tern node's presence card on its detail ([e6fabf7](https://github.com/mcereal/mesh-client/commit/e6fabf78f755925a48b125adcd611c77677756e8))
+
+### Bug Fixes
+
+* **firmware:** send a Tern image only to the node it was pressed for ([3659e71](https://github.com/mcereal/mesh-client/commit/3659e7193b84e195a95f5e148eaf85502647a118))
+* **tern:** drop the radio's old fix when a node reconnects below version 8 ([789e784](https://github.com/mcereal/mesh-client/commit/789e784f0a6321299b1f2487bf8e07e32f9447a2))
+* **tern:** keep an update to its node, and a join code to its request ([f90d480](https://github.com/mcereal/mesh-client/commit/f90d480a1b6e0daba33b480ca11f6341c3f15c28))
+* **ui:** offer the install the checked board takes, not the last job's ([cbac1b5](https://github.com/mcereal/mesh-client/commit/cbac1b54fae113bddf6deea70513fbd8d6f676e5))
+
+### Documentation
+
+* describe Tern companion version 7 in the protocols page ([53ba5ee](https://github.com/mcereal/mesh-client/commit/53ba5ee56b7d46005984789171b3e08e51ec5a7a))
+* describe Tern companion version 9 in the protocols page ([04c71be](https://github.com/mcereal/mesh-client/commit/04c71bea347ca43d0ba37a37cfa218e519f05b8c))
+* describe Tern firmware updates from the project's feed ([10d1619](https://github.com/mcereal/mesh-client/commit/10d16194cd54e6411f601e369b6d347e8968188d))
+
 ## [2.76.0](https://github.com/mcereal/mesh-client/compare/v2.75.1...v2.76.0) (2026-10-11)
 
 ### Features
