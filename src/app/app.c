@@ -683,6 +683,62 @@ static void mesh_app_select_headless(struct mesh_app *app, const struct inkcell_
     }
 }
 
+/*
+ * inkos's panel: this client as an app there, on the compositor's surface rather than a panel of
+ * its own (inkos compositor/backend.h). A finger is what a mouse is to the window backend - a tap
+ * on a row is a click, a drag is the wheel - so the same handlers answer it, and it reads its own
+ * input: an app's sandbox has no /dev/input for the evdev reader to open.
+ *
+ * Picked by name, and by default when the inkos session started this process: the session sets
+ * INKOS_APP_ID in every app's environment, and nothing else does.
+ */
+#if defined(MESHCLIENT_HAVE_INKOS)
+static void mesh_app_on_inkos_closed(void *userdata) {
+    /* The compositor went away; so does the app, and the session starts it again. */
+    inkwell_log_info("ui", "inkos compositor gone; stopping");
+    mesh_app_ui_request_stop(&((struct mesh_app *)userdata)->loop);
+}
+
+static bool mesh_app_select_inkos(struct mesh_app *app, const struct inkcell_backend **backend,
+                                  void **userdata) {
+    if (backend != NULL) {
+        *backend = inkos_backend();
+    }
+    if (userdata != NULL) {
+        app->ui_inkos_context = (struct inkos_backend_context){
+            .app = fb_app_vtable(),
+            .loop = &app->loop,
+            .on_key = mesh_app_on_ui_window_key,
+            .on_action_key = mesh_app_on_ui_action_key,
+            .key_userdata = app,
+            .on_click = mesh_app_on_ui_click,
+            .click_userdata = app,
+            .on_wheel = mesh_app_on_ui_wheel,
+            .request_frame = mesh_app_ui_request_frame,
+            .frame_userdata = app,
+            .closed = mesh_app_on_inkos_closed,
+            .lifecycle_userdata = app,
+        };
+        *userdata = &app->ui_inkos_context;
+    }
+    app->ui_backend_reads_input = true;
+    return true;
+}
+#else
+static bool mesh_app_select_inkos(struct mesh_app *app, const struct inkcell_backend **backend,
+                                  void **userdata) {
+    (void)app;
+    (void)backend;
+    (void)userdata;
+    return false;
+}
+#endif
+
+static bool mesh_app_inkos_launched(void) {
+    const char *id = getenv("INKOS_APP_ID");
+    return id != NULL && id[0] != '\0';
+}
+
 static bool mesh_app_select_fb(struct mesh_app *app, const struct inkcell_backend **backend,
                                void **userdata) {
     if (!inkcell_backend_fb_is_available()) {
@@ -712,7 +768,7 @@ static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *ap
         requested = MESHCLIENT_DEFAULT_UI_BACKEND;
     } else if (strcasecmp(requested, "cli") != 0 && strcasecmp(requested, "stub") != 0 &&
                strcasecmp(requested, "headless") != 0 && strcasecmp(requested, "sdl") != 0 &&
-               strcasecmp(requested, "fb") != 0) {
+               strcasecmp(requested, "fb") != 0 && strcasecmp(requested, "inkos") != 0) {
         inkwell_log_warn("ui", "Unknown UI backend '%s'; using the default", requested);
         requested = MESHCLIENT_DEFAULT_UI_BACKEND;
     }
@@ -730,6 +786,14 @@ static const struct inkcell_backend *mesh_app_select_backend(struct mesh_app *ap
         mesh_app_select_stub(&backend, &backend_userdata);
     } else if (requested != NULL && strcasecmp(requested, "headless") == 0) {
         mesh_app_select_headless(app, &backend, &backend_userdata);
+    } else if ((requested != NULL && strcasecmp(requested, "inkos") == 0) ||
+               (getenv("MESHCLIENT_UI_BACKEND") == NULL && mesh_app_inkos_launched())) {
+        if (!mesh_app_select_inkos(app, &backend, &backend_userdata)) {
+            inkwell_log_warn("ui", "No inkos backend in this build; using the default");
+            if (!mesh_app_select_fb(app, &backend, &backend_userdata)) {
+                mesh_app_select_cli(app, &backend, &backend_userdata);
+            }
+        }
     } else if (requested != NULL && strcasecmp(requested, "sdl") == 0) {
         if (!mesh_app_select_sdl(app, &backend, &backend_userdata)) {
             inkwell_log_warn("ui", "No SDL window backend in this build or on this host; "

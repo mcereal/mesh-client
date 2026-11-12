@@ -223,6 +223,11 @@ endif()
 target_compile_definitions(meshclient_core PRIVATE
     MESHCLIENT_DEFAULT_UI_BACKEND="${MESHCLIENT_DEFAULT_UI_BACKEND}")
 
+# inkos: this client as an app on that OS, through its "inkos" UI backend. The SDK is sources an
+# inkos checkout carries (sdk/CMakeLists.txt), compiled below against this client's own inkwell
+# and inkcell pins once they exist. Off unless a checkout is named.
+set(MESHCLIENT_INKOS_SDK "" CACHE PATH "An inkos checkout, to build the inkos UI backend")
+
 target_include_directories(meshclient_core
     PUBLIC
         ${PROJECT_SOURCE_DIR}/include
@@ -410,6 +415,12 @@ add_subdirectory(third_party/inkcell)
 set(INKSTAND_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/inkstand)
 target_link_libraries(meshclient_core PUBLIC inkstand::inkstand)
+if(MESHCLIENT_INKOS_SDK)
+    add_subdirectory(${MESHCLIENT_INKOS_SDK}/sdk inkos-sdk)
+    # PUBLIC: mesh/app/app.h holds the backend's context.
+    target_link_libraries(meshclient_core PUBLIC inkos::sdk)
+    target_compile_definitions(meshclient_core PUBLIC MESHCLIENT_HAVE_INKOS)
+endif()
 
 # inkwell compiles the way this client's own sources do, which matters for exactly two builds.
 #

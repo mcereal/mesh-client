@@ -62,6 +62,13 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
         } else {
             inkwell_log_warn("config", "Unknown run mode '%s', using default", run_mode_env);
         }
+    } else {
+        /* An inkos app is the interactive client, as the pak's launcher makes it with -f: the
+           inkos session sets INKOS_APP_ID in every app it starts, and passes no arguments. */
+        const char *inkos_app = getenv("INKOS_APP_ID");
+        if (inkos_app != NULL && inkos_app[0] != '\0') {
+            config->run_mode = MESH_APP_RUN_FOREGROUND;
+        }
     }
 
     config->idle_timeout_ms =
