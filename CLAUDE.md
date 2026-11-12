@@ -38,6 +38,9 @@ make format                               # clang-format all tracked .c/.h (need
 make proto                                # regenerate nanopb sources
 make release && make package              # release binary + dist/MeshClient.pak.zip
 make linux-cli                            # the static Linux CLI download (musl; needs musl-tools)
+# inkos app: -DMESHCLIENT_INKOS_SDK=<inkos checkout> adds the "inkos" UI backend (inkos sdk/), picked
+# when the inkos session starts the client; packaging/inkos/manifest is its package manifest, built
+# with the checkout's scripts/inkpkg.py against a static aarch64 build (inkos cmake/aarch64-linux-musl.cmake)
 make fuzz                                 # libFuzzer over the two decoders that read the air
 ```
 

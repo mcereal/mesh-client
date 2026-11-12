@@ -1,5 +1,8 @@
 #pragma once
 
+#if defined(MESHCLIENT_HAVE_INKOS)
+#include "backend.h"
+#endif
 #include "inkcell/ui/fb.h"
 #include "inkcell/ui/headless.h"
 #include "inkcell/ui/input.h"
@@ -123,6 +126,10 @@ struct mesh_app {
     struct inkcell_backend_fb_context ui_fb_context;
     struct inkcell_backend_sdl_context ui_sdl_context;
     struct inkcell_backend_headless_context ui_headless_context;
+#if defined(MESHCLIENT_HAVE_INKOS)
+    /* inkos's panel, when this is an app there (MESHCLIENT_INKOS_SDK at build time). */
+    struct inkos_backend_context ui_inkos_context;
+#endif
     /* The control socket, when --ui-control or MESHCLIENT_UI_CONTROL named one. */
     struct inkstand_control control;
     struct mesh_ui_preferences ui_preferences;

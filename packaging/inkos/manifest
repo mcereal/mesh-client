@@ -1,0 +1,7 @@
+# MeshClient as an inkos app (scripts/inkpkg.py in an inkos checkout builds the package).
+# serial: the USB serial ports plugged in at launch appear in the app's /dev.
+id       mesh
+version  0.0.1
+label    Mesh
+exec     bin/meshclient
+caps     serial
