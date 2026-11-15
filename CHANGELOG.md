@@ -1,3 +1,9 @@
+## [2.78.0](https://github.com/mcereal/mesh-client/compare/v2.77.0...v2.78.0) (2026-11-15)
+
+### Features
+
+* **ui:** an inkos UI backend, and the client as an inkos app ([c007fc3](https://github.com/mcereal/mesh-client/commit/c007fc3583659166ad50c22b0d9e8596fc91f654))
+
 ## [2.77.0](https://github.com/mcereal/mesh-client/compare/v2.76.0...v2.77.0) (2026-10-18)
 
 ### Features
