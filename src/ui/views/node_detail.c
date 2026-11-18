@@ -768,8 +768,11 @@ static void node_rows_path(struct node_rows *rows, const struct mesh_ui_node_sum
         }
         const bool named = name != NULL && name[0] != '\0';
         char label[MESH_UI_NODE_LABEL_MAX];
-        snprintf(label, sizeof label, "%s%s", inkcell_str(MESH_STR_NODE_HOP_ARROW),
-                 named ? name : hash);
+        /* A long name is cut to the label; the row is fitted to pixels when it is drawn. */
+        if (snprintf(label, sizeof label, "%s%s", inkcell_str(MESH_STR_NODE_HOP_ARROW),
+                     named ? name : hash) < 0) {
+            label[0] = '\0';
+        }
         struct mesh_ui_node_item *row = rows_info_row(rows, label);
         if (row != NULL && named) {
             snprintf(row->value, sizeof row->value, "%s", hash);

@@ -109,11 +109,23 @@ bool mesh_stream_link_is_open(const struct mesh_stream_link *link) {
     return link != NULL && inkwell_stream_is_open(&link->stream);
 }
 
+/*
+ * inkwell says -ENOTCONN both for a stream that is closed and for a write whose far end has gone
+ * (EPIPE, ECONNRESET). This link's contract keeps the two apart: -ENOTCONN is only "not open",
+ * and a write that failed on an open link is -EIO, which is what every transport resets on. A
+ * radio dropping off the network between two writes must reset the link, not leave it looking
+ * connected with nothing behind it.
+ */
+static int mesh_stream_link_write_result(bool was_open, int result) {
+    return was_open && result == -ENOTCONN ? -EIO : result;
+}
+
 int mesh_stream_link_flush(struct mesh_stream_link *link) {
     if (link == NULL) {
         return -EINVAL;
     }
-    return inkwell_stream_flush(&link->stream);
+    const bool was_open = inkwell_stream_is_open(&link->stream);
+    return mesh_stream_link_write_result(was_open, inkwell_stream_flush(&link->stream));
 }
 
 int mesh_stream_link_send(struct mesh_stream_link *link, const uint8_t *packet, size_t len,
@@ -134,7 +146,9 @@ int mesh_stream_link_send(struct mesh_stream_link *link, const uint8_t *packet, 
     if (encoded < 0) {
         return encoded;
     }
-    const int result = inkwell_stream_send(&link->stream, framed, written, packet_id);
+    const bool was_open = inkwell_stream_is_open(&link->stream);
+    const int result = mesh_stream_link_write_result(
+        was_open, inkwell_stream_send(&link->stream, framed, written, packet_id));
     /* The stream keeps its own copy until it is written and then wipes it; this one goes now,
        since a frame can carry a secret (a MeshCore login's password). */
     inkwell_wipe(framed, sizeof framed);
