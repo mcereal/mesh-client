@@ -24,9 +24,11 @@ case "$ARCH" in
         ln -sf /usr/bin/ranlib   "$PREFIX/bin/aarch64-linux-musl-ranlib"
         ln -sf /usr/bin/strip    "$PREFIX/bin/aarch64-linux-musl-strip"
         # musl-dev ships no kernel headers; expose the system ones (linux/fb.h, linux/input.h ...)
-        # inside the musl include root. The uapi headers are libc-agnostic.
+        # inside the musl include root. The uapi headers are libc-agnostic. sound/ is inkwell's
+        # PCM playback over ALSA's kernel interface (sound/asound.h).
         MUSL_INC=/usr/include/aarch64-linux-musl
         ln -sfn /usr/include/linux "$MUSL_INC/linux"
+        ln -sfn /usr/include/sound "$MUSL_INC/sound"
         ln -sfn /usr/include/asm-generic "$MUSL_INC/asm-generic"
         ln -sfn "/usr/include/$(gcc -print-multiarch)/asm" "$MUSL_INC/asm"
         CROSS_COMPILE=aarch64-linux-musl-

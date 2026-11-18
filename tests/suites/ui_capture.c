@@ -42,6 +42,14 @@
 #include <unistd.h>
 
 /*
+ * The largest glyph scale a sweep here draws the capture panel at. These cases measure a
+ * Brick-sized frame, and six steps is the largest text that frame was laid out for; inkcell's
+ * INKCELL_SCALE_MAX rose to twelve to give a phone's panel room (inkcell 0b4728b), and past six
+ * a 1024x768 frame holds three rows, which is not a list these measurements can read.
+ */
+#define MESH_TEST_CAPTURE_SCALE_MAX INKCELL_SCALE(6)
+
+/*
  * A page for a renderer to draw into, without a device under it.
  *
  * The cases below that measure pixels rather than look at a screen build their own surface
@@ -1822,7 +1830,7 @@ MESH_TEST_CASE(ui_capture_segmented_marks_the_chosen_value, unit) {
 
     for (size_t t = 0; t < inkcell_theme_count() && failure == NULL; ++t) {
         const struct inkcell_theme *theme = inkcell_theme_at(t);
-        for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+        for (int scale = INKCELL_SCALE_MIN; scale <= MESH_TEST_CAPTURE_SCALE_MAX && failure == NULL;
              scale += INKCELL_SCALE(1)) {
             uint8_t *frames[2] = {NULL, NULL};
             uint32_t width = 0U;
@@ -2140,7 +2148,7 @@ MESH_TEST_CASE(fb_glyph_cache_matches_uncached_colors_and_scales, unit) {
     const char *failure = NULL;
     inkcell_fb_state_set_theme(&state, inkcell_theme_default(), INKCELL_SCALE(4));
     struct inkcell_fb_glyph_cache *cache = state.glyph_cache;
-    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+    for (int scale = INKCELL_SCALE_MIN; scale <= MESH_TEST_CAPTURE_SCALE_MAX && failure == NULL;
          scale += INKCELL_SCALE(1)) {
         for (unsigned pass = 0; pass < 3U; ++pass) {
             const struct inkcell_rgb ink = {(uint8_t)(pass * 91U), 170U, 250U};
@@ -2412,7 +2420,7 @@ MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
     struct inkcell_capture *capture = NULL;
     for (size_t t = 0; t < inkcell_theme_count() && failure == NULL; ++t) {
         const struct inkcell_theme *theme = inkcell_theme_at(t);
-        for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+        for (int scale = INKCELL_SCALE_MIN; scale <= MESH_TEST_CAPTURE_SCALE_MAX && failure == NULL;
              scale += INKCELL_SCALE(1)) {
             for (size_t a = 0; a < sizeof acks / sizeof acks[0] && failure == NULL; ++a) {
                 /* Cursor 0 is on the only bubble there is; anything past it is the same
@@ -2860,7 +2868,7 @@ MESH_TEST_CASE(ui_capture_slider_places_the_value, unit) {
 
     for (size_t t = 0; t < inkcell_theme_count() && failure == NULL; ++t) {
         const struct inkcell_theme *theme = inkcell_theme_at(t);
-        for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+        for (int scale = INKCELL_SCALE_MIN; scale <= MESH_TEST_CAPTURE_SCALE_MAX && failure == NULL;
              scale += INKCELL_SCALE(1)) {
             uint8_t *frames[2] = {NULL, NULL};
             uint32_t width = 0U;
@@ -4313,7 +4321,7 @@ MESH_TEST_CASE(ui_capture_node_detail_cards_survive_the_cursor, unit) {
        window at the smallest scale cannot at the largest, and a rail that stopped being drawn
        at all is what this catches. */
     bool rail_seen = false;
-    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+    for (int scale = INKCELL_SCALE_MIN; scale <= MESH_TEST_CAPTURE_SCALE_MAX && failure == NULL;
          scale += INKCELL_SCALE(1)) {
         struct inkcell_capture *capture = NULL;
         if (mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, scale) !=
@@ -4562,7 +4570,7 @@ MESH_TEST_CASE(ui_capture_node_detail_verbs_wear_their_colour_in_a_disc, unit) {
                               "the fixture's node offers no row to remove it");
     const char *failure = NULL;
     static char detail[192];
-    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+    for (int scale = INKCELL_SCALE_MIN; scale <= MESH_TEST_CAPTURE_SCALE_MAX && failure == NULL;
          scale += INKCELL_SCALE(1)) {
         struct inkcell_capture *capture = NULL;
         if (mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, scale) !=
@@ -4718,7 +4726,7 @@ MESH_TEST_CASE(ui_capture_node_detail_states_its_labels_quietly, unit) {
 
     const char *failure = NULL;
     static char detail[160];
-    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+    for (int scale = INKCELL_SCALE_MIN; scale <= MESH_TEST_CAPTURE_SCALE_MAX && failure == NULL;
          scale += INKCELL_SCALE(1)) {
         struct inkcell_capture *capture = NULL;
         if (mesh_ui_capture_open(&capture, INKCELL_CAPTURE_WIDTH, INKCELL_CAPTURE_HEIGHT, scale) !=
@@ -4828,7 +4836,7 @@ MESH_TEST_CASE(ui_capture_settings_marks_both_halves_of_an_unsaved_row, unit) {
     (void)mesh_ui_store_handle_key(&store, INKCELL_KEY_DOWN, &action);
 
     static char detail[192];
-    for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+    for (int scale = INKCELL_SCALE_MIN; scale <= MESH_TEST_CAPTURE_SCALE_MAX && failure == NULL;
          scale += INKCELL_SCALE(1)) {
         uint32_t width = 0U;
         uint32_t height = 0U;
@@ -5239,7 +5247,7 @@ MESH_TEST_CASE(ui_capture_a_section_starts_every_row_in_one_column, unit) {
 
     for (size_t t = 0; t < inkcell_theme_count() && failure == NULL; ++t) {
         const struct inkcell_theme *theme = inkcell_theme_at(t);
-        for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+        for (int scale = INKCELL_SCALE_MIN; scale <= MESH_TEST_CAPTURE_SCALE_MAX && failure == NULL;
              scale += INKCELL_SCALE(1)) {
             struct mesh_ui_store store;
             if (mesh_ui_store_init(&store) != 0) {
@@ -5356,7 +5364,7 @@ MESH_TEST_CASE(ui_capture_every_section_starts_in_the_same_column, unit) {
 
     for (size_t t = 0; t < inkcell_theme_count() && failure == NULL; ++t) {
         const struct inkcell_theme *theme = inkcell_theme_at(t);
-        for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+        for (int scale = INKCELL_SCALE_MIN; scale <= MESH_TEST_CAPTURE_SCALE_MAX && failure == NULL;
              scale += INKCELL_SCALE(1)) {
             const uint32_t bearing = (uint32_t)inkcell_scale_px(3, scale);
             uint32_t columns[sizeof k_sections / sizeof k_sections[0]];
@@ -5491,7 +5499,7 @@ MESH_TEST_CASE(ui_capture_a_verbs_disc_clears_its_sections_edges, unit) {
 
     for (size_t t = 0; t < inkcell_theme_count() && failure == NULL; ++t) {
         const struct inkcell_theme *theme = inkcell_theme_at(t);
-        for (int scale = INKCELL_SCALE_MIN; scale <= INKCELL_SCALE_MAX && failure == NULL;
+        for (int scale = INKCELL_SCALE_MIN; scale <= MESH_TEST_CAPTURE_SCALE_MAX && failure == NULL;
              scale += INKCELL_SCALE(1)) {
             struct mesh_ui_store store;
             if (mesh_ui_store_init(&store) != 0) {
