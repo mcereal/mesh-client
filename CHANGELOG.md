@@ -1,3 +1,10 @@
+## [2.78.1](https://github.com/mcereal/mesh-client/compare/v2.78.0...v2.78.1) (2026-11-18)
+
+### Bug Fixes
+
+* **build:** the three warnings clang and GCC raised ([8ce11eb](https://github.com/mcereal/mesh-client/commit/8ce11eb6b72bc78385456ea480264f5ecadcf007))
+* **transport:** a write to a radio that has gone resets the link ([0d81861](https://github.com/mcereal/mesh-client/commit/0d81861efb7f576e49ab3f6d5b4c4b2e19db43e7))
+
 ## [2.78.0](https://github.com/mcereal/mesh-client/compare/v2.77.0...v2.78.0) (2026-11-15)
 
 ### Features
