@@ -132,7 +132,8 @@ bool mesh_stream_link_is_open(const struct mesh_stream_link *link);
  */
 int mesh_stream_link_pump(struct mesh_stream_link *link);
 /* Writes as much of the queue as the descriptor will take. Returns 0, -ENOTCONN when the link
-   is closed, or -EIO on a failed write, which is fatal in the same way. */
+   is closed, or -EIO on a failed write - a far end that has gone included - which is fatal in
+   the same way. */
 int mesh_stream_link_flush(struct mesh_stream_link *link);
 /* Frames one packet in the protocol's framing, queues it and flushes. Returns 0, -ENOSPC when
    the queue is full, -EMSGSIZE when the packet is too big to frame, -ENOTCONN (closed, or no
