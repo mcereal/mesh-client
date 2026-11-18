@@ -13,7 +13,8 @@ uint16_t mesh_tern_crc16(const uint8_t *data, size_t len) {
     for (size_t i = 0; i < len; ++i) {
         crc ^= (uint16_t)((uint16_t)data[i] << 8U);
         for (unsigned bit = 0; bit < 8U; ++bit) {
-            crc = (crc & 0x8000U) != 0U ? (uint16_t)((crc << 1U) ^ 0x1021U) : (uint16_t)(crc << 1U);
+            crc = (crc & 0x8000U) != 0U ? (uint16_t)(((unsigned)crc << 1U) ^ 0x1021U)
+                                        : (uint16_t)((unsigned)crc << 1U);
         }
     }
     return crc;

@@ -2947,7 +2947,7 @@ static int verb_receiver(struct inkstand_scene *scene, char *rest, void *userdat
     settings.has_position = true;
     settings.receiver = receiver;
     /* On and searching has no fix of its own yet; the others keep the receiver's last. */
-    settings.fix_source = receiver == 2U || receiver == 0U ? 0U : 1U;
+    settings.fix_source = (uint8_t)(receiver == 2U || receiver == 0U ? 0U : 1U);
     settings.fix_satellites = satellites != NULL ? (uint8_t)atoi(satellites) : 0U;
     settings.has_own_position = settings.fix_source != 0U;
     mesh_ui_store_set_settings(&cap->store, &settings);
